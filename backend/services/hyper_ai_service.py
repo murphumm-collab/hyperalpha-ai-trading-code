@@ -333,19 +333,18 @@ def get_or_create_conversation(
     user_id: Optional[int] = None,
 ) -> HyperAiConversation:
     """Get existing conversation or create a new one."""
+    resolved_user_id = _require_user_id(user_id, "Hyper AI conversation")
     if conversation_id:
-        query = db.query(HyperAiConversation).filter(
-            HyperAiConversation.id == conversation_id
-        )
-        if user_id is not None:
-            query = query.filter(HyperAiConversation.user_id == user_id)
-        conv = query.first()
+        conv = db.query(HyperAiConversation).filter(
+            HyperAiConversation.id == conversation_id,
+            HyperAiConversation.user_id == resolved_user_id,
+        ).first()
         if conv:
             return conv
 
     # Create new conversation
     conv = HyperAiConversation(
-        user_id=user_id,
+        user_id=resolved_user_id,
         title="Hyper AI Chat",
         is_onboarding=is_onboarding,
     )
@@ -362,13 +361,13 @@ def get_conversation_messages(
     user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Get recent messages from a conversation."""
-    if user_id is not None:
-        conv = db.query(HyperAiConversation).filter(
-            HyperAiConversation.id == conversation_id,
-            HyperAiConversation.user_id == user_id,
-        ).first()
-        if not conv:
-            return []
+    resolved_user_id = _require_user_id(user_id, "Hyper AI conversation messages")
+    conv = db.query(HyperAiConversation).filter(
+        HyperAiConversation.id == conversation_id,
+        HyperAiConversation.user_id == resolved_user_id,
+    ).first()
+    if not conv:
+        return []
 
     messages = db.query(HyperAiMessage).filter(
         HyperAiMessage.conversation_id == conversation_id
@@ -396,9 +395,18 @@ def save_message(
     reasoning_snapshot: Optional[str] = None,
     tool_calls_log: Optional[str] = None,
     is_complete: bool = True,
-    interrupt_reason: Optional[str] = None
+    interrupt_reason: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> HyperAiMessage:
     """Save a message to the conversation."""
+    resolved_user_id = _require_user_id(user_id, "Hyper AI message")
+    conv = db.query(HyperAiConversation).filter(
+        HyperAiConversation.id == conversation_id,
+        HyperAiConversation.user_id == resolved_user_id,
+    ).first()
+    if not conv:
+        raise ValueError("Conversation not found for authenticated user")
+
     message = HyperAiMessage(
         conversation_id=conversation_id,
         role=role,
@@ -411,14 +419,10 @@ def save_message(
     db.add(message)
 
     # Update conversation metadata
-    conv = db.query(HyperAiConversation).filter(
-        HyperAiConversation.id == conversation_id
-    ).first()
-    if conv:
-        conv.message_count = (conv.message_count or 0) + 1
-        # Auto-generate title from first user message
-        if role == "user" and conv.title == "Hyper AI Chat" and content:
-            conv.title = content[:50] + ("..." if len(content) > 50 else "")
+    conv.message_count = (conv.message_count or 0) + 1
+    # Auto-generate title from first user message
+    if role == "user" and conv.title == "Hyper AI Chat" and content:
+        conv.title = content[:50] + ("..." if len(content) > 50 else "")
 
     db.commit()
     db.refresh(message)
@@ -509,12 +513,13 @@ def build_messages_for_api(
         })
 
     # Check compression points - load summary instead of old messages
-    conversation_query = db.query(HyperAiConversation).filter(
-        HyperAiConversation.id == conversation_id
-    )
-    if user_id is not None:
-        conversation_query = conversation_query.filter(HyperAiConversation.user_id == user_id)
-    conversation = conversation_query.first()
+    resolved_user_id = _require_user_id(user_id, "Hyper AI conversation context")
+    conversation = db.query(HyperAiConversation).filter(
+        HyperAiConversation.id == conversation_id,
+        HyperAiConversation.user_id == resolved_user_id,
+    ).first()
+    if not conversation:
+        raise ValueError("Conversation not found for authenticated user")
     cp = get_last_compression_point(conversation) if conversation else None
 
     if cp and cp.get("summary"):
@@ -820,7 +825,7 @@ def stream_chat_response(
         return
 
     # Save user message
-    save_message(db, conversation_id, "user", user_message)
+    save_message(db, conversation_id, "user", user_message, user_id=user_id)
 
     # Build messages (with automatic compression) and get tools
     messages, tools, command_skill = build_messages_for_api(
@@ -1275,7 +1280,7 @@ def stream_onboarding_response(
         user_message = "请用中文介绍你自己并开始引导对话。" if lang == "zh" else "Please introduce yourself and start the onboarding conversation."
     else:
         # Save user message (don't save the greeting trigger)
-        save_message(db, conversation_id, "user", user_message)
+        save_message(db, conversation_id, "user", user_message, user_id=user_id)
 
     # Build messages with onboarding prompt (language-specific)
     messages = []
@@ -1809,7 +1814,8 @@ def _process_onboarding_stream_response(
             save_message(
                 db, conversation_id, "assistant", display_content,
                 reasoning_snapshot=full_reasoning,
-                is_complete=True
+                is_complete=True,
+                user_id=user_id,
             )
 
         yield format_sse_event("done", {
