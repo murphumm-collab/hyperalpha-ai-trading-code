@@ -593,7 +593,11 @@ def get_all_binance_wallets(
 
     result = []
     for wallet in wallets:
-        account = db.query(Account).filter(Account.id == wallet.account_id, Account.is_deleted != True).first()
+        account = db.query(Account).filter(
+            Account.id == wallet.account_id,
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).first()
         if not account:
             continue
 

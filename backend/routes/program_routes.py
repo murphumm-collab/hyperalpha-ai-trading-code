@@ -1712,7 +1712,11 @@ def list_executions(
     result = []
     for log in logs:
         # Get account name
-        account = db.query(Account).filter(Account.id == log.account_id).first()
+        account = db.query(Account).filter(
+            Account.id == log.account_id,
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).first()
         account_name = account.name if account else "Unknown"
 
         # Get program name

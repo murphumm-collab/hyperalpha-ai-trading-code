@@ -90,6 +90,7 @@ Local checkpoint: current branch `HEAD`
 - Development progress and acceptance markers.
 - REST manual order placement resolves the order owner from authenticated request context or a verified body session token; WebSocket order placement validates the connection user's account ownership.
 - Manual AI trade trigger API passes the current user into trading command services; single-account execution filters by request owner while background global scheduling remains unchanged.
+- Secondary account metadata lookups in Program execution feed and Binance wallet listing validate current-user ownership.
 
 ## Progress Markers
 
@@ -160,6 +161,7 @@ Local checkpoint: current branch `HEAD`
 | Legacy order route isolation | Done | `/api/orders/*` resolves current user, validates order/account ownership, scopes pending/list/detail/cancel/execute/process/health, and no longer trusts URL/body `user_id` for access |
 | REST order creation ownership | Done | `/api/orders/create` accepts body `user_id` only as a consistency check against the authenticated user or verified body `session_token`; default fallback cannot set another user's first trading password |
 | Manual AI trade trigger service ownership | Done | `trigger-ai-trade` passes `request_user_id`; crypto, Hyperliquid, and Binance single-account execution stop before price/order work when the requested account is not owned by that user |
+| Secondary account metadata lookup ownership | Done | Program execution feed and Binance wallet list re-check current-user ownership when resolving account names from already-scoped rows |
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
 | Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
 | Sampling preference isolation | Done | `/api/config/global-sampling` stores current-user preferences; effective global pool config uses max depth and min interval across user preferences |
@@ -276,6 +278,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: REST order creation ownership smoke test in `uv run`: default fallback could not create for Alice or set Alice's first trading password, verified body `session_token` created only for the token owner, mismatched token/user pairs were rejected, and same-user password flow still worked.
 - Passed: Trading command request-owner smoke test in `uv run`: Alice-triggered crypto, Hyperliquid, and Binance single-account execution for Bob's account stopped before price/symbol/order execution, while request-less scheduler semantics remain available.
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
+- Passed: Secondary account metadata lookup syntax compile and static search after Program execution feed and Binance wallet list account-name lookups gained current-user filters.
 - Passed: Trader data owner isolation smoke test in `uv run`: Alice could preview import into her trader; Bob received 404 for Alice's trader.
 - Passed: Trader data route syntax compile in both system Python and `uv run` backend environment.
 - Passed: Hyperliquid action owner isolation smoke test in `uv run`: Alice action stats excluded Bob's action; Bob filtering Alice account returned no entries.
