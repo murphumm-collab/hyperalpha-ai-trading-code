@@ -19,7 +19,6 @@ from database.models import (
     CRYPTO_COMMISSION_RATE,
     AIDecisionLog,
     ProgramExecutionLog,
-    User,
     UserSubscription,
 )
 from services.asset_calculator import calc_positions_value
@@ -50,11 +49,11 @@ AI_TRADING_SYMBOLS: List[str] = ["BTC"]  # Paper trading deprecated, keep minima
 ORACLE_PRICE_DEVIATION_LIMIT_PERCENT = 1.0
 
 
-def _is_premium_user(db: Session) -> bool:
-    """Check if there is a premium member currently logged in"""
+def _is_premium_user(db: Session, user_id: int) -> bool:
+    """Check whether the account owner is a premium member."""
     try:
-        subscription = db.query(UserSubscription).join(User).filter(
-            User.username != 'default',
+        subscription = db.query(UserSubscription).filter(
+            UserSubscription.user_id == user_id,
             UserSubscription.subscription_type == 'premium'
         ).first()
         return subscription is not None
@@ -70,8 +69,9 @@ def _check_binance_daily_quota(db: Session, account_id: int) -> Tuple[bool, Dict
     Returns:
         Tuple of (exceeded: bool, info: dict with used/limit/remaining)
     """
-    # Check premium status first
-    if _is_premium_user(db):
+    # Check premium status for this account's owner first.
+    account_owner = db.query(Account.user_id).filter(Account.id == account_id).first()
+    if account_owner and _is_premium_user(db, account_owner.user_id):
         return False, {"used": 0, "limit": BINANCE_DAILY_QUOTA_LIMIT, "remaining": BINANCE_DAILY_QUOTA_LIMIT}
 
     # Use UTC midnight for quota reset

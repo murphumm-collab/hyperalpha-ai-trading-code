@@ -38,6 +38,7 @@ Local checkpoint: current branch `HEAD`
 - Auth-aware identity runtime token, membership sync, Signal Manager strategy-analysis, market-regime config, factor analysis, and premium sampling-config requests.
 - Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
 - User-scoped membership sync and logout clearing so one user cannot overwrite or delete other users' premium status.
+- Account-owner-scoped premium checks for Binance mainnet quotas and Hyperliquid builder fee decisions.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
 
@@ -82,6 +83,7 @@ Local checkpoint: current branch `HEAD`
 | Frontend identity/signal config auth | Done | Auth runtime token sync, membership sync/clear, Signal Manager analysis/config, Market Regime config, factor evaluation, and premium sampling config use `authFetch` |
 | Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
 | Membership sync isolation | Done | `/api/users/sync-membership` and `/api/users/clear-membership` update/delete only the current request user's `UserSubscription` |
+| Premium entitlement isolation | Done | AI Trader, Program Trader, Binance API, and Hyperliquid builder fee checks use the account owner's subscription instead of any premium user in the database |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -130,6 +132,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: AuthContext, Signal Manager user strategy/config calls, Market Regime config, and Premium sampling config switched to `authFetch`; remaining Signal Manager bare fetches are public market K-line preview reads; frontend production build passed.
 - Passed: Membership isolation smoke test in `uv run`: Alice sync/logout did not alter Bob's subscription and spoofed frontend username was ignored.
 - Passed: `user_routes.py` syntax compile in both system Python and `uv run` backend environment after membership isolation fix.
+- Passed: Premium account-owner smoke test in `uv run`: Bob premium did not make Alice premium for Binance quota checks or Hyperliquid builder fee, while Bob retained premium behavior.
+- Passed: Static search found no remaining `User.username != 'default'` premium checks in backend API/services.
+- Passed: Premium-related trading service syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 

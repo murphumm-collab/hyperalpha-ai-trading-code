@@ -343,27 +343,40 @@ class HyperliquidTradingClient:
             return None
 
         from config.settings import HYPERLIQUID_BUILDER_CONFIG
-        from database.models import User, UserSubscription
+        from database.models import UserSubscription
 
-        # Determine fee based on current logged-in user's subscription status
-        # Query non-default user's subscription (the current logged-in user)
+        # Determine fee based on this account owner's subscription status.
         builder_fee = HYPERLIQUID_BUILDER_CONFIG.builder_fee  # Default: 30
 
+        db = None
         try:
             db = SessionLocal()
-            subscription = db.query(UserSubscription).join(User).filter(
-                User.username != 'default',
-                UserSubscription.subscription_type == 'premium'
-            ).first()
-            if subscription:
-                builder_fee = 0  # Premium rate: 0% (FREE)
-                user = db.query(User).filter(User.id == subscription.user_id).first()
-                logger.info(f"[BUILDER FEE] Premium user '{user.username if user else 'unknown'}' detected, using FREE fee: 0%")
+            account_owner = db.query(Account.user_id).filter(Account.id == self.account_id).first()
+            if account_owner:
+                subscription = db.query(UserSubscription).filter(
+                    UserSubscription.user_id == account_owner.user_id,
+                    UserSubscription.subscription_type == 'premium'
+                ).first()
             else:
-                logger.info(f"[BUILDER FEE] No premium user logged in, using default fee: 0.03%")
-            db.close()
+                subscription = None
+
+            if account_owner and subscription:
+                builder_fee = 0
+                logger.info(
+                    "[BUILDER FEE] Premium account owner user_id=%s for account %s, using FREE fee: 0%%",
+                    account_owner.user_id,
+                    self.account_id,
+                )
+            else:
+                logger.info(
+                    "[BUILDER FEE] Account %s owner is not premium, using default fee: 0.03%%",
+                    self.account_id,
+                )
         except Exception as e:
             logger.warning(f"[BUILDER FEE] Failed to check subscription status: {e}, using default fee")
+        finally:
+            if db:
+                db.close()
 
         return {
             "b": HYPERLIQUID_BUILDER_CONFIG.builder_address,
