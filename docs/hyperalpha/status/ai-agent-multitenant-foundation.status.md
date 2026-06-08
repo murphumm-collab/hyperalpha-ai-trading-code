@@ -76,6 +76,7 @@ Local checkpoint: current branch `HEAD`
 - Position valuation uses owner-scoped position reads for account, Arena, WebSocket, trading command, and AI decision paths.
 - WebSocket snapshot Trade and AI decision log reads join account ownership and optional Hyperliquid environment filters.
 - Account asset-curve and manual AI trigger trade reads join account ownership before returning Trade rows.
+- Trader data export/import decision log reads and duplicate checks join account ownership.
 - User-scoped trader data export/import account ownership validation.
 - User-scoped Hyperliquid exchange action log reads and stats.
 - User-scoped sampling preferences with effective global sampling pool aggregation.
@@ -184,6 +185,7 @@ Local checkpoint: current branch `HEAD`
 | Position valuation owner guard | Done | `calc_positions_value` accepts `owner_user_id`; account, Arena, WebSocket, trading command, and AI decision callers pass account owner |
 | WebSocket snapshot log owner guard | Done | Paper/optimized/Hyperliquid WS snapshots use owner-scoped helper queries for `Trade` and `AIDecisionLog`, with environment filtering where relevant |
 | Account API trade owner guard | Done | Account asset curve reconstruction and manual AI trigger recent-trade response use owner-scoped `Trade` helper queries |
+| Trader data decision log owner guard | Done | Trader export decision-log reads and import duplicate checks use owner-scoped `AIDecisionLog` helper queries |
 | Manual AI trade trigger service ownership | Done | `trigger-ai-trade` passes `request_user_id`; crypto, Hyperliquid, and Binance single-account execution stop before price/order work when the requested account is not owned by that user |
 | Secondary account metadata lookup ownership | Done | Program execution feed and Binance wallet list re-check current-user ownership when resolving account names from already-scoped rows |
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
@@ -312,6 +314,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Asset calculator owner guard smoke test in `uv run`: cross-user position valuation returned zero without market-price side effects, while owner and legacy no-owner valuations remained compatible.
 - Passed: WebSocket snapshot owner guard smoke test in `uv run`: trade and AI decision log helpers returned Bob's data only for Bob, returned none for Alice, and respected Hyperliquid environment filters.
 - Passed: Account API trade owner guard smoke test in `uv run`: owner-scoped trade helper isolated users, respected sort/limit, and hid soft-deleted account trades.
+- Passed: Trader data decision log owner guard smoke test in `uv run`: export helper and duplicate detection returned Bob's decisions only for Bob and hid soft-deleted account decisions.
 - Passed: Trading command request-owner smoke test in `uv run`: Alice-triggered crypto, Hyperliquid, and Binance single-account execution for Bob's account stopped before price/symbol/order execution, while request-less scheduler semantics remain available.
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
 - Passed: Secondary account metadata lookup syntax compile and static search after Program execution feed and Binance wallet list account-name lookups gained current-user filters.

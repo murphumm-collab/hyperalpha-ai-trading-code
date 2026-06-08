@@ -58,6 +58,26 @@ def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account
     return account
 
 
+def _decision_logs_for_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: int,
+    *,
+    ascending: bool = True,
+) -> List[AIDecisionLog]:
+    query = (
+        db.query(AIDecisionLog)
+        .join(Account, AIDecisionLog.account_id == Account.id)
+        .filter(
+            AIDecisionLog.account_id == account_id,
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    )
+    order_by = AIDecisionLog.decision_time.asc() if ascending else AIDecisionLog.decision_time.desc()
+    return query.order_by(order_by).all()
+
+
 def _decimal_to_float(obj):
     """Convert Decimal to float for JSON serialization."""
     if isinstance(obj, Decimal):
@@ -135,9 +155,11 @@ async def export_trader_data(
     account = _ensure_account_owner(db, account_id, current_user.id)
 
     # Query all decision logs for this account
-    decision_logs = db.query(AIDecisionLog).filter(
-        AIDecisionLog.account_id == account_id
-    ).order_by(AIDecisionLog.decision_time.asc()).all()
+    decision_logs = _decision_logs_for_account(
+        db,
+        account_id,
+        owner_user_id=current_user.id,
+    )
 
     # Build export data
     export_data = {
@@ -223,7 +245,12 @@ def _generate_dedup_key(decision_time: str, symbol: str, decision_snapshot: str)
     return hashlib.md5(content.encode()).hexdigest()
 
 
-def _find_duplicate_log(db: Session, account_id: int, log_data: dict) -> bool:
+def _find_duplicate_log(
+    db: Session,
+    account_id: int,
+    owner_user_id: int,
+    log_data: dict,
+) -> bool:
     """Check if a similar decision log already exists."""
     from dateutil import parser as date_parser
 
@@ -242,9 +269,14 @@ def _find_duplicate_log(db: Session, account_id: int, log_data: dict) -> bool:
     decision_snapshot = log_data.get("decision_snapshot")
 
     # Query for matching record
-    query = db.query(AIDecisionLog).filter(
+    query = db.query(AIDecisionLog).join(
+        Account,
+        AIDecisionLog.account_id == Account.id,
+    ).filter(
         AIDecisionLog.account_id == account_id,
-        AIDecisionLog.decision_time == decision_time
+        AIDecisionLog.decision_time == decision_time,
+        Account.user_id == owner_user_id,
+        Account.is_deleted != True,
     )
 
     if symbol:
@@ -296,7 +328,7 @@ async def preview_import(
 
     for log in decision_logs:
         # Check if similar record exists
-        if _find_duplicate_log(db, account_id, log):
+        if _find_duplicate_log(db, account_id, current_user.id, log):
             will_skip.append({
                 "decision_time": log.get("decision_time"),
                 "symbol": log.get("symbol"),
@@ -409,7 +441,7 @@ async def execute_import(
             symbol = log_data["symbol"]
             decision_snapshot = log_data.get("decision_snapshot")
 
-            if _find_duplicate_log(db, account_id, {
+            if _find_duplicate_log(db, account_id, current_user.id, {
                 "decision_time": log_data["decision_time"],
                 "symbol": symbol,
                 "decision_snapshot": decision_snapshot
