@@ -15,6 +15,20 @@ from .market_data import get_last_price
 logger = logging.getLogger(__name__)
 
 
+def _get_order_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Optional[Account]:
+    query = db.query(Account).filter(Account.id == account_id)
+    if owner_user_id is not None:
+        query = query.filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    return query.first()
+
+
 def _calc_commission(notional: Decimal) -> Decimal:
     """Calculate commission"""
     pct_fee = notional * Decimal(str(CRYPTO_COMMISSION_RATE))
@@ -115,7 +129,11 @@ def create_order(db: Session, account: Account, symbol: str, name: str,
     return order
 
 
-def check_and_execute_order(db: Session, order: Order) -> bool:
+def check_and_execute_order(
+    db: Session,
+    order: Order,
+    owner_user_id: Optional[int] = None,
+) -> bool:
     """
     Check and execute limit order
 
@@ -135,15 +153,14 @@ def check_and_execute_order(db: Session, order: Order) -> bool:
     
     # Check if cookie is configured, skip order checking if not
     try:
-        # Get current market price
-        current_price = get_last_price(order.symbol, order.market)
-        current_price_decimal = Decimal(str(current_price))
-
-        # Get user information
-        account = db.query(Account).filter(Account.id == order.account_id).first()
+        account = _get_order_account(db, order.account_id, owner_user_id=owner_user_id)
         if not account:
             logger.error(f"Account corresponding to order {order.order_no} does not exist")
             return False
+
+        # Get current market price
+        current_price = get_last_price(order.symbol, order.market)
+        current_price_decimal = Decimal(str(current_price))
 
         # Check execution conditions
         should_execute = False
@@ -353,7 +370,11 @@ def _execute_order(db: Session, order: Order, account: Account, execution_price:
         return False
 
 
-def get_pending_orders(db: Session, account_id: Optional[int] = None) -> List[Order]:
+def get_pending_orders(
+    db: Session,
+    account_id: Optional[int] = None,
+    owner_user_id: Optional[int] = None,
+) -> List[Order]:
     """
     Get pending orders
 
@@ -365,6 +386,14 @@ def get_pending_orders(db: Session, account_id: Optional[int] = None) -> List[Or
         List of pending orders
     """
     query = db.query(Order).filter(Order.status == "PENDING")
+    if owner_user_id is not None:
+        query = (
+            query.join(Account, Order.account_id == Account.id)
+            .filter(
+                Account.user_id == owner_user_id,
+                Account.is_deleted != True,
+            )
+        )
     
     if account_id is not None:
         query = query.filter(Order.account_id == account_id)
@@ -388,7 +417,12 @@ def _release_frozen_on_cancel(account: Account, order: Order):
         account.frozen_cash = float(max(Decimal(str(account.frozen_cash)) - release_amt, Decimal('0')))
 
 
-def cancel_order(db: Session, order: Order, reason: str = "User cancelled") -> bool:
+def cancel_order(
+    db: Session,
+    order: Order,
+    reason: str = "User cancelled",
+    owner_user_id: Optional[int] = None,
+) -> bool:
     """
     Cancel order
 
@@ -404,9 +438,14 @@ def cancel_order(db: Session, order: Order, reason: str = "User cancelled") -> b
         return False
     
     try:
+        account = _get_order_account(db, order.account_id, owner_user_id=owner_user_id)
+        if owner_user_id is not None and not account:
+            logger.error(f"Account corresponding to order {order.order_no} does not exist")
+            db.rollback()
+            return False
+
         order.status = "CANCELLED"
         # Release frozen
-        account = db.query(Account).filter(Account.id == order.account_id).first()
         if account:
             _release_frozen_on_cancel(account, order)
         db.commit()
@@ -420,7 +459,10 @@ def cancel_order(db: Session, order: Order, reason: str = "User cancelled") -> b
         return False
 
 
-def process_all_pending_orders(db: Session) -> Tuple[int, int]:
+def process_all_pending_orders(
+    db: Session,
+    owner_user_id: Optional[int] = None,
+) -> Tuple[int, int]:
     """
     Process all pending orders
 
@@ -430,11 +472,11 @@ def process_all_pending_orders(db: Session) -> Tuple[int, int]:
     Returns:
         (Executed orders count, Total checked orders)
     """
-    pending_orders = get_pending_orders(db)
+    pending_orders = get_pending_orders(db, owner_user_id=owner_user_id)
     executed_count = 0
     
     for order in pending_orders:
-        if check_and_execute_order(db, order):
+        if check_and_execute_order(db, order, owner_user_id=owner_user_id):
             executed_count += 1
     
     logger.info(f"Processing pending orders: checked {len(pending_orders)} orders, executed {executed_count} orders")

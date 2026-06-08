@@ -297,7 +297,7 @@ def execute_order_manually(
             )
         
         # Check and execute order
-        executed = check_and_execute_order(db, order)
+        executed = check_and_execute_order(db, order, owner_user_id=current_user.id)
         
         if executed:
             return OrderExecutionResult(
@@ -343,7 +343,7 @@ def cancel_user_order(
         if order.status != "PENDING":
             raise HTTPException(status_code=400, detail=f"Order status is {order.status}, cannot be cancelled")
         
-        success = cancel_order(db, order, reason)
+        success = cancel_order(db, order, reason, owner_user_id=current_user.id)
         
         if success:
             return {"message": "Order cancelled successfully", "order_id": order_id}
@@ -385,7 +385,7 @@ def process_all_orders(
         )
         executed_count = 0
         for order in pending_orders:
-            if check_and_execute_order(db, order):
+            if check_and_execute_order(db, order, owner_user_id=current_user.id):
                 executed_count += 1
         total_checked = len(pending_orders)
         

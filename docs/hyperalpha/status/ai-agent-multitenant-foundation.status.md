@@ -67,6 +67,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Telegram webhook secret routing, per-user Telegram polling tasks, bot chat bindings, bot conversations, and AI/event notifications.
 - User-scoped Discord Gateway runtime clients for concurrent per-user bot long connections.
 - User-scoped legacy paper/order-matching API reads, manual execution, cancellation, processing, and health counts.
+- Legacy paper order matching service execution, cancellation, pending-order reads, and batch processing accept owner guards.
 - User-scoped trader data export/import account ownership validation.
 - User-scoped Hyperliquid exchange action log reads and stats.
 - User-scoped sampling preferences with effective global sampling pool aggregation.
@@ -166,6 +167,7 @@ Local checkpoint: current branch `HEAD`
 | Discord gateway isolation | Done | Discord Gateway clients, loops, message handlers, status, disconnect, startup restore, and progress messages are keyed by owner user |
 | Legacy order route isolation | Done | `/api/orders/*` resolves current user, validates order/account ownership, scopes pending/list/detail/cancel/execute/process/health, and no longer trusts URL/body `user_id` for access |
 | REST order creation ownership | Done | `/api/orders/create` accepts body `user_id` only as a consistency check against the authenticated user or verified body `session_token`; default fallback cannot set another user's first trading password |
+| Legacy order matching service owner guard | Done | `check_and_execute_order`, `cancel_order`, `get_pending_orders`, and `process_all_pending_orders` accept `owner_user_id`; user API paths pass current user while scheduler keeps global processing |
 | Manual AI trade trigger service ownership | Done | `trigger-ai-trade` passes `request_user_id`; crypto, Hyperliquid, and Binance single-account execution stop before price/order work when the requested account is not owned by that user |
 | Secondary account metadata lookup ownership | Done | Program execution feed and Binance wallet list re-check current-user ownership when resolving account names from already-scoped rows |
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
@@ -285,6 +287,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Legacy order route isolation smoke test in `uv run`: Bob could not read Alice's order, pending orders and health counts were current-user scoped.
 - Passed: Legacy order route re-smoke after create-order compatibility adjustment for body `session_token`/password auth.
 - Passed: REST order creation ownership smoke test in `uv run`: default fallback could not create for Alice or set Alice's first trading password, verified body `session_token` created only for the token owner, mismatched token/user pairs were rejected, and same-user password flow still worked.
+- Passed: Order matching owner guard smoke test in `uv run`: cross-user execute/cancel returned false without market-price side effects or frozen-cash mutation, and pending batch processing was scoped by user.
 - Passed: Trading command request-owner smoke test in `uv run`: Alice-triggered crypto, Hyperliquid, and Binance single-account execution for Bob's account stopped before price/symbol/order execution, while request-less scheduler semantics remain available.
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
 - Passed: Secondary account metadata lookup syntax compile and static search after Program execution feed and Binance wallet list account-name lookups gained current-user filters.
