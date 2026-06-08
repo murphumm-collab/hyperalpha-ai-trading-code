@@ -18,7 +18,7 @@ from datetime import datetime, timezone, timedelta
 
 import requests
 from sqlalchemy.orm import Session
-from sqlalchemy import text, func
+from sqlalchemy import text, func, or_
 
 from services.hyper_ai_subagents import SUBAGENT_TOOLS, execute_subagent_tool
 
@@ -1516,7 +1516,7 @@ def execute_diagnose_trader_issues(
     """Diagnose why an AI Trader is not triggering."""
     from database.models import (
         Account, HyperliquidWallet, BinanceWallet, AccountPromptBinding,
-        AccountProgramBinding, AccountStrategyConfig, SignalPool,
+        AccountProgramBinding, AccountStrategyConfig, SignalPool, PromptTemplate, TradingProgram,
         HyperliquidAccountSnapshot, BinanceAccountSnapshot, AIDecisionLog, ProgramExecutionLog
     )
 
@@ -1549,14 +1549,22 @@ def execute_diagnose_trader_issues(
             issues.append("Auto trading is disabled")
 
         # Check 3: Strategy bound
-        prompt_binding = db.query(AccountPromptBinding).filter(
+        prompt_binding = db.query(AccountPromptBinding).join(
+            PromptTemplate, AccountPromptBinding.prompt_template_id == PromptTemplate.id
+        ).filter(
             AccountPromptBinding.account_id == trader_id,
-            AccountPromptBinding.is_deleted != True
+            AccountPromptBinding.is_deleted != True,
+            or_(PromptTemplate.user_id == user_id, PromptTemplate.is_system == "true"),
+            PromptTemplate.is_deleted == "false",
         ).first()
-        program_binding = db.query(AccountProgramBinding).filter(
+        program_binding = db.query(AccountProgramBinding).join(
+            TradingProgram, AccountProgramBinding.program_id == TradingProgram.id
+        ).filter(
             AccountProgramBinding.account_id == trader_id,
             AccountProgramBinding.is_active == True,
-            AccountProgramBinding.is_deleted != True
+            AccountProgramBinding.is_deleted != True,
+            TradingProgram.user_id == user_id,
+            TradingProgram.is_deleted != True,
         ).first()
 
         strategy_bound = prompt_binding is not None or program_binding is not None

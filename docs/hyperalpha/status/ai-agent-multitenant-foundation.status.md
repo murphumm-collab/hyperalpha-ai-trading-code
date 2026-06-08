@@ -32,6 +32,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI tool execution, harness calls, sub-agent calls, and chat streams fail closed when authenticated user context is missing.
 - Hyper AI direct tool functions no longer default to user `1`; protected direct calls require explicit user context.
 - Hyper AI trader-list tool renders only current-user/system prompt bindings and current-user program bindings.
+- Hyper AI trader diagnostics treat only current-user/system prompt templates and current-user programs as valid trader strategy bindings.
 - Hyper AI harness dynamic risk preflight checks active prompt/program/signal-pool bindings only inside the current user's trader boundary.
 - Hyper AI external tool config registry requires explicit user context and never reads or writes the first profile by fallback.
 - Hyper AI profile and LLM config reads require explicit user context and no longer fall back to the first stored profile.
@@ -148,6 +149,7 @@ Local checkpoint: current branch `HEAD`
 | AI tool missing-user fail-closed | Done | Hyper AI dispatcher, harness, sub-agent dispatcher, and stream entry reject missing user context instead of falling back to user `1` |
 | AI tool direct-call user context | Done | Hyper AI direct tool functions reject missing `user_id`; system logs are admin-gated; direct factor/trader tools are user-scoped |
 | Hyper AI trader binding visibility | Done | `list_traders` resolves prompt names only from current-user/system templates and skips program bindings whose program is not owned by the current user |
+| Hyper AI trader diagnostics binding ownership | Done | `diagnose_trader_issues` ignores dirty prompt/program bindings that point outside the current user's prompt/program boundary |
 | Hyper AI harness owner-scoped risk preflight | Done | `assess_tool_risk` receives current `user_id`, treats missing user context as high risk, and evaluates active prompt/program/signal-pool bindings only for that user's traders |
 | AI external tool config isolation | Done | `hyper_ai_tool_registry` requires explicit `user_id`; Tavily/API key configs read/write only the current user's Hyper AI profile |
 | Hyper AI profile no implicit fallback | Done | `get_or_create_profile(None)` fails closed; `get_llm_config(None)` returns unconfigured with `missing_user_context` instead of reading the first profile |
@@ -260,6 +262,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyper AI missing-user-context smoke test in `uv run`: dispatcher, harness, sub-agent dispatcher, and stream entry returned blocked/error before touching DB/LLM/exchange work; static search found no remaining `user_id or 1` in the Hyper AI tool execution chain.
 - Passed: Hyper AI direct tool user-context smoke test in `uv run`: missing direct tool user context was blocked, system logs required admin role, factor library output was scoped to the current user, and cross-user trader/factor access was rejected.
 - Passed: Hyper AI trader-list visibility smoke test in `uv run`: Alice's trader list hid Bob's private prompt/program binding names while still showing Alice-owned and system prompt bindings.
+- Passed: Hyper AI trader diagnostics binding-owner smoke test in `uv run`: dirty Bob prompt/program bindings on Alice's trader no longer satisfy `strategy_bound`, while system/Alice-owned bindings still pass and Bob's trader remains inaccessible.
 - Passed: Hyper AI harness risk-preflight smoke test in `uv run`: active prompt/program/signal-pool bindings are high-risk only for the owning user, Bob's bindings do not elevate Alice's risk, and missing user context fails closed as high-risk.
 - Passed: Hyper AI external tool registry smoke test in `uv run`: missing user context raised before profile lookup, Alice and Bob tool configs stayed isolated, and updating Alice's Tavily config did not modify Bob's config.
 - Passed: Hyper AI profile user-context smoke test in `uv run`: no-user LLM config did not read the first stored profile, `get_or_create_profile(None)` failed closed, explicit user 2 read only user 2 profile config, and no-user suggestions returned an empty missing-context result.
