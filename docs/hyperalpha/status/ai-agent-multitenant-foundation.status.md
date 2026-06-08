@@ -23,6 +23,7 @@ Local checkpoint: current branch `HEAD`
 - AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
+- User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
 - Trading command AI prompts use each account owner's watchlist instead of a cross-user aggregate list.
@@ -58,6 +59,7 @@ Local checkpoint: current branch `HEAD`
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
 | Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
+| Exchange preference ownership | Done | `/api/users/exchange-config` reads/writes `UserExchangeConfig` by resolved request user; frontend `ExchangeContext` uses `authFetch` |
 | Trading command watchlist isolation | Done | Hyperliquid/Binance AI prompts use each account owner's watchlist while price collectors use the union |
 | Hyperliquid API ownership guard | Done | Account-level Hyperliquid config, balance, positions, manual order, wallet, agent wallet, actions summary, and upgrade-check APIs validate current user |
 | Hyperliquid account execution environment | Done | Setup/switch/client defaults, AI decision logs, Program Trader, and trading commands use account-level environment before global fallback |
@@ -93,6 +95,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyperliquid account execution environment compile and whitespace check.
 - Passed: Hard risk service smoke test in `uv run`: accepted normal small entry, rejected oversized/overleveraged/invalid TP-SL entry, allowed close while margin usage was high.
 - Passed: AI Trader and Program Trader hard risk integration compile in both system Python and `uv run` backend environment.
+- Passed: Exchange preference isolation smoke test in `uv run`: two users saved different exchanges and read back independent values.
+- Passed: `python3 -m py_compile backend/api/user_routes.py` after exchange-config scoping.
+- Passed: Frontend production build after `ExchangeContext` switched to `authFetch`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 

@@ -11,6 +11,7 @@ import {
   EXCHANGE_DISPLAY_NAMES,
   EXCHANGE_STATUS_COLORS
 } from '@/lib/types/exchange';
+import { authFetch } from '@/lib/authFetch';
 
 const ExchangeContext = createContext<ExchangeContextType | undefined>(undefined);
 
@@ -29,7 +30,7 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
   useEffect(() => {
     const loadExchangeConfig = async () => {
       try {
-        const response = await fetch('/api/users/exchange-config');
+        const response = await authFetch('/api/users/exchange-config');
         if (response.ok) {
           const data = await response.json();
           if (data.selected_exchange && ['hyperliquid', 'binance', 'aster'].includes(data.selected_exchange)) {
@@ -122,7 +123,7 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
 
     try {
       // Save to backend first
-      const response = await fetch('/api/users/exchange-config', {
+      const response = await authFetch('/api/users/exchange-config', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
