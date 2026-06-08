@@ -228,6 +228,44 @@ class UserSymbolWatchlist(Base):
     )
 
 
+class AiStreamTaskRecord(Base):
+    """Persistent metadata for background AI stream tasks."""
+    __tablename__ = "ai_stream_tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(120), unique=True, nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    conversation_id = Column(Integer, nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="running")
+    result = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+    created_at_epoch = Column(Float, nullable=False)
+    completed_at_epoch = Column(Float, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+
+
+class AiStreamChunkRecord(Base):
+    """Persistent event chunks for background AI stream polling."""
+    __tablename__ = "ai_stream_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(120), nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    event_type = Column(String(64), nullable=False)
+    data = Column(Text, nullable=False)
+    timestamp_epoch = Column(Float, nullable=False)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "chunk_index", name="uq_ai_stream_chunks_task_index"),
+    )
+
+
 class HyperInsightWalletRuntimeConfig(Base):
     """Per-user Hyper Insight wallet tracking runtime configuration."""
     __tablename__ = "hyper_insight_wallet_runtime_configs"

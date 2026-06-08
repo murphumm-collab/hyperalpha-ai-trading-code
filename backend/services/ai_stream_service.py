@@ -39,12 +39,17 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generator, List, Optional
 from datetime import datetime, timedelta
 
+from database.connection import SessionLocal
+from database.models import AiStreamChunkRecord, AiStreamTaskRecord
+
 logger = logging.getLogger(__name__)
 
 # Buffer expiration time (15 minutes)
 BUFFER_EXPIRATION_SECONDS = 15 * 60
 AI_TASK_MAX_WORKERS = int(os.getenv("AI_TASK_MAX_WORKERS", "12"))
 AI_BACKGROUND_MAX_WORKERS = int(os.getenv("AI_BACKGROUND_MAX_WORKERS", "4"))
+AI_STREAM_PERSISTENCE_ENABLED = os.getenv("AI_STREAM_PERSISTENCE_ENABLED", "true").lower() == "true"
+AI_STREAM_DB_RETENTION_SECONDS = int(os.getenv("AI_STREAM_DB_RETENTION_SECONDS", str(24 * 60 * 60)))
 
 _ai_task_executor = ThreadPoolExecutor(
     max_workers=AI_TASK_MAX_WORKERS,
@@ -88,6 +93,20 @@ class StreamTask:
     pending_confirmation_id: Optional[str] = field(default=None)
 
 
+def _json_dumps(data: Any) -> str:
+    return json.dumps(data, ensure_ascii=False)
+
+
+def _json_loads_dict(value: Optional[str]) -> Dict[str, Any]:
+    if not value:
+        return {}
+    try:
+        parsed = json.loads(value)
+        return parsed if isinstance(parsed, dict) else {}
+    except Exception:
+        return {}
+
+
 class StreamBufferManager:
     """
     Manages stream buffers for all active AI tasks.
@@ -118,6 +137,142 @@ class StreamBufferManager:
         self._running = True
         self._start_cleanup_thread()
         self._initialized = True
+
+    def _persist_task(self, task: StreamTask) -> None:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return
+
+        db = SessionLocal()
+        try:
+            record = db.query(AiStreamTaskRecord).filter(
+                AiStreamTaskRecord.task_id == task.task_id
+            ).first()
+            if not record:
+                record = AiStreamTaskRecord(
+                    task_id=task.task_id,
+                    user_id=task.user_id,
+                    conversation_id=task.conversation_id,
+                    created_at_epoch=task.created_at,
+                )
+                db.add(record)
+
+            record.user_id = task.user_id
+            record.conversation_id = task.conversation_id
+            record.status = task.status
+            record.result = _json_dumps(task.result) if task.result is not None else None
+            record.error_message = task.error_message
+            record.created_at_epoch = task.created_at
+            record.completed_at_epoch = task.completed_at
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning("[StreamBuffer] Failed to persist task %s: %s", task.task_id, exc)
+        finally:
+            db.close()
+
+    def _persist_chunk(self, task_id: str, chunk_index: int, chunk: StreamChunk) -> None:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return
+
+        db = SessionLocal()
+        try:
+            existing = db.query(AiStreamChunkRecord.id).filter(
+                AiStreamChunkRecord.task_id == task_id,
+                AiStreamChunkRecord.chunk_index == chunk_index,
+            ).first()
+            if not existing:
+                db.add(AiStreamChunkRecord(
+                    task_id=task_id,
+                    chunk_index=chunk_index,
+                    event_type=chunk.event_type,
+                    data=_json_dumps(chunk.data),
+                    timestamp_epoch=chunk.timestamp,
+                ))
+                db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning("[StreamBuffer] Failed to persist chunk %s/%s: %s", task_id, chunk_index, exc)
+        finally:
+            db.close()
+
+    def _hydrate_task_from_db(self, task_id: str, user_id: Optional[int] = None) -> Optional[StreamTask]:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return None
+
+        db = SessionLocal()
+        try:
+            record = db.query(AiStreamTaskRecord).filter(
+                AiStreamTaskRecord.task_id == task_id
+            ).first()
+            if not record:
+                return None
+            if user_id is not None and record.user_id != user_id:
+                return None
+
+            if record.status == "running":
+                record.status = "error"
+                record.error_message = "Task interrupted by service restart"
+                record.completed_at_epoch = time.time()
+                db.commit()
+
+            rows = db.query(AiStreamChunkRecord).filter(
+                AiStreamChunkRecord.task_id == task_id
+            ).order_by(AiStreamChunkRecord.chunk_index.asc()).all()
+            task = StreamTask(
+                task_id=record.task_id,
+                conversation_id=record.conversation_id,
+                user_id=record.user_id,
+                status=record.status,
+                created_at=record.created_at_epoch,
+                completed_at=record.completed_at_epoch,
+                error_message=record.error_message,
+                result=_json_loads_dict(record.result),
+                chunks=[
+                    StreamChunk(
+                        event_type=row.event_type,
+                        data=_json_loads_dict(row.data),
+                        timestamp=row.timestamp_epoch,
+                    )
+                    for row in rows
+                ],
+            )
+            self._tasks[task_id] = task
+            return task
+        except Exception as exc:
+            logger.warning("[StreamBuffer] Failed to hydrate task %s: %s", task_id, exc)
+            return None
+        finally:
+            db.close()
+
+    def _cleanup_persistent_tasks(self, now: float) -> None:
+        if not AI_STREAM_PERSISTENCE_ENABLED or AI_STREAM_DB_RETENTION_SECONDS <= 0:
+            return
+
+        cutoff = now - AI_STREAM_DB_RETENTION_SECONDS
+        db = SessionLocal()
+        try:
+            old_task_ids = [
+                row[0]
+                for row in db.query(AiStreamTaskRecord.task_id).filter(
+                    AiStreamTaskRecord.completed_at_epoch.isnot(None),
+                    AiStreamTaskRecord.completed_at_epoch < cutoff,
+                ).all()
+            ]
+            if not old_task_ids:
+                return
+
+            db.query(AiStreamChunkRecord).filter(
+                AiStreamChunkRecord.task_id.in_(old_task_ids)
+            ).delete(synchronize_session=False)
+            db.query(AiStreamTaskRecord).filter(
+                AiStreamTaskRecord.task_id.in_(old_task_ids)
+            ).delete(synchronize_session=False)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning("[StreamBuffer] Failed to cleanup persistent tasks: %s", exc)
+        finally:
+            db.close()
 
     def _start_cleanup_thread(self):
         """Start background thread for cleaning up expired tasks."""
@@ -151,6 +306,8 @@ class StreamBufferManager:
                 del self._tasks[task_id]
                 logger.debug(f"[StreamBuffer] Cleaned up expired task: {task_id}")
 
+        self._cleanup_persistent_tasks(now)
+
     def create_task(
         self,
         task_id: str,
@@ -163,12 +320,15 @@ class StreamBufferManager:
                 logger.warning(f"[StreamBuffer] Task {task_id} already exists, overwriting")
             task = StreamTask(task_id=task_id, conversation_id=conversation_id, user_id=user_id)
             self._tasks[task_id] = task
+            self._persist_task(task)
             return task
 
     def get_task(self, task_id: str, user_id: Optional[int] = None) -> Optional[StreamTask]:
         """Get a task by ID."""
         with self._tasks_lock:
             task = self._tasks.get(task_id)
+            if not task:
+                task = self._hydrate_task_from_db(task_id, user_id=user_id)
             if not task:
                 return None
             if user_id is not None and task.user_id != user_id:
@@ -180,7 +340,10 @@ class StreamBufferManager:
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if task:
-                task.chunks.append(StreamChunk(event_type=event_type, data=data))
+                chunk_index = len(task.chunks)
+                chunk = StreamChunk(event_type=event_type, data=data)
+                task.chunks.append(chunk)
+                self._persist_chunk(task_id, chunk_index, chunk)
 
     def get_chunks(
         self,
@@ -195,6 +358,8 @@ class StreamBufferManager:
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if not task:
+                task = self._hydrate_task_from_db(task_id, user_id=user_id)
+            if not task:
                 return [], "not_found"
             if user_id is not None and task.user_id != user_id:
                 return [], "not_found"
@@ -208,6 +373,7 @@ class StreamBufferManager:
                 task.status = "completed"
                 task.completed_at = time.time()
                 task.result = result
+                self._persist_task(task)
 
     def fail_task(self, task_id: str, error_message: str):
         """Mark a task as failed."""
@@ -217,6 +383,7 @@ class StreamBufferManager:
                 task.status = "error"
                 task.completed_at = time.time()
                 task.error_message = error_message
+                self._persist_task(task)
 
     def update_task_data(self, task_id: str, **kwargs):
         """Update task accumulated data (reasoning_parts, tool_calls_log, etc.)."""

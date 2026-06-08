@@ -20,6 +20,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Hyper Insight wallet-tracking runtime config, token sync, websocket state, and wallet-signal callbacks.
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
+- AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
@@ -51,6 +52,7 @@ Local checkpoint: current branch `HEAD`
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, wallet status, tracked wallet tools, Strategy Radar, `save_program`, `create_ai_trader`, and `web_search` config lookup |
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
+| AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
 | Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
@@ -77,6 +79,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyper Insight wallet runtime route/service compile and frontend build after per-user token/status/websocket scoping.
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
 - Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
+- Passed: AI stream persistence models/migration/service syntax compile.
 - Passed: Compression memory owner propagation compile, static call-site search, and whitespace check.
 - Passed: User symbol watchlist route/service/tool compile and static search confirming user-facing GET/PUT and Hyper AI tools pass `user_id`.
 - Passed: Trading command static review confirming account AI prompt symbols are sourced from each account owner's watchlist.
@@ -90,6 +93,6 @@ Local checkpoint: current branch `HEAD`
 ## Known Not-Accepted Items
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
-- Redis/job-queue backed AI task persistence is not implemented in this slice.
+- Redis/distributed job queue execution is not implemented in this slice; DB persistence covers single-server task/chunk recovery, not multi-instance worker orchestration.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Full live-order execution acceptance is still pending; this slice only scopes watchlists and account prompt symbol inputs, not final risk policy or order-routing governance.
