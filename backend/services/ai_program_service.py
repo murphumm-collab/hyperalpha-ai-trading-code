@@ -1316,9 +1316,33 @@ def _get_backtest_history(db: Session, program_id: Optional[int], user_id: int, 
         return json.dumps({"error": str(e)})
 
 
-def _get_trigger_list(db: Session, backtest_id: int) -> str:
+def _get_owned_program_backtest(db: Session, backtest_id: int, user_id: int) -> Optional[BacktestResult]:
+    """Resolve a program backtest through current-user program/account ownership."""
+    return db.query(BacktestResult).join(
+        AccountProgramBinding, BacktestResult.binding_id == AccountProgramBinding.id
+    ).join(
+        Account, AccountProgramBinding.account_id == Account.id
+    ).join(
+        TradingProgram, AccountProgramBinding.program_id == TradingProgram.id
+    ).filter(
+        BacktestResult.id == backtest_id,
+        BacktestResult.backtest_type == "program",
+        BacktestResult.binding_id.isnot(None),
+        or_(BacktestResult.user_id == user_id, BacktestResult.user_id.is_(None)),
+        AccountProgramBinding.is_deleted != True,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
+    ).first()
+
+
+def _get_trigger_list(db: Session, backtest_id: int, user_id: int) -> str:
     """Get trigger summary list for a backtest."""
     try:
+        if not _get_owned_program_backtest(db, backtest_id, user_id):
+            return json.dumps({"error": f"Backtest {backtest_id} not found"})
+
         triggers = db.query(BacktestTriggerLog).filter(
             BacktestTriggerLog.backtest_id == backtest_id
         ).order_by(BacktestTriggerLog.trigger_index).all()
@@ -1348,9 +1372,18 @@ def _get_trigger_list(db: Session, backtest_id: int) -> str:
         return json.dumps({"error": str(e)})
 
 
-def _get_trigger_details(db: Session, backtest_id: int, indexes: List[int], fields: List[str] = None) -> str:
+def _get_trigger_details(
+    db: Session,
+    backtest_id: int,
+    user_id: int,
+    indexes: List[int],
+    fields: List[str] = None
+) -> str:
     """Get detailed info for specific triggers."""
     try:
+        if not _get_owned_program_backtest(db, backtest_id, user_id):
+            return json.dumps({"error": f"Backtest {backtest_id} not found"})
+
         if not indexes:
             return json.dumps({"error": "indexes is required"})
 
@@ -1620,7 +1653,7 @@ def _execute_tool(
             backtest_id = arguments.get("backtest_id")
             if backtest_id is None:
                 return json.dumps({"error": "backtest_id is required"})
-            return _get_trigger_list(db, backtest_id)
+            return _get_trigger_list(db, backtest_id, user_id)
 
         elif tool_name == "get_trigger_details":
             backtest_id = arguments.get("backtest_id")
@@ -1628,7 +1661,7 @@ def _execute_tool(
             fields = arguments.get("fields")
             if backtest_id is None:
                 return json.dumps({"error": "backtest_id is required"})
-            return _get_trigger_details(db, backtest_id, indexes, fields)
+            return _get_trigger_details(db, backtest_id, user_id, indexes, fields)
 
         elif tool_name == "query_factors":
             from services.hyper_ai_tools import execute_query_factors
