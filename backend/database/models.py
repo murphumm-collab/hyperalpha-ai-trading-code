@@ -17,6 +17,7 @@ class User(Base):
     username = Column(String(50), unique=True, nullable=False)
     email = Column(String(100), nullable=True)
     password_hash = Column(String(255), nullable=True)  # For future password authentication
+    role = Column(String(20), nullable=False, default="user", server_default=text("'user'"))
     is_active = Column(String(10), nullable=False, default="true")
     
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())

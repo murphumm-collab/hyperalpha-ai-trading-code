@@ -56,6 +56,7 @@ Local checkpoint: current branch `HEAD`
 - Required-auth guard for resource-heavy Factor compute/evaluate/validate endpoints.
 - Required-auth guard for Hyperliquid builder authorization status checks.
 - Required-auth guard for standalone Hyper AI LLM connection tests.
+- Admin RBAC guard for system logs, generic system config writes, system data management, and news source management.
 - Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus signed Telegram webhook ingress.
 - Development progress and acceptance markers.
 - REST manual order-placement APIs are not changed in this slice; WebSocket order placement now validates the connection user's account ownership.
@@ -119,7 +120,8 @@ Local checkpoint: current branch `HEAD`
 | Factor resource auth | Done | Factor compute estimate/trigger/progress plus expression evaluate/validate endpoints require real session/JWT |
 | Builder check auth | Done | Hyperliquid builder authorization status endpoint requires real session/JWT before proxying external authorization checks |
 | Hyper AI connection-test auth | Done | Standalone Hyper AI LLM connection-test endpoint requires real session/JWT before using user-submitted provider credentials |
-| Backend route auth audit | Done | Remaining unauthenticated route list reviewed: public market data/factor read/ranking/news article/static docs/auth lifecycle remain intentionally public or legacy-session based; bot webhooks remain not accepted pending webhook secret/routing design |
+| Backend route auth audit | Done | Remaining unauthenticated route list reviewed: public market data/factor read/ranking/news article/static docs/auth lifecycle remain intentionally public or legacy-session based; Telegram webhook ingress is signed and user-routed |
+| Admin RBAC guard | Done | `users.role`, `get_admin_user_dependency`, env/JWT admin role sync, and admin-only system/log/config/news management endpoints |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -207,6 +209,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: Builder authorization required-auth static check and account route syntax compile in both system Python and `uv run` backend environment.
 - Passed: Hyper AI connection-test required-auth static check and route syntax compile in both system Python and `uv run` backend environment.
 - Passed: Backend route auth audit scan: no remaining unauthenticated account/analytics/config/system/signal/factor compute/AI management route was left unclassified.
+- Passed: Admin RBAC smoke test in `uv run`: admin session passed, ordinary session returned 403, anonymous returned 401, local `default` user promoted to admin, and unverified demo JWT with `roles=["admin"]` created an admin user.
+- Passed: Admin RBAC syntax compile in both system Python and `uv run` backend environment for auth utilities, user repository, route modules, models, and migration.
+- Passed: Admin RBAC static check: system, system-log, news source/stats, and generic system-config write endpoints now depend on `get_admin_user_dependency`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
@@ -220,4 +225,4 @@ Local checkpoint: current branch `HEAD`
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Discord external bot long-connection is not fully multi-tenant yet; this slice binds Discord message handling to the resolved owner user, but the underlying `discord.py` gateway client is still a single global client per process.
 - Factor computation/value storage is still global by factor name; custom factor CRUD is user-scoped, but per-user computed factor values need a dedicated schema if private custom factors should be precomputed.
-- Admin RBAC is not implemented yet; newly required-auth system log/config endpoints require a real user token but do not distinguish operators/admins from ordinary authenticated users.
+- Admin role-management UI is not implemented yet; roles are currently controlled by DB state, `AUTH_ADMIN_USERNAMES`/`AUTH_ADMIN_EMAILS`, or JWT role/group claims.

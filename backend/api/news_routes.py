@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from api.auth_utils import get_authenticated_user_dependency
+from api.auth_utils import get_admin_user_dependency
 from database.connection import get_db
 from database.models import SystemConfig, NewsArticle, User
 
@@ -174,7 +174,7 @@ def list_news_articles(
 
 @router.get("/sources")
 def get_news_sources(
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get all configured news sources."""
@@ -198,7 +198,7 @@ def get_news_sources(
 @router.put("/sources")
 def update_news_sources(
     req: NewsSourcesUpdateRequest,
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Update news sources configuration."""
@@ -233,7 +233,7 @@ def update_news_sources(
 @router.post("/sources/test")
 def test_news_source(
     req: TestSourceRequest,
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
 ):
     """
     Test a news source URL: fetch and parse, return sample articles.
@@ -320,7 +320,7 @@ def test_news_source(
 
 @router.get("/stats")
 def get_news_stats(
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get news collection statistics."""

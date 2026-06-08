@@ -10,7 +10,7 @@ import logging
 
 from database.connection import SessionLocal
 from database.models import SystemConfig, GlobalSamplingConfig, User
-from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
+from api.auth_utils import get_admin_user_dependency, get_current_user_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -193,7 +193,7 @@ class ConfigValueRequest(BaseModel):
 async def update_system_config(
     key: str,
     payload: ConfigValueRequest,
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Update an allowed system config value by key."""

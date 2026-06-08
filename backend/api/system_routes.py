@@ -7,7 +7,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-from api.auth_utils import get_authenticated_user_dependency
+from api.auth_utils import get_admin_user_dependency
 from database.connection import get_db
 from database.models import SystemConfig, User
 
@@ -70,7 +70,7 @@ def set_retention_days(db: Session, days: int, exchange: str = "hyperliquid") ->
 @router.get("/storage-stats")
 def get_storage_stats(
     exchange: str = "hyperliquid",
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get storage statistics for market flow data tables by exchange"""
@@ -161,7 +161,7 @@ def get_data_coverage(
     tz_offset: int = 0,
     exchange: str = "hyperliquid",
     data_type: str = "market_flow",
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Get data coverage heatmap for market data.
@@ -260,7 +260,7 @@ def get_data_coverage(
 @router.get("/retention-days")
 def get_retention_days_api(
     exchange: str = "hyperliquid",
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get current retention days setting for specific exchange"""
@@ -271,7 +271,7 @@ def get_retention_days_api(
 @router.put("/retention-days")
 def update_retention_days(
     request: RetentionDaysRequest,
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Update retention days setting for specific exchange"""
@@ -287,7 +287,7 @@ def update_retention_days(
 @router.get("/collection-days")
 def get_collection_days(
     exchange: str = "hyperliquid",
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get total days of market flow data collection for specific exchange.
@@ -314,7 +314,7 @@ def get_collection_days(
 @router.post("/binance/backfill")
 async def start_binance_backfill(
     force: bool = False,
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Start Binance historical data backfill task.
@@ -372,7 +372,7 @@ async def start_binance_backfill(
 
 @router.get("/binance/backfill/status")
 def get_binance_backfill_status(
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get current Binance backfill task status."""
@@ -400,7 +400,7 @@ def get_binance_backfill_status(
 
 @router.post("/hyperliquid/backfill")
 async def start_hyperliquid_backfill(
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Start Hyperliquid K-line backfill task.
@@ -446,7 +446,7 @@ async def start_hyperliquid_backfill(
 
 @router.get("/hyperliquid/backfill/status")
 def get_hyperliquid_backfill_status(
-    current_user: User = Depends(get_authenticated_user_dependency),
+    current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get current Hyperliquid backfill task status."""

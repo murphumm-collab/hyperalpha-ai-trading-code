@@ -33,6 +33,7 @@ from repositories.user_repo import (
 _USERNAME_SAFE_RE = re.compile(r"[^a-zA-Z0-9_-]+")
 _JWKS_CACHE: Dict[str, Any] = {"url": None, "expires_at": 0, "keys": []}
 _DEFAULT_AUTH_ALGORITHMS = "RS256"
+_ADMIN_ROLES = {"admin", "operator"}
 
 
 def _truthy_env(name: str, default: str = "false") -> bool:
@@ -42,6 +43,67 @@ def _truthy_env(name: str, default: str = "false") -> bool:
 def _csv_env(name: str, default: str = "") -> list[str]:
     value = os.getenv(name, default)
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _lower_csv_env(name: str, default: str = "") -> set[str]:
+    return {item.lower() for item in _csv_env(name, default)}
+
+
+def _claim_values(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        return {value.lower()}
+    if isinstance(value, (list, tuple, set)):
+        return {str(item).lower() for item in value}
+    return {str(value).lower()}
+
+
+def _payload_has_admin_claim(payload: Optional[Dict[str, Any]]) -> bool:
+    if not payload:
+        return False
+
+    if payload.get("is_admin") is True or payload.get("admin") is True:
+        return True
+
+    admin_values = _lower_csv_env("AUTH_ADMIN_CLAIM_VALUES", "admin,operator")
+    claim_names = _csv_env("AUTH_ADMIN_CLAIM_NAMES", "role,roles,groups,permissions")
+    for claim_name in claim_names:
+        if _claim_values(payload.get(claim_name)).intersection(admin_values):
+            return True
+    return False
+
+
+def _identity_is_env_admin(username: Optional[str], email: Optional[str]) -> bool:
+    admin_usernames = _lower_csv_env("AUTH_ADMIN_USERNAMES", "default")
+    admin_emails = _lower_csv_env("AUTH_ADMIN_EMAILS")
+
+    if username and username.lower() in admin_usernames:
+        return True
+    if email and email.lower() in admin_emails:
+        return True
+    return False
+
+
+def is_admin_user(user: User) -> bool:
+    """Return True when a user is allowed to call system-admin endpoints."""
+    role = str(getattr(user, "role", "") or "").lower()
+    return role in _ADMIN_ROLES or _identity_is_env_admin(user.username, user.email)
+
+
+def _sync_request_role(
+    db: Session,
+    user: User,
+    payload: Optional[Dict[str, Any]] = None,
+) -> User:
+    should_be_admin = _identity_is_env_admin(user.username, user.email) or _payload_has_admin_claim(payload)
+    if should_be_admin and str(getattr(user, "role", "") or "").lower() not in _ADMIN_ROLES:
+        update_user(db, user.id, role="admin")
+        db.refresh(user)
+    elif not getattr(user, "role", None):
+        update_user(db, user.id, role="user")
+        db.refresh(user)
+    return user
 
 
 def _decode_base64url(segment: str) -> bytes:
@@ -263,9 +325,10 @@ def _user_from_bearer_payload(db: Session, payload: Dict[str, Any]) -> User:
         if email and not user.email:
             update_user(db, user.id, email=email)
             db.refresh(user)
-        return user
+        return _sync_request_role(db, user, payload)
 
-    return create_user(db, username=username, email=email)
+    role = "admin" if _payload_has_admin_claim(payload) or _identity_is_env_admin(username, email) else "user"
+    return create_user(db, username=username, email=email, role=role)
 
 
 def resolve_request_user(
@@ -289,14 +352,15 @@ def resolve_request_user(
         user = get_user(db, user_id)
         if not user:
             raise HTTPException(status_code=401, detail="Session user not found")
-        return user
+        return _sync_request_role(db, user)
 
     bearer_payload = _decode_bearer_payload(authorization)
     if bearer_payload:
         return _user_from_bearer_payload(db, bearer_payload)
 
     if allow_default:
-        return get_or_create_user(db, username="default")
+        user = get_or_create_user(db, username="default", role="admin")
+        return _sync_request_role(db, user)
 
     raise HTTPException(status_code=401, detail="Authentication required")
 
@@ -325,3 +389,19 @@ def get_authenticated_user_dependency(
         authorization=authorization,
         allow_default=False,
     )
+
+
+def get_admin_user_dependency(
+    session_token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> User:
+    user = resolve_request_user(
+        db=db,
+        session_token=session_token,
+        authorization=authorization,
+        allow_default=False,
+    )
+    if not is_admin_user(user):
+        raise HTTPException(status_code=403, detail="Admin privileges required")
+    return user

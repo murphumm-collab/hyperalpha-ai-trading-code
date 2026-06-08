@@ -10,13 +10,15 @@ def create_user(
     db: Session,
     username: str,
     email: str = None,
-    password: str = None
+    password: str = None,
+    role: str = "user",
 ) -> User:
     """Create a new user"""
     user = User(
         username=username,
         email=email,
         password_hash=_hash_password(password) if password else None,
+        role=role or "user",
         is_active="true"
     )
     db.add(user)
@@ -29,7 +31,8 @@ def get_or_create_user(
     db: Session, 
     username: str = "default",
     email: str = None,
-    password: str = None
+    password: str = None,
+    role: str = "user",
 ) -> User:
     """Get or create user for default mode
     
@@ -40,7 +43,7 @@ def get_or_create_user(
         return user
     
     # Create default user without password requirement
-    return create_user(db, username, email, password)
+    return create_user(db, username, email, password, role=role)
 
 
 def get_user(db: Session, user_id: int) -> Optional[User]:
@@ -62,7 +65,8 @@ def update_user(
     db: Session,
     user_id: int,
     username: str = None,
-    email: str = None
+    email: str = None,
+    role: str = None,
 ) -> Optional[User]:
     """Update user information"""
     user = db.query(User).filter(User.id == user_id).first()
@@ -73,6 +77,8 @@ def update_user(
         user.username = username
     if email is not None:
         user.email = email
+    if role is not None:
+        user.role = role
     
     db.commit()
     db.refresh(user)
