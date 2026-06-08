@@ -375,7 +375,7 @@ async function fetchBatchMarketRegime(
   const uniqueTimestamps = [...new Set(timestamps)]
   for (const ts of uniqueTimestamps) {
     try {
-      const res = await fetch('/api/market-regime/batch', {
+      const res = await authFetch('/api/market-regime/batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -422,13 +422,13 @@ interface MetricAnalysis {
 
 async function fetchMetricAnalysis(symbol: string, metric: string, period: string, exchange: string = 'hyperliquid'): Promise<MetricAnalysis> {
   const params = new URLSearchParams({ symbol, metric, period, exchange })
-  const res = await fetch(`${API_BASE}/analyze?${params}`)
+  const res = await authFetch(`${API_BASE}/analyze?${params}`)
   if (!res.ok) throw new Error('Failed to analyze metric')
   return res.json()
 }
 
 async function fetchFactorLibrary(): Promise<FactorItem[]> {
-  const res = await fetch('/api/factors/library')
+  const res = await authFetch('/api/factors/library')
   if (!res.ok) return []
   const data = await res.json()
   return (data.factors || []).filter((f: FactorItem) =>
@@ -829,7 +829,7 @@ export default function SignalManager() {
           const factorName = signalForm.metric.split(':')[1]
           const factor = factorLibrary.find(f => f.name === factorName)
           if (!factor) { setMetricAnalysis(null); return }
-          const res = await fetch('/api/factors/evaluate', {
+          const res = await authFetch('/api/factors/evaluate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

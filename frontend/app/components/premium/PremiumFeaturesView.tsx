@@ -20,6 +20,7 @@ import {
 import { toast } from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
 import PremiumRequiredModal from '@/components/ui/PremiumRequiredModal'
+import { authFetch } from '@/lib/authFetch'
 
 interface PremiumFeaturesViewProps {
   onAccountUpdated?: () => void
@@ -60,7 +61,7 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
       setIsLoading(true)
 
       // Fetch global sampling configuration
-      const response = await fetch('/api/config/global-sampling')
+      const response = await authFetch('/api/config/global-sampling')
       if (!response.ok) {
         throw new Error('Failed to fetch global sampling configuration')
       }
@@ -111,7 +112,7 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
 
       setIsSaving(true)
       try {
-        const response = await fetch(`/api/config/global-sampling`, {
+        const response = await authFetch('/api/config/global-sampling', {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',

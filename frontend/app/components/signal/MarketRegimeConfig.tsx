@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { Save, ArrowDown, Zap, CheckCircle2, Info } from 'lucide-react'
+import { authFetch } from '@/lib/authFetch'
 
 // Types
 interface RegimeConfig {
@@ -92,14 +93,14 @@ function IconSignal5({ className = "w-5 h-5" }: { className?: string }) {
 
 // API functions
 async function fetchConfig(): Promise<RegimeConfig | null> {
-  const res = await fetch('/api/market-regime/configs/list')
+  const res = await authFetch('/api/market-regime/configs/list')
   if (!res.ok) throw new Error('Failed to fetch config')
   const configs: RegimeConfig[] = await res.json()
   return configs.find(c => c.is_default) || configs[0] || null
 }
 
 async function updateConfig(id: number, data: Partial<RegimeConfig>): Promise<RegimeConfig> {
-  const res = await fetch(`/api/market-regime/configs/${id}`, {
+  const res = await authFetch(`/api/market-regime/configs/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),

@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, useRef, type ReactNode 
 import Cookies from 'js-cookie'
 import { getUserInfo, loadAuthConfig, type User, isTokenExpiringSoon, refreshAccessToken, getTokenExpiryTime } from '@/lib/auth'
 import { getMembershipInfo, type MembershipInfo } from '@/lib/api'
+import { authFetch } from '@/lib/authFetch'
 
 interface AuthContextType {
   user: User | null
@@ -40,7 +41,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : undefined
       if (!token) {
         if (!authToken) return
-        await fetch('/api/signals/wallet-tracking/token', {
+        await authFetch('/api/signals/wallet-tracking/token', {
           method: 'DELETE',
           headers: authHeaders,
           credentials: 'include',
@@ -48,7 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return
       }
 
-      await fetch('/api/signals/wallet-tracking/token', {
+      await authFetch('/api/signals/wallet-tracking/token', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeaders },
         credentials: 'include',
@@ -191,7 +192,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // This keeps the local UserSubscription table in sync with www.akooi.com
       if (result.membership) {
         try {
-          await fetch('/api/users/sync-membership', {
+          await authFetch('/api/users/sync-membership', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -300,7 +301,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     // Clear backend membership subscription first
     try {
-      await fetch('/api/users/clear-membership', { method: 'POST' })
+      await authFetch('/api/users/clear-membership', { method: 'POST' })
       console.log('[AuthContext] Backend membership cleared')
     } catch (e) {
       console.warn('[AuthContext] Failed to clear backend membership:', e)
