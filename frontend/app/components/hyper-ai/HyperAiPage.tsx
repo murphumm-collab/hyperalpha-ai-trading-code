@@ -119,6 +119,36 @@ interface Message {
   interruptedRound?: number
 }
 
+const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
+
+function maskToolArgValue(key: string, value: unknown): unknown {
+  if (SENSITIVE_TOOL_ARG_KEY_PATTERN.test(key)) {
+    return '***'
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => maskToolArgValue(key, item))
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+        childKey,
+        maskToolArgValue(childKey, childValue),
+      ])
+    )
+  }
+  return value
+}
+
+function maskToolArgsForDisplay(args: Record<string, unknown> = {}): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(args).map(([key, value]) => [key, maskToolArgValue(key, value)])
+  )
+}
+
+function formatToolArgForDisplay(key: string, value: unknown): string {
+  return JSON.stringify(maskToolArgValue(key, value))
+}
+
 interface CompressionPoint {
   message_id: number
   summary: string
@@ -1739,8 +1769,8 @@ const MessageBubble = memo(function MessageBubble({
                   </div>
                   {entry.args && Object.keys(entry.args).length > 0 && (
                     <div className="mb-1 ml-2 text-muted-foreground">
-                      {Object.entries(entry.args).map(([key, value]) => (
-                        <div key={key}>{key}: {JSON.stringify(value)}</div>
+                      {Object.entries(maskToolArgsForDisplay(entry.args)).map(([key, value]) => (
+                        <div key={key}>{key}: {formatToolArgForDisplay(key, value)}</div>
                       ))}
                     </div>
                   )}
