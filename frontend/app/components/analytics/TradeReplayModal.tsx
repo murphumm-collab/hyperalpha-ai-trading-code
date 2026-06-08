@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatChartTime } from '@/lib/dateTime'
 import { TradingAccount, getAccounts } from '@/lib/api'
+import { authFetch } from '@/lib/authFetch'
 
 const API_BASE = '/api/analytics'
 
@@ -263,7 +264,7 @@ function ReplayKlineChart({ tradeId, period }: { tradeId: number; period: string
       setError(null)
 
       try {
-        const response = await fetch(`/api/analytics/trades/${tradeId}/kline?period=${period}`)
+        const response = await authFetch(`/api/analytics/trades/${tradeId}/kline?period=${period}`)
         if (!response.ok) {
           const errData = await response.json().catch(() => ({}))
           throw new Error(errData.detail || 'Failed to fetch kline data')
@@ -551,7 +552,7 @@ Trade #${tradeData.trade.id} ${tradeData.trade.symbol}:
 - Entry Reason: ${tradeData.entry_decision?.reason || 'N/A'}
 - Exit Reason: ${tradeData.exit_decision?.reason || 'N/A'}`
 
-      const response = await fetch('/api/analytics/ai-attribution/chat-stream', {
+      const response = await authFetch('/api/analytics/ai-attribution/chat-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -814,7 +815,7 @@ export default function TradeReplayModal({
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(`${API_BASE}/trades/${id}/replay`)
+      const res = await authFetch(`${API_BASE}/trades/${id}/replay`)
       if (!res.ok) throw new Error('Failed to load replay data')
       const result = await res.json()
       setData(result)

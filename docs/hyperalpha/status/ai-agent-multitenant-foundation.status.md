@@ -33,6 +33,7 @@ Local checkpoint: current branch `HEAD`
 - Trading command AI prompts use each account owner's watchlist instead of a cross-user aggregate list.
 - Automated AI Trader and Program Trader order execution pass a shared hard risk validator before exchange order placement.
 - Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
+- Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
@@ -73,6 +74,7 @@ Local checkpoint: current branch `HEAD`
 | Hyperliquid account execution environment | Done | Setup/switch/client defaults, AI decision logs, Program Trader, and trading commands use account-level environment before global fallback |
 | Automated execution hard risk guard | Done | `hard_risk_service.py`; AI Trader and Program Trader reject orders exceeding hard leverage, single-trade margin, projected margin usage, optional TP/SL, or TP/SL side rules |
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
+| Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
@@ -117,6 +119,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Arena read route smoke test in `uv run`: paper trades, model chat, snapshots, positions, and analytics returned only the current user's account data.
 - Passed: Arena update-PnL empty-user smoke test in `uv run`: user with no accounts returns an empty success result and does not scan exchange wallets.
 - Passed: Arena route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Static search found no remaining bare `fetch(` in Attribution Analysis or Trade Replay analytics components; frontend production build passed.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 

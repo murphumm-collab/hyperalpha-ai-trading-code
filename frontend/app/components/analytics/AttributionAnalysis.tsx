@@ -17,6 +17,7 @@ import AiAttributionChatModal from './AiAttributionChatModal'
 import TradeReplayModal from './TradeReplayModal'
 import PromptBacktest from './PromptBacktest'
 import { TradingAccount, checkPnlSyncStatus, updateArenaPnl } from '@/lib/api'
+import { authFetch } from '@/lib/authFetch'
 
 // Types
 interface SummaryMetrics {
@@ -101,25 +102,25 @@ interface TradesResponse {
 const API_BASE = '/api/analytics'
 
 async function fetchSummary(params: URLSearchParams): Promise<SummaryResponse> {
-  const res = await fetch(`${API_BASE}/summary?${params}`)
+  const res = await authFetch(`${API_BASE}/summary?${params}`)
   if (!res.ok) throw new Error('Failed to fetch summary')
   return res.json()
 }
 
 async function fetchByDimension(dimension: string, params: URLSearchParams): Promise<DimensionResponse> {
-  const res = await fetch(`${API_BASE}/by-${dimension}?${params}`)
+  const res = await authFetch(`${API_BASE}/by-${dimension}?${params}`)
   if (!res.ok) throw new Error(`Failed to fetch by-${dimension}`)
   return res.json()
 }
 
 async function fetchProgramByDimension(dimension: string, params: URLSearchParams): Promise<DimensionResponse> {
-  const res = await fetch(`${API_BASE}/program-by-${dimension}?${params}`)
+  const res = await authFetch(`${API_BASE}/program-by-${dimension}?${params}`)
   if (!res.ok) throw new Error(`Failed to fetch program-by-${dimension}`)
   return res.json()
 }
 
 async function fetchAccounts(): Promise<Account[]> {
-  const res = await fetch('/api/account/list')
+  const res = await authFetch('/api/account/list')
   if (!res.ok) throw new Error('Failed to fetch accounts')
   const data = await res.json()
   return data.map((acc: { id: number; name: string; account_type: string; model?: string }) => ({
@@ -131,7 +132,7 @@ async function fetchAccounts(): Promise<Account[]> {
 }
 
 async function fetchTrades(params: URLSearchParams): Promise<TradesResponse> {
-  const res = await fetch(`${API_BASE}/trades?${params}`)
+  const res = await authFetch(`${API_BASE}/trades?${params}`)
   if (!res.ok) throw new Error('Failed to fetch trades')
   return res.json()
 }
