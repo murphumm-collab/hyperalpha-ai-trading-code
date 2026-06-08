@@ -349,8 +349,8 @@ async def _send_snapshot_optimized(db: Session, account_id: int):
     if not account:
         return
     
-    positions = list_positions(db, account_id)
-    orders = list_orders(db, account_id)
+    positions = list_positions(db, account_id, owner_user_id=account.user_id)
+    orders = list_orders(db, account_id, owner_user_id=account.user_id)
     trades = (
         db.query(Trade).filter(Trade.account_id == account_id).order_by(Trade.trade_time.desc()).limit(10).all()  # Reduced from 20 to 10
     )
@@ -626,7 +626,7 @@ async def _send_hyperliquid_snapshot(db: Session, account_id: int, environment: 
             })
 
         # Get orders and trades from local database (filtered by environment)
-        orders = list_orders(db, account_id)
+        orders = list_orders(db, account_id, owner_user_id=account.user_id)
         # Filter orders by hyperliquid_environment
         hyperliquid_orders = [
             o for o in orders
@@ -737,8 +737,8 @@ async def _send_snapshot(db: Session, account_id: int):
     account = get_account(db, account_id)
     if not account:
         return
-    positions = list_positions(db, account_id)
-    orders = list_orders(db, account_id)
+    positions = list_positions(db, account_id, owner_user_id=account.user_id)
+    orders = list_orders(db, account_id, owner_user_id=account.user_id)
     trades = (
         db.query(Trade).filter(Trade.account_id == account_id).order_by(Trade.trade_time.desc()).limit(20).all()
     )

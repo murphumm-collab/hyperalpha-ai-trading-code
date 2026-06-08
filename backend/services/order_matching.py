@@ -340,7 +340,7 @@ def _execute_order(db: Session, order: Order, account: Account, execution_price:
             }))
 
             # Broadcast position update
-            positions = list_positions(db, account.id)
+            positions = list_positions(db, account.id, owner_user_id=account.user_id)
             positions_data = [
                 {
                     "id": p.id,
