@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from database.models import (
     AiProgramConversation, AiProgramMessage, TradingProgram, Account,
-    BacktestResult, BacktestTriggerLog, AccountProgramBinding
+    BacktestResult, BacktestTriggerLog, AccountProgramBinding, SignalPool
 )
 from services.ai_decision_service import build_chat_completion_endpoints, detect_api_format, _extract_text_from_message, get_max_tokens, build_llm_payload, build_llm_headers, extract_reasoning, convert_tools_to_anthropic, convert_messages_to_anthropic, strip_thinking_tags
 from services.ai_stream_service import format_sse_event
@@ -1457,6 +1457,7 @@ def _quick_verify_strategy(
     db: Session,
     code: str,
     exchange: str,
+    user_id: int,
     signal_pool_id: Optional[int] = None,
     scheduled_interval_minutes: Optional[int] = None,
     symbol: str = "BTC",
@@ -1486,8 +1487,13 @@ def _quick_verify_strategy(
         # Get symbols from signal pool if available
         symbols = [symbol]
         if signal_pool_id:
-            from database.models import SignalPool
-            pool = db.query(SignalPool).filter(SignalPool.id == signal_pool_id, SignalPool.is_deleted != True).first()
+            pool = db.query(SignalPool).filter(
+                SignalPool.id == signal_pool_id,
+                SignalPool.user_id == user_id,
+                SignalPool.is_deleted != True,
+            ).first()
+            if not pool:
+                return json.dumps({"error": f"Signal pool {signal_pool_id} not found"})
             if pool and pool.symbols:
                 pool_symbols = pool.symbols
                 if isinstance(pool_symbols, str):
@@ -1615,7 +1621,7 @@ def _execute_tool(
             symbol = arguments.get("symbol", "BTC")
             hours = arguments.get("hours", 168)
             return _quick_verify_strategy(
-                db, code, exchange,
+                db, code, exchange, user_id,
                 signal_pool_id, scheduled_interval_minutes, symbol, hours
             )
 
