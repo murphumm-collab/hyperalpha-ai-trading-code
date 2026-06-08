@@ -90,6 +90,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle, original decision-log reads, and background system-prompt template resolution.
 - User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads.
 - User-bound WebSocket bootstrap/account switching/order/snapshot/asset-curve requests and per-user asset-curve broadcasts.
+- Arena trade feed and model-chat strategy-name lookups render only current-user/system prompt templates, current-user programs, and current-user signal pools.
 - Required-auth guard for system log reads/deletes and generic system config writes; generic config writes are limited to `ui_language`.
 - Required-auth guard for system data management endpoints and news source management endpoints.
 - Background News AI classification uses platform-owned `NEWS_AI_LLM_*` environment variables and skips when unset instead of borrowing any user's Hyper AI key.
@@ -205,6 +206,7 @@ Local checkpoint: current branch `HEAD`
 | Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; original decision-log reads join account ownership; background prompt resolution rejects cross-user private templates |
 | Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts and reject cross-user `account_id` filters |
 | WebSocket ownership | Done | WS resolves session/JWT identity from query/header/message token, ignores client-provided username for bootstrap, rejects cross-user `switch_account`, scopes asset curves by current user, and sends auth tokens from frontend WS requests |
+| Arena strategy-name visibility | Done | Arena trade feed and model-chat batch name lookups filter prompt templates by current-user/system visibility, programs by current user, and signal pools by current user |
 | Global config/log auth | Done | `get_authenticated_user_dependency` requires a real session/JWT for system logs and generic config updates; `/api/config/{key}` only permits `ui_language` |
 | System/news management auth | Done | Storage stats, data coverage, retention, backfill, news source config/test/stats endpoints require real session/JWT; Settings data-management requests use auth-aware fetch |
 | News AI platform LLM config | Done | Background News AI reads `NEWS_AI_LLM_BASE_URL`, `NEWS_AI_LLM_MODEL`, `NEWS_AI_LLM_API_KEY`, and `NEWS_AI_LLM_API_FORMAT`; unset env skips classification without using user-provided keys |
@@ -348,6 +350,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Analytics owner isolation smoke test in `uv run`: Alice summary/account/trade/replay reads excluded Bob's trade PnL/order, Bob replaying Alice trade returned 404, and Bob filtering Alice account returned 404.
 - Passed: Program analytics owner isolation smoke test in `uv run`: Alice program summary/by-program excluded Bob's ProgramExecutionLog, and Bob filtering Alice account returned 404.
 - Passed: Analytics route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Arena strategy-name visibility smoke test in `uv run`: owned decision rows do not display Bob's private prompt/program/signal-pool names, while Alice-owned and system prompt names remain visible.
 - Passed: WebSocket owner isolation smoke test in `uv run`: Bob could not pass the WS account owner guard for Alice's account, Alice/default asset curves returned only their own account rows.
 - Passed: Frontend WS auth static check: remaining `send(JSON.stringify(...))` calls in the main app and asset-curve component go through `withWsAuth`.
 - Passed: WebSocket route syntax compile in both system Python and `uv run` backend environment; frontend production build passed after WS token propagation.

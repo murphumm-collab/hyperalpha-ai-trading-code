@@ -718,13 +718,21 @@ def get_completed_trades(
         # Batch fetch prompt template names
         prompt_template_map = {}
         if prompt_template_ids:
-            templates = db.query(PromptTemplate).filter(PromptTemplate.id.in_(prompt_template_ids), PromptTemplate.is_deleted == "false").all()
+            templates = db.query(PromptTemplate).filter(
+                PromptTemplate.id.in_(prompt_template_ids),
+                PromptTemplate.is_deleted == "false",
+                (PromptTemplate.user_id == current_user.id) | (PromptTemplate.is_system == "true"),
+            ).all()
             prompt_template_map = {t.id: t.name for t in templates}
 
         # Batch fetch program names
         program_map = {}
         if program_ids:
-            programs = db.query(TradingProgram).filter(TradingProgram.id.in_(program_ids), TradingProgram.is_deleted != True).all()
+            programs = db.query(TradingProgram).filter(
+                TradingProgram.id.in_(program_ids),
+                TradingProgram.user_id == current_user.id,
+                TradingProgram.is_deleted != True,
+            ).all()
             program_map = {p.id: p.name for p in programs}
 
         # Also query ProgramExecutionLog for orders not in AIDecisionLog
@@ -762,14 +770,22 @@ def get_completed_trades(
 
         # Batch fetch program names for ProgramExecutionLog
         if program_log_program_ids:
-            extra_programs = db.query(TradingProgram).filter(TradingProgram.id.in_(program_log_program_ids), TradingProgram.is_deleted != True).all()
+            extra_programs = db.query(TradingProgram).filter(
+                TradingProgram.id.in_(program_log_program_ids),
+                TradingProgram.user_id == current_user.id,
+                TradingProgram.is_deleted != True,
+            ).all()
             for p in extra_programs:
                 program_map[p.id] = p.name
 
         # Batch fetch signal pool names
         signal_pool_map = {}
         if program_log_signal_pool_ids:
-            pools = db.query(SignalPool).filter(SignalPool.id.in_(program_log_signal_pool_ids)).all()
+            pools = db.query(SignalPool).filter(
+                SignalPool.id.in_(program_log_signal_pool_ids),
+                SignalPool.user_id == current_user.id,
+                SignalPool.is_deleted != True,
+            ).all()
             signal_pool_map = {p.id: p.pool_name for p in pools}
 
         # For Binance: build mapping from triggered order ID to main order ID
@@ -892,7 +908,9 @@ def get_completed_trades(
                 trade_dict["signal_trigger_id"] = pl.signal_pool_id  # Use signal_pool_id
                 trade_dict["prompt_template_id"] = pl.program_id
                 trade_dict["decision_source_type"] = "program"
-                trade_dict["prompt_template_name"] = program_map.get(pl.program_id) or pl.program_name
+                trade_dict["prompt_template_name"] = (
+                    program_map.get(pl.program_id) if pl.program_id else pl.program_name
+                )
                 trade_dict["signal_pool_name"] = signal_pool_map.get(pl.signal_pool_id)
                 # Get exchange from program log (NULL treated as "hyperliquid")
                 trade_dict["exchange"] = pl.exchange or "hyperliquid"
@@ -1158,7 +1176,11 @@ def get_model_chat(
     prompt_template_ids = {log.prompt_template_id for log, _ in decision_rows if log.prompt_template_id}
     prompt_template_map = {}
     if prompt_template_ids:
-        templates = db.query(PromptTemplate).filter(PromptTemplate.id.in_(prompt_template_ids), PromptTemplate.is_deleted == "false").all()
+        templates = db.query(PromptTemplate).filter(
+            PromptTemplate.id.in_(prompt_template_ids),
+            PromptTemplate.is_deleted == "false",
+            (PromptTemplate.user_id == current_user.id) | (PromptTemplate.is_system == "true"),
+        ).all()
         prompt_template_map = {t.id: t.name for t in templates}
 
     for log, account in decision_rows:
