@@ -2630,7 +2630,12 @@ def save_ai_decision(
         db.refresh(decision_log)
 
         if decision_log.decision_time:
-            set_last_trigger(db, account.id, decision_log.decision_time)
+            set_last_trigger(
+                db,
+                account.id,
+                decision_log.decision_time,
+                owner_user_id=account.user_id,
+            )
 
         symbol_str = symbol if symbol else "N/A"
         logger.info(f"Saved AI decision log for account {account.name}: {operation} {symbol_str} "

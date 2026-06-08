@@ -2597,7 +2597,8 @@ def execute_update_trader_strategy(
             signal_pool_ids=signal_pool_ids,
             scheduled_trigger_enabled=scheduled_trigger_enabled,
             trigger_interval=trigger_interval,
-            exchange=exchange
+            exchange=exchange,
+            owner_user_id=user_id,
         )
 
         return json.dumps({

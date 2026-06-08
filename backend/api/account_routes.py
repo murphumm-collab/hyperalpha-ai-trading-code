@@ -390,7 +390,11 @@ def get_account_strategy(
     if account.is_active != "true":
         raise HTTPException(status_code=404, detail="Account not found")
 
-    strategy = get_strategy_by_account(db, account_id)
+    strategy = get_strategy_by_account(
+        db,
+        account_id,
+        owner_user_id=current_user.id,
+    )
     if not strategy:
         # Check if account has a Binance wallet to determine default exchange
         from database.models import BinanceWallet
@@ -406,6 +410,7 @@ def get_account_strategy(
             trigger_interval=150,
             enabled=(account.auto_trading_enabled == "true"),
             exchange=default_exchange,
+            owner_user_id=current_user.id,
         )
         # Reload strategies after creation
         hyper_strategy_manager._load_strategies()
@@ -458,6 +463,7 @@ def update_account_strategy(
         signal_pool_id=payload.signal_pool_id,  # Deprecated: for backward compatibility
         signal_pool_ids=payload.signal_pool_ids,  # New: list of pool IDs
         exchange=payload.exchange,
+        owner_user_id=current_user.id,
     )
 
     # Reload strategies after update

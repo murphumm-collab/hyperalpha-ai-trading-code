@@ -3,19 +3,47 @@ from typing import Optional, List
 import json
 from sqlalchemy.orm import Session
 
-from database.models import AccountStrategyConfig
+from database.models import Account, AccountStrategyConfig
 
 
-def get_strategy_by_account(db: Session, account_id: int) -> Optional[AccountStrategyConfig]:
-    return (
+def _owner_account_exists(db: Session, account_id: int, owner_user_id: Optional[int]) -> bool:
+    if owner_user_id is None:
+        return True
+    return db.query(Account.id).filter(
+        Account.id == account_id,
+        Account.user_id == owner_user_id,
+        Account.is_deleted != True,
+    ).first() is not None
+
+
+def get_strategy_by_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Optional[AccountStrategyConfig]:
+    query = (
         db.query(AccountStrategyConfig)
         .filter(AccountStrategyConfig.account_id == account_id)
-        .first()
     )
+    if owner_user_id is not None:
+        query = query.join(Account, AccountStrategyConfig.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    return query.first()
 
 
-def list_strategies(db: Session) -> List[AccountStrategyConfig]:
-    return db.query(AccountStrategyConfig).all()
+def list_strategies(
+    db: Session,
+    owner_user_id: Optional[int] = None,
+) -> List[AccountStrategyConfig]:
+    query = db.query(AccountStrategyConfig)
+    if owner_user_id is not None:
+        query = query.join(Account, AccountStrategyConfig.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    return query.all()
 
 
 def parse_signal_pool_ids(strategy: AccountStrategyConfig) -> List[int]:
@@ -49,9 +77,13 @@ def upsert_strategy(
     signal_pool_id: Optional[int] = None,  # Deprecated: kept for backward compatibility
     signal_pool_ids: Optional[List[int]] = None,  # New: list of pool IDs
     exchange: str = "hyperliquid",  # "hyperliquid" or "binance"
+    owner_user_id: Optional[int] = None,
 ) -> AccountStrategyConfig:
     print(f"upsert_strategy called with: account_id={account_id}, signal_pool_ids={signal_pool_ids}, signal_pool_id={signal_pool_id}")
-    strategy = get_strategy_by_account(db, account_id)
+    if not _owner_account_exists(db, account_id, owner_user_id):
+        raise ValueError(f"Account {account_id} not found")
+
+    strategy = get_strategy_by_account(db, account_id, owner_user_id=owner_user_id)
     if strategy is None:
         strategy = AccountStrategyConfig(account_id=account_id)
         db.add(strategy)
@@ -85,8 +117,13 @@ def upsert_strategy(
     return strategy
 
 
-def set_last_trigger(db: Session, account_id: int, when) -> None:
-    strategy = get_strategy_by_account(db, account_id)
+def set_last_trigger(
+    db: Session,
+    account_id: int,
+    when,
+    owner_user_id: Optional[int] = None,
+) -> None:
+    strategy = get_strategy_by_account(db, account_id, owner_user_id=owner_user_id)
     if not strategy:
         return
     when_to_store = when

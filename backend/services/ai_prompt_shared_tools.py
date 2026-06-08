@@ -218,7 +218,11 @@ def execute_get_prompt_context(
             }
 
             # Get strategy to find exchange and signal pool
-            strategy = get_strategy_by_account(db, account.id)
+            strategy = get_strategy_by_account(
+                db,
+                account.id,
+                owner_user_id=user_id,
+            )
             if strategy:
                 trader_info["exchange"] = getattr(strategy, 'exchange', None) or "hyperliquid"
 
@@ -320,7 +324,11 @@ def execute_get_trader_details(
         }
 
         # Get strategy config
-        strategy = get_strategy_by_account(db, trader_id)
+        strategy = get_strategy_by_account(
+            db,
+            trader_id,
+            owner_user_id=user_id,
+        )
         if strategy:
             result["trader"]["exchange"] = getattr(strategy, 'exchange', None) or "hyperliquid"
 
