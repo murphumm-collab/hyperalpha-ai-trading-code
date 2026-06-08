@@ -352,7 +352,11 @@ class ProgramExecutionService:
                 get_leverage_settings,
             )
 
-            environment = get_account_trading_environment(db, account.id)
+            environment = get_account_trading_environment(
+                db,
+                account.id,
+                owner_user_id=account.user_id,
+            )
             trading_client = None
 
             if exchange == "binance":
@@ -382,11 +386,21 @@ class ProgramExecutionService:
                 # Use Hyperliquid trading client (default)
                 if environment and wallet_address:
                     try:
-                        trading_client = get_hyperliquid_client(db, account.id, override_environment=environment)
+                        trading_client = get_hyperliquid_client(
+                            db,
+                            account.id,
+                            override_environment=environment,
+                            owner_user_id=account.user_id,
+                        )
                     except Exception as e:
                         logger.warning(f"[ProgramExecution] Failed to create Hyperliquid trading client: {e}")
                 # Get leverage settings (same as AI Trader)
-                leverage_settings = get_leverage_settings(db, account.id, environment or "mainnet")
+                leverage_settings = get_leverage_settings(
+                    db,
+                    account.id,
+                    environment or "mainnet",
+                    owner_user_id=account.user_id,
+                )
 
             max_leverage = leverage_settings["max_leverage"]
             default_leverage = leverage_settings["default_leverage"]
@@ -487,7 +501,11 @@ class ProgramExecutionService:
         """Get the active wallet address for an account based on exchange."""
         from services.hyperliquid_environment import get_account_trading_environment
 
-        environment = get_account_trading_environment(db, account.id)
+        environment = get_account_trading_environment(
+            db,
+            account.id,
+            owner_user_id=account.user_id,
+        )
         if not environment:
             return None
 
@@ -897,7 +915,16 @@ class ProgramExecutionService:
 
         # Validate decision
         positions_dict = {}
-        environment = get_account_trading_environment(db, binding.account_id)
+        account_owner_id = getattr(getattr(binding, "account", None), "user_id", None)
+        if account_owner_id is None:
+            owner_row = db.query(Account.user_id).filter(Account.id == binding.account_id).first()
+            account_owner_id = owner_row.user_id if owner_row else None
+
+        environment = get_account_trading_environment(
+            db,
+            binding.account_id,
+            owner_user_id=account_owner_id,
+        )
 
         # Note: Quota check is now done in _execute_binding before logging,
         # so we don't need to check again here.
@@ -928,7 +955,12 @@ class ProgramExecutionService:
                     logger.error(f"[ProgramExecution] Failed to create Binance client: {e}")
                     return False
             else:
-                client = get_hyperliquid_client(db, binding.account_id, override_environment=environment)
+                client = get_hyperliquid_client(
+                    db,
+                    binding.account_id,
+                    override_environment=environment,
+                    owner_user_id=account_owner_id,
+                )
 
         if hasattr(decision, 'operation'):
             # New Decision format - get positions for validation
@@ -997,7 +1029,10 @@ class ProgramExecutionService:
                 )
             else:
                 leverage_settings = get_leverage_settings(
-                    db, binding.account_id, environment or "mainnet"
+                    db,
+                    binding.account_id,
+                    environment or "mainnet",
+                    owner_user_id=account_owner_id,
                 )
             max_leverage = leverage_settings.get("max_leverage", 10)
             risk_result = validate_automated_trade_risk(
