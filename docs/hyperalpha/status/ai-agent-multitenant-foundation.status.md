@@ -48,8 +48,9 @@ Local checkpoint: current branch `HEAD`
 - User API list/login hardening for To C identity isolation.
 - User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle.
 - User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads.
+- User-bound WebSocket bootstrap/account switching/order/snapshot/asset-curve requests and per-user asset-curve broadcasts.
 - Development progress and acceptance markers.
-- Manual order-placement APIs are not changed in this slice.
+- REST manual order-placement APIs are not changed in this slice; WebSocket order placement now validates the connection user's account ownership.
 
 ## Progress Markers
 
@@ -102,6 +103,7 @@ Local checkpoint: current branch `HEAD`
 | User API hardening | Done | Legacy `/api/users/login` validates `password_hash`; `/api/users/` returns only the current request user |
 | Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; import reads original logs only from the task account |
 | Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts and reject cross-user `account_id` filters |
+| WebSocket ownership | Done | WS resolves session/JWT identity from query/header/message token, ignores client-provided username for bootstrap, rejects cross-user `switch_account`, scopes asset curves by current user, and sends auth tokens from frontend WS requests |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -173,8 +175,12 @@ Local checkpoint: current branch `HEAD`
 - Passed: Analytics owner isolation smoke test in `uv run`: Alice summary/account/trade/replay reads excluded Bob's trade PnL/order, Bob replaying Alice trade returned 404, and Bob filtering Alice account returned 404.
 - Passed: Program analytics owner isolation smoke test in `uv run`: Alice program summary/by-program excluded Bob's ProgramExecutionLog, and Bob filtering Alice account returned 404.
 - Passed: Analytics route syntax compile in both system Python and `uv run` backend environment.
+- Passed: WebSocket owner isolation smoke test in `uv run`: Bob could not pass the WS account owner guard for Alice's account, Alice/default asset curves returned only their own account rows.
+- Passed: Frontend WS auth static check: remaining `send(JSON.stringify(...))` calls in the main app and asset-curve component go through `withWsAuth`.
+- Passed: WebSocket route syntax compile in both system Python and `uv run` backend environment; frontend production build passed after WS token propagation.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
+- Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
 ## Known Not-Accepted Items

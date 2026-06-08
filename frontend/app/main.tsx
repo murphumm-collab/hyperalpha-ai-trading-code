@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import ReactDOM from 'react-dom/client'
+import Cookies from 'js-cookie'
 import './index.css'
 import './i18n' // Initialize i18n
 import { Toaster, toast } from 'react-hot-toast'
@@ -19,7 +20,17 @@ let __WS_SINGLETON__: WebSocket | null = null;
 
 const resolveWsUrl = () => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  return `${protocol}//${window.location.host}/ws`
+  const url = new URL(`${protocol}//${window.location.host}/ws`)
+  const token = Cookies.get('arena_token')
+  if (token) {
+    url.searchParams.set('token', token)
+  }
+  return url.toString()
+}
+
+const withWsAuth = <T extends Record<string, any>>(payload: T): T & { access_token?: string } => {
+  const token = Cookies.get('arena_token')
+  return token ? { ...payload, access_token: token } : payload
 }
 
 
@@ -362,12 +373,12 @@ function App() {
         const handleOpen = () => {
           console.log('WebSocket connected')
           // Start with hardcoded default user for paper trading
-          ws!.send(JSON.stringify({
+          ws!.send(JSON.stringify(withWsAuth({
             type: 'bootstrap',
             username: 'default',
             initial_capital: 10000,
             trading_mode: tradingMode
-          }))
+          })))
         }
         
         const handleMessage = (e: MessageEvent) => {
@@ -381,10 +392,10 @@ function App() {
                 setAccount(msg.account)
                 // Only request snapshot for paper mode
                 if (tradingMode === 'paper') {
-                  ws!.send(JSON.stringify({
+                  ws!.send(JSON.stringify(withWsAuth({
                     type: 'get_snapshot',
                     trading_mode: tradingMode
-                  }))
+                  })))
                 }
               }
               // refresh accounts list once bootstrapped
@@ -410,29 +421,29 @@ function App() {
             } else if (msg.type === 'order_filled') {
               toast.success('Order filled')
               const env = tradingMode === 'testnet' || tradingMode === 'mainnet' ? tradingMode : undefined
-              ws!.send(JSON.stringify({
+              ws!.send(JSON.stringify(withWsAuth({
                 type: 'get_snapshot',
                 trading_mode: tradingMode
-              }))
-              ws!.send(JSON.stringify({
+              })))
+              ws!.send(JSON.stringify(withWsAuth({
                 type: 'get_asset_curve',
                 timeframe: '5m',
                 trading_mode: tradingMode,
                 ...(env ? { environment: env } : {})
-              }))
+              })))
             } else if (msg.type === 'order_pending') {
               toast('Order placed, waiting for fill', { icon: '⏳' })
               const env = tradingMode === 'testnet' || tradingMode === 'mainnet' ? tradingMode : undefined
-              ws!.send(JSON.stringify({
+              ws!.send(JSON.stringify(withWsAuth({
                 type: 'get_snapshot',
                 trading_mode: tradingMode
-              }))
-              ws!.send(JSON.stringify({
+              })))
+              ws!.send(JSON.stringify(withWsAuth({
                 type: 'get_asset_curve',
                 timeframe: '5m',
                 trading_mode: tradingMode,
                 ...(env ? { environment: env } : {})
-              }))
+              })))
             } else if (msg.type === 'user_switched') {
               setUser(msg.user)
             } else if (msg.type === 'account_switched') {
@@ -623,17 +634,17 @@ function App() {
   useEffect(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN && account) {
       const env = tradingMode === 'testnet' || tradingMode === 'mainnet' ? tradingMode : undefined
-      wsRef.current.send(JSON.stringify({
+      wsRef.current.send(JSON.stringify(withWsAuth({
         type: 'get_snapshot',
         trading_mode: tradingMode
-      }))
+      })))
       // Also refresh asset curve data
-      wsRef.current.send(JSON.stringify({
+      wsRef.current.send(JSON.stringify(withWsAuth({
         type: 'get_asset_curve',
         timeframe: '5m',
         trading_mode: tradingMode,
         ...(env ? { environment: env } : {})
-      }))
+      })))
     }
   }, [tradingMode, account])
 
@@ -644,16 +655,16 @@ function App() {
         return
       }
       const env = tradingMode === 'testnet' || tradingMode === 'mainnet' ? tradingMode : undefined
-      wsRef.current.send(JSON.stringify({
+      wsRef.current.send(JSON.stringify(withWsAuth({
         type: 'get_snapshot',
         trading_mode: tradingMode
-      }))
-      wsRef.current.send(JSON.stringify({
+      })))
+      wsRef.current.send(JSON.stringify(withWsAuth({
         type: 'get_asset_curve',
         timeframe: '5m',
         trading_mode: tradingMode,
         ...(env ? { environment: env } : {})
-      }))
+      })))
     }, 300000)
 
     return () => clearInterval(refreshInterval)
@@ -666,7 +677,7 @@ function App() {
       return
     }
     try {
-      wsRef.current.send(JSON.stringify({ type: 'place_order', ...payload }))
+      wsRef.current.send(JSON.stringify(withWsAuth({ type: 'place_order', ...payload })))
       toast('Placing order...', { icon: '📝' })
     } catch (e) {
       console.error(e)
@@ -681,7 +692,7 @@ function App() {
       return
     }
     try {
-      wsRef.current.send(JSON.stringify({ type: 'switch_user', username }))
+      wsRef.current.send(JSON.stringify(withWsAuth({ type: 'switch_user', username })))
     } catch (e) {
       console.error(e)
       toast.error('Failed to switch user')
@@ -695,7 +706,7 @@ function App() {
       return
     }
     try {
-      wsRef.current.send(JSON.stringify({ type: 'switch_account', account_id: accountId }))
+      wsRef.current.send(JSON.stringify(withWsAuth({ type: 'switch_account', account_id: accountId })))
     } catch (e) {
       console.error(e)
       toast.error('Failed to switch AI trader')
@@ -708,10 +719,10 @@ function App() {
 
     // Also refresh the current data snapshot
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({
+      wsRef.current.send(JSON.stringify(withWsAuth({
         type: 'get_snapshot',
         trading_mode: tradingMode
-      }))
+      })))
     }
   }
 
@@ -743,10 +754,10 @@ function App() {
   const renderMainContent = () => {
     const refreshData = () => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-        wsRef.current.send(JSON.stringify({
+        wsRef.current.send(JSON.stringify(withWsAuth({
           type: 'get_snapshot',
           trading_mode: tradingMode
-        }))
+        })))
       }
     }
 

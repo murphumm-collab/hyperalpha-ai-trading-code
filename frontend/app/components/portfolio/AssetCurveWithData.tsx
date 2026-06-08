@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import Cookies from 'js-cookie'
 import {
   LineChart,
   Line,
@@ -36,6 +37,11 @@ interface AssetCurveProps {
 type Timeframe = '5m' | '1h' | '1d'
 const DEFAULT_TIMEFRAME: Timeframe = '5m'
 const CACHE_STALE_MS = 45_000
+
+const withWsAuth = <T extends Record<string, any>>(payload: T): T & { access_token?: string } => {
+  const token = Cookies.get('arena_token')
+  return token ? { ...payload, access_token: token } : payload
+}
 
 interface TimeframeCacheEntry {
   data: AssetCurveData[]
@@ -165,11 +171,11 @@ export default function AssetCurve({
     if (wsRef?.current && wsRef.current.readyState === WebSocket.OPEN) {
       if (!hadCache) setLoading(true)
       setError(null)
-      wsRef.current.send(JSON.stringify({
+      wsRef.current.send(JSON.stringify(withWsAuth({
         type: 'get_asset_curve',
         timeframe,
         trading_mode: tradingMode,
-      }))
+      })))
     } else if (!hadCache && initialData && !isInitialized) {
       setData(initialData)
       setIsInitialized(true)

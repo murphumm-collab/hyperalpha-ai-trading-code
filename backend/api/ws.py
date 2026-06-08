@@ -4,17 +4,18 @@ import logging
 import threading
 import time
 from datetime import date, datetime, timedelta
-from typing import Dict, Optional, Set
+from typing import Any, Dict, Optional, Set
 
 from fastapi import WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
+from api.auth_utils import resolve_request_user
 from database.connection import SessionLocal
 from database.models import AIDecisionLog, Account, CryptoPrice, Trade, User
 from repositories.account_repo import get_account, get_or_create_default_account
 from repositories.order_repo import list_orders
 from repositories.position_repo import list_positions
-from repositories.user_repo import get_or_create_user, get_user
+from repositories.user_repo import get_user
 from services.asset_calculator import calc_positions_value
 from services.asset_curve_calculator import get_all_asset_curves_data_new
 from services.market_data import get_last_price
@@ -185,16 +186,68 @@ def get_current_thread_count() -> int:
     return -1
 
 
+def _bearer_from_token(token: Optional[str]) -> Optional[str]:
+    if not token:
+        return None
+    token = str(token).strip()
+    if not token:
+        return None
+    if token.lower().startswith("bearer "):
+        return token
+    return f"Bearer {token}"
+
+
+def _resolve_ws_user(db: Session, websocket: WebSocket, msg: Optional[dict[str, Any]] = None) -> User:
+    msg = msg or {}
+    session_token = (
+        msg.get("session_token")
+        or msg.get("sessionToken")
+        or websocket.query_params.get("session_token")
+    )
+    authorization = (
+        msg.get("authorization")
+        or msg.get("Authorization")
+        or websocket.headers.get("authorization")
+        or _bearer_from_token(msg.get("access_token") or msg.get("token"))
+        or _bearer_from_token(websocket.query_params.get("access_token") or websocket.query_params.get("token"))
+    )
+    return resolve_request_user(
+        db=db,
+        session_token=session_token,
+        authorization=authorization,
+        allow_default=True,
+    )
+
+
+def _ensure_ws_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise PermissionError("account not found")
+    return account
+
+
 async def broadcast_asset_curve_update(timeframe: str = "1h"):
     """Broadcast asset curve updates to all connected clients"""
     db = SessionLocal()
     try:
-        asset_curves = get_all_asset_curves_data(db, timeframe)
-        await manager.broadcast_to_all({
-            "type": "asset_curve_update",
-            "timeframe": timeframe,
-            "data": asset_curves
-        })
+        for account_id in list(manager.active_connections.keys()):
+            account = get_account(db, account_id)
+            if not account:
+                continue
+            asset_curves = get_all_asset_curves_data(
+                db,
+                timeframe,
+                user_id=account.user_id,
+            )
+            await manager.send_to_account(account_id, {
+                "type": "asset_curve_update",
+                "timeframe": timeframe,
+                "data": asset_curves
+            })
     except Exception as e:
         logging.error(f"Failed to broadcast asset curve update: {e}")
     finally:
@@ -272,6 +325,8 @@ def get_all_asset_curves_data(
     trading_mode: str = "testnet",
     environment: Optional[str] = None,
     wallet_address: Optional[str] = None,
+    account_id: Optional[int] = None,
+    user_id: Optional[int] = None,
 ):
     """Get timeframe-based asset curve data for all accounts - WebSocket version
 
@@ -287,6 +342,8 @@ def get_all_asset_curves_data(
         trading_mode,
         environment,
         wallet_address=wallet_address,
+        account_id=account_id,
+        user_id=user_id,
     )
 
 
@@ -417,7 +474,11 @@ async def _send_snapshot_optimized(db: Session, account_id: int):
     current_second = int(datetime.utcnow().timestamp()) % 60
     if current_second < 10:  # First 10 seconds of each minute
         try:
-            response_data["all_asset_curves"] = get_all_asset_curves_data(db, "1h")
+            response_data["all_asset_curves"] = get_all_asset_curves_data(
+                db,
+                "1h",
+                user_id=account.user_id,
+            )
             response_data["type"] = "snapshot_full"  # Indicate this includes full data
         except Exception as e:
             logger.error(f"Failed to get asset curves: {e}")
@@ -653,6 +714,7 @@ async def _send_hyperliquid_snapshot(db: Session, account_id: int, environment: 
                 "1h",
                 trading_mode=environment,
                 environment=environment,
+                user_id=account.user_id,
             ),
             "hyperliquid_state": {
                 "environment": environment,
@@ -782,7 +844,11 @@ async def _send_snapshot(db: Session, account_id: int):
             }
             for d in ai_decisions
         ],
-        "all_asset_curves": get_all_asset_curves_data(db, "1h"),
+        "all_asset_curves": get_all_asset_curves_data(
+            db,
+            "1h",
+            user_id=account.user_id,
+        ),
     }
 
     if price_error_message:
@@ -805,6 +871,7 @@ async def websocket_endpoint(websocket: WebSocket):
         pass
     account_id: int | None = None
     user_id: int | None = None  # Initialize user_id to avoid UnboundLocalError
+    connection_user: User | None = None
 
     try:
         while True:
@@ -831,17 +898,38 @@ async def websocket_endpoint(websocket: WebSocket):
             logging.info(f"[WS] Received message type: {kind}")
             db: Session = SessionLocal()
             try:
+                has_message_auth = any(
+                    msg.get(key)
+                    for key in ("authorization", "Authorization", "access_token", "token", "session_token", "sessionToken")
+                )
+                if has_message_auth:
+                    try:
+                        resolved_user = _resolve_ws_user(db, websocket, msg)
+                    except Exception:
+                        await websocket.send_text(json.dumps({"type": "error", "message": "authentication failed"}))
+                        continue
+                    if connection_user is None or resolved_user.id != connection_user.id:
+                        if account_id is not None:
+                            manager.unregister(account_id, websocket)
+                            account_id = None
+                        connection_user = resolved_user
+                        user_id = resolved_user.id
+
                 if kind == "bootstrap":
-                    #  mode: Create or get default default user
-                    username = msg.get("username", "default")
+                    if connection_user is None:
+                        connection_user = _resolve_ws_user(db, websocket, msg)
+                    user_id = connection_user.id
+                    username = connection_user.username
                     trading_mode = msg.get("trading_mode", "paper")
-                    logging.info(f"[WS] Bootstrap request: username={username}, trading_mode={trading_mode}")
-                    user = get_or_create_user(db, username)
+                    logging.info(
+                        f"[WS] Bootstrap request: user_id={connection_user.id}, "
+                        f"username={username}, trading_mode={trading_mode}"
+                    )
                     
                     # Get existing account for this user
                     account = get_or_create_default_account(
                         db,
-                        user.id,
+                        connection_user.id,
                         account_name=f"{username} AI Trader",
                         initial_capital=float(msg.get("initial_capital", 100000))
                     )
@@ -862,7 +950,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             logging.info(f"[WS] Sending bootstrap_ok for account {account.id}")
                             await manager.send_to_account(account_id, {
                                 "type": "bootstrap_ok",
-                                "user": {"id": user.id, "username": user.username},
+                                "user": {"id": connection_user.id, "username": connection_user.username},
                                 "account": {"id": account.id, "name": account.name, "user_id": account.user_id}
                             })
                             logging.info(f"[WS] Sending snapshot for account {account.id}")
@@ -872,57 +960,42 @@ async def websocket_endpoint(websocket: WebSocket):
                             # Send bootstrap with no account info
                             await websocket.send_text(json.dumps({
                                 "type": "bootstrap_ok",
-                                "user": {"id": user.id, "username": user.username},
+                                "user": {"id": connection_user.id, "username": connection_user.username},
                                 "account": None
                             }))
                     except Exception as e:
                         logging.error(f"Failed to send bootstrap response: {e}")
                         break
                 elif kind == "subscribe":
-                    # subscribe existing user_id
+                    if connection_user is None:
+                        connection_user = _resolve_ws_user(db, websocket, msg)
                     uid = int(msg.get("user_id"))
-                    u = get_user(db, uid)
-                    if not u:
+                    if uid != connection_user.id:
                         try:
-                            await websocket.send_text(json.dumps({"type": "error", "message": "user not found"}))
+                            await websocket.send_text(json.dumps({"type": "error", "message": "forbidden"}))
                         except:
                             break
                         continue
-                    user_id = uid
-                    manager.register(user_id, websocket)
-                    try:
-                        await _send_snapshot(db, user_id)
-                    except Exception as e:
-                        logging.error(f"Failed to send snapshot: {e}")
-                        break
+                    user_id = connection_user.id
+                    await websocket.send_text(json.dumps({
+                        "type": "subscribed",
+                        "user": {"id": connection_user.id, "username": connection_user.username},
+                    }))
                 elif kind == "switch_user":
-                    # Switch to different user account
-                    target_username = msg.get("username")
-                    if not target_username:
-                        await websocket.send_text(json.dumps({"type": "error", "message": "username required"}))
-                        continue
-
-                    # Unregister from current user if any
-                    if user_id is not None:
-                        manager.unregister(user_id, websocket)
-
-                    # Find target user
-                    target_user = get_or_create_user(db, target_username, 100000.0)
-                    user_id = target_user.id
-
-                    # Register to new user
-                    manager.register(user_id, websocket)
-
-                    # Send confirmation and snapshot
-                    await manager.send_to_account(user_id, {
+                    if connection_user is None:
+                        connection_user = _resolve_ws_user(db, websocket, msg)
+                    user_id = connection_user.id
+                    await websocket.send_text(json.dumps({
                         "type": "user_switched",
                         "user": {
-                            "id": target_user.id,
-                            "username": target_user.username
+                            "id": connection_user.id,
+                            "username": connection_user.username
                         }
-                    })
-                    await _send_snapshot(db, user_id)
+                    }))
                 elif kind == "switch_account":
+                    if connection_user is None:
+                        connection_user = _resolve_ws_user(db, websocket, msg)
+                        user_id = connection_user.id
                     # Switch to different account by ID
                     target_account_id = msg.get("account_id")
                     if not target_account_id:
@@ -933,9 +1006,14 @@ async def websocket_endpoint(websocket: WebSocket):
                     if account_id is not None:
                         manager.unregister(account_id, websocket)
 
-                    # Get target account
-                    target_account = get_account(db, target_account_id)
-                    if not target_account:
+                    # Get target account and require ownership by the WebSocket user
+                    try:
+                        target_account = _ensure_ws_account_owner(
+                            db,
+                            int(target_account_id),
+                            connection_user.id,
+                        )
+                    except (PermissionError, ValueError):
                         await websocket.send_text(json.dumps({"type": "error", "message": "account not found"}))
                         continue
 
@@ -961,6 +1039,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         logging.info(f"Received get_snapshot request: account_id={account_id}, trading_mode={trading_mode}")
                         await _send_snapshot_by_mode(db, account_id, trading_mode)
                 elif kind == "get_asset_curve":
+                    if connection_user is None:
+                        connection_user = _resolve_ws_user(db, websocket, msg)
+                        user_id = connection_user.id
                     # Get asset curve data with specific timeframe and trading mode
                     timeframe = msg.get("timeframe", "1h")
                     trading_mode = msg.get("trading_mode", "testnet")
@@ -974,6 +1055,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         timeframe,
                         trading_mode,
                         environment=environment,
+                        account_id=account_id,
+                        user_id=connection_user.id,
                     )
                     await websocket.send_text(json.dumps({
                         "type": "asset_curve_data",
@@ -986,6 +1069,9 @@ async def websocket_endpoint(websocket: WebSocket):
                     if account_id is None:
                         await websocket.send_text(json.dumps({"type": "error", "message": "not authenticated"}))
                         continue
+                    if connection_user is None:
+                        connection_user = _resolve_ws_user(db, websocket, msg)
+                        user_id = connection_user.id
 
                     try:
                         # Import the order creation service
@@ -993,7 +1079,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                         # Get account and user object
                         account = get_account(db, account_id)
-                        if not account:
+                        if not account or account.user_id != connection_user.id:
                             await websocket.send_text(json.dumps({"type": "error", "message": "account not found"}))
                             continue
 
