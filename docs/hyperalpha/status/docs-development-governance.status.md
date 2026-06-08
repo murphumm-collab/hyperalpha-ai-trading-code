@@ -21,7 +21,7 @@ Updated: 2026-06-08
 - Frontend code changes.
 - Backend code changes.
 - AI Agent runtime implementation.
-- GitHub remote push, because remote URL is not yet configured.
+- Direct terminal `git push`, because GitHub CLI/browser sudo verification still requires user-side second-factor confirmation.
 
 ## Affected Modules
 
@@ -32,6 +32,7 @@ Updated: 2026-06-08
 ## Implementation Notes
 
 Created documentation-only governance baseline before functional development.
+Remote repository and working branch were created, then documentation was synced through GitHub Web/Connector commits.
 
 ## Security Review Notes
 
@@ -55,6 +56,7 @@ Status: passed_for_docs
 
 ```text
 Documentation files created and repository status checked locally.
+Remote working branch synced through GitHub Web/Connector commits.
 No application code changed.
 ```
 
@@ -77,7 +79,7 @@ Notes: Waiting for owner acceptance.
 
 ## Open Issues
 
-- GitHub remote URL is still needed before pushing.
+- Terminal GitHub credentials are not established yet; browser/connector sync is working.
 - Feature development should start only after owner confirms this governance baseline.
 
 ## Rollback Plan
@@ -88,4 +90,3 @@ Remove these files if the governance baseline is rejected:
 - `docs/hyperalpha/development-governance.zh-CN.md`
 - `docs/hyperalpha/status/_feature-status-template.zh-CN.md`
 - `docs/hyperalpha/status/docs-development-governance.status.md`
-
