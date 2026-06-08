@@ -9,7 +9,7 @@ import logging
 
 from database.connection import SessionLocal
 from database.models import User, UserExchangeConfig, UserSubscription
-from api.auth_utils import get_current_user_dependency
+from api.auth_utils import get_admin_user_dependency, get_current_user_dependency, is_admin_user
 from repositories.user_repo import (
     create_user, get_user, get_user_by_username,
     update_user, create_auth_session, verify_auth_session,
@@ -228,6 +228,87 @@ class MembershipSyncRequest(BaseModel):
     username: str
     status: str | None  # "ACTIVE" or None
     current_period_end: str | None  # ISO datetime string
+
+
+class AdminUserOut(BaseModel):
+    id: int
+    username: str
+    email: str | None = None
+    role: str
+    is_active: bool
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class AdminRoleUpdateRequest(BaseModel):
+    role: str
+
+
+ADMIN_MANAGED_ROLES = {"user", "admin", "operator"}
+
+
+def _admin_user_payload(user: User) -> AdminUserOut:
+    return AdminUserOut(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        role=user.role or "user",
+        is_active=user.is_active == "true",
+        created_at=user.created_at.isoformat() if user.created_at else None,
+        updated_at=user.updated_at.isoformat() if user.updated_at else None,
+    )
+
+
+def _count_admin_users(db: Session, exclude_user_id: int | None = None) -> int:
+    query = db.query(User).filter(User.role.in_(["admin", "operator"]))
+    if exclude_user_id is not None:
+        query = query.filter(User.id != exclude_user_id)
+    env_admins = [
+        user for user in query.all()
+        if is_admin_user(user)
+    ]
+    return len(env_admins)
+
+
+@router.get("/admin/users", response_model=List[AdminUserOut])
+async def admin_list_users(
+    current_user: User = Depends(get_admin_user_dependency),
+    db: Session = Depends(get_db),
+):
+    """List all users for admin role management."""
+    try:
+        users = db.query(User).order_by(User.id.asc()).all()
+        return [_admin_user_payload(user) for user in users]
+    except Exception as e:
+        logger.error(f"Failed to list admin users: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list users: {str(e)}")
+
+
+@router.patch("/admin/users/{user_id}/role", response_model=AdminUserOut)
+async def admin_update_user_role(
+    user_id: int,
+    request: AdminRoleUpdateRequest,
+    current_user: User = Depends(get_admin_user_dependency),
+    db: Session = Depends(get_db),
+):
+    """Update a user's role. Prevent removing the final admin/operator."""
+    new_role = (request.role or "").strip().lower()
+    if new_role not in ADMIN_MANAGED_ROLES:
+        raise HTTPException(status_code=400, detail="Role must be one of: user, admin, operator")
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    old_role = (user.role or "user").lower()
+    if old_role in {"admin", "operator"} and new_role == "user":
+        if _count_admin_users(db, exclude_user_id=user.id) <= 0:
+            raise HTTPException(status_code=400, detail="Cannot remove the last admin user")
+
+    user.role = new_role
+    db.commit()
+    db.refresh(user)
+    return _admin_user_payload(user)
 
 
 @router.post("/sync-membership")

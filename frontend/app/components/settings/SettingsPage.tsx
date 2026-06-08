@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/select'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Badge } from '@/components/ui/badge'
+import { RefreshCw } from 'lucide-react'
 import {
   getHyperliquidAvailableSymbols,
   getHyperliquidWatchlist,
@@ -43,6 +45,16 @@ interface StorageStats {
   retention_days: number
   symbol_count: number
   estimated_per_symbol_per_day_mb: number
+}
+
+interface AdminUser {
+  id: number
+  username: string
+  email?: string | null
+  role: 'user' | 'admin' | 'operator'
+  is_active: boolean
+  created_at?: string | null
+  updated_at?: string | null
 }
 
 export default function SettingsPage() {
@@ -120,6 +132,13 @@ export default function SettingsPage() {
   const [newsTesting, setNewsTesting] = useState(false)
   const [newsTestError, setNewsTestError] = useState<string | null>(null)
   const [newsTestResult, setNewsTestResult] = useState<TestNewsSourceResponse | null>(null)
+
+  // Admin user management state
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>([])
+  const [adminUsersLoading, setAdminUsersLoading] = useState(false)
+  const [adminUsersError, setAdminUsersError] = useState<string | null>(null)
+  const [adminUsersSuccess, setAdminUsersSuccess] = useState<string | null>(null)
+  const [adminRoleSaving, setAdminRoleSaving] = useState<Record<number, boolean>>({})
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -215,6 +234,30 @@ export default function SettingsPage() {
       fetchNewsSourcesData()
     }
   }, [activeTab, newsLoading, newsStats, newsSources.length, fetchNewsSourcesData])
+
+  const fetchAdminUsers = useCallback(async () => {
+    setAdminUsersLoading(true)
+    setAdminUsersError(null)
+    try {
+      const res = await authFetch('/api/users/admin/users')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to load users')
+      }
+      const data: AdminUser[] = await res.json()
+      setAdminUsers(data)
+    } catch (err) {
+      setAdminUsersError(err instanceof Error ? err.message : 'Failed to load users')
+    } finally {
+      setAdminUsersLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (activeTab === 'admin-users' && adminUsers.length === 0 && !adminUsersLoading) {
+      fetchAdminUsers()
+    }
+  }, [activeTab, adminUsers.length, adminUsersLoading, fetchAdminUsers])
 
   // Fetch backfill status for an exchange
   const fetchBackfillStatus = useCallback(async (exchange: string) => {
@@ -435,6 +478,12 @@ export default function SettingsPage() {
     return date.toLocaleString(currentLang === 'zh' ? 'zh-CN' : 'en-US')
   }
 
+  const getAdminRoleBadgeVariant = (role: string): 'default' | 'secondary' | 'outline' => {
+    if (role === 'admin') return 'default'
+    if (role === 'operator') return 'secondary'
+    return 'outline'
+  }
+
   const handleToggleNewsSource = (index: number, enabled: boolean) => {
     setNewsError(null)
     setNewsSuccess(null)
@@ -581,6 +630,30 @@ export default function SettingsPage() {
     }))
   }
 
+  const handleUpdateAdminRole = async (userId: number, role: AdminUser['role']) => {
+    setAdminRoleSaving(prev => ({ ...prev, [userId]: true }))
+    setAdminUsersError(null)
+    setAdminUsersSuccess(null)
+    try {
+      const res = await authFetch(`/api/users/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to update role')
+      }
+      const updated: AdminUser = await res.json()
+      setAdminUsers(prev => prev.map(user => user.id === userId ? updated : user))
+      setAdminUsersSuccess(t('settings.adminRoleSaved', 'Role updated'))
+    } catch (err) {
+      setAdminUsersError(err instanceof Error ? err.message : 'Failed to update role')
+    } finally {
+      setAdminRoleSaving(prev => ({ ...prev, [userId]: false }))
+    }
+  }
+
   return (
     <div className="p-6 h-[calc(100vh-64px)] flex flex-col overflow-hidden">
       {/* Language Settings - Compact row with border */}
@@ -596,9 +669,9 @@ export default function SettingsPage() {
         </select>
       </div>
 
-      {/* Tabs: Watchlist | Hyperliquid Data | Binance Data | News Sources */}
+      {/* Tabs: Watchlist | Hyperliquid Data | Binance Data | News Sources | Admin */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 flex flex-col min-h-0">
-        <TabsList className="grid w-full grid-cols-4 max-w-3xl shrink-0">
+        <TabsList className="grid w-full grid-cols-5 max-w-4xl shrink-0">
           <TabsTrigger value="watchlist">{t('settings.watchlist', 'Watchlist')}</TabsTrigger>
           <TabsTrigger value="hyperliquid-data" className="flex items-center gap-1.5">
             <ExchangeIcon exchangeId="hyperliquid" size={16} />
@@ -609,6 +682,7 @@ export default function SettingsPage() {
             Binance
           </TabsTrigger>
           <TabsTrigger value="news-sources">{t('settings.newsSources', 'News Sources')}</TabsTrigger>
+          <TabsTrigger value="admin-users">{t('settings.adminUsers', 'Admin')}</TabsTrigger>
         </TabsList>
 
         {/* Watchlist Tab */}
@@ -1284,6 +1358,107 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
+
+        <TabsContent value="admin-users" className="mt-4 flex-1 min-h-0 flex flex-col overflow-auto">
+          <Card>
+            <CardHeader className="shrink-0">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <CardTitle>{t('settings.adminUsers', 'Admin Users')}</CardTitle>
+                  <CardDescription>
+                    {t('settings.adminUsersDesc', 'Account roles and access')}
+                  </CardDescription>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={fetchAdminUsers}
+                  disabled={adminUsersLoading}
+                  className="w-full gap-2 md:w-auto"
+                >
+                  <RefreshCw className={`h-4 w-4 ${adminUsersLoading ? 'animate-spin' : ''}`} />
+                  {t('common.refresh', 'Refresh')}
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <div className="text-sm text-muted-foreground">{t('settings.totalUsers', 'Total Users')}</div>
+                  <div className="text-xl font-semibold">{adminUsers.length}</div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">{t('settings.adminRoles', 'Admins')}</div>
+                  <div className="text-xl font-semibold">
+                    {adminUsers.filter((user) => user.role === 'admin' || user.role === 'operator').length}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-sm text-muted-foreground">{t('settings.activeUsers', 'Active Users')}</div>
+                  <div className="text-xl font-semibold">
+                    {adminUsers.filter((user) => user.is_active).length}
+                  </div>
+                </div>
+              </div>
+
+              {adminUsersError && <div className="text-sm text-red-500">{adminUsersError}</div>}
+              {adminUsersSuccess && <div className="text-sm text-green-500">{adminUsersSuccess}</div>}
+
+              {adminUsersLoading && adminUsers.length === 0 ? (
+                <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
+              ) : adminUsers.length === 0 ? (
+                <div className="text-sm text-muted-foreground">{t('settings.noUsers', 'No users found')}</div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="hidden grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_180px] gap-3 px-3 text-xs font-medium uppercase text-muted-foreground md:grid">
+                    <div>{t('settings.user', 'User')}</div>
+                    <div>{t('settings.email', 'Email')}</div>
+                    <div>{t('settings.status', 'Status')}</div>
+                    <div>{t('settings.role', 'Role')}</div>
+                  </div>
+                  {adminUsers.map((user) => (
+                    <div
+                      key={user.id}
+                      className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_140px_180px] md:items-center"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{user.username}</div>
+                        <div className="text-xs text-muted-foreground">
+                          ID {user.id} - {formatDateTime(user.created_at)}
+                        </div>
+                      </div>
+                      <div className="min-w-0 text-sm text-muted-foreground">
+                        <span className="block truncate">{user.email || t('settings.notAvailable', 'N/A')}</span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant={getAdminRoleBadgeVariant(user.role)}>{user.role}</Badge>
+                        {!user.is_active && (
+                          <Badge variant="outline" className="text-muted-foreground">
+                            {t('settings.disabled', 'Disabled')}
+                          </Badge>
+                        )}
+                      </div>
+                      <Select
+                        value={user.role || 'user'}
+                        onValueChange={(value) => handleUpdateAdminRole(user.id, value as AdminUser['role'])}
+                        disabled={adminRoleSaving[user.id]}
+                      >
+                        <SelectTrigger className="h-9">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="user">{t('settings.roleUser', 'User')}</SelectItem>
+                          <SelectItem value="operator">{t('settings.roleOperator', 'Operator')}</SelectItem>
+                          <SelectItem value="admin">{t('settings.roleAdmin', 'Admin')}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>

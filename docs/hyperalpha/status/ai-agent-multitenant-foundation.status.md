@@ -60,6 +60,7 @@ Local checkpoint: current branch `HEAD`
 - Required-auth guard for Hyperliquid builder authorization status checks.
 - Required-auth guard for standalone Hyper AI LLM connection tests.
 - Admin RBAC guard for system logs, generic system config writes, system data management, and news source management.
+- Admin-only user role-management API and Settings UI for To C operations access control.
 - Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus signed Telegram webhook ingress.
 - Development progress and acceptance markers.
 - REST manual order-placement APIs are not changed in this slice; WebSocket order placement now validates the connection user's account ownership.
@@ -128,6 +129,7 @@ Local checkpoint: current branch `HEAD`
 | Hyper AI connection-test auth | Done | Standalone Hyper AI LLM connection-test endpoint requires real session/JWT before using user-submitted provider credentials |
 | Backend route auth audit | Done | Remaining unauthenticated route list reviewed: public market data/factor read/ranking/news article/static docs/auth lifecycle remain intentionally public or legacy-session based; Telegram webhook ingress is signed and user-routed |
 | Admin RBAC guard | Done | `users.role`, `get_admin_user_dependency`, env/JWT admin role sync, and admin-only system/log/config/news management endpoints |
+| Admin role management | Done | Admin-only `/api/users/admin/users` list/update endpoints plus Settings `Admin Users` tab; local smoke test covers ordinary-user 403, role update, invalid role, and last-admin demotion guard |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -224,6 +226,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: Admin RBAC smoke test in `uv run`: admin session passed, ordinary session returned 403, anonymous returned 401, local `default` user promoted to admin, and unverified demo JWT with `roles=["admin"]` created an admin user.
 - Passed: Admin RBAC syntax compile in both system Python and `uv run` backend environment for auth utilities, user repository, route modules, models, and migration.
 - Passed: Admin RBAC static check: system, system-log, news source/stats, and generic system-config write endpoints now depend on `get_admin_user_dependency`.
+- Passed: Admin role-management syntax compile in both system Python and `uv run` backend environment for user routes/auth utilities/user repository/models.
+- Passed: Admin role-management smoke test in `uv run`: admin listed users, ordinary user received 403, role update to operator succeeded, invalid role returned 400, and the final admin/operator could not be downgraded.
+- Passed: Frontend production build after adding the Settings `Admin Users` tab and role selector.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
@@ -237,4 +242,3 @@ Local checkpoint: current branch `HEAD`
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.
 - Factor computation/value storage is still global by factor name; private custom factors are now excluded from shared precompute/effectiveness storage, but a dedicated per-user factor value schema is still needed if private custom factors should be precomputed instead of computed on demand.
-- Admin role-management UI is not implemented yet; roles are currently controlled by DB state, `AUTH_ADMIN_USERNAMES`/`AUTH_ADMIN_EMAILS`, or JWT role/group claims.
