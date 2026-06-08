@@ -11,6 +11,9 @@ from services.system_logger import system_logger
 
 router = APIRouter(prefix="/api/system-logs", tags=["System Logs"])
 
+SYSTEM_LOG_CATEGORIES = ["price_update", "ai_decision", "system_error", "admin_audit"]
+SYSTEM_LOG_LEVELS = ["INFO", "WARNING", "ERROR"]
+
 
 @router.get("/")
 async def get_system_logs(
@@ -56,8 +59,8 @@ async def get_log_categories(
     - levels: 日志级别列表
     """
     return {
-        "categories": ["price_update", "ai_decision", "system_error"],
-        "levels": ["INFO", "WARNING", "ERROR"]
+        "categories": SYSTEM_LOG_CATEGORIES,
+        "levels": SYSTEM_LOG_LEVELS
     }
 
 
@@ -92,14 +95,10 @@ async def get_log_stats(
     stats = {
         "total_logs": len(all_logs),
         "by_level": {
-            "INFO": 0,
-            "WARNING": 0,
-            "ERROR": 0
+            level: 0 for level in SYSTEM_LOG_LEVELS
         },
         "by_category": {
-            "price_update": 0,
-            "ai_decision": 0,
-            "system_error": 0
+            category: 0 for category in SYSTEM_LOG_CATEGORIES
         }
     }
 

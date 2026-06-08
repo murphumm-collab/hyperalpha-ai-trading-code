@@ -20,6 +20,7 @@ from pydantic import BaseModel
 from schemas.user import (
     UserCreate, UserUpdate, UserOut, UserLogin, UserAuthResponse
 )
+from services.system_logger import system_logger
 
 logger = logging.getLogger(__name__)
 
@@ -305,9 +306,28 @@ async def admin_update_user_role(
         if _count_admin_users(db, exclude_user_id=user.id) <= 0:
             raise HTTPException(status_code=400, detail="Cannot remove the last admin user")
 
+    if old_role == new_role:
+        return _admin_user_payload(user)
+
     user.role = new_role
     db.commit()
     db.refresh(user)
+    try:
+        system_logger.add_log(
+            "WARNING",
+            "admin_audit",
+            "User role changed",
+            {
+                "actor_user_id": current_user.id,
+                "actor_username": current_user.username,
+                "target_user_id": user.id,
+                "target_username": user.username,
+                "old_role": old_role,
+                "new_role": new_role,
+            },
+        )
+    except Exception as exc:
+        logger.warning("Failed to write admin role audit log: %s", exc)
     return _admin_user_payload(user)
 
 
