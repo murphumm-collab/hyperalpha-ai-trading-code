@@ -24,6 +24,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible'
 import { toast } from 'react-hot-toast'
+import { authFetch } from '@/lib/authFetch'
 import {
   LineChart,
   Line,
@@ -242,7 +243,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
   const loadHistory = async () => {
     setLoadingHistory(true)
     try {
-      const res = await fetch(`/api/programs/backtest/history?binding_id=${binding.id}&limit=30`)
+      const res = await authFetch(`/api/programs/backtest/history?binding_id=${binding.id}&limit=30`)
       if (res.ok) {
         const data = await res.json()
         setHistoryList(data.results)
@@ -292,7 +293,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
     }
 
     try {
-      const res = await fetch(`/api/programs/backtest/${historyItem.id}`)
+      const res = await authFetch(`/api/programs/backtest/${historyItem.id}`)
       if (res.ok) {
         const data = await res.json()
         setResult({
@@ -317,7 +318,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
         setStatus('complete')
 
         // Load chart markers (all non-HOLD triggers for complete chart display)
-        const markersRes = await fetch(`/api/programs/backtest/${historyItem.id}/markers`)
+        const markersRes = await authFetch(`/api/programs/backtest/${historyItem.id}/markers`)
         if (markersRes.ok) {
           const markersData = await markersRes.json()
           setChartMarkers(markersData.markers || [])
@@ -337,7 +338,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
   const loadTriggerDetailsForBacktest = async (btId: number) => {
     setLoadingDetails(true)
     try {
-      const res = await fetch(`/api/programs/backtest/${btId}/triggers?offset=0&limit=100`)
+      const res = await authFetch(`/api/programs/backtest/${btId}/triggers?offset=0&limit=100`)
       if (res.ok) {
         const data = await res.json()
         setTriggerLogs(data.triggers)
@@ -399,7 +400,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
         toast(t('programTrader.endTimeClamped', 'End time clamped to current time (future backtesting not supported)'), { icon: '⏱️' })
       }
 
-      const response = await fetch('/api/programs/backtest', {
+      const response = await authFetch('/api/programs/backtest', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -479,7 +480,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
         if (data.backtest_id) {
           setBacktestId(data.backtest_id)
           // Load chart markers for complete display
-          fetch(`/api/programs/backtest/${data.backtest_id}/markers`)
+          authFetch(`/api/programs/backtest/${data.backtest_id}/markers`)
             .then(res => res.ok ? res.json() : null)
             .then(markersData => {
               if (markersData?.markers) setChartMarkers(markersData.markers)
@@ -505,7 +506,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
 
     setLoadingDetails(true)
     try {
-      const res = await fetch(`/api/programs/backtest/${backtestId}/triggers?offset=0&limit=100`)
+      const res = await authFetch(`/api/programs/backtest/${backtestId}/triggers?offset=0&limit=100`)
       if (res.ok) {
         const data = await res.json()
         setTriggerLogs(data.triggers)
@@ -526,7 +527,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
     const newOffset = detailsOffset + 100
     setLoadingMore(true)
     try {
-      const res = await fetch(`/api/programs/backtest/${backtestId}/triggers?offset=${newOffset}&limit=100`)
+      const res = await authFetch(`/api/programs/backtest/${backtestId}/triggers?offset=${newOffset}&limit=100`)
       if (res.ok) {
         const data = await res.json()
         setTriggerLogs(prev => [...prev, ...data.triggers])
@@ -550,7 +551,7 @@ export function BacktestModal({ open, onOpenChange, binding }: BacktestModalProp
     // Load from API
     setLoadingTriggerDetail(true)
     try {
-      const res = await fetch(`/api/programs/backtest/trigger/${triggerId}`)
+      const res = await authFetch(`/api/programs/backtest/trigger/${triggerId}`)
       if (res.ok) {
         const data = await res.json()
         setSelectedTrigger(data)

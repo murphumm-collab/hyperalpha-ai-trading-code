@@ -27,6 +27,7 @@ import remarkGfm from 'remark-gfm'
 import { testRunProgram, TestRunResponse, TradingAccount, getAccounts, getProgramDevGuide } from '@/lib/api'
 import { copyToClipboard } from '@/lib/utils'
 import { STRATEGY_RADAR_URL } from '@/lib/strategyRadar'
+import { authFetch } from '@/lib/authFetch'
 import AiProgramChatModal from './AiProgramChatModal'
 import { BindingPreviewRunDialog } from './BindingPreviewRunDialog'
 import { BacktestModal } from './BacktestModal'
@@ -231,7 +232,7 @@ export default function ProgramTrader() {
 
   const fetchPrograms = async () => {
     try {
-      const res = await fetch(API_BASE)
+      const res = await authFetch(API_BASE)
       if (res.ok) {
         const data = await res.json()
         setPrograms(data)
@@ -245,7 +246,7 @@ export default function ProgramTrader() {
 
   const fetchSignalPools = async () => {
     try {
-      const res = await fetch(`${API_BASE}signal-pools/`)
+      const res = await authFetch(`${API_BASE}signal-pools/`)
       if (res.ok) {
         const data = await res.json()
         setSignalPools((data || []).filter((pool: SignalPool) => pool.enabled))
@@ -257,7 +258,7 @@ export default function ProgramTrader() {
 
   const fetchAITraders = async () => {
     try {
-      const res = await fetch(`${API_BASE}accounts/`)
+      const res = await authFetch(`${API_BASE}accounts/`)
       if (res.ok) {
         const data = await res.json()
         setAITraders(data)
@@ -301,7 +302,7 @@ export default function ProgramTrader() {
     try {
       if (isCreating) {
         // Create new program
-        const res = await fetch(API_BASE, {
+        const res = await authFetch(API_BASE, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, description, code, params: {} }),
@@ -316,7 +317,7 @@ export default function ProgramTrader() {
         }
       } else if (selectedProgram) {
         // Update existing program
-        const res = await fetch(`${API_BASE}${selectedProgram.id}`, {
+        const res = await authFetch(`${API_BASE}${selectedProgram.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, description, code }),
@@ -341,7 +342,7 @@ export default function ProgramTrader() {
   const fetchAllBindings = async () => {
     setLoadingBindings(true)
     try {
-      const res = await fetch(`${API_BASE}bindings/`)
+      const res = await authFetch(`${API_BASE}bindings/`)
       if (res.ok) {
         const data = await res.json()
         setBindings(data)
@@ -360,7 +361,7 @@ export default function ProgramTrader() {
     }
     setSavingBinding(true)
     try {
-      const res = await fetch(`${API_BASE}bindings/?account_id=${bindingAccountId}`, {
+      const res = await authFetch(`${API_BASE}bindings/?account_id=${bindingAccountId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -392,7 +393,7 @@ export default function ProgramTrader() {
     if (!selectedBinding) return
     setSavingBinding(true)
     try {
-      const res = await fetch(`${API_BASE}bindings/${selectedBinding.id}`, {
+      const res = await authFetch(`${API_BASE}bindings/${selectedBinding.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -422,7 +423,7 @@ export default function ProgramTrader() {
   const handleDeleteBinding = async (bindingId: number) => {
     if (!confirm('Delete this binding?')) return
     try {
-      const res = await fetch(`${API_BASE}bindings/${bindingId}`, { method: 'DELETE' })
+      const res = await authFetch(`${API_BASE}bindings/${bindingId}`, { method: 'DELETE' })
       const data = await res.json()
       if (data.deleted) {
         toast.success('Binding deleted')
@@ -477,7 +478,7 @@ export default function ProgramTrader() {
   const validateCode = async (code: string) => {
     setValidating(true)
     try {
-      const res = await fetch(`${API_BASE}validate`, {
+      const res = await authFetch(`${API_BASE}validate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code })
@@ -541,7 +542,7 @@ export default function ProgramTrader() {
     }
     setSaving(true)
     try {
-      const res = await fetch(API_BASE, {
+      const res = await authFetch(API_BASE, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -574,7 +575,7 @@ export default function ProgramTrader() {
     }
     setSaving(true)
     try {
-      const res = await fetch(`${API_BASE}${selectedProgram.id}`, {
+      const res = await authFetch(`${API_BASE}${selectedProgram.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -597,7 +598,7 @@ export default function ProgramTrader() {
   const handleDelete = async (id: number) => {
     if (!confirm(t('programTrader.confirmDelete'))) return
     try {
-      const res = await fetch(`${API_BASE}${id}`, { method: 'DELETE' })
+      const res = await authFetch(`${API_BASE}${id}`, { method: 'DELETE' })
       const data = await res.json()
       if (data.deleted) {
         toast.success(t('common.delete') + ' OK')
