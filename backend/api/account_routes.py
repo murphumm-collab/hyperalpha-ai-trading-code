@@ -66,6 +66,30 @@ def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account
     return account
 
 
+def _trades_for_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: int,
+    *,
+    ascending: bool = False,
+    limit: Optional[int] = None,
+) -> List[Trade]:
+    query = (
+        db.query(Trade)
+        .join(Account, Trade.account_id == Account.id)
+        .filter(
+            Trade.account_id == account_id,
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    )
+    order_by = Trade.trade_time.asc() if ascending else Trade.trade_time.desc()
+    query = query.order_by(order_by)
+    if limit is not None:
+        query = query.limit(limit)
+    return query.all()
+
+
 def _mask_secret(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
@@ -801,9 +825,12 @@ def get_asset_curve_by_timeframe(
             account_id = account.id
             
             # Get all trades for this account
-            trades = db.query(Trade).filter(
-                Trade.account_id == account_id
-            ).order_by(Trade.trade_time.asc()).all()
+            trades = _trades_for_account(
+                db,
+                account_id,
+                owner_user_id=account.user_id,
+                ascending=True,
+            )
             
             if not trades:
                 # No trades, return initial capital at all timestamps
@@ -1207,9 +1234,12 @@ def trigger_ai_trade(
             )
 
         # Check for new trades
-        recent_trades = db.query(Trade).filter(
-            Trade.account_id == account_id
-        ).order_by(Trade.trade_time.desc()).limit(1).all()
+        recent_trades = _trades_for_account(
+            db,
+            account_id,
+            owner_user_id=current_user.id,
+            limit=1,
+        )
 
         if recent_trades:
             latest_trade = recent_trades[0]
