@@ -320,7 +320,11 @@ async def compute_estimate(
 
     symbols = factor_computation_service.get_symbols(exchange)
     # Count both builtin registry + active custom/builtin_expression factors
-    custom_count = db.query(CustomFactor).filter(CustomFactor.is_active == True).count()
+    custom_count = db.query(CustomFactor).filter(
+        CustomFactor.is_active == True,
+        CustomFactor.source == "builtin_expression",
+        CustomFactor.user_id == None,
+    ).count()
     factor_count = len(FACTOR_REGISTRY) + custom_count
 
     # Query actual data coverage per symbol

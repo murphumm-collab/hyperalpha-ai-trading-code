@@ -426,7 +426,9 @@ class SignalDetectionService:
         if not all([operator, threshold is not None]):
             return None
 
-        current_value = self._get_metric_value(metric, symbol, market_data, time_window, exchange)
+        current_value = self._get_metric_value(
+            metric, symbol, market_data, time_window, exchange, user_id=signal_def.get("user_id")
+        )
         if current_value is None:
             return None
 
@@ -483,7 +485,9 @@ class SignalDetectionService:
             return None
 
         # Get current metric value
-        current_value = self._get_metric_value(metric, symbol, market_data, time_window, exchange)
+        current_value = self._get_metric_value(
+            metric, symbol, market_data, time_window, exchange, user_id=signal_def.get("user_id")
+        )
         if current_value is None:
             return None
 
@@ -541,7 +545,8 @@ class SignalDetectionService:
 
     def _get_metric_value(
         self, metric: str, symbol: str, market_data: Dict[str, Any], time_window: int,
-        exchange: str = "hyperliquid"
+        exchange: str = "hyperliquid",
+        user_id: Optional[int] = None,
     ) -> Optional[float]:
         """
         Get the current value of a metric from market data or indicators.
@@ -583,7 +588,7 @@ class SignalDetectionService:
 
             # Factor metric: factor:<factor_name>
             if metric.startswith("factor:"):
-                return self._get_factor_metric_value(metric, symbol, period, exchange)
+                return self._get_factor_metric_value(metric, symbol, period, exchange, user_id=user_id)
 
             if metric not in indicator_map:
                 logger.warning(f"Unknown metric: {metric}")
@@ -607,7 +612,8 @@ class SignalDetectionService:
             return None
 
     def _get_factor_metric_value(
-        self, metric: str, symbol: str, period: str, exchange: str
+        self, metric: str, symbol: str, period: str, exchange: str,
+        user_id: Optional[int] = None,
     ) -> Optional[float]:
         """
         Get factor value from K-line data using expression engine.
@@ -636,6 +642,7 @@ class SignalDetectionService:
                     period=period,
                     exchange=exchange,
                     klines=klines,
+                    user_id=user_id,
                 )
                 if series is None or len(series) == 0:
                     logger.warning(f"Factor {factor_name} execution failed: {err}")

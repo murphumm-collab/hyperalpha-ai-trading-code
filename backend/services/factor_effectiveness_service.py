@@ -34,7 +34,7 @@ from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import or_, text
 
 from database.connection import SessionLocal
 from services.factor_registry import FACTOR_REGISTRY
@@ -113,7 +113,13 @@ class FactorEffectivenessService:
         print(f"[FactorEffectiveness] {exchange}: {count} records", flush=True)
         return {"computed": count, "exchange": exchange}
 
-    def compute_single_factor(self, db: Session, exchange: str, factor_name: str) -> dict:
+    def compute_single_factor(
+        self,
+        db: Session,
+        exchange: str,
+        factor_name: str,
+        user_id: Optional[int] = None,
+    ) -> dict:
         """Public API: Compute one factor across all watchlist symbols.
         Called by Hyper AI's compute_factor tool. Always force=True to ensure
         latest algorithm is applied (overwrites old data via ON CONFLICT).
@@ -126,9 +132,20 @@ class FactorEffectivenessService:
         builtin_def = next((f for f in FACTOR_REGISTRY if f["name"] == factor_name), None)
         custom_factor = None
         if not builtin_def:
-            custom_factor = db.query(CustomFactor).filter(
+            custom_query = db.query(CustomFactor).filter(
                 CustomFactor.name == factor_name, CustomFactor.is_active == True
-            ).first()
+            )
+            if user_id is not None:
+                custom_query = custom_query.filter(or_(
+                    CustomFactor.user_id == user_id,
+                    CustomFactor.source == "builtin_expression",
+                ))
+            else:
+                custom_query = custom_query.filter(
+                    CustomFactor.source == "builtin_expression",
+                    CustomFactor.user_id == None,
+                )
+            custom_factor = custom_query.first()
             if not custom_factor:
                 return {"error": f"Factor '{factor_name}' not found"}
 
@@ -233,7 +250,10 @@ class FactorEffectivenessService:
         from database.models import CustomFactor
         try:
             custom_count = db.query(CustomFactor).filter(
-                CustomFactor.is_active == True).count()
+                CustomFactor.is_active == True,
+                CustomFactor.source == "builtin_expression",
+                CustomFactor.user_id == None,
+            ).count()
         except Exception:
             custom_count = 0
 
@@ -657,7 +677,10 @@ class FactorEffectivenessService:
 
         try:
             custom_factors = db.query(CustomFactor).filter(
-                CustomFactor.is_active == True).all()
+                CustomFactor.is_active == True,
+                CustomFactor.source == "builtin_expression",
+                CustomFactor.user_id == None,
+            ).all()
         except Exception:
             return 0
 

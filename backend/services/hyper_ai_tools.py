@@ -3025,7 +3025,7 @@ def execute_edit_factor(
         return json.dumps({"error": str(e)})
 
 
-def execute_compute_factor(db: Session, factor_name: str, exchange: str) -> str:
+def execute_compute_factor(db: Session, factor_name: str, exchange: str, user_id: int = 1) -> str:
     """Compute a single factor across all watchlist symbols using sliding window IC.
     Delegates to FactorEffectivenessService.compute_single_factor() — no duplicated logic.
     """
@@ -3033,7 +3033,7 @@ def execute_compute_factor(db: Session, factor_name: str, exchange: str) -> str:
 
     try:
         eff_svc = FactorEffectivenessService()
-        result = eff_svc.compute_single_factor(db, exchange, factor_name)
+        result = eff_svc.compute_single_factor(db, exchange, factor_name, user_id=user_id)
         return json.dumps(result, indent=2)
     except Exception as e:
         db.rollback()
@@ -3844,7 +3844,8 @@ def execute_hyper_ai_tool(
         elif tool_name == "compute_factor":
             return execute_compute_factor(
                 db, factor_name=arguments.get("factor_name", ""),
-                exchange=arguments.get("exchange", "hyperliquid")
+                exchange=arguments.get("exchange", "hyperliquid"),
+                user_id=user_id,
             )
 
         elif tool_name == "get_factor_functions":

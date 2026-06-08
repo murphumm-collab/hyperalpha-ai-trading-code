@@ -8,6 +8,7 @@ Signal Detection, and backtest paths stay aligned.
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database.models import CustomFactor
@@ -17,7 +18,11 @@ from services.factor_expression_engine import factor_expression_engine
 from services.technical_indicators import calculate_indicators
 
 
-def resolve_factor_definition(db: Session, factor_name: str) -> Optional[Dict[str, Any]]:
+def resolve_factor_definition(
+    db: Session,
+    factor_name: str,
+    user_id: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
     """Resolve a factor by name from builtin registry first, then custom_factors."""
     builtin = FACTOR_BY_NAME.get(factor_name)
     if builtin:
@@ -28,10 +33,21 @@ def resolve_factor_definition(db: Session, factor_name: str) -> Optional[Dict[st
             "expression": builtin.get("expression"),
         }
 
-    custom = db.query(CustomFactor).filter(
+    custom_query = db.query(CustomFactor).filter(
         CustomFactor.name == factor_name,
         CustomFactor.is_active == True,
-    ).first()
+    )
+    if user_id is not None:
+        custom_query = custom_query.filter(or_(
+            CustomFactor.user_id == user_id,
+            CustomFactor.source == "builtin_expression",
+        ))
+    else:
+        custom_query = custom_query.filter(
+            CustomFactor.source == "builtin_expression",
+            CustomFactor.user_id == None,
+        )
+    custom = custom_query.first()
     if not custom:
         return None
 
@@ -53,6 +69,7 @@ def compute_factor_series(
     period: str,
     exchange: str,
     klines: List[Dict[str, Any]],
+    user_id: Optional[int] = None,
 ) -> Tuple[Optional[pd.Series], Optional[Dict[str, Any]], Optional[str]]:
     """
     Compute a full factor series for builtin registry factors or custom factors.
@@ -60,7 +77,7 @@ def compute_factor_series(
     Returns:
         (series, factor_meta, error)
     """
-    factor = resolve_factor_definition(db, factor_name)
+    factor = resolve_factor_definition(db, factor_name, user_id=user_id)
     if not factor:
         return None, None, f"Factor '{factor_name}' not found"
 
@@ -97,6 +114,7 @@ def compute_factor_value(
     period: str,
     exchange: str,
     klines: List[Dict[str, Any]],
+    user_id: Optional[int] = None,
 ) -> Tuple[Optional[float], Optional[Dict[str, Any]], Optional[str]]:
     """Compute the latest factor value and return (value, factor_meta, error)."""
     series, factor, err = compute_factor_series(
@@ -106,6 +124,7 @@ def compute_factor_value(
         period=period,
         exchange=exchange,
         klines=klines,
+        user_id=user_id,
     )
     if series is None:
         return None, factor, err

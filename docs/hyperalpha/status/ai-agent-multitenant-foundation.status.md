@@ -48,6 +48,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Hyperliquid exchange action log reads and stats.
 - User-scoped sampling preferences with effective global sampling pool aggregation.
 - User-scoped custom factor library CRUD and Hyper AI `save_factor` tool ownership.
+- Private custom factors are excluded from shared factor precomputation/effectiveness storage; resolver supports current-user private factor lookup.
 - User API list/login hardening for To C identity isolation.
 - User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle.
 - User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads.
@@ -114,6 +115,7 @@ Local checkpoint: current branch `HEAD`
 | Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
 | Sampling preference isolation | Done | `/api/config/global-sampling` stores current-user preferences; effective global pool config uses max depth and min interval across user preferences |
 | Custom factor ownership | Done | CustomFactor `user_id` migration/model/API and Hyper AI `save_factor` store/list/edit/delete only the current user's custom factors while built-in expression factors remain global |
+| Private factor precompute guard | Done | Shared factor computation/effectiveness now processes only public `builtin_expression` rows; private custom factors resolve only with `user_id` for runtime/on-demand use |
 | User API hardening | Done | Legacy `/api/users/login` validates `password_hash`; `/api/users/` returns only the current request user |
 | Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; import reads original logs only from the task account |
 | Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts and reject cross-user `account_id` filters |
@@ -196,6 +198,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Sampling config route/model/migration syntax compile in both system Python and `uv run` backend environment.
 - Passed: Custom factor owner isolation smoke test in `uv run`: Alice/Bob could save same custom factor name independently; Alice library excluded Bob private factor; Alice could not delete Bob factor.
 - Passed: Custom factor route/model/migration/tool syntax compile in both system Python and `uv run` backend environment.
+- Passed: Private factor precompute guard smoke test in `uv run`: public builtin expression factor was visible to global computation, Alice/Bob same-name private factors resolved only with matching `user_id`, and global computation/effectiveness ignored private factors.
+- Passed: Private factor precompute guard syntax compile in both system Python and `uv run` backend environment for factor computation/effectiveness/resolver/routes/tools and runtime signal detection.
 - Passed: User login/list smoke test in `uv run`: wrong password rejected, correct password created a session, user listing returned only current user.
 - Passed: User route/repository syntax compile in both system Python and `uv run` backend environment.
 - Passed: Prompt Backtest owner isolation smoke test in `uv run`: Alice saw only her task, Bob received 404 for Alice task/item, and dirty task items could not import Bob's original decision log reason.
@@ -232,5 +236,5 @@ Local checkpoint: current branch `HEAD`
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.
-- Factor computation/value storage is still global by factor name; custom factor CRUD is user-scoped, but per-user computed factor values need a dedicated schema if private custom factors should be precomputed.
+- Factor computation/value storage is still global by factor name; private custom factors are now excluded from shared precompute/effectiveness storage, but a dedicated per-user factor value schema is still needed if private custom factors should be precomputed instead of computed on demand.
 - Admin role-management UI is not implemented yet; roles are currently controlled by DB state, `AUTH_ADMIN_USERNAMES`/`AUTH_ADMIN_EMAILS`, or JWT role/group claims.

@@ -160,7 +160,9 @@ class FactorComputationService:
                 "value": float(value),
             })
 
-        # Compute custom factors via expression engine
+        # Compute public expression factors via expression engine. User-owned
+        # private custom factors are computed on demand with user context; they
+        # must not be written into the shared factor_values table by name.
         custom_rows = self._compute_custom_factors(db, klines, now_ts, symbol, period, exchange)
         rows_to_upsert.extend(custom_rows)
 
@@ -262,7 +264,11 @@ class FactorComputationService:
 
         rows = []
         try:
-            custom_factors = db.query(CustomFactor).filter(CustomFactor.is_active == True).all()
+            custom_factors = db.query(CustomFactor).filter(
+                CustomFactor.is_active == True,
+                CustomFactor.source == "builtin_expression",
+                CustomFactor.user_id == None,
+            ).all()
         except Exception:
             return rows
 
