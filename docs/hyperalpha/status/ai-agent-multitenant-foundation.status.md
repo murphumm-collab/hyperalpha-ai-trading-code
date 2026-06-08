@@ -38,6 +38,7 @@ Local checkpoint: current branch `HEAD`
 | Dedicated branch created | Done | `codex/ai-agent-multitenant-foundation` |
 | Development spec saved | Done | `.omc/autopilot/spec.md` |
 | Implementation plan saved | Done | `.omc/plans/autopilot-impl.md` |
+| Backend Python runtime bound | Done | `backend/pyproject.toml` and `backend/uv.lock` constrain backend runtime to Python `>=3.12,<3.14` so `llvmlite==0.44.0` resolves with wheels |
 | Backend user resolver | Done | `backend/api/auth_utils.py` |
 | Bearer JWT/JWKS verification | Done | `AUTH_JWKS_URL` enables RS256/384/512 signature verification; `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_ALGORITHMS`, and `AUTH_REQUIRE_VERIFIED_BEARER` tighten production auth |
 | Hyper AI DB user scoping | Done | `add_hyper_ai_user_scope.py`, model `user_id` fields |
@@ -65,12 +66,14 @@ Local checkpoint: current branch `HEAD`
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
 | Remote push | Blocked | Terminal GitHub HTTPS credentials unavailable |
-| Acceptance | Partial | Multi-user AI foundation checks passed; production auth, job queue, and live order execution remain unaccepted |
+| Acceptance | Partial | Multi-user AI foundation checks passed; live Casdoor env acceptance, distributed job queue, and live order execution remain unaccepted |
 
 ## Verification Log
 
 - Passed: Python syntax compile for changed backend files.
 - Passed: Auth utility syntax compile after configurable JWKS verification implementation.
+- Passed: `uv run` backend environment now resolves with Python 3.13.13 after constraining backend Python to `>=3.12,<3.14`.
+- Passed: Auth helper smoke test in `uv run`: unverified local decode works for demo mode; `AUTH_REQUIRE_VERIFIED_BEARER=true` rejects Bearer tokens when JWKS is not configured.
 - Passed: Frontend production build with Vite.
 - Passed: Static search found no remaining `user_id=1`, bare `get_llm_config(db)`, or default-user AI entry in the scoped AI files except removed legacy helper before cleanup.
 - Passed: Static search found no remaining bare `fetch(` in Program Trader, Program Backtest, or Program AI chat components.
@@ -87,7 +90,6 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyperliquid owner guard route compile, whitespace check, and frontend production build after wallet selector auth update.
 - Passed: Hyperliquid account execution environment compile and whitespace check.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
-- Blocked: Direct `uv run` auth helper smoke test could not complete because uv selected Python 3.14 and dependency `llvmlite==0.44.0` failed to build under that interpreter.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
 ## Known Not-Accepted Items
