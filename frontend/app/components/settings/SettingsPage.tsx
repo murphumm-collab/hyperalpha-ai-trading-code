@@ -58,6 +58,19 @@ interface AdminUser {
   updated_at?: string | null
 }
 
+interface AdminAuditLog {
+  id: number
+  action: string
+  actor_user_id?: number | null
+  actor_username?: string | null
+  target_user_id?: number | null
+  target_username?: string | null
+  old_value?: string | null
+  new_value?: string | null
+  details?: Record<string, unknown>
+  created_at?: string | null
+}
+
 export default function SettingsPage() {
   const { t, i18n } = useTranslation()
   const { user: authUser, setUser: setAuthUser } = useAuth()
@@ -141,6 +154,9 @@ export default function SettingsPage() {
   const [adminUsersError, setAdminUsersError] = useState<string | null>(null)
   const [adminUsersSuccess, setAdminUsersSuccess] = useState<string | null>(null)
   const [adminRoleSaving, setAdminRoleSaving] = useState<Record<number, boolean>>({})
+  const [adminAuditLogs, setAdminAuditLogs] = useState<AdminAuditLog[]>([])
+  const [adminAuditLoading, setAdminAuditLoading] = useState(false)
+  const [adminAuditError, setAdminAuditError] = useState<string | null>(null)
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -256,11 +272,51 @@ export default function SettingsPage() {
     }
   }, [])
 
-  useEffect(() => {
-    if (activeTab === 'admin-users' && canManageUsers && adminUsers.length === 0 && !adminUsersLoading) {
-      fetchAdminUsers()
+  const fetchAdminAuditLogs = useCallback(async () => {
+    setAdminAuditLoading(true)
+    setAdminAuditError(null)
+    try {
+      const res = await authFetch('/api/users/admin/audit-logs?limit=20')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to load audit logs')
+      }
+      const data: AdminAuditLog[] = await res.json()
+      setAdminAuditLogs(data)
+    } catch (err) {
+      setAdminAuditError(err instanceof Error ? err.message : 'Failed to load audit logs')
+    } finally {
+      setAdminAuditLoading(false)
     }
-  }, [activeTab, adminUsers.length, adminUsersLoading, canManageUsers, fetchAdminUsers])
+  }, [])
+
+  const fetchAdminData = useCallback(async () => {
+    await Promise.all([
+      fetchAdminUsers(),
+      fetchAdminAuditLogs(),
+    ])
+  }, [fetchAdminAuditLogs, fetchAdminUsers])
+
+  useEffect(() => {
+    if (
+      activeTab === 'admin-users'
+      && canManageUsers
+      && adminUsers.length === 0
+      && adminAuditLogs.length === 0
+      && !adminUsersLoading
+      && !adminAuditLoading
+    ) {
+      fetchAdminData()
+    }
+  }, [
+    activeTab,
+    adminAuditLoading,
+    adminAuditLogs.length,
+    adminUsers.length,
+    adminUsersLoading,
+    canManageUsers,
+    fetchAdminData,
+  ])
 
   useEffect(() => {
     if (activeTab === 'admin-users' && !canManageUsers) {
@@ -663,6 +719,7 @@ export default function SettingsPage() {
           isAdmin: hasAdminRole,
         })
       }
+      await fetchAdminAuditLogs()
       setAdminUsersSuccess(t('settings.adminRoleSaved', 'Role updated'))
     } catch (err) {
       setAdminUsersError(err instanceof Error ? err.message : 'Failed to update role')
@@ -1393,11 +1450,11 @@ export default function SettingsPage() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={fetchAdminUsers}
-                    disabled={adminUsersLoading}
+                    onClick={fetchAdminData}
+                    disabled={adminUsersLoading || adminAuditLoading}
                     className="w-full gap-2 md:w-auto"
                   >
-                    <RefreshCw className={`h-4 w-4 ${adminUsersLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-4 w-4 ${adminUsersLoading || adminAuditLoading ? 'animate-spin' : ''}`} />
                     {t('common.refresh', 'Refresh')}
                   </Button>
                 </div>
@@ -1477,6 +1534,65 @@ export default function SettingsPage() {
                     ))}
                   </div>
                 )}
+
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-sm font-medium">{t('settings.adminAuditLogs', 'Recent Role Changes')}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.adminAuditLogsDesc', 'Persistent audit trail for admin role updates')}
+                      </div>
+                    </div>
+                    <Badge variant="outline">{adminAuditLogs.length}</Badge>
+                  </div>
+
+                  {adminAuditError && <div className="text-sm text-red-500">{adminAuditError}</div>}
+
+                  {adminAuditLoading && adminAuditLogs.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
+                  ) : adminAuditLogs.length === 0 ? (
+                    <div className="text-sm text-muted-foreground">
+                      {t('settings.noAdminAuditLogs', 'No role changes recorded')}
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {adminAuditLogs.map((log) => (
+                        <div
+                          key={log.id}
+                          className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(160px,1fr)_minmax(160px,1fr)_minmax(140px,1fr)_minmax(180px,1fr)] md:items-center"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">
+                              {log.target_username || t('settings.notAvailable', 'N/A')}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              ID {log.target_user_id ?? t('settings.notAvailable', 'N/A')}
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge variant={getAdminRoleBadgeVariant(log.old_value || 'user')}>
+                              {log.old_value || 'user'}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              {t('settings.roleChangeTo', 'to')}
+                            </span>
+                            <Badge variant={getAdminRoleBadgeVariant(log.new_value || 'user')}>
+                              {log.new_value || 'user'}
+                            </Badge>
+                          </div>
+                          <div className="min-w-0 text-sm text-muted-foreground">
+                            <span className="block truncate">
+                              {log.actor_username || t('settings.notAvailable', 'N/A')}
+                            </span>
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {formatDateTime(log.created_at)}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
