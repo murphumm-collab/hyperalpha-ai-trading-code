@@ -25,6 +25,32 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 
+def _mask_api_key(api_key: str) -> str:
+    return "****" + api_key[-4:] if api_key else ""
+
+
+def _build_account_out(
+    account: Account,
+    *,
+    current_cash: float = None,
+    frozen_cash: float = None,
+) -> AccountOut:
+    return AccountOut(
+        id=account.id,
+        user_id=account.user_id,
+        name=account.name,
+        model=account.model,
+        base_url=account.base_url,
+        api_key=_mask_api_key(account.api_key),
+        initial_capital=float(account.initial_capital),
+        current_cash=current_cash if current_cash is not None else float(account.current_cash),
+        frozen_cash=frozen_cash if frozen_cash is not None else float(account.frozen_cash),
+        account_type=account.account_type,
+        is_active=account.is_active == "true",
+        auto_trading_enabled=account.auto_trading_enabled == "true",
+    )
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -73,21 +99,7 @@ async def list_user_accounts(session_token: str, db: Session = Depends(get_db)):
                 except Exception:
                     pass  # No wallet configured or fetch failed — use database values
 
-            result.append(
-                AccountOut(
-                    id=account.id,
-                    user_id=account.user_id,
-                    name=account.name,
-                    model=account.model,
-                    base_url=account.base_url,
-                    api_key="****" + account.api_key[-4:] if account.api_key else "",
-                    initial_capital=float(account.initial_capital),
-                    current_cash=current_cash,
-                    frozen_cash=frozen_cash,
-                    account_type=account.account_type,
-                    is_active=account.is_active == "true"
-                )
-            )
+            result.append(_build_account_out(account, current_cash=current_cash, frozen_cash=frozen_cash))
 
         return result
 
@@ -122,22 +134,11 @@ async def create_trading_account(
             initial_capital=account_data.initial_capital,
             model=account_data.model,
             base_url=account_data.base_url,
-            api_key=account_data.api_key
+            api_key=account_data.api_key,
+            auto_trading_enabled=account_data.auto_trading_enabled,
         )
         
-        return AccountOut(
-            id=account.id,
-            user_id=account.user_id,
-            name=account.name,
-            model=account.model,
-            base_url=account.base_url,
-            api_key="****" + account.api_key[-4:] if account.api_key else "",
-            initial_capital=float(account.initial_capital),
-            current_cash=float(account.current_cash),
-            frozen_cash=float(account.frozen_cash),
-            account_type=account.account_type,
-            is_active=account.is_active == "true"
-        )
+        return _build_account_out(account)
         
     except HTTPException:
         raise
@@ -186,19 +187,7 @@ async def get_account_details(
             except Exception:
                 pass  # No wallet configured or fetch failed — use database values
 
-        return AccountOut(
-            id=account.id,
-            user_id=account.user_id,
-            name=account.name,
-            model=account.model,
-            base_url=account.base_url,
-            api_key="****" + account.api_key[-4:] if account.api_key else "",
-            initial_capital=float(account.initial_capital),
-            current_cash=current_cash,
-            frozen_cash=frozen_cash,
-            account_type=account.account_type,
-            is_active=account.is_active == "true"
-        )
+        return _build_account_out(account, current_cash=current_cash, frozen_cash=frozen_cash)
         
     except HTTPException:
         raise
@@ -238,22 +227,11 @@ async def update_trading_account(
             name=account_data.name,
             model=account_data.model,
             base_url=account_data.base_url,
-            api_key=account_data.api_key
+            api_key=account_data.api_key,
+            auto_trading_enabled=account_data.auto_trading_enabled,
         )
         
-        return AccountOut(
-            id=updated_account.id,
-            user_id=updated_account.user_id,
-            name=updated_account.name,
-            model=updated_account.model,
-            base_url=updated_account.base_url,
-            api_key="****" + updated_account.api_key[-4:] if updated_account.api_key else "",
-            initial_capital=float(updated_account.initial_capital),
-            current_cash=float(updated_account.current_cash),
-            frozen_cash=float(updated_account.frozen_cash),
-            account_type=updated_account.account_type,
-            is_active=updated_account.is_active == "true"
-        )
+        return _build_account_out(updated_account)
         
     except HTTPException:
         raise
@@ -302,19 +280,7 @@ async def get_or_create_default(
         if not account:
             raise HTTPException(status_code=404, detail="No accounts found. Please create an account first.")
 
-        return AccountOut(
-            id=account.id,
-            user_id=account.user_id,
-            name=account.name,
-            model=account.model,
-            base_url=account.base_url,
-            api_key="****" + account.api_key[-4:] if account.api_key else "",
-            initial_capital=float(account.initial_capital),
-            current_cash=float(account.current_cash),
-            frozen_cash=float(account.frozen_cash),
-            account_type=account.account_type,
-            is_active=account.is_active == "true"
-        )
+        return _build_account_out(account)
         
     except HTTPException:
         raise

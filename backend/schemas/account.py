@@ -10,6 +10,7 @@ class AccountCreate(BaseModel):
     api_key: str
     initial_capital: float = 10000.0
     account_type: str = "AI"  # "AI" or "MANUAL"
+    auto_trading_enabled: bool = False
 
 
 class AccountUpdate(BaseModel):
@@ -18,6 +19,7 @@ class AccountUpdate(BaseModel):
     model: Optional[str] = None
     base_url: Optional[str] = None
     api_key: Optional[str] = None
+    auto_trading_enabled: Optional[bool] = None
 
 
 class AccountOut(BaseModel):
@@ -33,6 +35,7 @@ class AccountOut(BaseModel):
     frozen_cash: float
     account_type: str
     is_active: bool
+    auto_trading_enabled: bool
 
     class Config:
         from_attributes = True

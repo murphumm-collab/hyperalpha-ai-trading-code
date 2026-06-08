@@ -514,7 +514,7 @@ Or for program:
 
 # Step 2: Create Account record (same as POST /api/accounts/)
 #   - create_account(db, user_id=1, name, model, base_url, api_key, ...)
-#   - Sets is_active=true, auto_trading_enabled=true
+#   - Sets is_active=true, auto_trading_enabled=false until the user explicitly starts trading
 
 # Step 3: Create AccountStrategyConfig
 #   - exchange, signal_pool_ids, trigger_interval, scheduled_trigger_enabled

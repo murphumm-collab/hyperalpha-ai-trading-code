@@ -84,7 +84,8 @@ def update_account(
     name: str = None,
     model: str = None,
     base_url: str = None,
-    api_key: str = None
+    api_key: str = None,
+    auto_trading_enabled: Optional[bool] = None,
 ) -> Optional[Account]:
     """Update account information"""
     account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
@@ -99,6 +100,8 @@ def update_account(
         account.base_url = base_url
     if api_key is not None:
         account.api_key = api_key
+    if auto_trading_enabled is not None:
+        account.auto_trading_enabled = "true" if auto_trading_enabled else "false"
     
     db.commit()
     db.refresh(account)
