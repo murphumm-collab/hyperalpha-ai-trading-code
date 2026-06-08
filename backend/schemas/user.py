@@ -20,6 +20,7 @@ class UserOut(BaseModel):
     id: int
     username: str
     email: Optional[str] = None
+    role: str = "user"
     is_active: bool
 
     class Config:

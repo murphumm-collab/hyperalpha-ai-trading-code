@@ -55,6 +55,7 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
             id=user.id,
             username=user.username,
             email=user.email,
+            role=user.role or "user",
             is_active=user.is_active == "true"
         )
         
@@ -82,6 +83,7 @@ async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
                 id=user.id,
                 username=user.username,
                 email=user.email,
+                role=user.role or "user",
                 is_active=user.is_active == "true"
             ),
             session_token=session.session_token,
@@ -110,6 +112,7 @@ async def get_user_profile(session_token: str, db: Session = Depends(get_db)):
             id=user.id,
             username=user.username,
             email=user.email,
+            role=user.role or "user",
             is_active=user.is_active == "true"
         )
         
@@ -151,6 +154,7 @@ async def update_user_profile(
             id=user.id,
             username=user.username,
             email=user.email,
+            role=user.role or "user",
             is_active=user.is_active == "true"
         )
         
@@ -171,6 +175,7 @@ async def list_users(
             id=current_user.id,
             username=current_user.username,
             email=current_user.email,
+            role=current_user.role or "user",
             is_active=current_user.is_active == "true"
         )]
         

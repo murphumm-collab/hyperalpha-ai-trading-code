@@ -43,6 +43,9 @@ export interface User {
   region: string
   language: string
   score: number
+  role?: string
+  localUserId?: number
+  localUsername?: string
   isAdmin: boolean
   isGlobalAdmin: boolean
   isForbidden: boolean

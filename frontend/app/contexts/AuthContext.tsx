@@ -60,6 +60,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const hydrateLocalUserRole = async (baseUser: User): Promise<User> => {
+    try {
+      const res = await authFetch('/api/users/')
+      if (!res.ok) return baseUser
+
+      const users = await res.json() as Array<{
+        id: number
+        username: string
+        role?: string
+      }>
+      const localUser = users[0]
+      if (!localUser?.role) return baseUser
+
+      const role = localUser.role
+      const hasAdminRole = role === 'admin' || role === 'operator'
+      return {
+        ...baseUser,
+        role,
+        localUserId: localUser.id,
+        localUsername: localUser.username,
+        isAdmin: baseUser.isAdmin || hasAdminRole,
+      }
+    } catch (error) {
+      console.warn('[AuthContext] Failed to hydrate local user role:', error)
+      return baseUser
+    }
+  }
+
   // Function to handle token refresh
   const handleTokenRefresh = async (force: boolean = false): Promise<boolean> => {
     const currentToken = Cookies.get('arena_token')
@@ -103,8 +131,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await syncHyperInsightRuntimeToken(tokenResponse.access_token)
 
       // Update user info with new token
-      const userData = await getUserInfo(tokenResponse.access_token)
+      let userData = await getUserInfo(tokenResponse.access_token)
       if (userData) {
+        userData = await hydrateLocalUserRole(userData)
         setUser(userData)
         Cookies.set('arena_user', JSON.stringify(userData), { expires: 7 })
         console.log('[AuthContext] Token refreshed successfully')
@@ -258,8 +287,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
           } else {
             console.log('[AuthContext] No refresh token available, falling back to existing access token')
-            const userData = await getUserInfo(token)
+            let userData = await getUserInfo(token)
             if (userData) {
+              userData = await hydrateLocalUserRole(userData)
               setUser(userData)
               Cookies.set('arena_user', JSON.stringify(userData), { expires: 7 })
               await syncHyperInsightRuntimeToken(token)
