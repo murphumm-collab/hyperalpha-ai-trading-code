@@ -15,6 +15,7 @@ import traceback
 from typing import Dict, List, Optional, Any, Generator
 from datetime import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database.models import (
@@ -1254,10 +1255,22 @@ def _get_backtest_history(db: Session, program_id: Optional[int], user_id: int, 
         if not program_id:
             return json.dumps({"error": "No program selected. This tool only works when editing an existing program."})
 
-        # Find all bindings for this program (a program can have multiple bindings)
-        bindings = db.query(AccountProgramBinding).filter(
+        program = db.query(TradingProgram.id).filter(
+            TradingProgram.id == program_id,
+            TradingProgram.user_id == user_id,
+            TradingProgram.is_deleted != True,
+        ).first()
+        if not program:
+            return json.dumps({"error": "Program not found"})
+
+        # Find all current-user bindings for this program (a program can have multiple bindings)
+        bindings = db.query(AccountProgramBinding).join(
+            Account, AccountProgramBinding.account_id == Account.id
+        ).filter(
             AccountProgramBinding.program_id == program_id,
-            AccountProgramBinding.is_deleted != True
+            AccountProgramBinding.is_deleted != True,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
         ).all()
 
         if not bindings:
@@ -1268,6 +1281,7 @@ def _get_backtest_history(db: Session, program_id: Optional[int], user_id: int, 
         # Get backtest history from all bindings
         backtests = db.query(BacktestResult).filter(
             BacktestResult.binding_id.in_(binding_ids),
+            or_(BacktestResult.user_id == user_id, BacktestResult.user_id.is_(None)),
             BacktestResult.status == "completed"
         ).order_by(BacktestResult.created_at.desc()).limit(limit).all()
 

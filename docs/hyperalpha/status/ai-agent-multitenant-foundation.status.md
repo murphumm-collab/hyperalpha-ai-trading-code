@@ -15,6 +15,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Signal AI chat/history plus account ownership validation.
 - User-scoped Prompt AI, Program AI, and Attribution AI chat/history entry points.
 - User-scoped Program CRUD, bindings, preview-run, executions, and backtest result reads.
+- Program AI backtest-history tool validates current-user program/account ownership before exposing backtest summaries.
 - User-scoped Kline AI analysis creation, history, and detail reads.
 - User-scoped K-line data service exchange resolution and backfill task visibility/deletion.
 - User-scoped account dashboard/config/action routes and asset curve reads.
@@ -127,6 +128,7 @@ Local checkpoint: current branch `HEAD`
 | Signal AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
 | Prompt AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
 | Program AI route filtering | Done | Chat/history endpoints use current user; Program CRUD/bindings/backtest reads are scoped |
+| Program AI backtest-history ownership | Done | Backtest-history tool requires current-user program ownership and only reads current-user, non-deleted account bindings; legacy null-user backtests remain compatible through owned bindings |
 | Attribution AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
 | Kline AI route filtering | Done | Analysis creation validates account owner; history/detail use current user |
 | K-line data/backfill user scoping | Done | K-line data routes resolve exchange from current user or explicit `exchange`; backfill tasks store `user_id` and are listed/statused/deleted by owner |
@@ -243,6 +245,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Kline AI route compile and frontend build after Kline auth/scoping changes.
 - Passed: Prompt/Signal ownership route compile and frontend build after strategy entity `user_id` migration and auth-aware manager requests.
 - Passed: Prompt binding repository owner-guard smoke test in `uv run`: Alice cannot read/upsert/delete Bob account bindings or bind Bob private templates; owner-scoped prompt resolution hides dirty cross-user bindings while system/Alice templates remain available.
+- Passed: Program AI backtest-history owner smoke test in `uv run`: Alice cannot read Bob's program backtests, dirty cross-user account bindings, deleted-account bindings, or mismatched-user backtest rows; legacy null-user rows remain visible only through Alice-owned bindings.
 - Passed: Hyper Insight wallet runtime route/service compile and frontend build after per-user token/status/websocket scoping.
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
 - Passed: Hyper AI missing-user-context smoke test in `uv run`: dispatcher, harness, sub-agent dispatcher, and stream entry returned blocked/error before touching DB/LLM/exchange work; static search found no remaining `user_id or 1` in the Hyper AI tool execution chain.
