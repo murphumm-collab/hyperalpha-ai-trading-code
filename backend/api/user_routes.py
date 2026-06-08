@@ -235,6 +235,7 @@ class MembershipSyncRequest(BaseModel):
 @router.post("/sync-membership")
 async def sync_membership_info(
     sync_data: MembershipSyncRequest,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db)
 ):
     """
@@ -244,29 +245,23 @@ async def sync_membership_info(
     info from www.akooi.com/api/membership/me. It updates the local UserSubscription
     table to keep it in sync, preventing accidental usage of stale local data.
 
-    Important: This clears all non-default user subscriptions before updating,
-    ensuring only the current logged-in user's subscription is active.
+    Important: This only updates the current request user's subscription.
+    Never clear or overwrite other users' subscriptions from a frontend sync.
     """
     try:
-        # Step 1: Delete all subscriptions for non-default users
-        non_default_users = db.query(User).filter(User.username != "default").all()
-        for u in non_default_users:
-            db.query(UserSubscription).filter(UserSubscription.user_id == u.id).delete()
-        logger.info(f"Cleared subscriptions for {len(non_default_users)} non-default users")
+        # Step 1: Clear only the current user's existing subscription.
+        deleted = db.query(UserSubscription).filter(
+            UserSubscription.user_id == current_user.id
+        ).delete()
+        logger.info(
+            "Cleared %s subscription(s) for current user %s (ID: %s)",
+            deleted,
+            current_user.username,
+            current_user.id,
+        )
 
-        # Step 2: Find or create user
-        user = db.query(User).filter(User.username == sync_data.username).first()
-        if not user:
-            user = User(
-                username=sync_data.username,
-                email=f"{sync_data.username}@external.user",
-                is_active="true"
-            )
-            db.add(user)
-            db.flush()
-            logger.info(f"Created new user: {sync_data.username} (ID: {user.id})")
-
-        # Step 3: Determine subscription type based on status
+        # Step 2: Determine subscription type based on status from the trusted
+        # membership lookup that the authenticated frontend just performed.
         subscription_type = "premium" if sync_data.status == "ACTIVE" else "free"
 
         # Parse expiry date if provided
@@ -277,21 +272,26 @@ async def sync_membership_info(
             except Exception as e:
                 logger.warning(f"Failed to parse expiry date: {e}")
 
-        # Step 4: Create subscription for current user
+        # Step 3: Create subscription for current request user.
         subscription = UserSubscription(
-            user_id=user.id,
+            user_id=current_user.id,
             subscription_type=subscription_type,
             expires_at=expires_at,
             max_sampling_depth=60 if subscription_type == "premium" else 10
         )
         db.add(subscription)
-        logger.info(f"Created subscription for user {sync_data.username}: {subscription_type}")
+        logger.info(
+            "Created subscription for current user %s (ID: %s): %s",
+            current_user.username,
+            current_user.id,
+            subscription_type,
+        )
 
         db.commit()
 
         return {
             "status": "success",
-            "message": f"Membership synced for {sync_data.username}",
+            "message": f"Membership synced for {current_user.username}",
             "subscription_type": subscription_type,
             "max_sampling_depth": subscription.max_sampling_depth
         }
@@ -306,24 +306,32 @@ async def sync_membership_info(
 
 
 @router.post("/clear-membership")
-async def clear_membership(db: Session = Depends(get_db)):
+async def clear_membership(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
-    Clear all membership subscriptions for non-default users.
+    Clear membership subscription for the current request user.
     Called when user logs out to ensure premium status is removed.
     """
     try:
-        non_default_users = db.query(User).filter(User.username != "default").all()
-        deleted_count = 0
-        for u in non_default_users:
-            deleted = db.query(UserSubscription).filter(
-                UserSubscription.user_id == u.id
-            ).delete()
-            deleted_count += deleted
+        deleted_count = db.query(UserSubscription).filter(
+            UserSubscription.user_id == current_user.id
+        ).delete()
 
         db.commit()
-        logger.info(f"Cleared {deleted_count} subscription(s) on logout")
+        logger.info(
+            "Cleared %s subscription(s) on logout for current user %s (ID: %s)",
+            deleted_count,
+            current_user.username,
+            current_user.id,
+        )
 
-        return {"status": "success", "deleted_count": deleted_count}
+        return {
+            "status": "success",
+            "deleted_count": deleted_count,
+            "username": current_user.username,
+        }
 
     except Exception as e:
         db.rollback()

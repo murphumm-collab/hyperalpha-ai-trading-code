@@ -37,6 +37,7 @@ Local checkpoint: current branch `HEAD`
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - Auth-aware identity runtime token, membership sync, Signal Manager strategy-analysis, market-regime config, factor analysis, and premium sampling-config requests.
 - Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
+- User-scoped membership sync and logout clearing so one user cannot overwrite or delete other users' premium status.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
 
@@ -80,6 +81,7 @@ Local checkpoint: current branch `HEAD`
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | Frontend identity/signal config auth | Done | Auth runtime token sync, membership sync/clear, Signal Manager analysis/config, Market Regime config, factor evaluation, and premium sampling config use `authFetch` |
 | Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
+| Membership sync isolation | Done | `/api/users/sync-membership` and `/api/users/clear-membership` update/delete only the current request user's `UserSubscription` |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -126,6 +128,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Static search found no remaining bare `fetch(` in Attribution Analysis or Trade Replay analytics components; frontend production build passed.
 - Passed: Static search found no remaining bare `fetch(` in Binance wallet, exchange wallet panel, Strategy Panel, Arena asset view, Hyperliquid asset chart, Prompt Backtest, Settings account deletion, or System Logs components; frontend production build passed.
 - Passed: AuthContext, Signal Manager user strategy/config calls, Market Regime config, and Premium sampling config switched to `authFetch`; remaining Signal Manager bare fetches are public market K-line preview reads; frontend production build passed.
+- Passed: Membership isolation smoke test in `uv run`: Alice sync/logout did not alter Bob's subscription and spoofed frontend username was ignored.
+- Passed: `user_routes.py` syntax compile in both system Python and `uv run` backend environment after membership isolation fix.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
