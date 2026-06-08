@@ -17,11 +17,12 @@ from dateutil.parser import parse
 from database.connection import SessionLocal
 from database.snapshot_connection import SnapshotSessionLocal
 from database.models import (
-    Account, AIDecisionLog,
+    User, Account, AIDecisionLog,
     AccountPromptBinding, AccountStrategyConfig,
     SignalTriggerLog
 )
 from database.snapshot_models import HyperliquidTrade
+from api.auth_utils import get_current_user_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,17 @@ def get_snapshot_db():
         yield db
     finally:
         db.close()
+
+
+def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
 
 
 def _decimal_to_float(obj):
@@ -112,6 +124,7 @@ def _get_related_trades(
 @router.get("/{account_id}/export")
 async def export_trader_data(
     account_id: int,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
     snapshot_db: Session = Depends(get_snapshot_db)
 ):
@@ -119,10 +132,7 @@ async def export_trader_data(
     Export all AI decision logs with related Hyperliquid trades for a trader.
     Returns a JSON file for download.
     """
-    # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = _ensure_account_owner(db, account_id, current_user.id)
 
     # Query all decision logs for this account
     decision_logs = db.query(AIDecisionLog).filter(
@@ -260,16 +270,14 @@ def _find_duplicate_trade(snapshot_db: Session, order_id: str, trade_time: datet
 async def preview_import(
     account_id: int,
     request: ImportPreviewRequest,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db)
 ):
     """
     Preview import: analyze the data and return what will be imported/skipped.
     Also check if target account has prompt/signal bindings.
     """
-    # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = _ensure_account_owner(db, account_id, current_user.id)
 
     data = request.data
 
@@ -340,6 +348,7 @@ async def preview_import(
 async def execute_import(
     account_id: int,
     request: ImportExecuteRequest,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
     snapshot_db: Session = Depends(get_snapshot_db)
 ):
@@ -347,10 +356,7 @@ async def execute_import(
     if not request.confirmed:
         raise HTTPException(status_code=400, detail="Import must be confirmed")
 
-    # Verify target account exists
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Target account not found")
+    account = _ensure_account_owner(db, account_id, current_user.id)
 
     # Get target trader's bound prompt template for association
     prompt_binding = db.query(AccountPromptBinding).filter(
