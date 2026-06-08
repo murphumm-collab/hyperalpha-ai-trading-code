@@ -45,6 +45,7 @@ interface AIAccount extends TradingAccount {
   model?: string
   base_url?: string
   api_key?: string
+  api_key_configured?: boolean
 }
 
 interface AIAccountCreate extends TradingAccountCreate {
@@ -165,7 +166,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
         }
       }
 
-      console.log('Creating account with data:', newAccount)
+      console.log('Creating account with data:', { ...newAccount, api_key: newAccount.api_key ? '[REDACTED]' : undefined })
       await createAccount(newAccount)
       setNewAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings', auto_trading_enabled: true })
       setShowAddForm(false)
@@ -202,15 +203,19 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
         return
       }
       
-      // Test LLM connection first if AI model data is provided
-      if (editAccount.model || editAccount.base_url || editAccount.api_key) {
+      const nextApiKey = editAccount.api_key?.trim()
+
+      // Test LLM connection only when the user entered a new API key.
+      // Existing keys are never echoed by the backend, so unchanged edits skip
+      // the connection test and preserve the stored key.
+      if (nextApiKey) {
         setTestResult('Testing LLM connection...')
         
         try {
           const testResponse = await testLLMConnection({
             model: editAccount.model,
             base_url: editAccount.base_url,
-            api_key: editAccount.api_key
+            api_key: nextApiKey
           })
           
           if (!testResponse.success) {
@@ -233,10 +238,20 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
       }
       
       setTesting(false)
-      setTestResult('Test passed! Saving AI trader...')
+      setTestResult(nextApiKey ? 'Test passed! Saving AI trader...' : 'Saving AI trader...')
 
-      console.log('Updating account with data:', editAccount)
-      await updateAccount(editingId, editAccount)
+      const updatePayload: TradingAccountUpdate = {
+        name: editAccount.name,
+        model: editAccount.model,
+        base_url: editAccount.base_url,
+        auto_trading_enabled: editAccount.auto_trading_enabled,
+      }
+      if (nextApiKey) {
+        updatePayload.api_key = nextApiKey
+      }
+
+      console.log('Updating account with data:', { ...updatePayload, api_key: nextApiKey ? '[REDACTED]' : undefined })
+      await updateAccount(editingId, updatePayload)
       setEditingId(null)
       setEditAccount({ name: '', model: '', base_url: '', api_key: '', auto_trading_enabled: true })
       setTestResult(null)
@@ -264,7 +279,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
       name: account.name,
       model: account.model || '',
       base_url: account.base_url || '',
-      api_key: account.api_key || '',
+      api_key: '',
       auto_trading_enabled: account.auto_trading_enabled ?? true,
     })
   }
@@ -506,7 +521,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
                           onChange={(e) => setEditAccount({ ...editAccount, base_url: e.target.value })}
                         />
                         <Input
-                          placeholder="API Key"
+                          placeholder={account.api_key_configured ? 'New API Key (leave blank to keep current)' : 'API Key'}
                           type="password"
                           value={editAccount.api_key || ''}
                           onChange={(e) => setEditAccount({ ...editAccount, api_key: e.target.value })}
@@ -549,9 +564,9 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
                                 Base URL: {account.base_url}
                               </div>
                             )}
-                            {account.api_key && (
+                            {(account.api_key_configured || account.api_key) && (
                               <div className="text-xs text-muted-foreground truncate max-w-full">
-                                API Key: {'*'.repeat(Math.min(20, Math.max(0, (account.api_key?.length || 0) - 4)))}{account.api_key?.slice(-4) || '****'}
+                                API Key: {account.api_key || 'configured'}
                               </div>
                             )}
                           </div>

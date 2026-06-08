@@ -66,6 +66,60 @@ def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account
     return account
 
 
+def _mask_secret(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    suffix = value[-4:] if len(value) >= 4 else "****"
+    return f"********{suffix}"
+
+
+def _is_masked_secret(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    stripped = value.strip()
+    return stripped.startswith("********")
+
+
+def _redact_payload_secrets(payload: dict) -> dict:
+    redacted = dict(payload)
+    if "api_key" in redacted and redacted["api_key"]:
+        redacted["api_key"] = "[REDACTED]"
+    return redacted
+
+
+def _serialize_account_for_response(
+    account: Account,
+    username: str,
+    *,
+    current_cash: Optional[float] = None,
+    wallet_address: Optional[str] = None,
+    has_mainnet_wallet: bool = False,
+) -> dict:
+    api_key_configured = bool((account.api_key or "").strip())
+    response = {
+        "id": account.id,
+        "user_id": account.user_id,
+        "username": username,
+        "name": account.name,
+        "account_type": account.account_type,
+        "initial_capital": float(account.initial_capital),
+        "current_cash": current_cash if current_cash is not None else float(account.current_cash),
+        "frozen_cash": float(account.frozen_cash),
+        "model": account.model,
+        "base_url": account.base_url,
+        "api_key": _mask_secret(account.api_key),
+        "api_key_configured": api_key_configured,
+        "is_active": account.is_active == "true",
+        "auto_trading_enabled": account.auto_trading_enabled == "true",
+        "avatar_preset_id": account.avatar_preset_id,
+    }
+    if wallet_address is not None:
+        response["wallet_address"] = wallet_address
+    response["has_mainnet_wallet"] = has_mainnet_wallet
+    response["show_on_dashboard"] = account.show_on_dashboard
+    return response
+
+
 def _serialize_strategy(account: Account, strategy, db: Session = None) -> StrategyConfig:
     """Convert database strategy config to API schema."""
     from repositories.strategy_repo import parse_signal_pool_ids
@@ -224,25 +278,13 @@ def list_all_accounts(
                             f"Failed to derive wallet address for account {account.id}: {wallet_err}"
                         )
 
-            result.append({
-                "id": account.id,
-                "user_id": account.user_id,
-                "username": user.username if user else "unknown",
-                "name": account.name,
-                "account_type": account.account_type,
-                "initial_capital": float(account.initial_capital),
-                "current_cash": current_cash,
-                "frozen_cash": frozen_cash,
-                "model": account.model,
-                "base_url": account.base_url,
-                "api_key": account.api_key,
-                "is_active": account.is_active == "true",
-                "auto_trading_enabled": account.auto_trading_enabled == "true",
-                "wallet_address": wallet_address,
-                "has_mainnet_wallet": has_mainnet_wallet,
-                "show_on_dashboard": account.show_on_dashboard,
-                "avatar_preset_id": account.avatar_preset_id
-            })
+            result.append(_serialize_account_for_response(
+                account,
+                user.username if user else "unknown",
+                current_cash=current_cash,
+                wallet_address=wallet_address,
+                has_mainnet_wallet=has_mainnet_wallet,
+            ))
 
         return result
     except Exception as e:
@@ -525,22 +567,7 @@ def create_new_account(
         reset_thread.start()
         logger.info("Auto trading job reset initiated in background")
 
-        return {
-            "id": new_account.id,
-            "user_id": new_account.user_id,
-            "username": current_user.username,
-            "name": new_account.name,
-            "account_type": new_account.account_type,
-            "initial_capital": float(new_account.initial_capital),
-            "current_cash": float(new_account.current_cash),
-            "frozen_cash": float(new_account.frozen_cash),
-            "model": new_account.model,
-            "base_url": new_account.base_url,
-            "api_key": new_account.api_key,
-            "is_active": new_account.is_active == "true",
-            "auto_trading_enabled": new_account.auto_trading_enabled == "true",
-            "avatar_preset_id": new_account.avatar_preset_id
-        }
+        return _serialize_account_for_response(new_account, current_user.username)
     except HTTPException:
         raise
     except Exception as e:
@@ -557,7 +584,7 @@ def update_account_settings(
 ):
     """Update account settings for the current user's account."""
     try:
-        logger.info(f"Updating account {account_id} with payload: {payload}")
+        logger.info(f"Updating account {account_id} with payload: {_redact_payload_secrets(payload)}")
 
         account = _ensure_account_owner(db, account_id, current_user.id)
         if account.is_active != "true":
@@ -580,8 +607,12 @@ def update_account_settings(
             logger.info(f"Updated base_url to: {account.base_url}")
         
         if "api_key" in payload:
-            account.api_key = payload["api_key"]
-            logger.info(f"Updated api_key (length: {len(payload['api_key']) if payload['api_key'] else 0})")
+            next_api_key = payload["api_key"]
+            if _is_masked_secret(next_api_key):
+                logger.info("Ignored masked api_key update for account %s", account.id)
+            else:
+                account.api_key = next_api_key
+                logger.info(f"Updated api_key (length: {len(next_api_key) if next_api_key else 0})")
 
         if "auto_trading_enabled" in payload:
             auto_trading_enabled = _normalize_bool(payload.get("auto_trading_enabled"))
@@ -610,21 +641,7 @@ def update_account_settings(
         from database.models import User
         user = db.query(User).filter(User.id == account.user_id).first()
         
-        return {
-            "id": account.id,
-            "user_id": account.user_id,
-            "username": user.username if user else "unknown",
-            "name": account.name,
-            "account_type": account.account_type,
-            "initial_capital": float(account.initial_capital),
-            "current_cash": float(account.current_cash),
-            "frozen_cash": float(account.frozen_cash),
-            "model": account.model,
-            "base_url": account.base_url,
-            "api_key": account.api_key,
-            "is_active": account.is_active == "true",
-            "auto_trading_enabled": account.auto_trading_enabled == "true"
-        }
+        return _serialize_account_for_response(account, user.username if user else "unknown")
     except HTTPException:
         raise
     except Exception as e:

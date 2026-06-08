@@ -158,6 +158,7 @@ export interface TradingAccount {
   model?: string  // AI model (e.g., "gpt-4-turbo")
   base_url?: string  // API endpoint
   api_key?: string  // API key (masked in responses)
+  api_key_configured?: boolean
   initial_capital: number
   current_cash: number
   frozen_cash: number
