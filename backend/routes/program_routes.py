@@ -338,9 +338,13 @@ def _update_program_for_user(program_id: int, data: ProgramUpdate, db: Session, 
 
 def _program_to_response(program: TradingProgram, db: Session) -> ProgramResponse:
     """Convert TradingProgram to response model."""
-    binding_count = db.query(AccountProgramBinding).filter(
+    binding_count = db.query(AccountProgramBinding).join(
+        Account, AccountProgramBinding.account_id == Account.id
+    ).filter(
         AccountProgramBinding.program_id == program.id,
-        AccountProgramBinding.is_deleted != True
+        AccountProgramBinding.is_deleted != True,
+        Account.user_id == program.user_id,
+        Account.is_deleted != True,
     ).count()
 
     return ProgramResponse(
