@@ -315,7 +315,9 @@ def get_specific_account_overview(
         
         # Calculate positions value for this specific account
         from services.asset_calculator import calc_positions_value
-        positions_value = float(calc_positions_value(db, account.id) or 0.0)
+        positions_value = float(
+            calc_positions_value(db, account.id, owner_user_id=account.user_id) or 0.0
+        )
         
         # Count positions and pending orders for this account
         positions_count = db.query(Position).filter(
@@ -453,7 +455,9 @@ def get_account_overview(
         
         # Calculate positions value
         from services.asset_calculator import calc_positions_value
-        positions_value = float(calc_positions_value(db, account.id) or 0.0)
+        positions_value = float(
+            calc_positions_value(db, account.id, owner_user_id=account.user_id) or 0.0
+        )
         
         # Count positions and pending orders
         positions_count = db.query(Position).filter(

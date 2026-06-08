@@ -490,7 +490,11 @@ def _aggregate_account_stats(db: Session, account: Account) -> Dict[str, Optiona
     '''Aggregate trade and decision statistics for a given account.'''
     initial_capital = float(account.initial_capital or 0)
     current_cash = float(account.current_cash or 0)
-    positions_value = calc_positions_value(db, account.id)
+    positions_value = calc_positions_value(
+        db,
+        account.id,
+        owner_user_id=account.user_id,
+    )
     total_assets = positions_value + current_cash
     total_pnl = total_assets - initial_capital
     total_return_pct = (
@@ -1344,7 +1348,8 @@ def get_positions_snapshot(
             )
 
         total_assets = (
-            calc_positions_value(db, account.id) + float(account.current_cash or 0)
+            calc_positions_value(db, account.id, owner_user_id=account.user_id)
+            + float(account.current_cash or 0)
         )
         total_return = None
         if account.initial_capital:

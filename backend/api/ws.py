@@ -359,7 +359,11 @@ async def _send_snapshot_optimized(db: Session, account_id: int):
     )
     
     # Use cached positions value calculation
-    positions_value = calc_positions_value(db, account_id)
+    positions_value = calc_positions_value(
+        db,
+        account_id,
+        owner_user_id=account.user_id,
+    )
 
     overview = {
         "account": {
@@ -745,7 +749,11 @@ async def _send_snapshot(db: Session, account_id: int):
     ai_decisions = (
         db.query(AIDecisionLog).filter(AIDecisionLog.account_id == account_id).order_by(AIDecisionLog.decision_time.desc()).limit(20).all()
     )
-    positions_value = calc_positions_value(db, account_id)
+    positions_value = calc_positions_value(
+        db,
+        account_id,
+        owner_user_id=account.user_id,
+    )
 
     overview = {
         "account": {

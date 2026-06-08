@@ -317,7 +317,11 @@ def place_random_crypto_order(max_ratio: float = 0.2) -> None:
         # For legacy compatibility, just pick a random account from the list
         account = random.choice(accounts)
 
-        positions_value = calc_positions_value(db, account.id)
+        positions_value = calc_positions_value(
+            db,
+            account.id,
+            owner_user_id=account.user_id,
+        )
         total_assets = positions_value + float(account.current_cash)
 
         if total_assets <= 0:

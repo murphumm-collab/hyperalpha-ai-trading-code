@@ -1,10 +1,16 @@
 from decimal import Decimal
 from sqlalchemy.orm import Session
-from database.models import Position
+from typing import Optional
+
+from repositories.position_repo import list_positions
 from .market_data import get_last_price
 
 
-def calc_positions_value(db: Session, account_id: int) -> float:
+def calc_positions_value(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> float:
     """
     Calculate total market value of positions
 
@@ -15,7 +21,7 @@ def calc_positions_value(db: Session, account_id: int) -> float:
     Returns:
         Total market value of positions, returns 0 if price cannot be obtained
     """
-    positions = db.query(Position).filter(Position.account_id == account_id).all()
+    positions = list_positions(db, account_id, owner_user_id=owner_user_id)
     total = Decimal("0")
     
     for p in positions:

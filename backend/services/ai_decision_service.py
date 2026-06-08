@@ -207,7 +207,11 @@ def _calculate_total_return_percent(account: Account) -> str:
         from database.connection import SessionLocal
         db = SessionLocal()
         try:
-            positions_value = calc_positions_value(db, account.id)
+            positions_value = calc_positions_value(
+                db,
+                account.id,
+                owner_user_id=account.user_id,
+            )
             current_total += positions_value
         finally:
             db.close()
@@ -1438,7 +1442,8 @@ def _get_portfolio_data(db: Session, account: Account) -> Dict:
         "cash": float(account.current_cash),
         "frozen_cash": float(account.frozen_cash),
         "positions": portfolio,
-        "total_assets": float(account.current_cash) + calc_positions_value(db, account.id)
+        "total_assets": float(account.current_cash)
+        + calc_positions_value(db, account.id, owner_user_id=account.user_id)
     }
 
 
