@@ -4,6 +4,13 @@ from database.models import Account, User
 from decimal import Decimal
 
 
+def _is_masked_api_key(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    stripped = value.strip()
+    return stripped.startswith("****") and len(stripped) <= 12
+
+
 def create_account(
     db: Session,
     user_id: int,
@@ -98,7 +105,7 @@ def update_account(
         account.model = model
     if base_url is not None:
         account.base_url = base_url
-    if api_key is not None:
+    if api_key is not None and not _is_masked_api_key(api_key):
         account.api_key = api_key
     if auto_trading_enabled is not None:
         account.auto_trading_enabled = "true" if auto_trading_enabled else "false"
