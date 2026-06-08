@@ -885,13 +885,41 @@ HYPER_AI_TOOLS = HYPER_AI_TOOLS + EXTERNAL_TOOLS + SKILL_TOOLS + SUBAGENT_TOOLS
 # Tool Execution Functions
 # =============================================================================
 
-def execute_get_system_overview(db: Session, user_id: int = 1) -> str:
+def _missing_user_context_payload() -> Dict[str, Any]:
+    return {
+        "status": "blocked",
+        "message": "Tool execution requires authenticated user context.",
+        "executed": False,
+        "reason": "missing_user_context",
+    }
+
+
+def _missing_user_context_result() -> str:
+    return json.dumps(_missing_user_context_payload(), ensure_ascii=False)
+
+
+def _require_tool_user(user_id: Optional[int]) -> Optional[str]:
+    if user_id is None:
+        return _missing_user_context_result()
+    return None
+
+
+def _require_tool_user_dict(user_id: Optional[int]) -> Optional[Dict[str, Any]]:
+    if user_id is None:
+        return _missing_user_context_payload()
+    return None
+
+
+def execute_get_system_overview(db: Session, user_id: Optional[int] = None) -> str:
     """Get high-level system status summary."""
     from database.models import (
         Account, HyperliquidWallet, BinanceWallet, PromptTemplate,
         TradingProgram, SignalPool, AccountPromptBinding, AccountProgramBinding,
         HyperliquidPosition
     )
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         result = {
@@ -990,13 +1018,16 @@ def execute_get_wallet_status(
     db: Session,
     exchange: str = "all",
     environment: str = "all",
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Get wallet balance and position summary using real-time API (same as frontend)."""
     from database.models import HyperliquidWallet, BinanceWallet, Account
     from services.hyperliquid_environment import get_hyperliquid_client
     from services.binance_trading_client import BinanceTradingClient
     from utils.encryption import decrypt_private_key
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         wallets = []
@@ -1242,12 +1273,31 @@ def execute_get_market_flow(db: Session, symbol: str, period: str = "1h", exchan
         return json.dumps({"error": str(e)})
 
 
-def execute_get_system_logs(db: Session, level: str = "error", limit: int = 20, trader_id: int = None) -> str:
+def execute_get_system_logs(
+    db: Session,
+    level: str = "error",
+    limit: int = 20,
+    trader_id: int = None,
+    user_id: Optional[int] = None,
+) -> str:
     """Get recent system logs enriched with error registry metadata."""
     from services.system_logger import system_logger
     from services.error_registry import classify_error, get_severity_summary
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
+
     try:
+        from api.auth_utils import is_admin_user
+        from database.models import User
+
+        user = db.get(User, user_id)
+        if not user or not is_admin_user(user):
+            return json.dumps({
+                "error": "System logs require admin access.",
+                "reason": "admin_required",
+            }, ensure_ascii=False)
+
         limit = min(max(limit, 1), 50)
 
         # Map level to min_level for system_logger
@@ -1263,7 +1313,10 @@ def execute_get_system_logs(db: Session, level: str = "error", limit: int = 20, 
         user_exchange = None
         try:
             from database.models import Account, HyperliquidWallet
-            account = db.query(Account).first()
+            account = db.query(Account).filter(
+                Account.user_id == user_id,
+                Account.is_deleted != True,
+            ).first()
             if account:
                 has_hl = db.query(HyperliquidWallet).filter(
                     HyperliquidWallet.account_id == account.id
@@ -1359,9 +1412,12 @@ def execute_get_trading_environment(db: Session) -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_get_watchlist(db: Session, user_id: int = 1) -> str:
+def execute_get_watchlist(db: Session, user_id: Optional[int] = None) -> str:
     """Get symbol watchlist for all exchanges."""
     from services import hyperliquid_symbol_service, binance_symbol_service
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         # Get Hyperliquid watchlist
@@ -1406,9 +1462,17 @@ def execute_get_watchlist(db: Session, user_id: int = 1) -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_update_watchlist(db: Session, exchange: str, symbols: List[str], user_id: int = 1) -> str:
+def execute_update_watchlist(
+    db: Session,
+    exchange: str,
+    symbols: List[str],
+    user_id: Optional[int] = None,
+) -> str:
     """Update symbol watchlist for a specific exchange."""
     from services import hyperliquid_symbol_service, binance_symbol_service
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         if exchange not in ["hyperliquid", "binance"]:
@@ -1439,7 +1503,11 @@ def execute_update_watchlist(db: Session, exchange: str, symbols: List[str], use
         return json.dumps({"error": str(e)})
 
 
-def execute_diagnose_trader_issues(db: Session, trader_id: int) -> str:
+def execute_diagnose_trader_issues(
+    db: Session,
+    trader_id: int,
+    user_id: Optional[int] = None,
+) -> str:
     """Diagnose why an AI Trader is not triggering."""
     from database.models import (
         Account, HyperliquidWallet, BinanceWallet, AccountPromptBinding,
@@ -1447,9 +1515,16 @@ def execute_diagnose_trader_issues(db: Session, trader_id: int) -> str:
         HyperliquidAccountSnapshot, BinanceAccountSnapshot, AIDecisionLog, ProgramExecutionLog
     )
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
+
     try:
         # Get account
-        account = db.query(Account).filter(Account.id == trader_id, Account.is_deleted != True).first()
+        account = db.query(Account).filter(
+            Account.id == trader_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        ).first()
         if not account:
             return json.dumps({"error": f"AI Trader with id {trader_id} not found"})
 
@@ -1594,10 +1669,13 @@ def execute_save_signal_pool(
     logic: str = "AND",
     exchange: str = "hyperliquid",
     description: str = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Create a signal pool by calling the existing API handler."""
     from api.signal_routes import create_pool_from_config, SignalPoolConfigRequest
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         # Defensive validation for taker_volume signals
@@ -1654,11 +1732,14 @@ def execute_save_prompt(
     template_text: str,
     prompt_id: int = None,
     description: str = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Create or update a trading prompt template."""
     from database.models import PromptTemplate
     import re
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         # Extract variables from template
@@ -1734,13 +1815,16 @@ def execute_save_program(
     code: str,
     program_id: int = None,
     description: str = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Create or update a trading program by calling existing API handlers."""
     from routes.program_routes import (
         _create_program_for_user, _update_program_for_user, ProgramCreate, ProgramUpdate
     )
     from fastapi import HTTPException
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         if program_id:
@@ -1781,10 +1865,13 @@ def execute_create_ai_trader(
     model: str,
     base_url: str,
     api_key: str,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Create a new AI Trader with LLM config only. Strategy and wallet binding done separately."""
     from database.models import Account
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         # Step 1: Test LLM connection first
@@ -1854,7 +1941,11 @@ def execute_create_ai_trader(
 # Query Tools: list resources
 # =============================================================================
 
-def execute_list_traders(db: Session, trader_id: int = None, user_id: int = 1) -> str:
+def execute_list_traders(
+    db: Session,
+    trader_id: int = None,
+    user_id: Optional[int] = None,
+) -> str:
     """List all AI Traders with bindings, wallet status, and trading status.
     Pass trader_id to get a single trader's detail."""
     from database.models import (
@@ -1862,6 +1953,9 @@ def execute_list_traders(db: Session, trader_id: int = None, user_id: int = 1) -
         AccountProgramBinding, AccountPromptBinding,
         TradingProgram, PromptTemplate
     )
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         query = db.query(Account).filter(
@@ -1947,9 +2041,16 @@ def execute_list_traders(db: Session, trader_id: int = None, user_id: int = 1) -
         return json.dumps({"error": str(e)})
 
 
-def execute_list_signal_pools(db: Session, pool_id: int = None, user_id: int = 1) -> str:
+def execute_list_signal_pools(
+    db: Session,
+    pool_id: int = None,
+    user_id: Optional[int] = None,
+) -> str:
     """List all signal pools. Pass pool_id for single pool detail."""
     from database.models import SignalPool, SignalDefinition
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         query = db.query(SignalPool).filter(
@@ -2033,9 +2134,16 @@ def execute_list_signal_pools(db: Session, pool_id: int = None, user_id: int = 1
         return json.dumps({"error": str(e)})
 
 
-def execute_analyze_tracked_address(db: Session, address: str, user_id: int = 1) -> str:
+def execute_analyze_tracked_address(
+    db: Session,
+    address: str,
+    user_id: Optional[int] = None,
+) -> str:
     """Fetch protected Hyper Insight address detail for Hyper AI analysis."""
     from services.hyper_insight_wallet_service import hyper_insight_wallet_service
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     normalized = (address or "").strip().lower()
     if not normalized:
@@ -2124,13 +2232,21 @@ def execute_analyze_tracked_address(db: Session, address: str, user_id: int = 1)
         }, ensure_ascii=False)
 
 
-def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type: str = None, user_id: int = 1) -> str:
+def execute_list_strategies(
+    db: Session,
+    strategy_id: int = None,
+    strategy_type: str = None,
+    user_id: Optional[int] = None,
+) -> str:
     """List all prompts and programs with binding status.
     Pass strategy_id + strategy_type to get full content of a specific strategy."""
     from database.models import (
         PromptTemplate, TradingProgram,
         AccountProgramBinding, AccountPromptBinding, Account
     )
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         # Single strategy detail mode
@@ -2224,7 +2340,11 @@ def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type:
             ).all()
             bound_traders = []
             for b in bindings:
-                acc = db.get(Account, b.account_id)
+                acc = db.query(Account).filter(
+                    Account.id == b.account_id,
+                    Account.user_id == user_id,
+                    Account.is_deleted != True,
+                ).first()
                 if acc:
                     bound_traders.append({
                         "trader_id": acc.id,
@@ -2254,10 +2374,18 @@ def execute_list_strategies(db: Session, strategy_id: int = None, strategy_type:
 # Binding Tools: assemble components
 # =============================================================================
 
-def execute_bind_prompt_to_trader(db: Session, trader_id: int, prompt_id: int, user_id: int = 1) -> str:
+def execute_bind_prompt_to_trader(
+    db: Session,
+    trader_id: int,
+    prompt_id: int,
+    user_id: Optional[int] = None,
+) -> str:
     """Bind a prompt template to an AI Trader. Reuses prompt_repo.upsert_binding."""
     from database.models import Account, PromptTemplate
     from repositories import prompt_repo
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         account = db.query(Account).filter(
@@ -2299,13 +2427,19 @@ def execute_bind_prompt_to_trader(db: Session, trader_id: int, prompt_id: int, u
 
 
 def _validate_signal_pool_exchange_consistency(
-    db: Session, binding_exchange: str, signal_pool_ids: list, user_id: int = 1
+    db: Session,
+    binding_exchange: str,
+    signal_pool_ids: list,
+    user_id: Optional[int] = None,
 ) -> dict:
     """
     Validate that signal pool exchanges match the binding's target exchange.
     Returns {"valid": True} or {"valid": False, "error": "...", "details": {...}}
     """
     from database.models import SignalPool
+
+    if blocked := _require_tool_user_dict(user_id):
+        return {"valid": False, "error": blocked["message"], "reason": blocked["reason"]}
 
     if not signal_pool_ids:
         return {"valid": True}
@@ -2351,10 +2485,13 @@ def execute_bind_program_to_trader(
     exchange: str = "hyperliquid",
     signal_pool_ids: list = None, trigger_interval: int = 300,
     is_active: bool = True,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Create a program binding for an AI Trader. Reuses AccountProgramBinding model."""
     from database.models import Account, TradingProgram, AccountProgramBinding
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         account = db.query(Account).filter(
@@ -2427,11 +2564,14 @@ def execute_update_trader_strategy(
     scheduled_trigger_enabled: bool = None,
     trigger_interval: int = None,
     exchange: str = "hyperliquid",
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Update trigger config for a Prompt-based AI Trader. Reuses upsert_strategy."""
     from database.models import Account
     from repositories.strategy_repo import upsert_strategy
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         account = db.query(Account).filter(
@@ -2479,10 +2619,13 @@ def execute_update_ai_trader(
     db: Session, trader_id: int,
     name: str = None, model: str = None,
     base_url: str = None, api_key: str = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Update AI Trader settings. Tests LLM connection if credentials change."""
     from database.models import Account
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         account = db.query(Account).filter(
@@ -2554,10 +2697,13 @@ def execute_update_program_binding(
     signal_pool_ids: list = None, trigger_interval: int = None,
     scheduled_trigger_enabled: bool = None, is_active: bool = None,
     params_override: dict = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Update a program binding's configuration."""
     from database.models import AccountProgramBinding, Account
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         binding = db.query(AccountProgramBinding).join(
@@ -2593,7 +2739,11 @@ def execute_update_program_binding(
             updated.append("params_override")
 
         db.commit()
-        account = db.get(Account, binding.account_id)
+        account = db.query(Account).filter(
+            Account.id == binding.account_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        ).first()
         return json.dumps({
             "success": True, "binding_id": binding_id,
             "trader_name": account.name if account else "unknown",
@@ -2610,10 +2760,13 @@ def execute_update_signal_pool(
     db: Session, pool_id: int,
     pool_name: str = None, enabled: bool = None, logic: str = None,
     signal_ids: list = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Update signal pool settings."""
     from database.models import SignalPool, SignalDefinition
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         pool = db.query(SignalPool).filter(
@@ -2671,10 +2824,18 @@ def execute_update_signal_pool(
         return json.dumps({"error": str(e)})
 
 
-def execute_update_prompt_binding(db: Session, trader_id: int, prompt_id: int, user_id: int = 1) -> str:
+def execute_update_prompt_binding(
+    db: Session,
+    trader_id: int,
+    prompt_id: int,
+    user_id: Optional[int] = None,
+) -> str:
     """Update which prompt is bound to a trader. Reuses upsert_binding."""
     from database.models import Account, PromptTemplate
     from repositories import prompt_repo
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         account = db.query(Account).filter(
@@ -2770,11 +2931,15 @@ def execute_save_memory(
 def execute_query_factors(
     db: Session, exchange: str, symbol: str = None,
     factor_name: str = None, forward_period: str = "4h",
-    days: int = 30
+    days: int = 30,
+    user_id: Optional[int] = None,
 ) -> str:
     """Query factor library, values, and effectiveness."""
     from services.factor_registry import FACTOR_REGISTRY, CATEGORY_LABELS
     from database.models import CustomFactor
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         # If specific factor requested, return detailed info + history
@@ -2870,7 +3035,10 @@ def execute_query_factors(
             }, indent=2)
 
         # No symbol: return factor library
-        custom_rows = db.query(CustomFactor).filter(CustomFactor.is_active == True).all()
+        custom_rows = db.query(CustomFactor).filter(
+            CustomFactor.user_id == user_id,
+            CustomFactor.is_active == True,
+        ).all()
         factors = [
             {"name": f["name"], "category": f["category"], "source": "builtin",
              "display_name": f.get("display_name", f["name"])}
@@ -2936,12 +3104,15 @@ def execute_save_factor(
     name: str,
     expression: str,
     description: str = "",
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Save a custom factor expression to the library."""
     import re
     from database.models import CustomFactor
     from services.factor_expression_engine import factor_expression_engine
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         # Validate factor name format
@@ -2986,14 +3157,21 @@ def execute_save_factor(
 
 def execute_edit_factor(
     db: Session, factor_id: int,
-    name: str = None, expression: str = None, description: str = None
+    name: str = None, expression: str = None, description: str = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """Edit an existing custom factor."""
     from database.models import CustomFactor
     from services.factor_expression_engine import factor_expression_engine
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
+
     try:
-        factor = db.query(CustomFactor).filter(CustomFactor.id == factor_id).first()
+        factor = db.query(CustomFactor).filter(
+            CustomFactor.id == factor_id,
+            CustomFactor.user_id == user_id,
+        ).first()
         if not factor:
             return json.dumps({"error": f"Custom factor with id={factor_id} not found"})
 
@@ -3005,7 +3183,9 @@ def execute_edit_factor(
 
         if name:
             dup = db.query(CustomFactor).filter(
-                CustomFactor.name == name, CustomFactor.id != factor_id
+                CustomFactor.user_id == user_id,
+                CustomFactor.name == name,
+                CustomFactor.id != factor_id,
             ).first()
             if dup:
                 return json.dumps({"error": f"Factor name '{name}' already exists"})
@@ -3033,11 +3213,19 @@ def execute_edit_factor(
         return json.dumps({"error": str(e)})
 
 
-def execute_compute_factor(db: Session, factor_name: str, exchange: str, user_id: int = 1) -> str:
+def execute_compute_factor(
+    db: Session,
+    factor_name: str,
+    exchange: str,
+    user_id: Optional[int] = None,
+) -> str:
     """Compute a single factor across all watchlist symbols using sliding window IC.
     Delegates to FactorEffectivenessService.compute_single_factor() — no duplicated logic.
     """
     from services.factor_effectiveness_service import FactorEffectivenessService
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     try:
         eff_svc = FactorEffectivenessService()
@@ -3076,9 +3264,17 @@ def execute_get_factor_functions(category: str = None) -> str:
     })
 
 
-def execute_web_search(db: Session, query: str, max_results: int = 5, user_id: int = 1) -> str:
+def execute_web_search(
+    db: Session,
+    query: str,
+    max_results: int = 5,
+    user_id: Optional[int] = None,
+) -> str:
     """Search the web using Tavily API. Returns error with setup guide if key not configured."""
     from services.hyper_ai_tool_registry import get_tool_api_key
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     api_key = get_tool_api_key(db, "tavily", user_id=user_id)
     if not api_key:
@@ -3197,9 +3393,12 @@ def execute_fetch_url(url: str, max_length: int = 8000) -> str:
     })
 
 
-def execute_get_tracked_wallets(db: Session, user_id: int = 1) -> str:
+def execute_get_tracked_wallets(db: Session, user_id: Optional[int] = None) -> str:
     """Return the current Hyper Insight sync state and synced tracked wallets."""
     from services.hyper_insight_wallet_service import hyper_insight_wallet_service
+
+    if blocked := _require_tool_user(user_id):
+        return blocked
 
     snapshot = hyper_insight_wallet_service.get_status_snapshot(user_id)
     synced_addresses = snapshot.get("synced_addresses") or []
@@ -3220,13 +3419,15 @@ def execute_get_tracked_wallets(db: Session, user_id: int = 1) -> str:
 _STRATEGY_RADAR_UNIVERSE_CACHE: dict[int, dict[str, Any]] = {}
 
 
-def _get_hyper_insight_access_token(db: Session, user_id: int = 1) -> str:
+def _get_hyper_insight_access_token(db: Session, user_id: Optional[int] = None) -> str:
     from services.hyper_insight_wallet_service import hyper_insight_wallet_service
 
+    if user_id is None:
+        return ""
     return hyper_insight_wallet_service.get_access_token(user_id)
 
 
-def _strategy_radar_headers(db: Session, user_id: int = 1) -> dict[str, str] | None:
+def _strategy_radar_headers(db: Session, user_id: Optional[int] = None) -> dict[str, str] | None:
     access_token = _get_hyper_insight_access_token(db, user_id=user_id)
     if not access_token:
         return None
@@ -3237,7 +3438,15 @@ def _strategy_radar_base_url() -> str:
     return os.getenv("HYPER_INSIGHT_API_BASE_URL", "https://hyper.akooi.com").rstrip("/")
 
 
-def _fetch_strategy_radar_universe(db: Session, *, user_id: int = 1, force_refresh: bool = False) -> dict:
+def _fetch_strategy_radar_universe(
+    db: Session,
+    *,
+    user_id: Optional[int] = None,
+    force_refresh: bool = False,
+) -> dict:
+    if blocked := _require_tool_user_dict(user_id):
+        return {"ok": False, "error": blocked["message"], "reason": blocked["reason"]}
+
     now = datetime.now(timezone.utc)
     user_cache = _STRATEGY_RADAR_UNIVERSE_CACHE.get(user_id) or {}
     cached_until = user_cache.get("expires_at")
@@ -3292,8 +3501,14 @@ def _fetch_strategy_radar_universe(db: Session, *, user_id: int = 1, force_refre
     return {"ok": False, "error": "Strategy Radar returned an invalid universe response."}
 
 
-def execute_get_strategy_radar_universe(db: Session, user_id: int = 1) -> str:
+def execute_get_strategy_radar_universe(
+    db: Session,
+    user_id: Optional[int] = None,
+) -> str:
     """Return Strategy Radar's currently queryable symbol/period/regime combinations."""
+    if blocked := _require_tool_user(user_id):
+        return blocked
+
     try:
         payload = _fetch_strategy_radar_universe(db, user_id=user_id)
         return json.dumps(payload, indent=2, ensure_ascii=False)
@@ -3331,9 +3546,12 @@ def execute_search_strategy_radar(
     risk_level: str | None = None,
     timeframe: str | None = None,
     limit: int = 5,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
 ) -> str:
     """Search protected Strategy Radar S2S endpoints for current strategy candidates."""
+    if blocked := _require_tool_user(user_id):
+        return blocked
+
     safe_symbol = (symbol or "").strip().upper()
     safe_period = period if period in {"1h", "4h", "1d"} else "1h"
     safe_exchange = exchange if exchange in {"hyperliquid", "binance"} else None
@@ -3446,10 +3664,12 @@ def _delete_error(entity_type: str, entity_id: Any, message: str = "Not found or
     }, ensure_ascii=False)
 
 
-def execute_delete_trader(db: Session, trader_id: int, user_id: int = 1) -> str:
+def execute_delete_trader(db: Session, trader_id: int, user_id: Optional[int] = None) -> str:
     from database.models import Account
     from services.entity_deletion_service import delete_trader
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
     if trader_id is None:
         return _delete_error("trader", trader_id, "trader_id is required")
     exists = db.query(Account.id).filter(
@@ -3462,10 +3682,12 @@ def execute_delete_trader(db: Session, trader_id: int, user_id: int = 1) -> str:
     return json.dumps(delete_trader(db, trader_id=trader_id), indent=2, ensure_ascii=False)
 
 
-def execute_delete_prompt_template(db: Session, prompt_id: int, user_id: int = 1) -> str:
+def execute_delete_prompt_template(db: Session, prompt_id: int, user_id: Optional[int] = None) -> str:
     from database.models import PromptTemplate
     from services.entity_deletion_service import delete_prompt_template
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
     if prompt_id is None:
         return _delete_error("prompt_template", prompt_id, "prompt_id is required")
     exists = db.query(PromptTemplate.id).filter(
@@ -3478,10 +3700,12 @@ def execute_delete_prompt_template(db: Session, prompt_id: int, user_id: int = 1
     return json.dumps(delete_prompt_template(db, prompt_id=prompt_id), indent=2, ensure_ascii=False)
 
 
-def execute_delete_signal_definition(db: Session, signal_id: int, user_id: int = 1) -> str:
+def execute_delete_signal_definition(db: Session, signal_id: int, user_id: Optional[int] = None) -> str:
     from database.models import SignalDefinition
     from services.entity_deletion_service import delete_signal_definition
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
     if signal_id is None:
         return _delete_error("signal_definition", signal_id, "signal_id is required")
     exists = db.query(SignalDefinition.id).filter(
@@ -3494,10 +3718,12 @@ def execute_delete_signal_definition(db: Session, signal_id: int, user_id: int =
     return json.dumps(delete_signal_definition(db, signal_id=signal_id), indent=2, ensure_ascii=False)
 
 
-def execute_delete_signal_pool(db: Session, pool_id: int, user_id: int = 1) -> str:
+def execute_delete_signal_pool(db: Session, pool_id: int, user_id: Optional[int] = None) -> str:
     from database.models import SignalPool
     from services.entity_deletion_service import delete_signal_pool
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
     if pool_id is None:
         return _delete_error("signal_pool", pool_id, "pool_id is required")
     exists = db.query(SignalPool.id).filter(
@@ -3510,10 +3736,12 @@ def execute_delete_signal_pool(db: Session, pool_id: int, user_id: int = 1) -> s
     return json.dumps(delete_signal_pool(db, pool_id=pool_id), indent=2, ensure_ascii=False)
 
 
-def execute_delete_trading_program(db: Session, program_id: int, user_id: int = 1) -> str:
+def execute_delete_trading_program(db: Session, program_id: int, user_id: Optional[int] = None) -> str:
     from database.models import TradingProgram
     from services.entity_deletion_service import delete_trading_program
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
     if program_id is None:
         return _delete_error("trading_program", program_id, "program_id is required")
     exists = db.query(TradingProgram.id).filter(
@@ -3526,10 +3754,12 @@ def execute_delete_trading_program(db: Session, program_id: int, user_id: int = 
     return json.dumps(delete_trading_program(db, program_id=program_id), indent=2, ensure_ascii=False)
 
 
-def execute_delete_prompt_binding(db: Session, binding_id: int, user_id: int = 1) -> str:
+def execute_delete_prompt_binding(db: Session, binding_id: int, user_id: Optional[int] = None) -> str:
     from database.models import Account, AccountPromptBinding
     from services.entity_deletion_service import delete_prompt_binding
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
     if binding_id is None:
         return _delete_error("prompt_binding", binding_id, "binding_id is required")
     exists = db.query(AccountPromptBinding.id).join(
@@ -3545,10 +3775,12 @@ def execute_delete_prompt_binding(db: Session, binding_id: int, user_id: int = 1
     return json.dumps(delete_prompt_binding(db, binding_id=binding_id), indent=2, ensure_ascii=False)
 
 
-def execute_delete_program_binding(db: Session, binding_id: int, user_id: int = 1) -> str:
+def execute_delete_program_binding(db: Session, binding_id: int, user_id: Optional[int] = None) -> str:
     from database.models import Account, AccountProgramBinding
     from services.entity_deletion_service import delete_program_binding
 
+    if blocked := _require_tool_user(user_id):
+        return blocked
     if binding_id is None:
         return _delete_error("program_binding", binding_id, "binding_id is required")
     exists = db.query(AccountProgramBinding.id).join(
@@ -3625,7 +3857,8 @@ def execute_hyper_ai_tool(
                 db,
                 level=arguments.get("level", "error"),
                 limit=arguments.get("limit", 20),
-                trader_id=arguments.get("trader_id")
+                trader_id=arguments.get("trader_id"),
+                user_id=user_id,
             )
 
         elif tool_name == "get_contact_config":
@@ -3646,7 +3879,11 @@ def execute_hyper_ai_tool(
             )
 
         elif tool_name == "diagnose_trader_issues":
-            return execute_diagnose_trader_issues(db, trader_id=arguments.get("trader_id"))
+            return execute_diagnose_trader_issues(
+                db,
+                trader_id=arguments.get("trader_id"),
+                user_id=user_id,
+            )
 
         elif tool_name == "analyze_tracked_address":
             return execute_analyze_tracked_address(
@@ -3831,7 +4068,8 @@ def execute_hyper_ai_tool(
                 symbol=arguments.get("symbol"),
                 factor_name=arguments.get("factor_name"),
                 forward_period=arguments.get("forward_period", "4h"),
-                days=arguments.get("days", 30)
+                days=arguments.get("days", 30),
+                user_id=user_id,
             )
 
         elif tool_name == "evaluate_factor":
@@ -3854,7 +4092,8 @@ def execute_hyper_ai_tool(
                 db, factor_id=arguments.get("factor_id"),
                 name=arguments.get("name"),
                 expression=arguments.get("expression"),
-                description=arguments.get("description")
+                description=arguments.get("description"),
+                user_id=user_id,
             )
 
         elif tool_name == "compute_factor":
