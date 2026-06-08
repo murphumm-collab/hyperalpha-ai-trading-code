@@ -344,9 +344,13 @@ class ProgramExecutionService:
             wallet_address = self._get_wallet_address(db, account, exchange)
 
             # Get trading environment and create trading client
-            from services.hyperliquid_environment import get_global_trading_mode, get_hyperliquid_client, get_leverage_settings
+            from services.hyperliquid_environment import (
+                get_account_trading_environment,
+                get_hyperliquid_client,
+                get_leverage_settings,
+            )
 
-            environment = get_global_trading_mode(db)
+            environment = get_account_trading_environment(db, account.id)
             trading_client = None
 
             if exchange == "binance":
@@ -479,9 +483,9 @@ class ProgramExecutionService:
 
     def _get_wallet_address(self, db, account: Account, exchange: str = "hyperliquid") -> Optional[str]:
         """Get the active wallet address for an account based on exchange."""
-        from services.hyperliquid_environment import get_global_trading_mode
+        from services.hyperliquid_environment import get_account_trading_environment
 
-        environment = get_global_trading_mode(db)
+        environment = get_account_trading_environment(db, account.id)
         if not environment:
             return None
 
@@ -864,7 +868,7 @@ class ProgramExecutionService:
     ):
         """Handle the decision from program execution - execute actual trade."""
         from program_trader.executor import validate_decision
-        from services.hyperliquid_environment import get_global_trading_mode, get_hyperliquid_client
+        from services.hyperliquid_environment import get_account_trading_environment, get_hyperliquid_client
 
         op = decision.operation.lower() if hasattr(decision, 'operation') else decision.action.value
 
@@ -874,7 +878,7 @@ class ProgramExecutionService:
 
         # Validate decision
         positions_dict = {}
-        environment = get_global_trading_mode(db)
+        environment = get_account_trading_environment(db, binding.account_id)
 
         # Note: Quota check is now done in _execute_binding before logging,
         # so we don't need to check again here.

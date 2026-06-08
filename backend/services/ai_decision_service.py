@@ -1978,9 +1978,8 @@ def call_ai_for_decision(
         logger.info(f"Skipping AI trading for account {account.name} - using default API key")
         return None
 
-    # IMPORTANT: Get global trading mode at the start
-    from services.hyperliquid_environment import get_global_trading_mode
-    global_environment = get_global_trading_mode(db)
+    from services.hyperliquid_environment import get_account_trading_environment
+    account_environment = get_account_trading_environment(db, account.id)
 
     try:
         news_summary = fetch_latest_news()
@@ -2030,7 +2029,7 @@ def call_ai_for_decision(
             symbol_metadata=active_symbol_metadata,
             symbol_order=symbol_order,
             sampling_interval=sampling_interval,
-            environment=global_environment,
+            environment=account_environment,
             template_text=template.template_text,
             trigger_context=trigger_context,
             exchange=exchange,
@@ -2062,7 +2061,7 @@ def call_ai_for_decision(
             symbol_metadata=active_symbol_metadata,
             symbol_order=symbol_order,
             sampling_interval=sampling_interval,
-            environment=global_environment,
+            environment=account_environment,
             template_text=template.template_text,
             trigger_context=trigger_context,
             exchange=exchange,
@@ -2574,10 +2573,8 @@ def save_ai_decision(
                 if total_balance > 0:
                     prev_portion = symbol_value / total_balance
 
-        # Get Hyperliquid environment for decision tagging
-        # IMPORTANT: Always use global trading mode for accurate logging
-        from services.hyperliquid_environment import get_global_trading_mode
-        hyperliquid_environment = get_global_trading_mode(db)
+        from services.hyperliquid_environment import get_account_trading_environment
+        hyperliquid_environment = get_account_trading_environment(db, account.id)
 
         # Create decision log entry
         decision_log = AIDecisionLog(

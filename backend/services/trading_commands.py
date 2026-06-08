@@ -496,9 +496,8 @@ def place_ai_driven_hyperliquid_order(
                 )
                 continue
 
-            # Get global trading mode (environment) for Hyperliquid
-            from services.hyperliquid_environment import get_global_trading_mode, get_leverage_settings
-            environment = get_global_trading_mode(db)
+            from services.hyperliquid_environment import get_account_trading_environment, get_leverage_settings
+            environment = get_account_trading_environment(db, account.id)
             logger.info(f"Processing Hyperliquid trading for account: {account.name} (environment: {environment})")
 
             # Get Hyperliquid client (will check wallet configuration)
@@ -1341,9 +1340,8 @@ def place_ai_driven_binance_order(
     for account in accounts:
         db = SessionLocal()
         try:
-            # Get global trading mode (same as Hyperliquid)
-            from services.hyperliquid_environment import get_global_trading_mode
-            environment = get_global_trading_mode(db)
+            from services.hyperliquid_environment import get_account_trading_environment
+            environment = get_account_trading_environment(db, account.id)
             if not environment:
                 logger.info(f"AI Trader '{account.name}' skipped - No trading environment configured")
                 continue

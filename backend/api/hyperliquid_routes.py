@@ -262,7 +262,7 @@ def get_balance(
         account_id: Target account ID
         force_refresh: If True, fetch directly from Hyperliquid instead of cache
         environment: Optional environment override ("testnet" or "mainnet")
-                    If not specified, uses global trading mode
+                    If not specified, uses the account's configured environment
     """
     start_threads = get_current_thread_count()
     start_time = time.monotonic()
@@ -270,8 +270,8 @@ def get_balance(
         _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
-            from services.hyperliquid_environment import get_global_trading_mode
-            environment = get_global_trading_mode(db)
+            from services.hyperliquid_environment import get_account_trading_environment
+            environment = get_account_trading_environment(db, account_id)
 
         if not force_refresh:
             cached_entry = get_cached_account_state(account_id, environment)
@@ -326,14 +326,14 @@ def get_positions(
         account_id: Target account ID
         force_refresh: If True, fetch directly from Hyperliquid instead of cache
         environment: Optional environment override ("testnet" or "mainnet")
-                    If not specified, uses global trading mode
+                    If not specified, uses the account's configured environment
     """
     try:
         _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
-            from services.hyperliquid_environment import get_global_trading_mode
-            environment = get_global_trading_mode(db)
+            from services.hyperliquid_environment import get_account_trading_environment
+            environment = get_account_trading_environment(db, account_id)
 
         if not force_refresh:
             cached_entry = get_cached_positions(account_id, environment)
@@ -390,10 +390,10 @@ def place_manual_order(
         client = get_hyperliquid_client(db, account_id, override_environment=request.environment)
 
         # Validate leverage against wallet limits (uses unified leverage getter)
-        from services.hyperliquid_environment import get_leverage_settings, get_global_trading_mode
+        from services.hyperliquid_environment import get_account_trading_environment, get_leverage_settings
 
         # Determine actual environment being used
-        actual_environment = request.environment if request.environment else get_global_trading_mode(db)
+        actual_environment = request.environment if request.environment else get_account_trading_environment(db, account_id)
 
         # Get leverage settings from wallet (or Account table fallback)
         leverage_settings = get_leverage_settings(db, account_id, actual_environment)
@@ -696,7 +696,7 @@ def get_account_rate_limit(
     Args:
         account_id: Account ID
         environment: Optional environment override ("testnet" or "mainnet")
-                    If not specified, uses global trading mode
+                    If not specified, uses the account's configured environment
         db: Database session
 
     Returns:
@@ -709,8 +709,8 @@ def get_account_rate_limit(
         _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
-            from services.hyperliquid_environment import get_global_trading_mode
-            environment = get_global_trading_mode(db)
+            from services.hyperliquid_environment import get_account_trading_environment
+            environment = get_account_trading_environment(db, account_id)
 
         # Get Hyperliquid client for this account with environment override
         client = get_hyperliquid_client(db, account_id, override_environment=environment)
@@ -756,7 +756,7 @@ def get_account_trading_stats(
     Args:
         account_id: Account ID
         environment: Optional environment override ("testnet" or "mainnet")
-                    If not specified, uses global trading mode
+                    If not specified, uses the account's configured environment
         db: Database session
 
     Returns:
@@ -769,8 +769,8 @@ def get_account_trading_stats(
         _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
-            from services.hyperliquid_environment import get_global_trading_mode
-            environment = get_global_trading_mode(db)
+            from services.hyperliquid_environment import get_account_trading_environment
+            environment = get_account_trading_environment(db, account_id)
 
         # Get Hyperliquid client for this account with environment override
         client = get_hyperliquid_client(db, account_id, override_environment=environment)
@@ -861,7 +861,7 @@ def get_account_wallet(
     Returns both testnet and mainnet wallet configurations with balance information.
     """
     from database.models import HyperliquidWallet
-    from services.hyperliquid_environment import get_global_trading_mode
+    from services.hyperliquid_environment import get_account_trading_environment
 
     try:
         account = _ensure_account_owner(db, account_id, current_user.id)
@@ -909,8 +909,8 @@ def get_account_wallet(
             elif wallet.environment == 'mainnet':
                 mainnet_wallet = wallet_data
 
-        # Get global trading mode
-        trading_mode = get_global_trading_mode(db)
+        # Keep response key for frontend compatibility; value is account-scoped.
+        trading_mode = get_account_trading_environment(db, account_id)
 
         return {
             'success': True,
@@ -1213,8 +1213,8 @@ def test_wallet_connection(
         if env and env not in ("testnet", "mainnet"):
             raise HTTPException(status_code=400, detail="environment must be 'testnet' or 'mainnet'")
         if not env:
-            from services.hyperliquid_environment import get_global_trading_mode
-            env = get_global_trading_mode(db)
+            from services.hyperliquid_environment import get_account_trading_environment
+            env = get_account_trading_environment(db, account_id)
 
         try:
             client = get_hyperliquid_client(db, account_id, override_environment=env)
@@ -1261,20 +1261,35 @@ class TradingModeRequest(BaseModel):
 
 
 @router.get("/trading-mode")
-def get_trading_mode(db: Session = Depends(get_db)):
+def get_trading_mode(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
-    Get global Hyperliquid trading mode
+    Get current user's Hyperliquid trading mode
 
-    Returns the current trading environment (testnet or mainnet) that all AI Traders use.
+    Returns the common environment for the current user's Hyperliquid accounts.
     """
     from services.hyperliquid_environment import get_global_trading_mode
 
     try:
-        mode = get_global_trading_mode(db)
+        environments = [
+            row[0]
+            for row in db.query(Account.hyperliquid_environment).filter(
+                Account.user_id == current_user.id,
+                Account.is_deleted != True,
+                Account.hyperliquid_environment.in_(["testnet", "mainnet"]),
+            ).all()
+            if row[0]
+        ]
+        unique_modes = sorted(set(environments))
+        mode = unique_modes[0] if len(unique_modes) == 1 else get_global_trading_mode(db)
 
         return {
             'success': True,
             'mode': mode,
+            'scope': 'user',
+            'mixed': len(unique_modes) > 1,
             'description': 'Testnet (paper trading)' if mode == 'testnet' else 'Mainnet (real funds)'
         }
 
@@ -1286,59 +1301,56 @@ def get_trading_mode(db: Session = Depends(get_db)):
 @router.post("/trading-mode")
 def set_trading_mode(
     request: TradingModeRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
-    Set global Hyperliquid trading mode
+    Set current user's Hyperliquid trading mode
 
-    WARNING: Switching to mainnet will use real funds for all AI Traders.
-    This change affects all active AI Traders immediately.
+    WARNING: Switching to mainnet will use real funds for this user's enabled AI Traders.
     """
-    from database.models import SystemConfig
-
     try:
-        # Check if config exists
-        config = db.query(SystemConfig).filter(
-            SystemConfig.key == "hyperliquid_trading_mode"
-        ).first()
-
-        old_mode = config.value if config else "testnet"
         new_mode = request.mode
+        accounts = db.query(Account).filter(
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+            Account.hyperliquid_enabled == "true",
+        ).all()
+        old_modes = sorted({acc.hyperliquid_environment or "testnet" for acc in accounts})
+        old_mode = old_modes[0] if len(old_modes) == 1 else "mixed"
 
-        if old_mode == new_mode:
+        if accounts and all(acc.hyperliquid_environment == new_mode for acc in accounts):
             return {
                 'success': True,
                 'mode': new_mode,
                 'changed': False,
+                'scope': 'user',
                 'message': f'Trading mode already set to {new_mode}'
             }
 
-        # Update or create config
-        if config:
-            config.value = new_mode
-        else:
-            config = SystemConfig(
-                key="hyperliquid_trading_mode",
-                value=new_mode,
-                description="Global Hyperliquid trading environment: 'testnet' or 'mainnet'"
-            )
-            db.add(config)
+        for account in accounts:
+            account.hyperliquid_environment = new_mode
 
         db.commit()
 
-        logger.warning(f"GLOBAL TRADING MODE CHANGED: {old_mode} -> {new_mode}")
+        logger.warning(
+            "User %s Hyperliquid trading mode changed: %s -> %s (%s accounts)",
+            current_user.id,
+            old_mode,
+            new_mode,
+            len(accounts),
+        )
 
-        # Clear all Hyperliquid caches when environment changes
-        # This ensures fresh data is fetched from the new environment
-        from services.hyperliquid_cache import clear_all_caches
-        clear_all_caches()
-        logger.info("Cleared all Hyperliquid caches after trading mode switch")
+        for account in accounts:
+            clear_trading_client_cache(account_id=account.id)
 
         return {
             'success': True,
             'mode': new_mode,
             'changed': True,
+            'scope': 'user',
             'oldMode': old_mode,
+            'accountsUpdated': len(accounts),
             'message': f'Trading mode switched from {old_mode} to {new_mode}'
         }
 
@@ -1359,7 +1371,7 @@ def get_all_wallets(
     Get all Hyperliquid wallets (both testnet and mainnet) across all AI Trader accounts
 
     Used by the Trade page wallet selector to display all available wallets
-    regardless of the current global trading mode.
+    for the current user.
 
     Returns:
         List of wallet objects with account information, sorted by account name and environment
