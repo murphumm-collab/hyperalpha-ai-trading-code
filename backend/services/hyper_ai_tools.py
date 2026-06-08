@@ -2283,15 +2283,17 @@ def execute_list_strategies(
                 ).first()
                 if not tpl:
                     return json.dumps({"error": f"Prompt {strategy_id} not found"})
-                bindings = db.query(AccountPromptBinding).filter(
+                binding_rows = db.query(AccountPromptBinding, Account).join(
+                    Account, AccountPromptBinding.account_id == Account.id
+                ).filter(
                     AccountPromptBinding.prompt_template_id == tpl.id,
-                    AccountPromptBinding.is_deleted != True
+                    AccountPromptBinding.is_deleted != True,
+                    Account.user_id == user_id,
+                    Account.is_deleted != True,
                 ).all()
                 bound_traders = []
-                for b in bindings:
-                    acc = db.query(Account).filter(Account.id == b.account_id, Account.user_id == user_id).first()
-                    if acc:
-                        bound_traders.append({"trader_id": acc.id, "trader_name": acc.name})
+                for _, acc in binding_rows:
+                    bound_traders.append({"trader_id": acc.id, "trader_name": acc.name})
                 return json.dumps({
                     "prompt_id": tpl.id,
                     "name": tpl.name,
@@ -2307,18 +2309,20 @@ def execute_list_strategies(
                 ).first()
                 if not prog:
                     return json.dumps({"error": f"Program {strategy_id} not found"})
-                bindings = db.query(AccountProgramBinding).filter(
+                binding_rows = db.query(AccountProgramBinding, Account).join(
+                    Account, AccountProgramBinding.account_id == Account.id
+                ).filter(
                     AccountProgramBinding.program_id == prog.id,
-                    AccountProgramBinding.is_deleted != True
+                    AccountProgramBinding.is_deleted != True,
+                    Account.user_id == user_id,
+                    Account.is_deleted != True,
                 ).all()
                 bound_traders = []
-                for b in bindings:
-                    acc = db.query(Account).filter(Account.id == b.account_id, Account.user_id == user_id).first()
-                    if acc:
-                        bound_traders.append({
-                            "trader_id": acc.id, "trader_name": acc.name,
-                            "is_active": b.is_active
-                        })
+                for b, acc in binding_rows:
+                    bound_traders.append({
+                        "trader_id": acc.id, "trader_name": acc.name,
+                        "is_active": b.is_active
+                    })
                 return json.dumps({
                     "program_id": prog.id,
                     "name": prog.name,
@@ -2335,15 +2339,17 @@ def execute_list_strategies(
         ).all()
         prompts = []
         for tpl in templates:
-            bindings = db.query(AccountPromptBinding).filter(
+            binding_rows = db.query(AccountPromptBinding, Account).join(
+                Account, AccountPromptBinding.account_id == Account.id
+            ).filter(
                 AccountPromptBinding.prompt_template_id == tpl.id,
-                AccountPromptBinding.is_deleted != True
+                AccountPromptBinding.is_deleted != True,
+                Account.user_id == user_id,
+                Account.is_deleted != True,
             ).all()
             bound_traders = []
-            for b in bindings:
-                acc = db.query(Account).filter(Account.id == b.account_id, Account.user_id == user_id).first()
-                if acc:
-                    bound_traders.append({"trader_id": acc.id, "trader_name": acc.name})
+            for _, acc in binding_rows:
+                bound_traders.append({"trader_id": acc.id, "trader_name": acc.name})
             prompts.append({
                 "prompt_id": tpl.id,
                 "name": tpl.name,
@@ -2358,23 +2364,21 @@ def execute_list_strategies(
         ).all()
         programs = []
         for prog in programs_db:
-            bindings = db.query(AccountProgramBinding).filter(
+            binding_rows = db.query(AccountProgramBinding, Account).join(
+                Account, AccountProgramBinding.account_id == Account.id
+            ).filter(
                 AccountProgramBinding.program_id == prog.id,
-                AccountProgramBinding.is_deleted != True
+                AccountProgramBinding.is_deleted != True,
+                Account.user_id == user_id,
+                Account.is_deleted != True,
             ).all()
             bound_traders = []
-            for b in bindings:
-                acc = db.query(Account).filter(
-                    Account.id == b.account_id,
-                    Account.user_id == user_id,
-                    Account.is_deleted != True,
-                ).first()
-                if acc:
-                    bound_traders.append({
-                        "trader_id": acc.id,
-                        "trader_name": acc.name,
-                        "is_active": b.is_active
-                    })
+            for b, acc in binding_rows:
+                bound_traders.append({
+                    "trader_id": acc.id,
+                    "trader_name": acc.name,
+                    "is_active": b.is_active
+                })
             programs.append({
                 "program_id": prog.id,
                 "name": prog.name,
