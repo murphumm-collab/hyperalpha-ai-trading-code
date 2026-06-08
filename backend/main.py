@@ -589,30 +589,9 @@ def on_startup():
 async def restore_bot_webhooks():
     """Restore Telegram webhook and register adapter after container restart."""
     try:
-        from services.telegram_bot_service import restore_telegram_webhook, get_telegram_adapter
-        from services.bot_adapter import register_adapter
-        from services.bot_service import get_decrypted_bot_token
-        from database.connection import SessionLocal
-        from database.models import BotConfig
+        from services.telegram_bot_service import restore_telegram_webhook
 
         await restore_telegram_webhook()
-
-        # Register Telegram adapter if connected
-        db = SessionLocal()
-        try:
-            config = db.query(BotConfig).filter(
-                BotConfig.platform == "telegram",
-                BotConfig.status == "connected"
-            ).first()
-            if config:
-                token = get_decrypted_bot_token(db, "telegram")
-                if token:
-                    adapter = get_telegram_adapter()
-                    await adapter.start(token)
-                    register_adapter(adapter)
-                    print(f"[startup] Telegram adapter registered")
-        finally:
-            db.close()
     except Exception as e:
         print(f"[startup] Telegram webhook restore failed (non-fatal): {e}")
 
@@ -639,7 +618,7 @@ async def restore_discord_gateway():
             if not config:
                 return
 
-            token = get_decrypted_bot_token(db, "discord")
+            token = get_decrypted_bot_token(db, "discord", config.user_id)
             if not token:
                 return
 
@@ -650,7 +629,13 @@ async def restore_discord_gateway():
             print(f"[startup] Discord adapter registered")
 
             async def handle_discord_message(user_id: int, username: str, display_name: str, text: str) -> str:
-                return await _process_discord_message_internal(user_id, username, display_name, text)
+                return await _process_discord_message_internal(
+                    user_id,
+                    username,
+                    display_name,
+                    text,
+                    owner_user_id=config.user_id,
+                )
 
             asyncio.create_task(start_discord_gateway(token, handle_discord_message))
             print(f"[startup] Discord Gateway restore initiated for @{config.bot_username}")

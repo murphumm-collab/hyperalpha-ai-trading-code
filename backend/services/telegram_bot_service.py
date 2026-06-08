@@ -10,7 +10,7 @@ Architecture:
 import asyncio
 import logging
 import re
-from typing import Optional
+from typing import Dict, Optional
 
 from sqlalchemy.orm import Session
 
@@ -20,10 +20,11 @@ from services.bot_service import get_decrypted_bot_token, update_bot_status
 
 logger = logging.getLogger(__name__)
 
-# Global bot application instance
+# Per-user polling tasks. A To C deployment can have multiple users with their
+# own Telegram bot tokens active on one server.
 _telegram_app = None
-_polling_task = None
-_polling_stop_event = None
+_polling_tasks: Dict[int, asyncio.Task] = {}
+_polling_stop_events: Dict[int, asyncio.Event] = {}
 
 
 def _get_telegram_bot():
@@ -54,7 +55,7 @@ async def validate_telegram_token(token: str) -> dict:
         return {"valid": False, "error": str(e)}
 
 
-async def setup_telegram_webhook(token: str, webhook_url: str) -> dict:
+async def setup_telegram_webhook(token: str, webhook_url: str, secret_token: Optional[str] = None) -> dict:
     """Set webhook URL for the Telegram bot. (Legacy - kept for compatibility)"""
     Bot = _get_telegram_bot()
     if not Bot:
@@ -62,7 +63,10 @@ async def setup_telegram_webhook(token: str, webhook_url: str) -> dict:
 
     try:
         bot = Bot(token=token)
-        await bot.set_webhook(url=webhook_url)
+        kwargs = {"url": webhook_url}
+        if secret_token:
+            kwargs["secret_token"] = secret_token
+        await bot.set_webhook(**kwargs)
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
@@ -137,41 +141,45 @@ async def restore_telegram_webhook():
     """Restore Telegram bot on startup using Long Polling mode."""
     db = SessionLocal()
     try:
-        config = db.query(BotConfig).filter(
+        configs = db.query(BotConfig).filter(
             BotConfig.platform == "telegram",
             BotConfig.status == "connected"
-        ).first()
-        if not config or not config.bot_token_encrypted:
+        ).all()
+        if not configs:
             return
 
         from services.bot_service import get_decrypted_bot_token
-        token = get_decrypted_bot_token(db, "telegram")
-        if not token:
-            return
+        for config in configs:
+            if not config.bot_token_encrypted or config.user_id is None:
+                continue
 
-        # Start polling mode instead of webhook
-        result = await start_telegram_polling(token)
-        if result["success"]:
-            print(f"[startup] Telegram polling started for @{config.bot_username}", flush=True)
-        else:
-            print(f"[startup] Telegram polling failed: {result.get('error')}", flush=True)
-            from services.bot_service import update_bot_status
-            update_bot_status(db, "telegram", "error", result.get("error"))
+            token = get_decrypted_bot_token(db, "telegram", config.user_id)
+            if not token:
+                continue
+
+            # Start polling mode instead of webhook
+            result = await start_telegram_polling(token, config.user_id)
+            if result["success"]:
+                print(f"[startup] Telegram polling started for user={config.user_id} @{config.bot_username}", flush=True)
+            else:
+                print(f"[startup] Telegram polling failed for user={config.user_id}: {result.get('error')}", flush=True)
+                from services.bot_service import update_bot_status
+                update_bot_status(db, "telegram", "error", result.get("error"), config.user_id)
     except Exception as e:
         print(f"[startup] Telegram restore error: {e}", flush=True)
     finally:
         db.close()
 
 
-async def start_telegram_polling(token: str) -> dict:
+async def start_telegram_polling(token: str, user_id: Optional[int] = None) -> dict:
     """
     Start Long Polling mode for Telegram bot.
     This allows the bot to work without public HTTPS/webhook.
     """
-    global _polling_task, _polling_stop_event
+    key = int(user_id or 0)
 
-    # Stop existing polling if any
-    await stop_telegram_polling()
+    # Stop existing polling for this user if any.
+    await stop_telegram_polling(user_id)
 
     try:
         from telegram import Update
@@ -184,52 +192,57 @@ async def start_telegram_polling(token: str) -> dict:
         await remove_telegram_webhook(token)
 
         # Create stop event
-        _polling_stop_event = asyncio.Event()
+        _polling_stop_events[key] = asyncio.Event()
 
         # Start polling in background task
-        _polling_task = asyncio.create_task(_run_polling_loop(token))
+        _polling_tasks[key] = asyncio.create_task(_run_polling_loop(token, user_id))
 
-        print(f"[Telegram] Polling started", flush=True)
+        print(f"[Telegram] Polling started for user={user_id}", flush=True)
         return {"success": True}
     except Exception as e:
         return {"success": False, "error": str(e)}
 
 
-async def stop_telegram_polling():
-    """Stop the polling loop."""
-    global _polling_task, _polling_stop_event
+async def stop_telegram_polling(user_id: Optional[int] = None):
+    """Stop one user's polling loop, or all loops when user_id is omitted."""
+    keys = list(_polling_tasks.keys()) if user_id is None else [int(user_id or 0)]
 
-    if _polling_stop_event:
-        _polling_stop_event.set()
+    for key in keys:
+        stop_event = _polling_stop_events.get(key)
+        if stop_event:
+            stop_event.set()
 
-    if _polling_task:
-        _polling_task.cancel()
+        polling_task = _polling_tasks.get(key)
+        if not polling_task:
+            _polling_stop_events.pop(key, None)
+            continue
+
+        polling_task.cancel()
         try:
-            await _polling_task
+            await polling_task
         except asyncio.CancelledError:
             pass
-        _polling_task = None
 
-    _polling_stop_event = None
-    print(f"[Telegram] Polling stopped", flush=True)
+        _polling_tasks.pop(key, None)
+        _polling_stop_events.pop(key, None)
+        print(f"[Telegram] Polling stopped for user_key={key}", flush=True)
 
 
-async def _run_polling_loop(token: str):
+async def _run_polling_loop(token: str, user_id: Optional[int]):
     """
     Long polling loop - fetches updates from Telegram API.
     """
-    global _polling_stop_event
-
     Bot = _get_telegram_bot()
     if not Bot:
         return
 
     bot = Bot(token=token)
     offset = 0
+    key = int(user_id or 0)
 
-    print(f"[Telegram] Polling loop started", flush=True)
+    print(f"[Telegram] Polling loop started for user={user_id}", flush=True)
 
-    while not (_polling_stop_event and _polling_stop_event.is_set()):
+    while not (_polling_stop_events.get(key) and _polling_stop_events[key].is_set()):
         try:
             updates = await bot.get_updates(
                 offset=offset,
@@ -256,7 +269,7 @@ async def _run_polling_loop(token: str):
 
                     # Process message async (don't block polling)
                     asyncio.create_task(
-                        _process_polling_message(token, chat_id, text, user)
+                        _process_polling_message(token, chat_id, text, user, owner_user_id=user_id)
                     )
 
         except asyncio.CancelledError:
@@ -266,10 +279,16 @@ async def _run_polling_loop(token: str):
             # Wait before retry on error
             await asyncio.sleep(5)
 
-    print(f"[Telegram] Polling loop ended", flush=True)
+    print(f"[Telegram] Polling loop ended for user={user_id}", flush=True)
 
 
-async def _process_polling_message(token: str, chat_id: int, text: str, user: dict):
+async def _process_polling_message(
+    token: str,
+    chat_id: int,
+    text: str,
+    user: dict,
+    owner_user_id: Optional[int] = None,
+):
     """
     Process a message received via polling.
     Reuses the same logic as webhook processing.
@@ -335,10 +354,12 @@ async def _process_polling_message(token: str, chat_id: int, text: str, user: di
         # Record chat binding for push broadcast
         binding = db_session.query(BotChatBinding).filter(
             BotChatBinding.platform == "telegram",
-            BotChatBinding.chat_id == str(chat_id)
+            BotChatBinding.chat_id == str(chat_id),
+            BotChatBinding.user_id == owner_user_id,
         ).first()
         if not binding:
             binding = BotChatBinding(
+                user_id=owner_user_id,
                 platform="telegram",
                 chat_id=str(chat_id),
                 username=user.get("username"),
@@ -352,11 +373,13 @@ async def _process_polling_message(token: str, chat_id: int, text: str, user: di
 
         # Find the shared Bot conversation
         conv = db_session.query(HyperAiConversation).filter(
-            HyperAiConversation.is_bot_conversation == True
+            HyperAiConversation.user_id == owner_user_id,
+            HyperAiConversation.is_bot_conversation == True,
         ).first()
 
         if not conv:
             conv = HyperAiConversation(
+                user_id=owner_user_id,
                 title="Hyper AI Bot",
                 is_bot_conversation=True
             )
@@ -392,7 +415,7 @@ async def _process_polling_message(token: str, chat_id: int, text: str, user: di
 
         def process_ai_sync():
             full_resp = ""
-            for event in stream_chat_response(db_session, conv.id, text):
+            for event in stream_chat_response(db_session, conv.id, text, user_id=owner_user_id):
                 event_type = None
                 data_str = None
                 for line in event.split("\n"):

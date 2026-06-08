@@ -70,11 +70,33 @@ def _wallet_event_type_label(event_type: Any) -> Optional[str]:
     return mapping.get(event_type.strip().lower(), event_type.strip().replace("_", " ").title())
 
 
-def get_bot_conversations(db: Session) -> List[HyperAiConversation]:
-    """Get all Bot conversations (one per platform)."""
-    return db.query(HyperAiConversation).filter(
+def get_bot_conversations(db: Session, user_id: Optional[int] = None) -> List[HyperAiConversation]:
+    """Get Bot conversations, optionally scoped to one user."""
+    query = db.query(HyperAiConversation).filter(
         HyperAiConversation.is_bot_conversation == True
-    ).all()
+    )
+    if user_id is not None:
+        query = query.filter(HyperAiConversation.user_id == user_id)
+    return query.all()
+
+
+def get_or_create_bot_conversation(db: Session, user_id: int) -> HyperAiConversation:
+    """Get or create the shared bot conversation for one user."""
+    conv = db.query(HyperAiConversation).filter(
+        HyperAiConversation.user_id == user_id,
+        HyperAiConversation.is_bot_conversation == True,
+    ).first()
+    if conv:
+        return conv
+
+    conv = HyperAiConversation(
+        user_id=user_id,
+        title="Hyper AI Bot",
+        is_bot_conversation=True,
+    )
+    db.add(conv)
+    db.flush()
+    return conv
 
 
 def get_connected_bot_configs(db: Session) -> List[BotConfig]:
@@ -88,7 +110,8 @@ def enqueue_system_event(
     db: Session,
     event_type: str,
     event_data: Dict[str, Any],
-    format_message: bool = True
+    format_message: bool = True,
+    user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
     Enqueue a system event to all Bot conversations.
@@ -109,7 +132,10 @@ def enqueue_system_event(
         content = event_data.get("message", str(event_data))
 
     results = []
-    bot_convs = get_bot_conversations(db)
+    if user_id is not None:
+        bot_convs = [get_or_create_bot_conversation(db, user_id)]
+    else:
+        bot_convs = get_bot_conversations(db)
 
     for conv in bot_convs:
         # Save as assistant message (Bot-initiated)
@@ -126,6 +152,7 @@ def enqueue_system_event(
             "conversation_id": conv.id,
             "message_id": message.id,
             "platform": conv.bot_platform,
+            "user_id": conv.user_id,
             "content": content
         })
 
@@ -251,6 +278,9 @@ async def push_event_to_all_channels(
     """
     from database.models import BotChatBinding
     from services.bot_adapter import get_adapter
+    from services.bot_service import get_decrypted_bot_token
+    from services.discord_bot_service import send_discord_message
+    from services.telegram_bot_service import send_telegram_message
 
     if not event_results:
         return
@@ -260,12 +290,44 @@ async def push_event_to_all_channels(
     if not content:
         return
 
-    # Query all active bindings across all platforms
-    bindings = db.query(BotChatBinding).filter(
+    user_ids = {
+        result.get("user_id")
+        for result in event_results
+        if result.get("user_id") is not None
+    }
+
+    # Query active bindings for the event owner only. Legacy global events with
+    # no user_id keep the previous broadcast behavior.
+    bindings_query = db.query(BotChatBinding).filter(
         BotChatBinding.is_active == True
-    ).all()
+    )
+    if user_ids:
+        bindings_query = bindings_query.filter(BotChatBinding.user_id.in_(user_ids))
+    bindings = bindings_query.all()
 
     for binding in bindings:
+        if binding.platform == "telegram":
+            token = get_decrypted_bot_token(db, "telegram", binding.user_id)
+            if not token:
+                logger.debug(f"Telegram token missing for user {binding.user_id}, skipping push")
+                continue
+            try:
+                await send_telegram_message(token, int(binding.chat_id), content)
+            except Exception as e:
+                logger.error(f"Failed to push to Telegram chat {binding.chat_id}: {e}")
+            continue
+
+        if binding.platform == "discord":
+            token = get_decrypted_bot_token(db, "discord", binding.user_id)
+            if not token:
+                logger.debug(f"Discord token missing for user {binding.user_id}, skipping push")
+                continue
+            try:
+                await send_discord_message(token, int(binding.chat_id), content)
+            except Exception as e:
+                logger.error(f"Failed to push to Discord user {binding.chat_id}: {e}")
+            continue
+
         adapter = get_adapter(binding.platform)
         if not adapter:
             logger.warning(f"No adapter registered for platform: {binding.platform}")

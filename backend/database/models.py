@@ -1735,6 +1735,7 @@ class BotConfig(Base):
     bot_token_encrypted = Column(Text, nullable=True)
     bot_username = Column(String(100), nullable=True)
     bot_app_id = Column(String(50), nullable=True)
+    webhook_secret = Column(String(96), nullable=True, index=True)
     status = Column(String(20), nullable=False, default="disconnected")
     error_message = Column(Text, nullable=True)
     webhook_url = Column(Text, nullable=True)  # Last successful webhook URL (for auto-restore on restart)

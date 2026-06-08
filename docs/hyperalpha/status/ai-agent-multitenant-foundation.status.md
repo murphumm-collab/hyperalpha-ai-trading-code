@@ -40,6 +40,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped membership sync and logout clearing so one user cannot overwrite or delete other users' premium status.
 - Account-owner-scoped premium checks for Binance mainnet quotas and Hyperliquid builder fee decisions.
 - User-scoped Telegram/Discord bot credential API and bot notification configuration reads/writes.
+- User-scoped Telegram webhook secret routing, per-user Telegram polling tasks, bot chat bindings, bot conversations, and AI/event notifications.
 - User-scoped legacy paper/order-matching API reads, manual execution, cancellation, processing, and health counts.
 - User-scoped trader data export/import account ownership validation.
 - User-scoped Hyperliquid exchange action log reads and stats.
@@ -55,7 +56,7 @@ Local checkpoint: current branch `HEAD`
 - Required-auth guard for resource-heavy Factor compute/evaluate/validate endpoints.
 - Required-auth guard for Hyperliquid builder authorization status checks.
 - Required-auth guard for standalone Hyper AI LLM connection tests.
-- Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus external bot webhooks.
+- Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus signed Telegram webhook ingress.
 - Development progress and acceptance markers.
 - REST manual order-placement APIs are not changed in this slice; WebSocket order placement now validates the connection user's account ownership.
 
@@ -102,6 +103,7 @@ Local checkpoint: current branch `HEAD`
 | Membership sync isolation | Done | `/api/users/sync-membership` and `/api/users/clear-membership` update/delete only the current request user's `UserSubscription` |
 | Premium entitlement isolation | Done | AI Trader, Program Trader, Binance API, and Hyperliquid builder fee checks use the account owner's subscription instead of any premium user in the database |
 | Bot config API isolation | Done | `bot_configs.user_id` migration/model/service/API plus frontend `authFetch` prevent users from overwriting each other's Telegram/Discord credentials or notification toggles |
+| Bot webhook/session isolation | Done | Telegram webhook secrets route inbound updates to one user's token/conversation; Telegram polling runs per user; BotChatBinding and system-event push are user-scoped |
 | Legacy order route isolation | Done | `/api/orders/*` resolves current user, validates order/account ownership, scopes pending/list/detail/cancel/execute/process/health, and no longer trusts URL/body `user_id` for access |
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
 | Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
@@ -171,6 +173,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Premium-related trading service syntax compile in both system Python and `uv run` backend environment.
 - Passed: Bot config isolation smoke test in `uv run` with a test encryption key: Alice/Bob Telegram configs and notification configs did not overwrite each other.
 - Passed: Bot model/service/routes/migration syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Bot config requests switched to `authFetch`.
+- Passed: Bot webhook/session isolation smoke test in `uv run`: Alice/Bob Telegram webhook secrets differed, Alice's secret resolved only Alice's token, Alice's AI decision event created only Alice's Bot conversation/message, and push delivery used only Alice's Telegram token/chat binding.
+- Passed: Bot webhook/session isolation syntax compile in both system Python and `uv run` backend environment for Bot API/routes/services/model/migration plus AI/Signal/Program notification callers.
 - Passed: Legacy order route isolation smoke test in `uv run`: Bob could not read Alice's order, pending orders and health counts were current-user scoped.
 - Passed: Legacy order route re-smoke after create-order compatibility adjustment for body `session_token`/password auth.
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
@@ -214,6 +218,6 @@ Local checkpoint: current branch `HEAD`
 - Redis/distributed job queue execution is not implemented in this slice; DB persistence covers single-server task/chunk recovery, not multi-instance worker orchestration.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
-- Telegram/Discord external bot long-connection and public Telegram webhook routing are not fully multi-tenant yet; this slice scopes stored credentials and notification config, but concurrent per-user bot runtimes/webhook dispatch still need signed webhook secrets and per-user routing design.
+- Discord external bot long-connection is not fully multi-tenant yet; this slice binds Discord message handling to the resolved owner user, but the underlying `discord.py` gateway client is still a single global client per process.
 - Factor computation/value storage is still global by factor name; custom factor CRUD is user-scoped, but per-user computed factor values need a dedicated schema if private custom factors should be precomputed.
 - Admin RBAC is not implemented yet; newly required-auth system log/config endpoints require a real user token but do not distinguish operators/admins from ordinary authenticated users.

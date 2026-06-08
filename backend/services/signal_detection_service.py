@@ -187,7 +187,7 @@ class SignalDetectionService:
             import asyncio
             db = SessionLocal()
             try:
-                notif_config = get_notification_config_dict(db)
+                notif_config = get_notification_config_dict(db, pool_user_id)
                 signal_pools_config = notif_config.get("signal_pools", {})
                 # Check if this specific pool has notification enabled
                 pool_id_str = str(pool_id) if pool_id else None
@@ -201,7 +201,7 @@ class SignalDetectionService:
                     }
                     if pool_trigger.get("trigger_type") == "wallet_signal":
                         event_data["wallet_event"] = pool_trigger.get("wallet_event")
-                    results = enqueue_system_event(db, "signal_triggered", event_data)
+                    results = enqueue_system_event(db, "signal_triggered", event_data, user_id=pool_user_id)
                     if results:
                         try:
                             loop = asyncio.get_running_loop()

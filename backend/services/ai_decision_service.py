@@ -2664,7 +2664,7 @@ def save_ai_decision(
         try:
             from api.bot_routes import get_notification_config_dict
             from services.bot_event_service import enqueue_system_event, push_event_to_all_channels
-            notif_config = get_notification_config_dict(db)
+            notif_config = get_notification_config_dict(db, account.user_id)
             if notif_config.get("ai_trader", True) and executed and operation and operation.lower() != "hold":
                 event_data = {
                     "trader_name": account.name,
@@ -2674,7 +2674,7 @@ def save_ai_decision(
                     "price": "market",
                     "reason": reason[:100] if reason else "",
                 }
-                results = enqueue_system_event(db, "ai_decision", event_data)
+                results = enqueue_system_event(db, "ai_decision", event_data, user_id=account.user_id)
                 if results:
                     try:
                         loop = asyncio.get_running_loop()

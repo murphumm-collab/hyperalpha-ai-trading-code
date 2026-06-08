@@ -14,6 +14,8 @@ from services.bot_service import (
     get_all_bot_configs,
     save_bot_config,
     get_decrypted_bot_token,
+    get_bot_config_by_webhook_secret,
+    get_decrypted_bot_token_for_config,
     update_bot_status,
     delete_bot_config,
 )
@@ -301,13 +303,13 @@ async def connect_telegram_bot(
     if old_token and old_token != request.bot_token:
         try:
             from services.telegram_bot_service import stop_telegram_polling
-            await stop_telegram_polling()
+            await stop_telegram_polling(current_user.id)
             await remove_telegram_webhook(old_token)
         except Exception:
             pass  # Old token may be invalid, that's fine
 
     # Save config (creates or updates)
-    save_bot_config(
+    saved_config = save_bot_config(
         db=db,
         platform="telegram",
         bot_token=request.bot_token,
@@ -318,7 +320,7 @@ async def connect_telegram_bot(
 
     # Start Long Polling mode (no HTTPS/public URL required)
     from services.telegram_bot_service import start_telegram_polling
-    polling_result = await start_telegram_polling(request.bot_token)
+    polling_result = await start_telegram_polling(request.bot_token, current_user.id)
     if not polling_result["success"]:
         update_bot_status(db, "telegram", "error", polling_result.get("error"), current_user.id)
         raise HTTPException(status_code=500, detail=f"Failed to start polling: {polling_result.get('error')}")
@@ -342,7 +344,8 @@ async def connect_telegram_bot(
         bot_conv = HyperAiConversation(
             user_id=current_user.id,
             title="Hyper AI Bot",
-            is_bot_conversation=True
+            is_bot_conversation=True,
+            bot_platform="telegram",
         )
         db.add(bot_conv)
         db.commit()
@@ -353,6 +356,8 @@ async def connect_telegram_bot(
         "bot_username": result.get("username"),
         "mode": "polling",
         "conversation_id": bot_conv.id,
+        "webhook_path": saved_config.get("webhook_path"),
+        "webhook_secret": saved_config.get("webhook_secret"),
     }
 
 
@@ -368,7 +373,7 @@ async def disconnect_telegram_bot(
 
     # Stop polling and remove webhook
     from services.telegram_bot_service import stop_telegram_polling
-    await stop_telegram_polling()
+    await stop_telegram_polling(current_user.id)
     await remove_telegram_webhook(token)
 
     update_bot_status(db, "telegram", "disconnected", user_id=current_user.id)
@@ -387,7 +392,7 @@ async def retry_telegram_connection(
 
     # Start polling mode
     from services.telegram_bot_service import start_telegram_polling
-    polling_result = await start_telegram_polling(token)
+    polling_result = await start_telegram_polling(token, current_user.id)
     if not polling_result["success"]:
         update_bot_status(db, "telegram", "error", polling_result.get("error"), current_user.id)
         raise HTTPException(status_code=500, detail=f"Failed to start polling: {polling_result.get('error')}")
@@ -396,12 +401,47 @@ async def retry_telegram_connection(
     return {"success": True}
 
 
+@router.post("/telegram/webhook/{webhook_secret}")
+async def telegram_webhook_for_config(
+    webhook_secret: str,
+    request: Request,
+    db: Session = Depends(get_db),
+):
+    """Receive Telegram updates for a specific user's bot config."""
+    return await _handle_telegram_webhook(request, db, webhook_secret)
+
+
 @router.post("/telegram/webhook")
 async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     """
     Receive incoming updates from Telegram.
     This is called by Telegram servers when a user sends a message to the bot.
     """
+    webhook_secret = (
+        request.headers.get("X-Telegram-Bot-Api-Secret-Token")
+        or request.headers.get("X-HyperAlpha-Bot-Webhook-Secret")
+        or request.query_params.get("secret")
+    )
+    return await _handle_telegram_webhook(request, db, webhook_secret)
+
+
+async def _handle_telegram_webhook(
+    request: Request,
+    db: Session,
+    webhook_secret: Optional[str],
+):
+    """Resolve a Telegram webhook secret and dispatch the message to that user."""
+    if not webhook_secret:
+        return {"ok": True}
+
+    config = get_bot_config_by_webhook_secret(db, "telegram", webhook_secret)
+    if not config or config.user_id is None:
+        return {"ok": True}
+
+    token = get_decrypted_bot_token_for_config(config)
+    if not token:
+        return {"ok": True}
+
     try:
         update = await request.json()
     except Exception:
@@ -419,16 +459,11 @@ async def telegram_webhook(request: Request, db: Session = Depends(get_db)):
     if not chat_id or not text:
         return {"ok": True}
 
-    # Get bot token
-    token = get_decrypted_bot_token(db, "telegram")
-    if not token:
-        return {"ok": True}
-
     # Process message with Hyper AI (async, non-blocking)
     asyncio.create_task(
-        _process_telegram_message(token, chat_id, text, user, db)
+        _process_telegram_message(token, chat_id, text, user, owner_user_id=config.user_id)
     )
-    print(f"[TG-WEBHOOK] Dispatched task for chat_id={chat_id} text={text[:50]}", flush=True)
+    print(f"[TG-WEBHOOK] Dispatched task for user={config.user_id} chat_id={chat_id} text={text[:50]}", flush=True)
 
     return {"ok": True}
 
@@ -438,7 +473,7 @@ async def _process_telegram_message(
     chat_id: int,
     text: str,
     user: dict,
-    db: Session
+    owner_user_id: int,
 ):
     """
     Process a Telegram message through Hyper AI and send response.
@@ -459,10 +494,12 @@ async def _process_telegram_message(
         # Record chat binding for push broadcast
         binding = db_session.query(BotChatBinding).filter(
             BotChatBinding.platform == "telegram",
-            BotChatBinding.chat_id == str(chat_id)
+            BotChatBinding.chat_id == str(chat_id),
+            BotChatBinding.user_id == owner_user_id,
         ).first()
         if not binding:
             binding = BotChatBinding(
+                user_id=owner_user_id,
                 platform="telegram",
                 chat_id=str(chat_id),
                 username=user.get("username"),
@@ -476,20 +513,23 @@ async def _process_telegram_message(
 
         # Find the shared Bot conversation (shared across all platforms)
         conv = db_session.query(HyperAiConversation).filter(
-            HyperAiConversation.is_bot_conversation == True
+            HyperAiConversation.user_id == owner_user_id,
+            HyperAiConversation.is_bot_conversation == True,
         ).first()
 
         if not conv:
             # Fallback: create one if not exists (shouldn't happen normally)
             conv = HyperAiConversation(
+                user_id=owner_user_id,
                 title="Hyper AI Bot",
-                is_bot_conversation=True
+                is_bot_conversation=True,
+                bot_platform="telegram",
             )
             db_session.add(conv)
             db_session.commit()
             db_session.refresh(conv)
 
-        print(f"[TG-PROCESS] Using conv id={conv.id}, processing text: {text[:50]}", flush=True)
+        print(f"[TG-PROCESS] Using user={owner_user_id} conv id={conv.id}, processing text: {text[:50]}", flush=True)
 
         # Determine UI language for tool progress messages
         lang = _get_ui_language(db_session)
@@ -498,7 +538,7 @@ async def _process_telegram_message(
         def process_ai_sync():
             """Synchronous AI processing - runs in thread pool."""
             events = []
-            for event in stream_chat_response(db_session, conv.id, text):
+            for event in stream_chat_response(db_session, conv.id, text, user_id=owner_user_id):
                 events.append(event)
             return events
 
@@ -611,14 +651,15 @@ async def connect_discord_bot(
         bot_conv = HyperAiConversation(
             user_id=current_user.id,
             title="Hyper AI Bot",
-            is_bot_conversation=True
+            is_bot_conversation=True,
+            bot_platform="discord",
         )
         db.add(bot_conv)
         db.commit()
         db.refresh(bot_conv)
 
     # Start Gateway client in background
-    asyncio.create_task(_start_discord_gateway_background(request.bot_token))
+    asyncio.create_task(_start_discord_gateway_background(request.bot_token, current_user.id))
 
     return {
         "success": True,
@@ -627,11 +668,17 @@ async def connect_discord_bot(
     }
 
 
-async def _start_discord_gateway_background(token: str):
+async def _start_discord_gateway_background(token: str, owner_user_id: int):
     """Start Discord Gateway in background with message handler."""
     async def handle_discord_message(user_id: int, username: str, display_name: str, text: str) -> str:
         """Process Discord DM through Hyper AI."""
-        return await _process_discord_message_internal(user_id, username, display_name, text)
+        return await _process_discord_message_internal(
+            user_id,
+            username,
+            display_name,
+            text,
+            owner_user_id=owner_user_id,
+        )
 
     try:
         await start_discord_gateway(token, handle_discord_message)
@@ -643,7 +690,8 @@ async def _process_discord_message_internal(
     user_id: int,
     username: str,
     display_name: str,
-    text: str
+    text: str,
+    owner_user_id: Optional[int] = None,
 ) -> str:
     """
     Process a Discord DM through Hyper AI and return response.
@@ -659,10 +707,12 @@ async def _process_discord_message_internal(
         # Record chat binding for push broadcast
         binding = db_session.query(BotChatBinding).filter(
             BotChatBinding.platform == "discord",
-            BotChatBinding.chat_id == str(user_id)
+            BotChatBinding.chat_id == str(user_id),
+            BotChatBinding.user_id == owner_user_id,
         ).first()
         if not binding:
             binding = BotChatBinding(
+                user_id=owner_user_id,
                 platform="discord",
                 chat_id=str(user_id),
                 username=username,
@@ -676,19 +726,22 @@ async def _process_discord_message_internal(
 
         # Find the shared Bot conversation
         conv = db_session.query(HyperAiConversation).filter(
-            HyperAiConversation.is_bot_conversation == True
+            HyperAiConversation.user_id == owner_user_id,
+            HyperAiConversation.is_bot_conversation == True,
         ).first()
 
         if not conv:
             conv = HyperAiConversation(
+                user_id=owner_user_id,
                 title="Hyper AI Bot",
-                is_bot_conversation=True
+                is_bot_conversation=True,
+                bot_platform="discord",
             )
             db_session.add(conv)
             db_session.commit()
             db_session.refresh(conv)
 
-        print(f"[Discord] Using conv id={conv.id}, processing text: {text[:50]}", flush=True)
+        print(f"[Discord] Using user={owner_user_id} conv id={conv.id}, processing text: {text[:50]}", flush=True)
 
         # Determine UI language for tool progress messages
         lang = _get_ui_language(db_session)
@@ -700,7 +753,7 @@ async def _process_discord_message_internal(
 
         def process_ai_sync():
             full_resp = ""
-            for event in stream_chat_response(db_session, conv.id, text):
+            for event in stream_chat_response(db_session, conv.id, text, user_id=owner_user_id):
                 event_type = None
                 data_str = None
                 for line in event.split("\n"):

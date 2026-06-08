@@ -715,7 +715,8 @@ class ProgramExecutionService:
                     from api.bot_routes import get_notification_config_dict
                     from services.bot_event_service import enqueue_system_event, push_event_to_all_channels
                     import asyncio
-                    notif_config = get_notification_config_dict(db)
+                    owner_user_id = binding.account.user_id if binding.account else None
+                    notif_config = get_notification_config_dict(db, owner_user_id)
                     if notif_config.get("program_trader", True):
                         event_data = {
                             "program_name": binding.program.name if binding.program else "Unknown",
@@ -725,7 +726,12 @@ class ProgramExecutionService:
                             "leverage": f"{decision.leverage}x" if decision.leverage else "N/A",
                             "reason": decision.reason[:100] if decision.reason else "",
                         }
-                        results = enqueue_system_event(db, "program_decision", event_data)
+                        results = enqueue_system_event(
+                            db,
+                            "program_decision",
+                            event_data,
+                            user_id=owner_user_id,
+                        )
                         if results:
                             try:
                                 loop = asyncio.get_running_loop()
