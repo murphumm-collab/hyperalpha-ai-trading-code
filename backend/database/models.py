@@ -381,12 +381,15 @@ class GlobalSamplingConfig(Base):
     __tablename__ = "global_sampling_configs"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, unique=True, index=True)
     sampling_interval = Column(Integer, nullable=False, default=18)  # Sampling interval (seconds)
     sampling_depth = Column(Integer, nullable=False, default=10)  # Sampling pool depth (10-60)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
     )
+
+    user = relationship("User")
 
 
 class UserSubscription(Base):
