@@ -2923,7 +2923,13 @@ def execute_evaluate_factor(
         return json.dumps({"error": str(e)})
 
 
-def execute_save_factor(db: Session, name: str, expression: str, description: str = "") -> str:
+def execute_save_factor(
+    db: Session,
+    name: str,
+    expression: str,
+    description: str = "",
+    user_id: int = 1,
+) -> str:
     """Save a custom factor expression to the library."""
     import re
     from database.models import CustomFactor
@@ -2938,11 +2944,15 @@ def execute_save_factor(db: Session, name: str, expression: str, description: st
         if not ok:
             return json.dumps({"error": f"Invalid expression: {err}"})
 
-        existing = db.query(CustomFactor).filter(CustomFactor.name == name).first()
+        existing = db.query(CustomFactor).filter(
+            CustomFactor.user_id == user_id,
+            CustomFactor.name == name,
+        ).first()
         if existing:
             return json.dumps({"error": f"Factor name '{name}' already exists"})
 
         factor = CustomFactor(
+            user_id=user_id,
             name=name, expression=expression,
             description=description, category="custom", source="ai"
         )
@@ -3819,7 +3829,8 @@ def execute_hyper_ai_tool(
             return execute_save_factor(
                 db, name=arguments.get("name", ""),
                 expression=arguments.get("expression", ""),
-                description=arguments.get("description", "")
+                description=arguments.get("description", ""),
+                user_id=user_id,
             )
 
         elif tool_name == "edit_factor":

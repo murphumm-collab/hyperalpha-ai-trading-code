@@ -44,6 +44,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped trader data export/import account ownership validation.
 - User-scoped Hyperliquid exchange action log reads and stats.
 - User-scoped sampling preferences with effective global sampling pool aggregation.
+- User-scoped custom factor library CRUD and Hyper AI `save_factor` tool ownership.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
 
@@ -94,6 +95,7 @@ Local checkpoint: current branch `HEAD`
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
 | Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
 | Sampling preference isolation | Done | `/api/config/global-sampling` stores current-user preferences; effective global pool config uses max depth and min interval across user preferences |
+| Custom factor ownership | Done | CustomFactor `user_id` migration/model/API and Hyper AI `save_factor` store/list/edit/delete only the current user's custom factors while built-in expression factors remain global |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -155,6 +157,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyperliquid action route syntax compile in both system Python and `uv run` backend environment.
 - Passed: Sampling config isolation smoke test in `uv run`: Bob lowering his depth did not reduce Alice's effective depth; effective global depth/interval recomputed from user preferences.
 - Passed: Sampling config route/model/migration syntax compile in both system Python and `uv run` backend environment.
+- Passed: Custom factor owner isolation smoke test in `uv run`: Alice/Bob could save same custom factor name independently; Alice library excluded Bob private factor; Alice could not delete Bob factor.
+- Passed: Custom factor route/model/migration/tool syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
@@ -165,3 +169,4 @@ Local checkpoint: current branch `HEAD`
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Telegram/Discord external bot long-connection routing is not fully multi-tenant yet; this slice scopes stored credentials and notification config, but concurrent per-user bot runtimes/webhook dispatch still need a dedicated design.
+- Factor computation/value storage is still global by factor name; custom factor CRUD is user-scoped, but per-user computed factor values need a dedicated schema if private custom factors should be precomputed.

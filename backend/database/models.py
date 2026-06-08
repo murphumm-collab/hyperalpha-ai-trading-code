@@ -1819,6 +1819,7 @@ class CustomFactor(Base):
     __tablename__ = "custom_factors"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     name = Column(String(100), nullable=False)
     expression = Column(Text, nullable=False)
     description = Column(Text, nullable=True)
@@ -1827,8 +1828,10 @@ class CustomFactor(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
 
+    user = relationship("User")
+
     __table_args__ = (
-        UniqueConstraint('name', name='custom_factors_name_unique'),
+        UniqueConstraint('user_id', 'name', name='uq_custom_factors_user_name'),
     )
 
 

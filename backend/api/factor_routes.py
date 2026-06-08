@@ -20,10 +20,11 @@ import pandas as pd
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy import text
+from sqlalchemy import or_, text
 
 from database.connection import SessionLocal
-from database.models import CustomFactor
+from database.models import CustomFactor, User
+from api.auth_utils import get_current_user_dependency
 from services.factor_registry import FACTOR_REGISTRY, FACTOR_CATEGORIES, CATEGORY_LABELS
 from services.factor_expression_engine import factor_expression_engine, FUNCTION_REGISTRY
 
@@ -44,13 +45,22 @@ def get_db():
 
 
 @router.get("/library")
-async def get_factor_library(db: Session = Depends(get_db)):
+async def get_factor_library(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Return full factor registry: built-in + custom factors."""
     # Built-in factors with source tag
     builtin = [{**f, "source": "builtin"} for f in FACTOR_REGISTRY]
 
     # Custom factors from DB (includes builtin_expression and user-created)
-    custom_rows = db.query(CustomFactor).filter(CustomFactor.is_active == True).all()
+    custom_rows = db.query(CustomFactor).filter(
+        CustomFactor.is_active == True,
+        or_(
+            CustomFactor.source == 'builtin_expression',
+            CustomFactor.user_id == current_user.id,
+        )
+    ).all()
     custom = [
         {
             "name": cf.name,
@@ -404,9 +414,13 @@ class CustomFactorRequest(BaseModel):
 
 
 @router.get("/custom")
-async def list_custom_factors(db: Session = Depends(get_db)):
+async def list_custom_factors(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """List user-created custom factors (excludes builtin_expression)."""
     rows = db.query(CustomFactor).filter(
+        CustomFactor.user_id == current_user.id,
         CustomFactor.source != 'builtin_expression'
     ).order_by(CustomFactor.created_at.desc()).all()
     return {
@@ -423,7 +437,11 @@ async def list_custom_factors(db: Session = Depends(get_db)):
 
 
 @router.post("/custom")
-async def create_custom_factor(req: CustomFactorRequest, db: Session = Depends(get_db)):
+async def create_custom_factor(
+    req: CustomFactorRequest,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Save a custom factor expression."""
     import re
     # Validate factor name: English letters, digits, underscores only
@@ -436,11 +454,15 @@ async def create_custom_factor(req: CustomFactorRequest, db: Session = Depends(g
         return {"status": "error", "error": err}
 
     # Check duplicate name
-    existing = db.query(CustomFactor).filter(CustomFactor.name == req.name).first()
+    existing = db.query(CustomFactor).filter(
+        CustomFactor.user_id == current_user.id,
+        CustomFactor.name == req.name,
+    ).first()
     if existing:
         return {"status": "error", "error": f"Factor name '{req.name}' already exists"}
 
     factor = CustomFactor(
+        user_id=current_user.id,
         name=req.name,
         expression=req.expression,
         description=req.description,
@@ -454,9 +476,17 @@ async def create_custom_factor(req: CustomFactorRequest, db: Session = Depends(g
 
 
 @router.delete("/custom/{factor_id}")
-async def delete_custom_factor(factor_id: int, db: Session = Depends(get_db)):
+async def delete_custom_factor(
+    factor_id: int,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Delete a custom factor."""
-    factor = db.query(CustomFactor).filter(CustomFactor.id == factor_id).first()
+    factor = db.query(CustomFactor).filter(
+        CustomFactor.id == factor_id,
+        CustomFactor.user_id == current_user.id,
+        CustomFactor.source != 'builtin_expression',
+    ).first()
     if not factor:
         return {"status": "error", "error": "Factor not found"}
     db.delete(factor)
@@ -471,9 +501,18 @@ class EditCustomFactorRequest(BaseModel):
 
 
 @router.put("/custom/{factor_id}")
-async def edit_custom_factor(factor_id: int, req: EditCustomFactorRequest, db: Session = Depends(get_db)):
+async def edit_custom_factor(
+    factor_id: int,
+    req: EditCustomFactorRequest,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Edit an existing custom factor."""
-    factor = db.query(CustomFactor).filter(CustomFactor.id == factor_id).first()
+    factor = db.query(CustomFactor).filter(
+        CustomFactor.id == factor_id,
+        CustomFactor.user_id == current_user.id,
+        CustomFactor.source != 'builtin_expression',
+    ).first()
     if not factor:
         return {"status": "error", "error": "Factor not found"}
 
@@ -485,7 +524,9 @@ async def edit_custom_factor(factor_id: int, req: EditCustomFactorRequest, db: S
 
     if req.name:
         dup = db.query(CustomFactor).filter(
-            CustomFactor.name == req.name, CustomFactor.id != factor_id
+            CustomFactor.user_id == current_user.id,
+            CustomFactor.name == req.name,
+            CustomFactor.id != factor_id
         ).first()
         if dup:
             return {"status": "error", "error": f"Factor name '{req.name}' already exists"}
