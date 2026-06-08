@@ -38,6 +38,7 @@ Local checkpoint: current branch `HEAD`
 | Development spec saved | Done | `.omc/autopilot/spec.md` |
 | Implementation plan saved | Done | `.omc/plans/autopilot-impl.md` |
 | Backend user resolver | Done | `backend/api/auth_utils.py` |
+| Bearer JWT/JWKS verification | Done | `AUTH_JWKS_URL` enables RS256/384/512 signature verification; `AUTH_JWT_ISSUER`, `AUTH_JWT_AUDIENCE`, `AUTH_JWT_ALGORITHMS`, and `AUTH_REQUIRE_VERIFIED_BEARER` tighten production auth |
 | Hyper AI DB user scoping | Done | `add_hyper_ai_user_scope.py`, model `user_id` fields |
 | Hyper AI route filtering | Done | Profile, conversations, memory, skills, tools scoped by current user |
 | Signal AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
@@ -67,6 +68,7 @@ Local checkpoint: current branch `HEAD`
 ## Verification Log
 
 - Passed: Python syntax compile for changed backend files.
+- Passed: Auth utility syntax compile after configurable JWKS verification implementation.
 - Passed: Frontend production build with Vite.
 - Passed: Static search found no remaining `user_id=1`, bare `get_llm_config(db)`, or default-user AI entry in the scoped AI files except removed legacy helper before cleanup.
 - Passed: Static search found no remaining bare `fetch(` in Program Trader, Program Backtest, or Program AI chat components.
@@ -82,11 +84,12 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyperliquid owner guard route compile, whitespace check, and frontend production build after wallet selector auth update.
 - Passed: Hyperliquid account execution environment compile and whitespace check.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
+- Blocked: Direct `uv run` auth helper smoke test could not complete because uv selected Python 3.14 and dependency `llvmlite==0.44.0` failed to build under that interpreter.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
 ## Known Not-Accepted Items
 
-- Production-grade Casdoor/JWKS token signature verification is not implemented in this slice.
+- Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
 - Redis/job-queue backed AI task persistence is not implemented in this slice.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Full live-order execution acceptance is still pending; this slice only scopes watchlists and account prompt symbol inputs, not final risk policy or order-routing governance.

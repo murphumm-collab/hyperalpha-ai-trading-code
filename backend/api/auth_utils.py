@@ -9,10 +9,12 @@ scope profile, memory, conversations, and jobs to that user.
 import base64
 import hashlib
 import json
+import os
 import re
 import time
 from typing import Any, Dict, Optional
 
+import requests
 from fastapi import Depends, Header, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -29,6 +31,17 @@ from repositories.user_repo import (
 
 
 _USERNAME_SAFE_RE = re.compile(r"[^a-zA-Z0-9_-]+")
+_JWKS_CACHE: Dict[str, Any] = {"url": None, "expires_at": 0, "keys": []}
+_DEFAULT_AUTH_ALGORITHMS = "RS256"
+
+
+def _truthy_env(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _csv_env(name: str, default: str = "") -> list[str]:
+    value = os.getenv(name, default)
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _decode_base64url(segment: str) -> bytes:
@@ -36,7 +49,7 @@ def _decode_base64url(segment: str) -> bytes:
     return base64.urlsafe_b64decode((segment + padding).encode("utf-8"))
 
 
-def _decode_bearer_payload(authorization: Optional[str]) -> Optional[Dict[str, Any]]:
+def _extract_bearer_token(authorization: Optional[str]) -> Optional[str]:
     if not authorization:
         return None
 
@@ -44,25 +57,183 @@ def _decode_bearer_payload(authorization: Optional[str]) -> Optional[Dict[str, A
     if not authorization.startswith(prefix):
         return None
 
-    token = authorization[len(prefix):].strip()
+    return authorization[len(prefix):].strip()
+
+
+def _decode_jwt_segment(token: str, segment_index: int, error_detail: str) -> Dict[str, Any]:
     parts = token.split(".")
-    if len(parts) < 2:
+    if len(parts) < segment_index + 1:
         raise HTTPException(status_code=401, detail="Invalid bearer token")
 
     try:
-        payload = json.loads(_decode_base64url(parts[1]).decode("utf-8"))
+        decoded = json.loads(_decode_base64url(parts[segment_index]).decode("utf-8"))
     except Exception as exc:
-        raise HTTPException(status_code=401, detail="Invalid bearer token payload") from exc
+        raise HTTPException(status_code=401, detail=error_detail) from exc
+
+    if not isinstance(decoded, dict):
+        raise HTTPException(status_code=401, detail=error_detail)
+    return decoded
+
+
+def _validate_registered_claims(payload: Dict[str, Any]) -> None:
+    now = int(time.time())
+    leeway = int(os.getenv("AUTH_JWT_LEEWAY_SECONDS", "60"))
 
     exp = payload.get("exp")
     if exp is not None:
         try:
-            if int(exp) < int(time.time()):
+            if int(exp) < now - leeway:
                 raise HTTPException(status_code=401, detail="Bearer token expired")
         except ValueError as exc:
             raise HTTPException(status_code=401, detail="Invalid bearer token expiry") from exc
 
+    nbf = payload.get("nbf")
+    if nbf is not None:
+        try:
+            if int(nbf) > now + leeway:
+                raise HTTPException(status_code=401, detail="Bearer token not active yet")
+        except ValueError as exc:
+            raise HTTPException(status_code=401, detail="Invalid bearer token nbf") from exc
+
+    expected_issuer = os.getenv("AUTH_JWT_ISSUER", "").strip()
+    if expected_issuer and payload.get("iss") != expected_issuer:
+        raise HTTPException(status_code=401, detail="Invalid bearer token issuer")
+
+    expected_audiences = _csv_env("AUTH_JWT_AUDIENCE")
+    if expected_audiences:
+        aud = payload.get("aud")
+        if isinstance(aud, str):
+            token_audiences = {aud}
+        elif isinstance(aud, list):
+            token_audiences = {str(item) for item in aud}
+        else:
+            token_audiences = set()
+        if not token_audiences.intersection(expected_audiences):
+            raise HTTPException(status_code=401, detail="Invalid bearer token audience")
+
+
+def _get_jwks_keys(jwks_url: str) -> list[Dict[str, Any]]:
+    cache_seconds = int(os.getenv("AUTH_JWKS_CACHE_SECONDS", "300"))
+    now = int(time.time())
+    if (
+        _JWKS_CACHE["url"] == jwks_url
+        and int(_JWKS_CACHE["expires_at"]) > now
+        and isinstance(_JWKS_CACHE["keys"], list)
+    ):
+        return _JWKS_CACHE["keys"]
+
+    try:
+        response = requests.get(jwks_url, timeout=10)
+        response.raise_for_status()
+        jwks = response.json()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Unable to fetch JWKS") from exc
+
+    keys = jwks.get("keys")
+    if not isinstance(keys, list):
+        raise HTTPException(status_code=503, detail="Invalid JWKS response")
+
+    _JWKS_CACHE.update({
+        "url": jwks_url,
+        "expires_at": now + cache_seconds,
+        "keys": keys,
+    })
+    return keys
+
+
+def _find_jwk(keys: list[Dict[str, Any]], kid: Optional[str], alg: str) -> Dict[str, Any]:
+    if kid:
+        for key in keys:
+            if key.get("kid") == kid:
+                return key
+        raise HTTPException(status_code=401, detail="Bearer token key not found")
+
+    matching = [key for key in keys if key.get("alg") in (None, alg)]
+    if len(matching) == 1:
+        return matching[0]
+    raise HTTPException(status_code=401, detail="Bearer token missing key id")
+
+
+def _rsa_public_key_from_jwk(jwk: Dict[str, Any]):
+    try:
+        from cryptography.hazmat.primitives.asymmetric import rsa
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="JWT verification dependency unavailable") from exc
+
+    if jwk.get("kty") != "RSA" or not jwk.get("n") or not jwk.get("e"):
+        raise HTTPException(status_code=401, detail="Unsupported bearer token key")
+
+    modulus = int.from_bytes(_decode_base64url(str(jwk["n"])), "big")
+    exponent = int.from_bytes(_decode_base64url(str(jwk["e"])), "big")
+    return rsa.RSAPublicNumbers(exponent, modulus).public_key()
+
+
+def _verify_jwt_signature(token: str, jwk: Dict[str, Any], alg: str) -> None:
+    try:
+        from cryptography.exceptions import InvalidSignature
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="JWT verification dependency unavailable") from exc
+
+    hash_algorithms = {
+        "RS256": hashes.SHA256(),
+        "RS384": hashes.SHA384(),
+        "RS512": hashes.SHA512(),
+    }
+    hash_algorithm = hash_algorithms.get(alg)
+    if not hash_algorithm:
+        raise HTTPException(status_code=401, detail="Unsupported bearer token algorithm")
+
+    parts = token.split(".")
+    if len(parts) != 3:
+        raise HTTPException(status_code=401, detail="Invalid bearer token")
+
+    signing_input = f"{parts[0]}.{parts[1]}".encode("utf-8")
+    signature = _decode_base64url(parts[2])
+    public_key = _rsa_public_key_from_jwk(jwk)
+
+    try:
+        public_key.verify(signature, signing_input, padding.PKCS1v15(), hash_algorithm)
+    except InvalidSignature as exc:
+        raise HTTPException(status_code=401, detail="Invalid bearer token signature") from exc
+
+
+def _decode_unverified_bearer_payload(token: str) -> Dict[str, Any]:
+    payload = _decode_jwt_segment(token, 1, "Invalid bearer token payload")
+    _validate_registered_claims(payload)
     return payload
+
+
+def _decode_verified_bearer_payload(token: str, jwks_url: str) -> Dict[str, Any]:
+    header = _decode_jwt_segment(token, 0, "Invalid bearer token header")
+    payload = _decode_jwt_segment(token, 1, "Invalid bearer token payload")
+
+    alg = str(header.get("alg") or "")
+    allowed_algorithms = set(_csv_env("AUTH_JWT_ALGORITHMS", _DEFAULT_AUTH_ALGORITHMS))
+    if alg not in allowed_algorithms:
+        raise HTTPException(status_code=401, detail="Unsupported bearer token algorithm")
+
+    keys = _get_jwks_keys(jwks_url)
+    jwk = _find_jwk(keys, header.get("kid"), alg)
+    _verify_jwt_signature(token, jwk, alg)
+    _validate_registered_claims(payload)
+    return payload
+
+
+def _decode_bearer_payload(authorization: Optional[str]) -> Optional[Dict[str, Any]]:
+    token = _extract_bearer_token(authorization)
+    if not token:
+        return None
+
+    jwks_url = os.getenv("AUTH_JWKS_URL", "").strip()
+    if jwks_url:
+        return _decode_verified_bearer_payload(token, jwks_url)
+
+    if _truthy_env("AUTH_REQUIRE_VERIFIED_BEARER"):
+        raise HTTPException(status_code=401, detail="Bearer verification is not configured")
+
+    return _decode_unverified_bearer_payload(token)
 
 
 def _user_from_bearer_payload(db: Session, payload: Dict[str, Any]) -> User:
@@ -106,10 +277,9 @@ def resolve_request_user(
     """
     Resolve the current user for an API request.
 
-    Production note: bearer JWT signature verification is not implemented here
-    yet. This helper only decodes a trusted gateway/SSO token enough to map it
-    to a local user. Add issuer + JWKS verification before accepting this as a
-    production auth boundary.
+    Production note: set AUTH_JWKS_URL to verify Bearer JWT signatures against
+    a JWKS endpoint. AUTH_JWT_ISSUER, AUTH_JWT_AUDIENCE, AUTH_JWT_ALGORITHMS,
+    and AUTH_REQUIRE_VERIFIED_BEARER can be used to tighten the boundary.
     """
     if session_token:
         user_id = verify_auth_session(db, session_token)
