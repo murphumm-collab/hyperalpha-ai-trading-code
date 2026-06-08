@@ -19,6 +19,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped K-line data service exchange resolution and backfill task visibility/deletion.
 - User-scoped account dashboard/config/action routes and asset curve reads.
 - User-scoped Binance wallet/config/manual-action routes and per-user quota/premium checks.
+- User-scoped Arena trades, model chat, position, analytics, and PnL status reads.
 - User-scoped PromptTemplate, SignalDefinition, and SignalPool ownership.
 - User-scoped Hyper Insight wallet-tracking runtime config, token sync, websocket state, and wallet-signal callbacks.
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
@@ -56,6 +57,7 @@ Local checkpoint: current branch `HEAD`
 | K-line data/backfill user scoping | Done | K-line data routes resolve exchange from current user or explicit `exchange`; backfill tasks store `user_id` and are listed/statused/deleted by owner |
 | Account route ownership | Done | Account list/overview/strategy/create/update/delete, LLM test, manual AI trigger, builder checks, disable-trading, dashboard visibility, and asset curve reads are scoped to current user |
 | Binance route ownership | Done | Binance wallet setup/config/list/delete, balance, positions, manual order, close-position, summary, stats, limited binding, daily quota, and rebate checks are current-user guarded |
+| Arena read route ownership | Done | Arena trades, model-chat, model-chat snapshots, positions, analytics, and PnL sync status filter by current-user accounts |
 | Strategy entity ownership | Done | `add_strategy_entity_user_scope.py`; PromptTemplate, SignalDefinition, SignalPool CRUD scoped by current user |
 | Hyper Insight runtime user scoping | Done | `add_hyper_insight_wallet_runtime_user_scope.py`; token/status/websocket state and wallet pool matching are user-scoped |
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, wallet status, tracked wallet tools, Strategy Radar, `save_program`, `create_ai_trader`, and `web_search` config lookup |
@@ -112,6 +114,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Static account route scan confirmed account queries now use `current_user` or `_ensure_account_owner`.
 - Passed: Binance route ownership smoke test in `uv run`: wallet list user filtering, cross-user config/delete/quota rejection, and per-user premium check passed.
 - Passed: Binance route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Arena read route smoke test in `uv run`: paper trades, model chat, snapshots, positions, and analytics returned only the current user's account data.
+- Passed: Arena route syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 

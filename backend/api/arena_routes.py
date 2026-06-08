@@ -10,7 +10,7 @@ from statistics import mean, pstdev
 from typing import Dict, List, Optional, Tuple
 import time
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 
@@ -26,6 +26,7 @@ from database.models import (
     PromptTemplate,
     TradingProgram,
     BinanceWallet,
+    User,
 )
 from database.snapshot_models import HyperliquidTrade
 from services.asset_calculator import calc_positions_value
@@ -39,6 +40,7 @@ from services.hyperliquid_cache import (
 )
 from utils.encryption import decrypt_private_key
 from utils.runtime_diagnostics import get_current_thread_count, log_hot_path_delta
+from api.auth_utils import get_current_user_dependency
 import logging
 
 logger = logging.getLogger(__name__)
@@ -52,6 +54,31 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
+def _current_user_account_ids(
+    db: Session,
+    user_id: int,
+    show_on_dashboard: Optional[bool] = None,
+) -> List[int]:
+    query = db.query(Account.id).filter(
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    )
+    if show_on_dashboard is not None:
+        query = query.filter(Account.show_on_dashboard == show_on_dashboard)
+    return [row[0] for row in query.all()]
 
 
 def _get_latest_price(symbol: str, market: str = "CRYPTO") -> Optional[float]:
@@ -70,7 +97,12 @@ def _get_latest_price(symbol: str, market: str = "CRYPTO") -> Optional[float]:
         return None
 
 
-def _get_hyperliquid_positions(db: Session, account_id: Optional[int], environment: str) -> dict:
+def _get_hyperliquid_positions(
+    db: Session,
+    account_id: Optional[int],
+    environment: str,
+    user_id: int,
+) -> dict:
     """
     Get real-time positions from Hyperliquid API (testnet or mainnet)
 
@@ -87,6 +119,7 @@ def _get_hyperliquid_positions(db: Session, account_id: Optional[int], environme
     # Get all AI accounts or specific account (filter hidden accounts for Dashboard)
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
+        Account.user_id == user_id,
         Account.is_active == "true",
         Account.show_on_dashboard == True,
         Account.is_deleted != True
@@ -245,7 +278,12 @@ def _get_hyperliquid_positions(db: Session, account_id: Optional[int], environme
     }
 
 
-def _get_binance_positions(db: Session, account_id: Optional[int], environment: str) -> list:
+def _get_binance_positions(
+    db: Session,
+    account_id: Optional[int],
+    environment: str,
+    user_id: int,
+) -> list:
     """
     Get real-time positions from Binance Futures API.
 
@@ -257,6 +295,7 @@ def _get_binance_positions(db: Session, account_id: Optional[int], environment: 
 
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
+        Account.user_id == user_id,
         Account.is_active == "true",
         Account.show_on_dashboard == True,
         Account.is_deleted != True
@@ -551,6 +590,7 @@ def get_completed_trades(
     symbol: Optional[str] = Query(None),
     exchange: Optional[str] = Query(None, regex="^(hyperliquid|binance)$"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Return recent trades across all AI accounts, filtered by trading mode."""
     start_threads = get_current_thread_count()
@@ -569,6 +609,20 @@ def get_completed_trades(
             exchange=exchange,
         )
 
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+        owned_account_ids = {account_id}
+    else:
+        owned_account_ids = set(_current_user_account_ids(db, current_user.id))
+
+    if not owned_account_ids:
+        _log_request()
+        return {
+            "generated_at": datetime.utcnow().isoformat(),
+            "accounts": [],
+            "trades": [],
+        }
+
     if wallet_address and trading_mode not in ("testnet", "mainnet"):
         _log_request()
         return {
@@ -585,8 +639,7 @@ def get_completed_trades(
                 HyperliquidTrade.environment == trading_mode,
                 HyperliquidTrade.environment.isnot(None)
             )
-            if account_id:
-                query = query.filter(HyperliquidTrade.account_id == account_id)
+            query = query.filter(HyperliquidTrade.account_id.in_(owned_account_ids))
             if wallet_address:
                 query = query.filter(HyperliquidTrade.wallet_address == wallet_address)
             if symbol:
@@ -607,7 +660,11 @@ def get_completed_trades(
         account_ids = {trade.account_id for trade in hyper_trades}
         account_map = {
             acc.id: acc
-            for acc in db.query(Account).filter(Account.id.in_(account_ids), Account.is_deleted != True).all()
+            for acc in db.query(Account).filter(
+                Account.id.in_(account_ids),
+                Account.user_id == current_user.id,
+                Account.is_deleted != True,
+            ).all()
         }
 
         # Batch fetch decision logs to build order relationships
@@ -619,6 +676,7 @@ def get_completed_trades(
         decisions = []
         if order_ids:
             decisions = db.query(AIDecisionLog).filter(
+                AIDecisionLog.account_id.in_(owned_account_ids),
                 or_(
                     AIDecisionLog.hyperliquid_order_id.in_(order_ids),
                     AIDecisionLog.sl_order_id.in_(order_ids),
@@ -668,6 +726,7 @@ def get_completed_trades(
         program_logs = []
         if order_ids:
             program_logs = db.query(ProgramExecutionLog).filter(
+                ProgramExecutionLog.account_id.in_(owned_account_ids),
                 or_(
                     ProgramExecutionLog.hyperliquid_order_id.in_(order_ids),
                     ProgramExecutionLog.sl_order_id.in_(order_ids),
@@ -715,7 +774,14 @@ def get_completed_trades(
         binance_triggered_tp_to_main = {}  # triggered_order_id -> main_order_id
 
         # Get Binance wallets to fetch order info
-        bn_wallets = db.query(BinanceWallet).filter(BinanceWallet.is_active == "true").all()
+        bn_wallets = db.query(BinanceWallet).join(
+            Account,
+            BinanceWallet.account_id == Account.id,
+        ).filter(
+            BinanceWallet.is_active == "true",
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).all()
         if bn_wallets:
             from services.binance_trading_client import BinanceTradingClient
             from utils.encryption import decrypt_private_key
@@ -908,6 +974,7 @@ def get_completed_trades(
     query = (
         db.query(Trade, Account)
         .join(Account, Trade.account_id == Account.id)
+        .filter(Account.user_id == current_user.id, Account.is_deleted != True)
         .order_by(desc(Trade.trade_time))
     )
 
@@ -992,11 +1059,13 @@ def get_model_chat(
     ids: Optional[str] = Query(None, description="Comma-separated list of decision IDs to fetch"),
     exchange: Optional[str] = Query(None, regex="^(hyperliquid|binance)$"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Return recent AI decision logs as chat-style summaries, filtered by trading mode."""
     query = (
         db.query(AIDecisionLog, Account)
         .join(Account, AIDecisionLog.account_id == Account.id)
+        .filter(Account.user_id == current_user.id, Account.is_deleted != True)
         .order_by(desc(AIDecisionLog.decision_time))
     )
 
@@ -1010,6 +1079,7 @@ def get_model_chat(
             pass
 
     if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
         query = query.filter(AIDecisionLog.account_id == account_id)
 
     if wallet_address:
@@ -1157,9 +1227,17 @@ def get_model_chat(
 def get_model_chat_snapshots(
     decision_id: int,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Return snapshot fields for a single AI decision log entry."""
-    log = db.query(AIDecisionLog).filter(AIDecisionLog.id == decision_id).first()
+    log = db.query(AIDecisionLog).join(
+        Account,
+        AIDecisionLog.account_id == Account.id,
+    ).filter(
+        AIDecisionLog.id == decision_id,
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
+    ).first()
 
     if not log:
         return {
@@ -1180,6 +1258,7 @@ def get_positions_snapshot(
     account_id: Optional[int] = None,
     trading_mode: Optional[str] = Query(None, regex="^(paper|testnet|mainnet)$"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Return consolidated positions and cash for active AI accounts, filtered by trading mode."""
     start_threads = get_current_thread_count()
@@ -1196,11 +1275,14 @@ def get_positions_snapshot(
             trading_mode=trading_mode,
         )
 
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
     # For Hyperliquid modes (testnet/mainnet), fetch real-time data from exchanges
     if trading_mode and trading_mode in ["testnet", "mainnet"]:
-        result = _get_hyperliquid_positions(db, account_id, trading_mode)
+        result = _get_hyperliquid_positions(db, account_id, trading_mode, current_user.id)
         # Also include Binance accounts
-        binance_accounts = _get_binance_positions(db, account_id, trading_mode)
+        binance_accounts = _get_binance_positions(db, account_id, trading_mode, current_user.id)
         result["accounts"] = result.get("accounts", []) + binance_accounts
         _log_request()
         return result
@@ -1208,6 +1290,7 @@ def get_positions_snapshot(
     # For paper mode (or no mode specified), query local database
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
+        Account.user_id == current_user.id,
         Account.is_active == "true",
         Account.show_on_dashboard == True,
         Account.is_deleted != True,
@@ -1300,14 +1383,17 @@ def get_positions_snapshot(
 def get_aggregated_analytics(
     account_id: Optional[int] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     '''Return leaderboard-style analytics for AI accounts.'''
     accounts_query = db.query(Account).filter(
         Account.account_type == "AI",
+        Account.user_id == current_user.id,
         Account.is_deleted != True,
     )
 
     if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
         accounts_query = accounts_query.filter(Account.id == account_id)
 
     accounts = accounts_query.all()
@@ -1374,6 +1460,7 @@ def get_aggregated_analytics(
 def check_pnl_sync_status(
     trading_mode: Optional[str] = Query(None, regex="^(paper|testnet|mainnet)$"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Check if there are trades that need PnL synchronization.
@@ -1382,9 +1469,18 @@ def check_pnl_sync_status(
     """
     from sqlalchemy import or_
     from database.models import ProgramExecutionLog
+    owned_account_ids = _current_user_account_ids(db, current_user.id)
+    if not owned_account_ids:
+        return {
+            "needs_sync": False,
+            "unsync_count": 0,
+            "ai_unsync_count": 0,
+            "program_unsync_count": 0,
+        }
 
     # Check AI Decision logs
     ai_query = db.query(AIDecisionLog).filter(
+        AIDecisionLog.account_id.in_(owned_account_ids),
         AIDecisionLog.operation.in_(["buy", "sell", "close"]),
         AIDecisionLog.executed == "true",
         AIDecisionLog.pnl_updated_at == None,
@@ -1407,6 +1503,7 @@ def check_pnl_sync_status(
 
     # Check Program execution logs
     prog_query = db.query(ProgramExecutionLog).filter(
+        ProgramExecutionLog.account_id.in_(owned_account_ids),
         ProgramExecutionLog.success == True,
         ProgramExecutionLog.decision_action.in_(["buy", "sell", "close"]),
         ProgramExecutionLog.pnl_updated_at == None,
