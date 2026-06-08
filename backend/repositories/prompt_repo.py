@@ -129,8 +129,19 @@ def list_bindings(
     return list(db.execute(statement).all())
 
 
-def get_binding_by_account(db: Session, account_id: int, include_deleted: bool = False) -> Optional[AccountPromptBinding]:
-    statement = select(AccountPromptBinding).where(AccountPromptBinding.account_id == account_id)
+def get_binding_by_account(
+    db: Session,
+    account_id: int,
+    include_deleted: bool = False,
+    owner_user_id: Optional[int] = None,
+) -> Optional[AccountPromptBinding]:
+    statement = select(AccountPromptBinding)
+    if owner_user_id is not None:
+        statement = statement.join(Account, AccountPromptBinding.account_id == Account.id).where(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    statement = statement.where(AccountPromptBinding.account_id == account_id)
     if not include_deleted:
         statement = statement.where(AccountPromptBinding.is_deleted != True)
     return db.execute(statement).scalar_one_or_none()
@@ -142,9 +153,29 @@ def upsert_binding(
     account_id: int,
     prompt_template_id: int,
     updated_by: Optional[str] = None,
+    owner_user_id: Optional[int] = None,
 ) -> AccountPromptBinding:
+    if owner_user_id is not None:
+        account = db.execute(
+            select(Account.id).where(
+                Account.id == account_id,
+                Account.user_id == owner_user_id,
+                Account.is_deleted != True,
+            )
+        ).first()
+        if not account:
+            raise ValueError(f"Account with id '{account_id}' not found")
+        template = get_template_by_id_for_user(db, prompt_template_id, owner_user_id)
+        if not template:
+            raise ValueError(f"Prompt template with id '{prompt_template_id}' not found")
+
     # Check for existing binding (including soft-deleted, to handle unique constraint)
-    binding = get_binding_by_account(db, account_id, include_deleted=True)
+    binding = get_binding_by_account(
+        db,
+        account_id,
+        include_deleted=True,
+        owner_user_id=owner_user_id,
+    )
 
     if binding:
         binding.prompt_template_id = prompt_template_id
@@ -165,8 +196,23 @@ def upsert_binding(
     return binding
 
 
-def delete_binding(db: Session, binding_id: int) -> None:
-    binding = db.get(AccountPromptBinding, binding_id)
+def delete_binding(
+    db: Session,
+    binding_id: int,
+    owner_user_id: Optional[int] = None,
+) -> None:
+    if owner_user_id is not None:
+        binding = db.execute(
+            select(AccountPromptBinding)
+            .join(Account, AccountPromptBinding.account_id == Account.id)
+            .where(
+                AccountPromptBinding.id == binding_id,
+                Account.user_id == owner_user_id,
+                Account.is_deleted != True,
+            )
+        ).scalar_one_or_none()
+    else:
+        binding = db.get(AccountPromptBinding, binding_id)
     if not binding:
         raise ValueError(f"Prompt binding with id '{binding_id}' not found")
     binding.is_deleted = True
@@ -174,10 +220,22 @@ def delete_binding(db: Session, binding_id: int) -> None:
     db.commit()
 
 
-def get_prompt_for_account(db: Session, account_id: int) -> Optional[PromptTemplate]:
-    binding = get_binding_by_account(db, account_id)
+def get_prompt_for_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Optional[PromptTemplate]:
+    binding = get_binding_by_account(
+        db,
+        account_id,
+        owner_user_id=owner_user_id,
+    )
     if binding:
-        template = db.get(PromptTemplate, binding.prompt_template_id)
+        template = (
+            get_template_by_id_for_user(db, binding.prompt_template_id, owner_user_id)
+            if owner_user_id is not None
+            else db.get(PromptTemplate, binding.prompt_template_id)
+        )
         if template:
             return template
     return None

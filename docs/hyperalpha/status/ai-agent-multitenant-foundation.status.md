@@ -21,6 +21,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Binance wallet/config/manual-action routes and per-user quota/premium checks.
 - User-scoped Arena trades, model chat, position, analytics, PnL status reads, and PnL update action.
 - User-scoped PromptTemplate, SignalDefinition, and SignalPool ownership.
+- Prompt binding repository reads/writes/deletes support account-owner guards for Prompt API, Hyper AI tools, and AI decision prompt resolution.
 - User-scoped Hyper Insight wallet-tracking runtime config, token sync, websocket state, and wallet-signal callbacks.
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
 - Shared entity deletion services accept owner context and refuse cross-user deletes for traders, prompts, signals, signal pools, programs, and bindings.
@@ -133,6 +134,7 @@ Local checkpoint: current branch `HEAD`
 | Binance route ownership | Done | Binance wallet setup/config/list/delete, balance, positions, manual order, close-position, summary, stats, limited binding, daily quota, and rebate checks are current-user guarded |
 | Arena route ownership | Done | Arena trades, model-chat, model-chat snapshots, positions, analytics, PnL sync status, and PnL update action filter by current-user accounts |
 | Strategy entity ownership | Done | `add_strategy_entity_user_scope.py`; PromptTemplate, SignalDefinition, SignalPool CRUD scoped by current user |
+| Prompt binding repository owner guard | Done | `prompt_repo` binding read/upsert/delete/prompt-resolution helpers accept `owner_user_id`; Prompt API, Hyper AI binding tools, and AI decision service pass account/current owner |
 | Hyper Insight runtime user scoping | Done | `add_hyper_insight_wallet_runtime_user_scope.py`; token/status/websocket state and wallet pool matching are user-scoped |
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, wallet status, tracked wallet tools, Strategy Radar, `save_program`, `create_ai_trader`, and `web_search` config lookup |
 | AI tool missing-user fail-closed | Done | Hyper AI dispatcher, harness, sub-agent dispatcher, and stream entry reject missing user context instead of falling back to user `1` |
@@ -240,6 +242,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Static search found no remaining bare `fetch(` in Program Trader, Program Backtest, or Program AI chat components.
 - Passed: Kline AI route compile and frontend build after Kline auth/scoping changes.
 - Passed: Prompt/Signal ownership route compile and frontend build after strategy entity `user_id` migration and auth-aware manager requests.
+- Passed: Prompt binding repository owner-guard smoke test in `uv run`: Alice cannot read/upsert/delete Bob account bindings or bind Bob private templates; owner-scoped prompt resolution hides dirty cross-user bindings while system/Alice templates remain available.
 - Passed: Hyper Insight wallet runtime route/service compile and frontend build after per-user token/status/websocket scoping.
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
 - Passed: Hyper AI missing-user-context smoke test in `uv run`: dispatcher, harness, sub-agent dispatcher, and stream entry returned blocked/error before touching DB/LLM/exchange work; static search found no remaining `user_id or 1` in the Hyper AI tool execution chain.

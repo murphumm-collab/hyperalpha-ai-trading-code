@@ -2424,7 +2424,8 @@ def execute_bind_prompt_to_trader(
             db,
             account_id=trader_id,
             prompt_template_id=prompt_id,
-            updated_by="hyper_ai"
+            updated_by="hyper_ai",
+            owner_user_id=user_id,
         )
 
         return json.dumps({
@@ -2873,7 +2874,8 @@ def execute_update_prompt_binding(
 
         binding = prompt_repo.upsert_binding(
             db, account_id=trader_id,
-            prompt_template_id=prompt_id, updated_by="hyper_ai"
+            prompt_template_id=prompt_id, updated_by="hyper_ai",
+            owner_user_id=user_id,
         )
         return json.dumps({
             "success": True, "binding_id": binding.id,

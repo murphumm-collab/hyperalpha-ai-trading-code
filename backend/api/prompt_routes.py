@@ -216,6 +216,7 @@ def upsert_prompt_binding(
             account_id=payload.account_id,
             prompt_template_id=payload.prompt_template_id,
             updated_by=payload.updated_by,
+            owner_user_id=current_user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

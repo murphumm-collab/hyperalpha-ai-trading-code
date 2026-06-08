@@ -2007,7 +2007,11 @@ def call_ai_for_decision(
         logger.warning("Failed to fetch latest news: %s", err)
         news_section = "No recent CoinJournal news available."
 
-    template = prompt_repo.get_prompt_for_account(db, account.id)
+    template = prompt_repo.get_prompt_for_account(
+        db,
+        account.id,
+        owner_user_id=account.user_id,
+    )
     if not template:
         logger.warning(
             "No prompt binding for account %s (%s), skipping AI decision",
