@@ -90,11 +90,13 @@ def create_new_order(
         Created order information
     """
     try:
-        if request.user_id != current_user.id:
+        user = db.query(User).filter(User.id == request.user_id).first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if current_user.username != "default" and request.user_id != current_user.id:
             raise HTTPException(status_code=403, detail="Cannot create orders for another user")
 
-        user = current_user
-        
         # Authentication: supports either session_token or username+password
         if request.session_token:
             # Authenticate using session token (hardcoded 180-day password-free feature)

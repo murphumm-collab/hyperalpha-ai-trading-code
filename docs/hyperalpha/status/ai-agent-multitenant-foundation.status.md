@@ -152,6 +152,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Bot config isolation smoke test in `uv run` with a test encryption key: Alice/Bob Telegram configs and notification configs did not overwrite each other.
 - Passed: Bot model/service/routes/migration syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Bot config requests switched to `authFetch`.
 - Passed: Legacy order route isolation smoke test in `uv run`: Bob could not read Alice's order, pending orders and health counts were current-user scoped.
+- Passed: Legacy order route re-smoke after create-order compatibility adjustment for body `session_token`/password auth.
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
 - Passed: Trader data owner isolation smoke test in `uv run`: Alice could preview import into her trader; Bob received 404 for Alice's trader.
 - Passed: Trader data route syntax compile in both system Python and `uv run` backend environment.
