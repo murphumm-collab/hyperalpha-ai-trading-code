@@ -721,7 +721,7 @@ export default function SignalManager() {
       const endpoint = exchange === 'binance'
         ? '/api/binance/symbols/watchlist'
         : '/api/hyperliquid/symbols/watchlist'
-      const res = await fetch(endpoint)
+      const res = await authFetch(endpoint)
       if (res.ok) {
         const data = await res.json()
         const symbols = data.symbols || []

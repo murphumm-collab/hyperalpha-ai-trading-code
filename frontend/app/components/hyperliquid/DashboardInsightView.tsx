@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import TradingViewChart from '@/components/klines/TradingViewChart'
 import { pollAiStream } from '@/lib/pollAiStream'
+import { authFetch } from '@/lib/authFetch'
 import { formatDateTime, formatRelativeTime } from '@/lib/dateTime'
 import {
   type LargeOrderZoneItem,
@@ -902,7 +903,7 @@ export default function DashboardInsightView() {
       const endpoint = selectedExchange === 'binance'
         ? '/api/binance/symbols/watchlist'
         : '/api/hyperliquid/symbols/watchlist'
-      const response = await fetch(endpoint)
+      const response = await authFetch(endpoint)
       const data = await response.json()
       const symbols = data.symbols || []
       setWatchlistSymbols(symbols)

@@ -22,6 +22,7 @@ from services.binance_trading_client import BinanceTradingClient
 from services.hyperliquid_environment import get_global_trading_mode
 from config.settings import BINANCE_DAILY_QUOTA_LIMIT
 from utils.runtime_diagnostics import get_current_thread_count, log_hot_path_delta
+from api.auth_utils import get_current_user_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -891,10 +892,12 @@ def list_available_symbols():
 
 
 @router.get("/symbols/watchlist")
-def get_symbol_watchlist():
-    """Return the currently configured Binance watchlist."""
+def get_symbol_watchlist(
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Return the current user's Binance watchlist."""
     from services.binance_symbol_service import get_selected_symbols, MAX_WATCHLIST_SYMBOLS
-    symbols = get_selected_symbols()
+    symbols = get_selected_symbols(user_id=current_user.id)
     return {
         "symbols": symbols,
         "max_symbols": MAX_WATCHLIST_SYMBOLS,
@@ -902,29 +905,37 @@ def get_symbol_watchlist():
 
 
 @router.put("/symbols/watchlist")
-def update_symbol_watchlist(payload: BinanceSymbolSelectionRequest):
+def update_symbol_watchlist(
+    payload: BinanceSymbolSelectionRequest,
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Update Binance watchlist (max 10 symbols).
     Also updates Binance data collectors to use the new symbols.
     """
-    from services.binance_symbol_service import update_selected_symbols, MAX_WATCHLIST_SYMBOLS
+    from services.binance_symbol_service import (
+        get_selected_symbols,
+        update_selected_symbols,
+        MAX_WATCHLIST_SYMBOLS,
+    )
 
     try:
-        symbols = update_selected_symbols(payload.symbols)
+        symbols = update_selected_symbols(payload.symbols, user_id=current_user.id)
+        collector_symbols = get_selected_symbols() or ["BTC"]
 
         # Update Binance collectors with new symbols
         try:
             from services.exchanges.binance_collector import binance_collector
             if binance_collector.running:
-                binance_collector.refresh_symbols(symbols if symbols else ["BTC"])
-                logger.info(f"[Binance] Collector symbols updated to: {symbols}")
+                binance_collector.refresh_symbols(collector_symbols)
+                logger.info(f"[Binance] Collector symbols updated to aggregate watchlist: {collector_symbols}")
         except Exception as e:
             logger.warning(f"[Binance] Failed to update collector symbols: {e}")
 
         try:
             from services.exchanges.binance_ws_collector import binance_ws_collector
             if binance_ws_collector.running:
-                binance_ws_collector.refresh_symbols(symbols if symbols else ["BTC"])
-                logger.info(f"[Binance] WS collector symbols updated to: {symbols}")
+                binance_ws_collector.refresh_symbols(collector_symbols)
+                logger.info(f"[Binance] WS collector symbols updated to aggregate watchlist: {collector_symbols}")
         except Exception as e:
             logger.warning(f"[Binance] Failed to update WS collector symbols: {e}")
 

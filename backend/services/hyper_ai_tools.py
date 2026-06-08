@@ -1359,18 +1359,18 @@ def execute_get_trading_environment(db: Session) -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_get_watchlist(db: Session) -> str:
+def execute_get_watchlist(db: Session, user_id: int = 1) -> str:
     """Get symbol watchlist for all exchanges."""
     from services import hyperliquid_symbol_service, binance_symbol_service
 
     try:
         # Get Hyperliquid watchlist
-        hl_selected = hyperliquid_symbol_service.get_selected_symbols()
+        hl_selected = hyperliquid_symbol_service.get_selected_symbols(user_id=user_id)
         hl_default = [s["symbol"] for s in hyperliquid_symbol_service.DEFAULT_SYMBOLS]
         hl_is_default = set(hl_selected) == set(hl_default)
 
         # Get Binance watchlist
-        bn_selected = binance_symbol_service.get_selected_symbols()
+        bn_selected = binance_symbol_service.get_selected_symbols(user_id=user_id)
         bn_default = [s["symbol"] for s in binance_symbol_service.DEFAULT_SYMBOLS]
         bn_is_default = set(bn_selected) == set(bn_default)
 
@@ -1406,7 +1406,7 @@ def execute_get_watchlist(db: Session) -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_update_watchlist(db: Session, exchange: str, symbols: List[str]) -> str:
+def execute_update_watchlist(db: Session, exchange: str, symbols: List[str], user_id: int = 1) -> str:
     """Update symbol watchlist for a specific exchange."""
     from services import hyperliquid_symbol_service, binance_symbol_service
 
@@ -1421,9 +1421,9 @@ def execute_update_watchlist(db: Session, exchange: str, symbols: List[str]) -> 
         symbols = [s.upper() for s in symbols]
 
         if exchange == "hyperliquid":
-            updated = hyperliquid_symbol_service.update_selected_symbols(symbols)
+            updated = hyperliquid_symbol_service.update_selected_symbols(symbols, user_id=user_id)
         else:
-            updated = binance_symbol_service.update_selected_symbols(symbols)
+            updated = binance_symbol_service.update_selected_symbols(symbols, user_id=user_id)
 
         return json.dumps({
             "success": True,
@@ -3610,13 +3610,14 @@ def execute_hyper_ai_tool(
             return execute_get_trading_environment(db)
 
         elif tool_name == "get_watchlist":
-            return execute_get_watchlist(db)
+            return execute_get_watchlist(db, user_id=user_id)
 
         elif tool_name == "update_watchlist":
             return execute_update_watchlist(
                 db,
                 exchange=arguments.get("exchange"),
-                symbols=arguments.get("symbols", [])
+                symbols=arguments.get("symbols", []),
+                user_id=user_id,
             )
 
         elif tool_name == "diagnose_trader_issues":

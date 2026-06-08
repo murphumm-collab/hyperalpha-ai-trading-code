@@ -7,6 +7,7 @@ import TradingViewChart from './TradingViewChart'
 import AIAnalysisPanel from './AIAnalysisPanel'
 import PacmanLoader from '../ui/pacman-loader'
 import { useCollectionDays } from '@/lib/useCollectionDays'
+import { authFetch } from '@/lib/authFetch'
 
 interface KlinesViewProps {
   onAccountUpdated?: () => void
@@ -143,7 +144,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
       const endpoint = selectedExchange === 'binance'
         ? '/api/binance/symbols/watchlist'
         : '/api/hyperliquid/symbols/watchlist'
-      const response = await fetch(endpoint)
+      const response = await authFetch(endpoint)
       const data = await response.json()
       const symbols = data.symbols || []
       setWatchlistSymbols(symbols)

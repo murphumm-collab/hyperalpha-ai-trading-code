@@ -302,26 +302,16 @@ class NewsCollectorService:
 
     def _get_watchlist_symbols(self, db) -> List[str]:
         """Get combined watchlist from both exchanges."""
-        symbols = set()
-        for key in [
-            "hyperliquid_selected_symbols",
-            "binance_selected_symbols",
-        ]:
-            config = db.query(SystemConfig).filter(
-                SystemConfig.key == key
-            ).first()
-            if config and config.value:
-                try:
-                    data = json.loads(config.value)
-                    for item in data:
-                        if isinstance(item, dict):
-                            symbols.add(item.get("symbol", ""))
-                        elif isinstance(item, str):
-                            symbols.add(item)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-        symbols.discard("")
-        return list(symbols) if symbols else ["BTC"]
+        try:
+            from services.hyperliquid_symbol_service import get_selected_symbols as get_hyperliquid_symbols
+            from services.binance_symbol_service import get_selected_symbols as get_binance_symbols
+
+            symbols = set(get_hyperliquid_symbols() + get_binance_symbols())
+            symbols.discard("")
+            return sorted(symbols) if symbols else ["BTC"]
+        except Exception as err:
+            logger.warning("[NewsCollector] Failed to load aggregate watchlist: %s", err)
+            return ["BTC"]
 
     def _fetch_and_store(
         self,

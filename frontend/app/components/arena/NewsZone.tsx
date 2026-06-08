@@ -3,6 +3,7 @@ import PixelCharacter from './PixelCharacter'
 import type { CharacterDirection } from './PixelCharacter'
 import type { CharacterState } from './pixelData/characters'
 import { AVATAR_PRESETS } from './pixelData/palettes'
+import { authFetch } from '@/lib/authFetch'
 
 // --- Types ---
 
@@ -105,7 +106,7 @@ export default function NewsZone({
 
   // Fetch watchlist symbols
   useEffect(() => {
-    fetch(WATCHLIST_API).then(r => r.json()).then(data => {
+    authFetch(WATCHLIST_API).then(r => r.json()).then(data => {
       const syms = (data?.symbols || data || []) as string[]
       setWatchlistSymbols(syms.length > 0 ? syms : ['BTC', 'ETH'])
     }).catch(() => setWatchlistSymbols(['BTC', 'ETH']))

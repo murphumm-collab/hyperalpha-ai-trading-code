@@ -102,12 +102,15 @@ def _get_symbols_from_config(db, keys: List[str]) -> List[str]:
 
 
 def _get_watchlist(db) -> List[str]:
-    """Get user's selected watchlist from both exchanges."""
-    result = _get_symbols_from_config(db, [
-        "hyperliquid_selected_symbols",
-        "binance_selected_symbols",
-    ])
-    return result if result else ["BTC", "ETH"]
+    """Get aggregate selected watchlist from both exchanges."""
+    try:
+        from services.hyperliquid_symbol_service import get_selected_symbols as get_hyperliquid_symbols
+        from services.binance_symbol_service import get_selected_symbols as get_binance_symbols
+
+        result = sorted(set(get_hyperliquid_symbols() + get_binance_symbols()))
+        return result if result else ["BTC", "ETH"]
+    except Exception:
+        return ["BTC", "ETH"]
 
 
 def _get_exchange_symbols(db) -> List[str]:

@@ -5,9 +5,9 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local Commit Complete / Remote Push Blocked
+Status: Local Checkpoint Complete / Remote Push Blocked
 
-Local commit: current branch `HEAD`
+Local checkpoint: current branch `HEAD`
 
 ## Scope
 
@@ -21,11 +21,14 @@ Local commit: current branch `HEAD`
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - Context compression memory extraction stores long-term memories under the current user.
+- User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
+- Trading command AI prompts use each account owner's watchlist instead of a cross-user aggregate list.
 - Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
+- Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
 - Development progress and acceptance markers.
-- No live order execution changes.
+- No order-placement API or final risk-policy changes.
 
 ## Progress Markers
 
@@ -48,9 +51,13 @@ Local commit: current branch `HEAD`
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
+| Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
+| Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
+| Trading command watchlist isolation | Done | Hyperliquid/Binance AI prompts use each account owner's watchlist while price collectors use the union |
 | Hyperliquid API ownership guard | Done | Account-level Hyperliquid config, balance, positions, manual order, wallet, agent wallet, actions summary, and upgrade-check APIs validate current user |
 | Hyperliquid account execution environment | Done | Setup/switch/client defaults, AI decision logs, Program Trader, and trading commands use account-level environment before global fallback |
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
+| Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -69,6 +76,9 @@ Local commit: current branch `HEAD`
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
 - Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
 - Passed: Compression memory owner propagation compile, static call-site search, and whitespace check.
+- Passed: User symbol watchlist route/service/tool compile and static search confirming user-facing GET/PUT and Hyper AI tools pass `user_id`.
+- Passed: Trading command static review confirming account AI prompt symbols are sourced from each account owner's watchlist.
+- Passed: Frontend watchlist fetch audit found no remaining bare `/symbols/watchlist` requests; production Vite build passed.
 - Passed: Hyperliquid owner guard route compile, whitespace check, and frontend production build after wallet selector auth update.
 - Passed: Hyperliquid account execution environment compile and whitespace check.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
@@ -79,5 +89,4 @@ Local commit: current branch `HEAD`
 - Production-grade Casdoor/JWKS token signature verification is not implemented in this slice.
 - Redis/job-queue backed AI task persistence is not implemented in this slice.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
-- Hyperliquid global symbol watchlist is still shared and needs user-level design before production To C rollout.
-- AI strategy execution and order routing are intentionally unchanged.
+- Full live-order execution acceptance is still pending; this slice only scopes watchlists and account prompt symbol inputs, not final risk policy or order-routing governance.

@@ -208,6 +208,26 @@ class SystemConfig(Base):
     )
 
 
+class UserSymbolWatchlist(Base):
+    """Per-user exchange symbol watchlist."""
+    __tablename__ = "user_symbol_watchlists"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    exchange = Column(String(32), nullable=False)
+    symbols = Column(Text, nullable=False, default="[]")
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "exchange", name="uq_user_symbol_watchlists_user_exchange"),
+    )
+
+
 class HyperInsightWalletRuntimeConfig(Base):
     """Per-user Hyper Insight wallet tracking runtime configuration."""
     __tablename__ = "hyper_insight_wallet_runtime_configs"

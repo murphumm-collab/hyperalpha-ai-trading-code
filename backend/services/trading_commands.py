@@ -418,8 +418,20 @@ def place_ai_driven_hyperliquid_order(
     finally:
         db.close()
 
-    # Determine configured Hyperliquid symbols
-    selected_symbols = get_hyperliquid_selected_symbols()
+    # Determine configured Hyperliquid symbols per account. The shared ticker
+    # snapshot uses the union, but each account prompt only sees its owner list.
+    account_symbol_map = {
+        account.id: get_hyperliquid_selected_symbols(user_id=account.user_id)
+        for account in accounts
+    }
+    selected_symbols: List[str] = []
+    seen_symbols = set()
+    for symbols in account_symbol_map.values():
+        for symbol in symbols:
+            if symbol in seen_symbols:
+                continue
+            seen_symbols.add(symbol)
+            selected_symbols.append(symbol)
     if not selected_symbols:
         logger.info("No Hyperliquid watchlist configured, skipping Hyperliquid trading")
         return
@@ -458,12 +470,6 @@ def place_ai_driven_hyperliquid_order(
         logger.info("No sampling data available for configured Hyperliquid symbols")
 
     symbol_metadata_map = get_hyperliquid_symbol_map()
-    prompt_symbol_metadata = {}
-    for sym in selected_symbols:
-        entry = dict(symbol_metadata_map.get(sym, {}))
-        entry.setdefault("name", sym)
-        prompt_symbol_metadata[sym] = entry
-    symbol_whitelist = set(selected_symbols)
 
     # Process each account with separate database connections
     for account in accounts:
@@ -471,6 +477,18 @@ def place_ai_driven_hyperliquid_order(
         db = SessionLocal()
         # PostgreSQL handles concurrent access natively
         try:
+            account_symbols = account_symbol_map.get(account.id, [])
+            if not account_symbols:
+                logger.info(f"AI Trader '{account.name}' skipped - No Hyperliquid watchlist configured")
+                continue
+
+            prompt_symbol_metadata = {}
+            for sym in account_symbols:
+                entry = dict(symbol_metadata_map.get(sym, {}))
+                entry.setdefault("name", sym)
+                prompt_symbol_metadata[sym] = entry
+            symbol_whitelist = set(account_symbols)
+
             # Validate account configuration completeness
             validation_errors = []
 
@@ -608,7 +626,7 @@ def place_ai_driven_hyperliquid_order(
                 account,
                 portfolio,
                 prices,
-                symbols=selected_symbols,
+                symbols=account_symbols,
                 hyperliquid_state=hyperliquid_state,
                 symbol_metadata=prompt_symbol_metadata,
                 trigger_context=trigger_context,
@@ -1315,8 +1333,20 @@ def place_ai_driven_binance_order(
     finally:
         db.close()
 
-    # Get Binance symbols from Binance watchlist
-    selected_symbols = get_binance_selected_symbols()
+    # Get Binance symbols per account. The price lookup uses the union, but
+    # each account prompt only sees its owner's configured watchlist.
+    account_symbol_map = {
+        account.id: get_binance_selected_symbols(user_id=account.user_id)
+        for account in accounts
+    }
+    selected_symbols: List[str] = []
+    seen_symbols = set()
+    for symbols in account_symbol_map.values():
+        for symbol in symbols:
+            if symbol in seen_symbols:
+                continue
+            seen_symbols.add(symbol)
+            selected_symbols.append(symbol)
     if not selected_symbols:
         logger.warning("[Binance] No Binance watchlist configured, skipping Binance trading")
         return
@@ -1340,6 +1370,21 @@ def place_ai_driven_binance_order(
     for account in accounts:
         db = SessionLocal()
         try:
+            account_symbols = account_symbol_map.get(account.id, [])
+            if not account_symbols:
+                logger.info(f"AI Trader '{account.name}' skipped - No Binance watchlist configured")
+                continue
+
+            account_symbol_set = set(account_symbols)
+            account_prices = {
+                symbol: price
+                for symbol, price in prices.items()
+                if symbol in account_symbol_set
+            }
+            if not account_prices:
+                logger.warning(f"Failed to fetch Binance prices for {account.name}'s watchlist, skipping")
+                continue
+
             from services.hyperliquid_environment import get_account_trading_environment
             environment = get_account_trading_environment(db, account.id)
             if not environment:
@@ -1458,8 +1503,8 @@ def place_ai_driven_binance_order(
                 db,
                 account,
                 portfolio,
-                prices,
-                symbols=selected_symbols,
+                account_prices,
+                symbols=account_symbols,
                 hyperliquid_state=binance_state,
                 trigger_context=trigger_context,
                 exchange="binance",
@@ -1472,7 +1517,7 @@ def place_ai_driven_binance_order(
             # Execute decisions
             for decision in decisions:
                 _execute_binance_decision(
-                    db, account, client, decision, portfolio, positions, prices,
+                    db, account, client, decision, portfolio, positions, account_prices,
                     available_balance=available_balance,
                     max_leverage=wallet.max_leverage or 20,
                     default_leverage=wallet.default_leverage or 5,

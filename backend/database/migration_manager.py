@@ -71,6 +71,7 @@ MIGRATIONS = [
     "add_hyper_ai_user_scope.py",
     "add_strategy_entity_user_scope.py",
     "add_hyper_insight_wallet_runtime_user_scope.py",
+    "add_user_symbol_watchlists.py",
     "add_soft_delete_fields.py",
     "create_bot_integration_tables.py",
     "fix_is_deleted_default.py",

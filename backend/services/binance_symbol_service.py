@@ -15,12 +15,13 @@ import requests
 from sqlalchemy.orm import Session
 
 from database.connection import SessionLocal
-from database.models import SystemConfig
+from database.models import SystemConfig, UserSymbolWatchlist
 
 logger = logging.getLogger(__name__)
 
 BINANCE_AVAILABLE_SYMBOLS_KEY = "binance_available_symbols"
 BINANCE_SELECTED_SYMBOLS_KEY = "binance_selected_symbols"
+WATCHLIST_EXCHANGE = "binance"
 MAX_WATCHLIST_SYMBOLS = 10
 SYMBOL_REFRESH_TASK_ID = "binance_symbol_refresh"
 
@@ -88,6 +89,123 @@ def _serialize_symbols(symbols: List[Dict[str, str]]) -> str:
             }
         )
     return json.dumps(sanitized)
+
+
+def _parse_selected_symbols(value: Optional[str]) -> List[str]:
+    if not value:
+        return []
+
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        logger.warning("[Binance] Failed to decode stored watchlist")
+        return []
+
+    if not isinstance(parsed, list):
+        return []
+
+    result: List[str] = []
+    seen = set()
+    for entry in parsed:
+        if isinstance(entry, dict):
+            raw_symbol = entry.get("symbol")
+        else:
+            raw_symbol = entry
+
+        symbol = str(raw_symbol or "").upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        result.append(symbol)
+
+    return result
+
+
+def _default_selected_symbols() -> List[str]:
+    available = get_available_symbols()
+    available_set = {item["symbol"] for item in available}
+    default = [entry["symbol"] for entry in DEFAULT_SYMBOLS if entry["symbol"] in available_set]
+    if default:
+        return default
+    return [entry["symbol"] for entry in available[:3]]
+
+
+def _filter_valid_symbols(symbols: List[str]) -> List[str]:
+    available_set = {item["symbol"] for item in get_available_symbols()}
+    return [symbol for symbol in symbols if symbol in available_set]
+
+
+def _load_global_selected_symbols(db: Session, initialize: bool = True) -> List[str]:
+    raw_value = _load_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY)
+    filtered = _filter_valid_symbols(_parse_selected_symbols(raw_value))
+    if filtered:
+        return filtered[:MAX_WATCHLIST_SYMBOLS]
+
+    if raw_value:
+        return []
+
+    if not initialize:
+        return []
+
+    default = _default_selected_symbols()
+    _save_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY, json.dumps(default))
+    return default
+
+
+def _save_user_selected_symbols(db: Session, user_id: int, symbols: List[str]) -> None:
+    watchlist = db.query(UserSymbolWatchlist).filter(
+        UserSymbolWatchlist.user_id == user_id,
+        UserSymbolWatchlist.exchange == WATCHLIST_EXCHANGE,
+    ).first()
+    if not watchlist:
+        watchlist = UserSymbolWatchlist(
+            user_id=user_id,
+            exchange=WATCHLIST_EXCHANGE,
+            symbols=json.dumps(symbols),
+        )
+        db.add(watchlist)
+    else:
+        watchlist.symbols = json.dumps(symbols)
+    db.commit()
+
+
+def _load_user_selected_symbols(db: Session, user_id: int) -> List[str]:
+    watchlist = db.query(UserSymbolWatchlist).filter(
+        UserSymbolWatchlist.user_id == user_id,
+        UserSymbolWatchlist.exchange == WATCHLIST_EXCHANGE,
+    ).first()
+    if not watchlist:
+        initial_symbols = _load_global_selected_symbols(db)
+        _save_user_selected_symbols(db, user_id, initial_symbols)
+        return initial_symbols
+
+    selected = _parse_selected_symbols(watchlist.symbols)
+    filtered = _filter_valid_symbols(selected)
+    if filtered != selected:
+        _save_user_selected_symbols(db, user_id, filtered[:MAX_WATCHLIST_SYMBOLS])
+    return filtered[:MAX_WATCHLIST_SYMBOLS]
+
+
+def _load_combined_selected_symbols(db: Session) -> List[str]:
+    symbols: List[str] = []
+    seen = set()
+
+    for symbol in _load_global_selected_symbols(db, initialize=True):
+        if symbol not in seen:
+            seen.add(symbol)
+            symbols.append(symbol)
+
+    rows = db.query(UserSymbolWatchlist.symbols).filter(
+        UserSymbolWatchlist.exchange == WATCHLIST_EXCHANGE,
+    ).all()
+    for row in rows:
+        for symbol in _filter_valid_symbols(_parse_selected_symbols(row[0])):
+            if symbol in seen:
+                continue
+            seen.add(symbol)
+            symbols.append(symbol)
+
+    return symbols
 
 
 def fetch_remote_symbols() -> List[Dict[str, str]]:
@@ -221,33 +339,19 @@ def get_available_symbols_info() -> Dict:
     }
 
 
-def get_selected_symbols() -> List[str]:
-    """Return currently selected Binance watchlist symbols."""
+def get_selected_symbols(user_id: Optional[int] = None) -> List[str]:
+    """Return Binance watchlist symbols.
+
+    With a user_id, returns only that user's watchlist. Without a user_id, it
+    returns the aggregate watchlist used by shared data collectors.
+    """
     with SessionLocal() as db:
-        raw_value = _load_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY)
-        if not raw_value:
-            # Initialize with defaults or copy from Hyperliquid
-            available = get_available_symbols()
-            _ensure_watchlist_valid(db, available)
-            raw_value = _load_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY)
-            if not raw_value:
-                default = [entry["symbol"] for entry in DEFAULT_SYMBOLS]
-                _save_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY, json.dumps(default))
-                return default
-
-        try:
-            symbols = json.loads(raw_value)
-            if isinstance(symbols, list):
-                return symbols
-        except json.JSONDecodeError:
-            logger.warning("[Binance] Failed to parse watchlist; returning defaults")
-
-        default = [entry["symbol"] for entry in DEFAULT_SYMBOLS]
-        _save_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY, json.dumps(default))
-        return default
+        if user_id is not None:
+            return _load_user_selected_symbols(db, user_id)
+        return _load_combined_selected_symbols(db)
 
 
-def update_selected_symbols(symbols: List[str]) -> List[str]:
+def update_selected_symbols(symbols: List[str], user_id: Optional[int] = None) -> List[str]:
     """Persist new Binance watchlist (validated)."""
     available = get_available_symbols()
     available_set = {item["symbol"] for item in available}
@@ -271,9 +375,13 @@ def update_selected_symbols(symbols: List[str]) -> List[str]:
         unique_symbols = unique_symbols[:MAX_WATCHLIST_SYMBOLS]
 
     with SessionLocal() as db:
-        _save_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY, json.dumps(unique_symbols))
+        if user_id is not None:
+            _save_user_selected_symbols(db, user_id, unique_symbols)
+        else:
+            _save_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY, json.dumps(unique_symbols))
 
-    logger.info("[Binance] Watchlist updated: %s", ", ".join(unique_symbols) or "none")
+    scope = f"user {user_id}" if user_id is not None else "global"
+    logger.info("[Binance] Watchlist updated for %s: %s", scope, ", ".join(unique_symbols) or "none")
     return unique_symbols
 
 

@@ -325,7 +325,7 @@ def preview_prompt(
             requested_symbols.append(symbol)
 
     base_symbol_order = list(SUPPORTED_SYMBOLS.keys())
-    hyper_watchlist = get_hyperliquid_selected_symbols()
+    hyper_watchlist = get_hyperliquid_selected_symbols(user_id=current_user.id)
     hyper_symbol_map = get_hyperliquid_symbol_map()
 
     if not account_ids:
@@ -595,7 +595,7 @@ def _generate_single_preview(
 
     if exchange == "binance":
         from services.binance_symbol_service import get_selected_symbols as get_binance_selected_symbols
-        binance_watchlist = get_binance_selected_symbols()
+        binance_watchlist = get_binance_selected_symbols(user_id=current_user.id)
         active_symbols = requested_symbols or binance_watchlist or base_symbol_order
         symbol_metadata_map = {sym: SUPPORTED_SYMBOLS.get(sym, sym) for sym in active_symbols}
         logger.info(f"[Prompt Preview] Using Binance watchlist: {binance_watchlist}, active: {active_symbols}")

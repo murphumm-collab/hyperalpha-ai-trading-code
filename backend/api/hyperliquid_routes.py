@@ -586,9 +586,11 @@ def list_available_symbols():
 
 
 @router.get("/symbols/watchlist")
-def get_symbol_watchlist():
-    """Return the currently configured global Hyperliquid watchlist."""
-    symbols = get_selected_symbols()
+def get_symbol_watchlist(
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Return the current user's Hyperliquid watchlist."""
+    symbols = get_selected_symbols(user_id=current_user.id)
     return {
         "symbols": symbols,
         "max_symbols": MAX_WATCHLIST_SYMBOLS,
@@ -596,11 +598,14 @@ def get_symbol_watchlist():
 
 
 @router.put("/symbols/watchlist")
-def update_symbol_watchlist(payload: HyperliquidSymbolSelectionRequest):
-    """Update global Hyperliquid watchlist (max 10 symbols)."""
+def update_symbol_watchlist(
+    payload: HyperliquidSymbolSelectionRequest,
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Update the current user's Hyperliquid watchlist (max 10 symbols)."""
     try:
-        symbols = update_selected_symbols(payload.symbols)
-        logger.info(f"[Hyperliquid] Watchlist updated to: {symbols}")
+        symbols = update_selected_symbols(payload.symbols, user_id=current_user.id)
+        logger.info(f"[Hyperliquid] Watchlist updated for user {current_user.id} to: {symbols}")
         return {
             "symbols": symbols,
             "max_symbols": MAX_WATCHLIST_SYMBOLS,
