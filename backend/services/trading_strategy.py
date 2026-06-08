@@ -161,6 +161,7 @@ class StrategyManager:
                 rows = (
                     db.query(AccountStrategyConfig, Account)
                     .join(Account, AccountStrategyConfig.account_id == Account.id)
+                    .filter(Account.is_deleted != True)
                     .all()
                 )
 
@@ -169,6 +170,7 @@ class StrategyManager:
                     pool_ids = parse_signal_pool_ids(strategy)
                     state = StrategyState(
                         account_id=strategy.account_id,
+                        user_id=account.user_id,
                         price_threshold=strategy.price_threshold,
                         trigger_interval=strategy.trigger_interval,
                         signal_pool_ids=pool_ids,
@@ -267,10 +269,14 @@ class StrategyManager:
 
             # Check account configuration
             with SessionLocal() as db:
-                account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+                account = db.query(Account).filter(
+                    Account.id == account_id,
+                    Account.is_deleted != True,
+                ).first()
                 if not account or account.auto_trading_enabled != "true":
                     logger.debug(f"Account {account_id} auto trading disabled, skipping strategy execution")
                     return
+                owner_user_id = account.user_id
 
             # Execute AI trading decision based on exchange configuration
             exchange = state.exchange
@@ -278,11 +284,19 @@ class StrategyManager:
 
             if exchange == "binance":
                 from services.trading_commands import place_ai_driven_binance_order
-                place_ai_driven_binance_order(account_id=account_id, trigger_context=trigger_context)
+                place_ai_driven_binance_order(
+                    account_id=account_id,
+                    trigger_context=trigger_context,
+                    request_user_id=owner_user_id,
+                )
             else:
                 # Default to Hyperliquid
                 from services.trading_commands import place_ai_driven_hyperliquid_order
-                place_ai_driven_hyperliquid_order(account_id=account_id, trigger_context=trigger_context)
+                place_ai_driven_hyperliquid_order(
+                    account_id=account_id,
+                    trigger_context=trigger_context,
+                    request_user_id=owner_user_id,
+                )
 
         except Exception as e:
             logger.error(f"Error executing strategy for account {account_id}: {e}")
@@ -418,6 +432,7 @@ class HyperliquidStrategyManager(StrategyManager):
                 rows = (
                     db.query(AccountStrategyConfig, Account)
                     .join(Account, AccountStrategyConfig.account_id == Account.id)
+                    .filter(Account.is_deleted != True)
                     .all()
                 )
 
@@ -493,10 +508,24 @@ def _execute_strategy_direct(account_id: int, symbol: str, event_time: datetime,
         # Execute the trade
         if is_hyper:
             logger.info(f"[DirectStrategy] Executing Hyperliquid trade for account {account_id}")
-            place_ai_driven_hyperliquid_order(account_id=account_id)
+            account = db.query(Account).filter(
+                Account.id == account_id,
+                Account.is_deleted != True,
+            ).first()
+            place_ai_driven_hyperliquid_order(
+                account_id=account_id,
+                request_user_id=account.user_id if account else None,
+            )
         else:
-            from services.auto_trader import place_ai_driven_crypto_order
-            place_ai_driven_crypto_order(max_ratio=0.2, account_id=account_id)
+            account = db.query(Account).filter(
+                Account.id == account_id,
+                Account.is_deleted != True,
+            ).first()
+            place_ai_driven_crypto_order(
+                max_ratio=0.2,
+                account_id=account_id,
+                request_user_id=account.user_id if account else None,
+            )
         logger.info(f"Strategy executed for account {account_id} on {symbol} price update")
 
     except Exception as e:
