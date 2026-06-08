@@ -207,10 +207,15 @@ class ProgramExecutionService:
         """Load active bindings with scheduled trigger enabled into cache."""
         db = SessionLocal()
         try:
-            bindings = db.query(AccountProgramBinding).filter(
+            bindings = db.query(AccountProgramBinding).join(
+                Account,
+                AccountProgramBinding.account_id == Account.id,
+            ).filter(
                 AccountProgramBinding.is_active == True,
                 AccountProgramBinding.scheduled_trigger_enabled == True,
-                AccountProgramBinding.is_deleted != True
+                AccountProgramBinding.is_deleted != True,
+                Account.is_active == "true",
+                Account.is_deleted != True,
             ).all()
 
             for binding in bindings:
@@ -261,10 +266,15 @@ class ProgramExecutionService:
         """Execute a scheduled trigger for a binding."""
         db = SessionLocal()
         try:
-            binding = db.query(AccountProgramBinding).filter(
+            binding = db.query(AccountProgramBinding).join(
+                Account,
+                AccountProgramBinding.account_id == Account.id,
+            ).filter(
                 AccountProgramBinding.id == binding_id,
                 AccountProgramBinding.is_active == True,
-                AccountProgramBinding.is_deleted != True
+                AccountProgramBinding.is_deleted != True,
+                Account.is_active == "true",
+                Account.is_deleted != True,
             ).first()
 
             if not binding:
@@ -777,7 +787,11 @@ class ProgramExecutionService:
     ):
         """Update execution log with order IDs and create HyperliquidTrade if filled."""
         try:
-            log = db.query(ProgramExecutionLog).filter(ProgramExecutionLog.id == log_id).first()
+            log = db.query(ProgramExecutionLog).filter(
+                ProgramExecutionLog.id == log_id,
+                ProgramExecutionLog.binding_id == binding.id,
+                ProgramExecutionLog.account_id == binding.account_id,
+            ).first()
             if not log:
                 return
 
