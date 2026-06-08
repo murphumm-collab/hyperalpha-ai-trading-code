@@ -14,7 +14,6 @@ from typing import Dict, List, Any, Optional
 import re
 
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +137,18 @@ def _extract_variables_from_prompt(prompt_text: str) -> List[str]:
     return list(set(variables))
 
 
-def execute_get_prompt_context(db: Session, prompt_id: Optional[int]) -> str:
+def _missing_user_context_result() -> str:
+    return json.dumps({
+        "error": "Authenticated user context is required.",
+        "reason": "missing_user_context",
+    })
+
+
+def execute_get_prompt_context(
+    db: Session,
+    prompt_id: Optional[int],
+    user_id: Optional[int] = None,
+) -> str:
     """
     Get prompt content and list of AI Traders using this prompt.
 
@@ -152,6 +162,9 @@ def execute_get_prompt_context(db: Session, prompt_id: Optional[int]) -> str:
     from database.models import PromptTemplate, AccountPromptBinding, Account, HyperliquidWallet, BinanceWallet
     from repositories.strategy_repo import get_strategy_by_account, parse_signal_pool_ids
 
+    if user_id is None:
+        return _missing_user_context_result()
+
     result = {
         "prompt": None,
         "bound_traders": [],
@@ -164,7 +177,11 @@ def execute_get_prompt_context(db: Session, prompt_id: Optional[int]) -> str:
             return json.dumps(result, indent=2, ensure_ascii=False)
 
         # Get prompt template
-        template = db.get(PromptTemplate, prompt_id)
+        template = db.query(PromptTemplate).filter(
+            PromptTemplate.id == prompt_id,
+            (PromptTemplate.user_id == user_id) | (PromptTemplate.is_system == "true"),
+            PromptTemplate.is_deleted == "false",
+        ).first()
         if not template:
             return json.dumps({"error": f"Prompt template with id {prompt_id} not found"})
 
@@ -185,7 +202,10 @@ def execute_get_prompt_context(db: Session, prompt_id: Optional[int]) -> str:
             Account, AccountPromptBinding.account_id == Account.id
         ).filter(
             AccountPromptBinding.prompt_template_id == prompt_id,
-            Account.is_active == "true"
+            Account.user_id == user_id,
+            Account.is_active == "true",
+            Account.is_deleted != True,
+            AccountPromptBinding.is_deleted != True,
         ).all()
 
         for binding, account in bindings:
@@ -205,11 +225,13 @@ def execute_get_prompt_context(db: Session, prompt_id: Optional[int]) -> str:
                 # Get signal pool names
                 pool_ids = parse_signal_pool_ids(strategy)
                 if pool_ids:
-                    pool_result = db.execute(
-                        text("SELECT pool_name FROM signal_pools WHERE id = ANY(:ids) AND (is_deleted IS NULL OR is_deleted = false)"),
-                        {"ids": pool_ids}
-                    ).fetchall()
-                    pool_names = [row[0] for row in pool_result]
+                    from database.models import SignalPool
+                    pools = db.query(SignalPool).filter(
+                        SignalPool.id.in_(pool_ids),
+                        SignalPool.user_id == user_id,
+                        SignalPool.is_deleted != True,
+                    ).all()
+                    pool_names = [pool.pool_name for pool in pools]
                     trader_info["signal_pool_name"] = ", ".join(pool_names) if pool_names else None
 
             # Get environment from wallet
@@ -246,7 +268,11 @@ def execute_get_prompt_context(db: Session, prompt_id: Optional[int]) -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_get_trader_details(db: Session, trader_id: int) -> str:
+def execute_get_trader_details(
+    db: Session,
+    trader_id: int,
+    user_id: Optional[int] = None,
+) -> str:
     """
     Get AI Trader configuration including exchange, environment, leverage,
     selected symbols, and bound signal pool details.
@@ -258,14 +284,18 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
     Returns:
         JSON string with trader config and signal pool details
     """
-    from database.models import Account, HyperliquidWallet, BinanceWallet, AIDecisionLog
+    from database.models import Account, HyperliquidWallet, BinanceWallet, AIDecisionLog, SignalPool, SignalDefinition
     from repositories.strategy_repo import get_strategy_by_account, parse_signal_pool_ids
     from datetime import datetime, timedelta
+
+    if user_id is None:
+        return _missing_user_context_result()
 
     try:
         # Get account
         account = db.query(Account).filter(
             Account.id == trader_id,
+            Account.user_id == user_id,
             Account.is_active == "true",
             Account.is_deleted != True
         ).first()
@@ -300,21 +330,22 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
                 # Get pool info with signals
                 pools_data = []
                 for pool_id in pool_ids:
-                    pool_row = db.execute(
-                        text("SELECT id, pool_name, logic, symbols, signal_ids, source_type, source_config FROM signal_pools WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)"),
-                        {"id": pool_id}
-                    ).fetchone()
+                    pool = db.query(SignalPool).filter(
+                        SignalPool.id == pool_id,
+                        SignalPool.user_id == user_id,
+                        SignalPool.is_deleted != True,
+                    ).first()
 
-                    if pool_row:
-                        signal_ids = pool_row[4]
+                    if pool:
+                        signal_ids = pool.signal_ids
                         if isinstance(signal_ids, str):
                             signal_ids = json.loads(signal_ids)
 
-                        symbols = pool_row[3]
+                        symbols = pool.symbols
                         if isinstance(symbols, str):
                             symbols = json.loads(symbols)
-                        source_type = pool_row[5] or "market_signals"
-                        source_config = pool_row[6]
+                        source_type = pool.source_type or "market_signals"
+                        source_config = pool.source_config
                         if isinstance(source_config, str):
                             try:
                                 source_config = json.loads(source_config)
@@ -325,16 +356,17 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
                         signals = []
                         if source_type == "market_signals" and signal_ids:
                             for sig_id in signal_ids:
-                                sig_row = db.execute(
-                                    text("SELECT signal_name, trigger_condition FROM signal_definitions WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)"),
-                                    {"id": sig_id}
-                                ).fetchone()
-                                if sig_row:
-                                    condition = sig_row[1]
+                                signal = db.query(SignalDefinition).filter(
+                                    SignalDefinition.id == sig_id,
+                                    SignalDefinition.user_id == user_id,
+                                    SignalDefinition.is_deleted != True,
+                                ).first()
+                                if signal:
+                                    condition = signal.trigger_condition
                                     if isinstance(condition, str):
                                         condition = json.loads(condition)
                                     signals.append({
-                                        "name": sig_row[0],
+                                        "name": signal.signal_name,
                                         "metric": condition.get("metric"),
                                         "operator": condition.get("operator"),
                                         "threshold": condition.get("threshold"),
@@ -342,9 +374,9 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
                                     })
 
                         pools_data.append({
-                            "pool_id": pool_row[0],
-                            "pool_name": pool_row[1],
-                            "logic": pool_row[2] or "OR",
+                            "pool_id": pool.id,
+                            "pool_name": pool.pool_name,
+                            "logic": pool.logic or "OR",
                             "symbols": symbols or [],
                             "source_type": source_type,
                             "source_config": source_config if source_type == "wallet_tracking" else {},
@@ -406,7 +438,12 @@ def execute_get_trader_details(db: Session, trader_id: int) -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_get_decision_list(db: Session, trader_id: int, limit: int = 10) -> str:
+def execute_get_decision_list(
+    db: Session,
+    trader_id: int,
+    limit: int = 10,
+    user_id: Optional[int] = None,
+) -> str:
     """
     Get recent AI decision history (summary only).
 
@@ -418,9 +455,20 @@ def execute_get_decision_list(db: Session, trader_id: int, limit: int = 10) -> s
     Returns:
         JSON string with decision summaries
     """
-    from database.models import AIDecisionLog
+    from database.models import Account, AIDecisionLog
+
+    if user_id is None:
+        return _missing_user_context_result()
 
     try:
+        account_exists = db.query(Account.id).filter(
+            Account.id == trader_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        ).first()
+        if not account_exists:
+            return json.dumps({"error": f"AI Trader with id {trader_id} not found"})
+
         # Limit to reasonable range
         limit = min(max(limit, 1), 20)
 
@@ -479,7 +527,12 @@ def execute_get_decision_list(db: Session, trader_id: int, limit: int = 10) -> s
         return json.dumps({"error": str(e)})
 
 
-def execute_get_decision_details(db: Session, decision_ids: List[int], fields: List[str] = None) -> str:
+def execute_get_decision_details(
+    db: Session,
+    decision_ids: List[int],
+    fields: List[str] = None,
+    user_id: Optional[int] = None,
+) -> str:
     """
     Get detailed info for specific decisions.
 
@@ -491,7 +544,10 @@ def execute_get_decision_details(db: Session, decision_ids: List[int], fields: L
     Returns:
         JSON string with decision details
     """
-    from database.models import AIDecisionLog
+    from database.models import Account, AIDecisionLog
+
+    if user_id is None:
+        return _missing_user_context_result()
 
     try:
         if fields is None:
@@ -504,8 +560,12 @@ def execute_get_decision_details(db: Session, decision_ids: List[int], fields: L
             return json.dumps({"error": "No decision_ids provided"})
 
         # Get decisions
-        decisions = db.query(AIDecisionLog).filter(
-            AIDecisionLog.id.in_(decision_ids)
+        decisions = db.query(AIDecisionLog).join(
+            Account, AIDecisionLog.account_id == Account.id
+        ).filter(
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+            AIDecisionLog.id.in_(decision_ids),
         ).all()
 
         if not decisions:

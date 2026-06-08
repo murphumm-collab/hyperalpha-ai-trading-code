@@ -1587,7 +1587,7 @@ def _execute_tool(
 
         elif tool_name == "get_signal_pools":
             exchange = arguments.get("exchange", "all")
-            return execute_get_signal_pools(db, exchange)
+            return execute_get_signal_pools(db, exchange, user_id=user_id)
 
         elif tool_name == "run_signal_backtest":
             pool_id = arguments.get("pool_id")
@@ -1595,7 +1595,7 @@ def _execute_tool(
                 return json.dumps({"error": "pool_id is required"})
             symbol = arguments.get("symbol", "BTC")
             hours = arguments.get("hours", 24)
-            return execute_run_signal_backtest(db, pool_id, symbol, hours)
+            return execute_run_signal_backtest(db, pool_id, symbol, hours, user_id=user_id)
 
         # Backtest analysis tools
         elif tool_name == "get_backtest_history":
@@ -1622,7 +1622,7 @@ def _execute_tool(
             symbol = arguments.get("symbol")
             factor_name = arguments.get("factor_name")
             forward_period = arguments.get("forward_period", "4h")
-            return execute_query_factors(db, exchange, symbol, factor_name, forward_period)
+            return execute_query_factors(db, exchange, symbol, factor_name, forward_period, user_id=user_id)
 
         else:
             return f"Unknown tool: {tool_name}"

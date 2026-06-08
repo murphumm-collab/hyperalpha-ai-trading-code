@@ -505,7 +505,14 @@ def _execute_preview_prompt(args: Dict[str, Any], request_id: str) -> str:
 # Tool Execution Functions
 # ============================================================================
 
-def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Session = None, prompt_id: int = None) -> str:
+def execute_tool(
+    tool_name: str,
+    args: Dict[str, Any],
+    request_id: str,
+    db: Session = None,
+    prompt_id: int = None,
+    user_id: Optional[int] = None,
+) -> str:
     """Execute a tool and return the result as a string."""
     logger.info(f"[AI Prompt Gen {request_id}] Executing tool: {tool_name}")
 
@@ -556,7 +563,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
             if db is None:
                 return json.dumps({"error": "Database session not available"})
             exchange = args.get("exchange", "all")
-            return execute_get_signal_pools(db, exchange)
+            return execute_get_signal_pools(db, exchange, user_id=user_id)
 
         elif tool_name == "run_signal_backtest":
             if db is None:
@@ -566,7 +573,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
                 return json.dumps({"error": "pool_id is required"})
             symbol = args.get("symbol", "BTC")
             hours = args.get("hours", 24)
-            return execute_run_signal_backtest(db, pool_id, symbol, hours)
+            return execute_run_signal_backtest(db, pool_id, symbol, hours, user_id=user_id)
 
         # New prompt context tools
         elif tool_name == "get_prompt_context":
@@ -574,7 +581,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
                 return json.dumps({"error": "Database session not available"})
             # Use passed prompt_id if args doesn't specify one
             pid = args.get("prompt_id") or prompt_id
-            return execute_get_prompt_context(db, pid)
+            return execute_get_prompt_context(db, pid, user_id=user_id)
 
         elif tool_name == "get_trader_details":
             if db is None:
@@ -582,7 +589,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
             trader_id = args.get("trader_id")
             if trader_id is None:
                 return json.dumps({"error": "trader_id is required"})
-            return execute_get_trader_details(db, trader_id)
+            return execute_get_trader_details(db, trader_id, user_id=user_id)
 
         elif tool_name == "get_decision_list":
             if db is None:
@@ -591,7 +598,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
             if trader_id is None:
                 return json.dumps({"error": "trader_id is required"})
             limit = args.get("limit", 10)
-            return execute_get_decision_list(db, trader_id, limit)
+            return execute_get_decision_list(db, trader_id, limit, user_id=user_id)
 
         elif tool_name == "get_decision_details":
             if db is None:
@@ -600,7 +607,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
             if not decision_ids:
                 return json.dumps({"error": "decision_ids is required"})
             fields = args.get("fields")
-            return execute_get_decision_details(db, decision_ids, fields)
+            return execute_get_decision_details(db, decision_ids, fields, user_id=user_id)
 
         elif tool_name == "query_market_data":
             if db is None:
@@ -620,7 +627,7 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
             symbol = args.get("symbol")
             factor_name = args.get("factor_name")
             forward_period = args.get("forward_period", "4h")
-            return execute_query_factors(db, exchange, symbol, factor_name, forward_period)
+            return execute_query_factors(db, exchange, symbol, factor_name, forward_period, user_id=user_id)
 
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
@@ -698,7 +705,7 @@ def generate_prompt_with_ai_stream(
 
         # Inject current context if prompt_id is provided
         if prompt_id:
-            context_info = execute_get_prompt_context(db, prompt_id)
+            context_info = execute_get_prompt_context(db, prompt_id, user_id=user_id)
             try:
                 context_data = json.loads(context_info)
                 if context_data.get("success"):
@@ -979,7 +986,7 @@ def generate_prompt_with_ai_stream(
 
                         yield format_sse_event("tool_call", {"name": tool_name, "args": tool_args})
 
-                        result = execute_tool(tool_name, tool_args, request_id, db, prompt_id)
+                        result = execute_tool(tool_name, tool_args, request_id, db, prompt_id, user_id=user_id)
                         tool_calls_log.append({
                             "tool": tool_name,
                             "args": tool_args,
@@ -1048,7 +1055,7 @@ def generate_prompt_with_ai_stream(
 
                         yield format_sse_event("tool_call", {"name": tool_name, "args": tool_args})
 
-                        result = execute_tool(tool_name, tool_args, request_id, db, prompt_id)
+                        result = execute_tool(tool_name, tool_args, request_id, db, prompt_id, user_id=user_id)
                         tool_calls_log.append({
                             "tool": tool_name,
                             "args": tool_args,

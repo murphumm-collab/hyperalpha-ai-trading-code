@@ -54,6 +54,13 @@ SIGNAL_METRIC_EXPLANATIONS = {
 }
 
 
+def _missing_user_context_result() -> str:
+    return json.dumps({
+        "error": "Authenticated user context is required.",
+        "reason": "missing_user_context",
+    })
+
+
 # Tool definitions in OpenAI format (shared between services)
 SHARED_SIGNAL_TOOLS = [
     {
@@ -105,7 +112,7 @@ SHARED_SIGNAL_TOOLS = [
 ]
 
 
-def execute_get_signal_pools(db, exchange: str = "all") -> str:
+def execute_get_signal_pools(db, exchange: str = "all", user_id: Optional[int] = None) -> str:
     """
     Execute get_signal_pools tool - returns signal pools with explanations.
 
@@ -116,59 +123,56 @@ def execute_get_signal_pools(db, exchange: str = "all") -> str:
     Returns:
         JSON string with signal pools and metric explanations
     """
-    from sqlalchemy import text
+    from database.models import SignalDefinition, SignalPool
+
+    if user_id is None:
+        return _missing_user_context_result()
 
     try:
         # Get signal definitions (with exchange filter if needed)
+        signals_query = db.query(SignalDefinition).filter(
+            SignalDefinition.user_id == user_id,
+            SignalDefinition.is_deleted != True,
+        )
         if exchange and exchange != "all":
-            signals_result = db.execute(text("""
-                SELECT id, signal_name, description, trigger_condition, enabled, exchange
-                FROM signal_definitions WHERE exchange = :exchange AND (is_deleted IS NULL OR is_deleted = false) ORDER BY id
-            """), {"exchange": exchange})
-        else:
-            signals_result = db.execute(text("""
-                SELECT id, signal_name, description, trigger_condition, enabled, exchange
-                FROM signal_definitions WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id
-            """))
+            signals_query = signals_query.filter(SignalDefinition.exchange == exchange)
+        signals_result = signals_query.order_by(SignalDefinition.id).all()
 
         signals_map = {}
-        for row in signals_result:
-            trigger_condition = row[3]
+        for signal in signals_result:
+            trigger_condition = signal.trigger_condition
             if isinstance(trigger_condition, str):
                 trigger_condition = json.loads(trigger_condition)
-            signals_map[row[0]] = {
-                "id": row[0],
-                "name": row[1],
-                "description": row[2],
+            signals_map[signal.id] = {
+                "id": signal.id,
+                "name": signal.signal_name,
+                "description": signal.description,
                 "condition": trigger_condition,
-                "enabled": row[4],
-                "exchange": row[5] if len(row) > 5 else "hyperliquid"
+                "enabled": signal.enabled,
+                "exchange": signal.exchange or "hyperliquid",
             }
 
         # Get signal pools (with exchange filter if needed)
+        pools_query = db.query(SignalPool).filter(
+            SignalPool.user_id == user_id,
+            SignalPool.is_deleted != True,
+        )
         if exchange and exchange != "all":
-            pools_result = db.execute(text("""
-                SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, source_config
-                FROM signal_pools WHERE exchange = :exchange AND (is_deleted IS NULL OR is_deleted = false) ORDER BY id
-            """), {"exchange": exchange})
-        else:
-            pools_result = db.execute(text("""
-                SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, source_config
-                FROM signal_pools WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id
-            """))
+            pools_query = pools_query.filter(SignalPool.exchange == exchange)
+        pools_result = pools_query.order_by(SignalPool.id).all()
 
         pools = []
-        for row in pools_result:
-            signal_ids = row[2]
+        for pool in pools_result:
+            signal_ids = pool.signal_ids
             if isinstance(signal_ids, str):
                 signal_ids = json.loads(signal_ids)
-            symbols = row[3]
+            symbols = pool.symbols
             if isinstance(symbols, str):
                 symbols = json.loads(symbols)
 
-            pool_exchange = row[6] if len(row) > 6 and row[6] else "hyperliquid"
-            source_type = row[7] if len(row) > 7 and row[7] else "market_signals"
-            source_config = row[8] if len(row) > 8 else {}
+            pool_exchange = pool.exchange or "hyperliquid"
+            source_type = pool.source_type or "market_signals"
+            source_config = pool.source_config or {}
             if isinstance(source_config, str):
                 try:
                     source_config = json.loads(source_config)
@@ -195,13 +199,13 @@ def execute_get_signal_pools(db, exchange: str = "all") -> str:
                         })
 
             pools.append({
-                "id": row[0],
-                "name": row[1],
+                "id": pool.id,
+                "name": pool.pool_name,
                 "exchange": pool_exchange,
                 "source_type": source_type,
-                "logic": row[5] or "OR",
+                "logic": pool.logic or "OR",
                 "symbols": symbols or [],
-                "enabled": row[4],
+                "enabled": pool.enabled,
                 "signals": pool_signals,
                 "source_config": source_config if source_type == "wallet_tracking" else {}
             })
@@ -226,7 +230,13 @@ def execute_get_signal_pools(db, exchange: str = "all") -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_run_signal_backtest(db, pool_id: int, symbol: str = "BTC", hours: int = 24) -> str:
+def execute_run_signal_backtest(
+    db,
+    pool_id: int,
+    symbol: str = "BTC",
+    hours: int = 24,
+    user_id: Optional[int] = None,
+) -> str:
     """
     Execute run_signal_backtest tool - runs backtest and returns trigger statistics.
 
@@ -240,8 +250,20 @@ def execute_run_signal_backtest(db, pool_id: int, symbol: str = "BTC", hours: in
         JSON string with backtest results
     """
     from services.signal_backtest_service import signal_backtest_service
+    from database.models import SignalPool
+
+    if user_id is None:
+        return _missing_user_context_result()
 
     try:
+        pool_exists = db.query(SignalPool.id).filter(
+            SignalPool.id == pool_id,
+            SignalPool.user_id == user_id,
+            SignalPool.is_deleted != True,
+        ).first()
+        if not pool_exists:
+            return json.dumps({"error": f"Signal pool {pool_id} not found"})
+
         # Limit hours to reasonable range
         hours = min(max(hours, 1), 168)  # 1 hour to 7 days
 
@@ -311,4 +333,3 @@ def execute_run_signal_backtest(db, pool_id: int, symbol: str = "BTC", hours: in
     except Exception as e:
         logger.error(f"[run_signal_backtest] Error: {e}")
         return json.dumps({"error": str(e)})
-
