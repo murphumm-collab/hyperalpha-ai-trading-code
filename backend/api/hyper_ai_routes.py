@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 
 from database.connection import get_db
 from database.models import HyperAiConversation, User
-from api.auth_utils import get_current_user_dependency
+from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from services.hyper_ai_service import (
     get_or_create_profile,
     get_llm_config,
@@ -121,7 +121,10 @@ class TestConnectionRequest(BaseModel):
 
 
 @router.post("/test-connection")
-def test_connection(request: TestConnectionRequest):
+def test_connection(
+    request: TestConnectionRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
+):
     """Test LLM connection without saving configuration."""
     # Validate provider
     if request.provider != "custom":

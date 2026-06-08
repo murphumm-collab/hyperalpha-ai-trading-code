@@ -54,6 +54,7 @@ Local checkpoint: current branch `HEAD`
 - Required-auth guard for Market Regime configuration and Signal analysis/runtime-state tool endpoints.
 - Required-auth guard for resource-heavy Factor compute/evaluate/validate endpoints.
 - Required-auth guard for Hyperliquid builder authorization status checks.
+- Required-auth guard for standalone Hyper AI LLM connection tests.
 - Development progress and acceptance markers.
 - REST manual order-placement APIs are not changed in this slice; WebSocket order placement now validates the connection user's account ownership.
 
@@ -114,6 +115,7 @@ Local checkpoint: current branch `HEAD`
 | Signal/regime tool auth | Done | Market Regime config list/update plus Signal metric analysis/state/reset endpoints require real session/JWT |
 | Factor resource auth | Done | Factor compute estimate/trigger/progress plus expression evaluate/validate endpoints require real session/JWT |
 | Builder check auth | Done | Hyperliquid builder authorization status endpoint requires real session/JWT before proxying external authorization checks |
+| Hyper AI connection-test auth | Done | Standalone Hyper AI LLM connection-test endpoint requires real session/JWT before using user-submitted provider credentials |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -197,6 +199,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Factor resource required-auth static check: compute estimate/trigger/progress and expression evaluate/validate handlers all depend on `get_authenticated_user_dependency`.
 - Passed: Factor route syntax compile in both system Python and `uv run` backend environment.
 - Passed: Builder authorization required-auth static check and account route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Hyper AI connection-test required-auth static check and route syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
