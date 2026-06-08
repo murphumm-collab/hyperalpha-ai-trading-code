@@ -8,6 +8,7 @@ API routes for Program Trader with N:N binding architecture.
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
@@ -271,21 +272,22 @@ def _ensure_signal_pools_for_user(db: Session, pool_ids: Optional[List[int]], us
 
 
 def _get_backtest_for_user(db: Session, backtest_id: int, user_id: int) -> BacktestResult:
-    backtest = db.query(BacktestResult).filter(
-        BacktestResult.id == backtest_id,
-        BacktestResult.user_id == user_id,
-    ).first()
-    if backtest:
-        return backtest
-
     backtest = db.query(BacktestResult).join(
         AccountProgramBinding, BacktestResult.binding_id == AccountProgramBinding.id
     ).join(
         Account, AccountProgramBinding.account_id == Account.id
+    ).join(
+        TradingProgram, AccountProgramBinding.program_id == TradingProgram.id
     ).filter(
         BacktestResult.id == backtest_id,
+        BacktestResult.backtest_type == "program",
         BacktestResult.binding_id.isnot(None),
+        or_(BacktestResult.user_id == user_id, BacktestResult.user_id.is_(None)),
+        AccountProgramBinding.is_deleted != True,
         Account.user_id == user_id,
+        Account.is_deleted != True,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
     ).first()
     if not backtest:
         raise HTTPException(status_code=404, detail="Backtest not found")

@@ -16,6 +16,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Prompt AI, Program AI, and Attribution AI chat/history entry points.
 - User-scoped Program CRUD, bindings, preview-run, executions, and backtest result reads.
 - Program response binding counts include only current-owner, non-deleted account bindings.
+- Program Backtest result, trigger, marker, and trigger-detail routes resolve backtests through current-user program/account/binding ownership.
 - Program AI backtest-history tool validates current-user program/account ownership before exposing backtest summaries.
 - Program AI backtest trigger list/detail tools validate current-user program/account ownership before exposing trigger snapshots.
 - Program AI quick strategy verification validates current-user SignalPool ownership before using signal-triggered backtests.
@@ -134,6 +135,7 @@ Local checkpoint: current branch `HEAD`
 | Prompt AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
 | Program AI route filtering | Done | Chat/history endpoints use current user; Program CRUD/bindings/backtest reads are scoped |
 | Program response binding-count ownership | Done | Program list/detail/create/update responses count only owner-account, non-deleted bindings |
+| Program Backtest route-helper ownership | Done | Result, trigger, marker, and trigger-detail routes reject backtests that do not resolve through current-user program/account/binding ownership |
 | Program AI backtest-history ownership | Done | Backtest-history tool requires current-user program ownership and only reads current-user, non-deleted account bindings; legacy null-user backtests remain compatible through owned bindings |
 | Program AI backtest trigger ownership | Done | Trigger list/detail tools require current-user program, account, binding, and compatible backtest ownership before returning trigger snapshots |
 | Program AI quick verify signal-pool ownership | Done | `quick_verify_strategy` rejects cross-user/deleted signal pools before running the backtest engine and uses only current-user pool symbols |
@@ -256,6 +258,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Prompt/Signal ownership route compile and frontend build after strategy entity `user_id` migration and auth-aware manager requests.
 - Passed: Prompt binding repository owner-guard smoke test in `uv run`: Alice cannot read/upsert/delete Bob account bindings or bind Bob private templates; owner-scoped prompt resolution hides dirty cross-user bindings while system/Alice templates remain available.
 - Passed: Program response binding-count owner smoke test in `uv run`: Alice program responses count Alice's active-account binding only and exclude Bob account bindings, deleted-account bindings, and soft-deleted bindings.
+- Passed: Program Backtest route-helper owner smoke test in `uv run`: Alice can read current-user and legacy null-user owned backtests, while Bob-owned, mismatched-user, cross-account, cross-program, deleted-account, and deleted-binding rows are rejected.
 - Passed: Program AI backtest-history owner smoke test in `uv run`: Alice cannot read Bob's program backtests, dirty cross-user account bindings, deleted-account bindings, or mismatched-user backtest rows; legacy null-user rows remain visible only through Alice-owned bindings.
 - Passed: Program AI backtest trigger list/detail owner smoke test in `uv run`: Alice can inspect her own and legacy null-user owned triggers, while Bob-owned, cross-account, cross-program, deleted-account, and mismatched-user backtests are rejected for both trigger list and trigger detail tools.
 - Passed: Program AI quick verify signal-pool owner smoke test in `uv run`: Alice-owned pools enter the backtest engine with owner pool symbols, Bob/deleted pools are rejected before engine execution, and scheduled-only verification still works.
