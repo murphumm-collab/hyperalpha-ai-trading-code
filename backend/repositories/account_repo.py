@@ -12,7 +12,8 @@ def create_account(
     initial_capital: float = 10000.0,
     model: str = "gpt-4-turbo",
     base_url: str = "https://api.openai.com/v1",
-    api_key: str = None
+    api_key: str = None,
+    auto_trading_enabled: bool = False,
 ) -> Account:
     """Create a new trading account"""
     account = Account(
@@ -26,7 +27,8 @@ def create_account(
         initial_capital=initial_capital,
         current_cash=initial_capital,
         frozen_cash=0.0,
-        is_active="true"
+        is_active="true",
+        auto_trading_enabled="true" if auto_trading_enabled else "false",
     )
     db.add(account)
     db.commit()
@@ -54,7 +56,7 @@ def get_or_create_default_account(
     initial_capital: float = 10000.0,
     model: str = "gpt-4-turbo",
     base_url: str = "https://api.openai.com/v1",
-    api_key: str = "default-key-please-update-in-settings"
+    api_key: str = "",
 ) -> Optional[Account]:
     """Get existing account or create default account for new users"""
     # Check if user has any accounts
@@ -71,7 +73,8 @@ def get_or_create_default_account(
         initial_capital=initial_capital,
         model=model,
         base_url=base_url,
-        api_key=api_key
+        api_key=api_key,
+        auto_trading_enabled=False,
     )
 
 

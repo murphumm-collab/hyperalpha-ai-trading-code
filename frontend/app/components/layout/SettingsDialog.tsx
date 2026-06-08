@@ -60,7 +60,7 @@ function createEmptyAccountDraft(): AIAccountCreate {
     model: '',
     base_url: '',
     api_key: '',
-    auto_trading_enabled: true,
+    auto_trading_enabled: false,
   }
 }
 
@@ -495,7 +495,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
                       />
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Switch
-                          checked={newAccount.auto_trading_enabled ?? true}
+                          checked={newAccount.auto_trading_enabled ?? false}
                           onCheckedChange={(checked) => setNewAccount({ ...newAccount, auto_trading_enabled: checked })}
                         />
                         <span>Start Trading</span>

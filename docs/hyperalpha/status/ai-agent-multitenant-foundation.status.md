@@ -40,6 +40,7 @@ Local checkpoint: current branch `HEAD`
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
 - AI Trader creation requires an explicit model, Base URL, and API key instead of storing a placeholder key.
+- New AI Traders default to auto-trading disabled until the user explicitly enables Start Trading.
 - Auth-aware identity runtime token, membership sync, Signal Manager strategy-analysis, market-regime config, factor analysis, and premium sampling-config requests.
 - Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
 - User-scoped membership sync and logout clearing so one user cannot overwrite or delete other users' premium status.
@@ -116,6 +117,7 @@ Local checkpoint: current branch `HEAD`
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
 | AI Trader explicit key creation | Done | New AI Trader forms start with an empty credential draft, require model/Base URL/API key before test-and-create, and clear unsaved drafts on cancel/open |
+| AI Trader safe start default | Done | Frontend, account API, and repository account creation default `auto_trading_enabled` to false; existing accounts are not changed |
 | Frontend identity/signal config auth | Done | Auth runtime token sync, membership sync/clear, Signal Manager analysis/config, Market Regime config, factor evaluation, and premium sampling config use `authFetch` |
 | Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
 | Membership sync isolation | Done | `/api/users/sync-membership` and `/api/users/clear-membership` update/delete only the current request user's `UserSubscription` |
@@ -204,6 +206,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after SettingsDialog preserves existing API keys unless a new key is entered and redacts API keys from client console logging.
 - Passed: Static search found no remaining `default-key-please-update-in-settings` placeholder in SettingsDialog/API account creation paths.
 - Passed: Frontend production build after requiring explicit model/Base URL/API key for new AI Trader creation and clearing unsaved credential drafts.
+- Passed: AI Trader safe-default smoke test in `uv run`: account API creation, repository creation, and default-account creation all defaulted `auto_trading_enabled` to false, and default-account creation stored an empty API key instead of a placeholder.
+- Passed: Backend syntax compile and frontend production build after new AI Trader auto-trading defaults switched off.
 - Passed: AuthContext, Signal Manager user strategy/config calls, Market Regime config, and Premium sampling config switched to `authFetch`; remaining Signal Manager bare fetches are public market K-line preview reads; frontend production build passed.
 - Passed: Membership isolation smoke test in `uv run`: Alice sync/logout did not alter Bob's subscription and spoofed frontend username was ignored.
 - Passed: `user_routes.py` syntax compile in both system Python and `uv run` backend environment after membership isolation fix.

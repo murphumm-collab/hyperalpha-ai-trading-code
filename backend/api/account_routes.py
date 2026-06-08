@@ -502,7 +502,7 @@ def create_new_account(
             raise HTTPException(status_code=400, detail="Account name is required")
         
         # Create new account
-        auto_trading_enabled = _normalize_bool(payload.get("auto_trading_enabled", True))
+        auto_trading_enabled = _normalize_bool(payload.get("auto_trading_enabled", False))
         auto_trading_value = "true" if auto_trading_enabled else "false"
 
         import random

@@ -478,7 +478,7 @@ export async function createAccount(account: TradingAccountCreate): Promise<Trad
       api_key: account.api_key,
       account_type: account.account_type || 'AI',
       initial_capital: account.initial_capital || 10000,
-      auto_trading_enabled: account.auto_trading_enabled ?? true,
+      auto_trading_enabled: account.auto_trading_enabled ?? false,
     })
   })
   return response.json()
