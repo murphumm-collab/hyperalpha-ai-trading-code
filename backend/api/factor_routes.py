@@ -24,7 +24,7 @@ from sqlalchemy import or_, text
 
 from database.connection import SessionLocal
 from database.models import CustomFactor, User
-from api.auth_utils import get_current_user_dependency
+from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from services.factor_registry import FACTOR_REGISTRY, FACTOR_CATEGORIES, CATEGORY_LABELS
 from services.factor_expression_engine import factor_expression_engine, FUNCTION_REGISTRY
 
@@ -309,7 +309,11 @@ def _run_compute_background(exchange: str, period: str):
 
 
 @router.get("/compute/estimate")
-async def compute_estimate(exchange: str = Query("hyperliquid"), db: Session = Depends(get_db)):
+async def compute_estimate(
+    exchange: str = Query("hyperliquid"),
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Return symbol list, data coverage, and estimated duration."""
     from services.factor_computation_service import factor_computation_service
     from services.factor_registry import FACTOR_REGISTRY
@@ -349,7 +353,10 @@ async def compute_estimate(exchange: str = Query("hyperliquid"), db: Session = D
 
 
 @router.post("/compute")
-async def trigger_compute(req: ComputeRequest):
+async def trigger_compute(
+    req: ComputeRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
+):
     """Start factor computation in background thread. Returns immediately."""
     global _compute_result, _compute_running
 
@@ -369,7 +376,9 @@ async def trigger_compute(req: ComputeRequest):
 
 
 @router.get("/compute/progress")
-async def compute_progress():
+async def compute_progress(
+    current_user: User = Depends(get_authenticated_user_dependency),
+):
     """Return current computation progress."""
     from services.factor_computation_service import factor_computation_service
     from services.factor_effectiveness_service import factor_effectiveness_service
@@ -551,7 +560,10 @@ class EvaluateRequest(BaseModel):
 
 
 @router.post("/evaluate")
-async def evaluate_expression(req: EvaluateRequest):
+async def evaluate_expression(
+    req: EvaluateRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
+):
     """Evaluate a factor expression on-demand (no save required)."""
     from services.market_data import get_kline_data
 
@@ -633,7 +645,10 @@ class ValidateExpressionRequest(BaseModel):
 
 
 @router.post("/validate-expression")
-async def validate_expression(req: ValidateExpressionRequest):
+async def validate_expression(
+    req: ValidateExpressionRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
+):
     """Quick syntax check for an expression."""
     ok, err = factor_expression_engine.validate(req.expression)
     return {"valid": ok, "error": err if not ok else None}
