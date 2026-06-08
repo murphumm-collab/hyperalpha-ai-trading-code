@@ -54,6 +54,16 @@ interface AIAccountCreate extends TradingAccountCreate {
   api_key?: string
 }
 
+function createEmptyAccountDraft(): AIAccountCreate {
+  return {
+    name: '',
+    model: '',
+    base_url: '',
+    api_key: '',
+    auto_trading_enabled: true,
+  }
+}
+
 function formatDependencies(deps: string[], t: (key: string) => string): string {
   const keyMap: [RegExp, string][] = [
     [/Prompt binding/i, 'common.dependencyPromptBinding'],
@@ -86,20 +96,8 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
   const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [importTargetAccount, setImportTargetAccount] = useState<AIAccount | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [newAccount, setNewAccount] = useState<AIAccountCreate>({
-    name: '',
-    model: '',
-    base_url: '',
-    api_key: 'default-key-please-update-in-settings',
-    auto_trading_enabled: true,
-  })
-  const [editAccount, setEditAccount] = useState<AIAccountCreate>({
-    name: '',
-    model: '',
-    base_url: '',
-    api_key: 'default-key-please-update-in-settings',
-    auto_trading_enabled: true,
-  })
+  const [newAccount, setNewAccount] = useState<AIAccountCreate>(createEmptyAccountDraft)
+  const [editAccount, setEditAccount] = useState<AIAccountCreate>(createEmptyAccountDraft)
 
   const loadAccounts = async () => {
     try {
@@ -138,37 +136,49 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
         return
       }
 
-      // If AI fields are provided, test LLM connection first
-      if (newAccount.model || newAccount.base_url || newAccount.api_key) {
-        setTestResult('Testing LLM connection...')
-        try {
-          const testResponse = await testLLMConnection({
-            model: newAccount.model,
-            base_url: newAccount.base_url,
-            api_key: newAccount.api_key,
-          })
-          if (!testResponse.success) {
-            const message = testResponse.message || 'LLM connection test failed'
-            setError(`LLM Test Failed: ${message}`)
-            setTestResult(`❌ Test failed: ${message}`)
-            setLoading(false)
-            setTesting(false)
-            return
-          }
-          setTestResult('✅ LLM connection test passed! Creating AI trader...')
-        } catch (testError) {
-          const message = testError instanceof Error ? testError.message : 'LLM connection test failed'
+      const createPayload: AIAccountCreate = {
+        ...newAccount,
+        name: newAccount.name.trim(),
+        model: newAccount.model?.trim(),
+        base_url: newAccount.base_url?.trim(),
+        api_key: newAccount.api_key?.trim(),
+      }
+
+      if (!createPayload.model || !createPayload.base_url || !createPayload.api_key) {
+        setError('Model, Base URL, and API key are required')
+        setLoading(false)
+        setTesting(false)
+        return
+      }
+
+      setTestResult('Testing LLM connection...')
+      try {
+        const testResponse = await testLLMConnection({
+          model: createPayload.model,
+          base_url: createPayload.base_url,
+          api_key: createPayload.api_key,
+        })
+        if (!testResponse.success) {
+          const message = testResponse.message || 'LLM connection test failed'
           setError(`LLM Test Failed: ${message}`)
           setTestResult(`❌ Test failed: ${message}`)
           setLoading(false)
           setTesting(false)
           return
         }
+        setTestResult('✅ LLM connection test passed! Creating AI trader...')
+      } catch (testError) {
+        const message = testError instanceof Error ? testError.message : 'LLM connection test failed'
+        setError(`LLM Test Failed: ${message}`)
+        setTestResult(`❌ Test failed: ${message}`)
+        setLoading(false)
+        setTesting(false)
+        return
       }
 
-      console.log('Creating account with data:', { ...newAccount, api_key: newAccount.api_key ? '[REDACTED]' : undefined })
-      await createAccount(newAccount)
-      setNewAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings', auto_trading_enabled: true })
+      console.log('Creating account with data:', { ...createPayload, api_key: '[REDACTED]' })
+      await createAccount(createPayload)
+      setNewAccount(createEmptyAccountDraft())
       setShowAddForm(false)
       await loadAccounts()
 
@@ -286,7 +296,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
 
   const cancelEdit = () => {
     setEditingId(null)
-    setEditAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings', auto_trading_enabled: true })
+    setEditAccount(createEmptyAccountDraft())
     setTestResult(null)
     setError(null)
   }
@@ -424,24 +434,32 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
         </DialogHeader>
       )}
 
-        <div className="space-y-6">
-          {/* Existing Accounts */}
-          <div className="space-y-4 flex-1 flex flex-col overflow-hidden"  style={{maxHeight: 'calc(100vh - 300px)'}}>
-            {error && (
+      <div className="space-y-6">
+        {/* Existing Accounts */}
+        <div className="space-y-4 flex-1 flex flex-col overflow-hidden"  style={{maxHeight: 'calc(100vh - 300px)'}}>
+          {error && (
             <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded">
               {error}
             </div>
           )}
-            <div className="flex items-center justify-between">
-              <Button
-                onClick={() => setShowAddForm(!showAddForm)}
-                size="sm"
-                className="flex items-center gap-2"
-              >
-                <Plus className="h-4 w-4" />
-                Add AI Trader
-              </Button>
-            </div>
+          <div className="flex items-center justify-between">
+            <Button
+              onClick={() => {
+                const nextVisible = !showAddForm
+                setShowAddForm(nextVisible)
+                setError(null)
+                setTestResult(null)
+                if (nextVisible) {
+                  setNewAccount(createEmptyAccountDraft())
+                }
+              }}
+              size="sm"
+              className="flex items-center gap-2"
+            >
+              <Plus className="h-4 w-4" />
+              Add AI Trader
+            </Button>
+          </div>
 
             {loading && accounts.length === 0 ? (
               <div>Loading AI traders...</div>
@@ -486,7 +504,15 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
                         <Button onClick={handleCreateAccount} disabled={loading}>
                           Test and Create
                         </Button>
-                        <Button variant="outline" onClick={() => setShowAddForm(false)}>
+                        <Button
+                          variant="outline"
+                          onClick={() => {
+                            setShowAddForm(false)
+                            setNewAccount(createEmptyAccountDraft())
+                            setError(null)
+                            setTestResult(null)
+                          }}
+                        >
                           Cancel
                         </Button>
                       </div>
