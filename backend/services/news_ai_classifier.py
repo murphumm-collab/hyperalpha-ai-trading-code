@@ -1,16 +1,16 @@
 """
 News AI Classification Service (Phase 1D)
 
-Batch job that classifies unclassified news articles using the user's
-configured LLM. Determines sentiment (bullish/bearish/neutral), refines
-symbol tags, and generates one-line summaries.
+Batch job that classifies unclassified news articles using a platform-owned
+LLM config from environment variables. Determines sentiment
+(bullish/bearish/neutral), refines symbol tags, and generates one-line summaries.
 
-Runs every 30 minutes via TaskScheduler. Uses the same LLM provider,
-model, and API key as AI Trader (from HyperAIProfile).
-If LLM is not configured, this service is a no-op.
+Runs every 30 minutes via TaskScheduler. If News AI LLM env vars are not
+configured, this service is a no-op.
 """
 import json
 import logging
+import os
 import time
 from typing import Dict, List, Optional
 
@@ -68,15 +68,24 @@ Return ONLY a valid JSON array, no other text."""
 SUMMARY_KEEP_THRESHOLD = 400
 
 
-def _get_llm_config(db) -> Optional[Dict]:
-    """Get user's LLM config. Returns None if not configured."""
-    from services.hyper_ai_service import get_llm_config
-    config = get_llm_config(db)
-    if not config.get("configured"):
+def _get_llm_config(db=None) -> Optional[Dict]:
+    """Get platform-owned News AI LLM config. Returns None if not configured."""
+    api_key = os.getenv("NEWS_AI_LLM_API_KEY", "").strip()
+    base_url = os.getenv("NEWS_AI_LLM_BASE_URL", "").strip()
+    model = os.getenv("NEWS_AI_LLM_MODEL", "").strip()
+    api_format = os.getenv("NEWS_AI_LLM_API_FORMAT", "openai").strip() or "openai"
+
+    if not api_key or not base_url or not model:
         return None
-    if not config.get("api_key") or not config.get("base_url"):
-        return None
-    return config
+
+    return {
+        "configured": True,
+        "provider": "news_ai_env",
+        "base_url": base_url,
+        "model": model,
+        "api_key": api_key,
+        "api_format": api_format,
+    }
 
 
 def _get_symbols_from_config(db, keys: List[str]) -> List[str]:
@@ -123,7 +132,7 @@ def _get_exchange_symbols(db) -> List[str]:
 
 
 def _call_llm(config: Dict, prompt: str) -> Optional[str]:
-    """Call user's LLM and return raw response text."""
+    """Call the platform-owned News AI LLM and return raw response text."""
     from services.ai_decision_service import (
         build_llm_headers, build_llm_payload,
         build_chat_completion_endpoints,

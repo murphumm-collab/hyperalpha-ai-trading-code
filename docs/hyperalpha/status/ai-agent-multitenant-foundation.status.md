@@ -66,6 +66,7 @@ Local checkpoint: current branch `HEAD`
 - User-bound WebSocket bootstrap/account switching/order/snapshot/asset-curve requests and per-user asset-curve broadcasts.
 - Required-auth guard for system log reads/deletes and generic system config writes; generic config writes are limited to `ui_language`.
 - Required-auth guard for system data management endpoints and news source management endpoints.
+- Background News AI classification uses platform-owned `NEWS_AI_LLM_*` environment variables and skips when unset instead of borrowing any user's Hyper AI key.
 - Required-auth guard for Market Regime configuration and Signal analysis/runtime-state tool endpoints.
 - Required-auth guard for resource-heavy Factor compute/evaluate/validate endpoints.
 - Required-auth guard for Hyperliquid builder authorization status checks.
@@ -150,6 +151,7 @@ Local checkpoint: current branch `HEAD`
 | WebSocket ownership | Done | WS resolves session/JWT identity from query/header/message token, ignores client-provided username for bootstrap, rejects cross-user `switch_account`, scopes asset curves by current user, and sends auth tokens from frontend WS requests |
 | Global config/log auth | Done | `get_authenticated_user_dependency` requires a real session/JWT for system logs and generic config updates; `/api/config/{key}` only permits `ui_language` |
 | System/news management auth | Done | Storage stats, data coverage, retention, backfill, news source config/test/stats endpoints require real session/JWT; Settings data-management requests use auth-aware fetch |
+| News AI platform LLM config | Done | Background News AI reads `NEWS_AI_LLM_BASE_URL`, `NEWS_AI_LLM_MODEL`, `NEWS_AI_LLM_API_KEY`, and `NEWS_AI_LLM_API_FORMAT`; unset env skips classification without using user-provided keys |
 | Signal/regime tool auth | Done | Market Regime config list/update plus Signal metric analysis/state/reset endpoints require real session/JWT |
 | Factor resource auth | Done | Factor compute estimate/trigger/progress plus expression evaluate/validate endpoints require real session/JWT |
 | Builder check auth | Done | Hyperliquid builder authorization status endpoint requires real session/JWT before proxying external authorization checks |
@@ -267,6 +269,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Required config auth smoke test in `uv run`: anonymous required-auth resolution returned 401, `ui_language` update succeeded for an authenticated user, and `hyperliquid_trading_mode` generic update returned 403.
 - Passed: Auth/config/system-log route syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Settings language update switched to `authFetch`.
 - Passed: System/news management static required-auth check: storage/data coverage/retention/backfill and news source management handlers all depend on `get_authenticated_user_dependency`.
+- Passed: News AI LLM env config smoke test in `uv run`: unset `NEWS_AI_LLM_*` skips classification config, configured env returns platform-owned DeepSeek-style config, and `news_ai_classifier.py` no longer imports or calls Hyper AI `get_llm_config(db)`.
 - Passed: System/news route syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Settings system-data requests switched to `authFetch`.
 - Passed: Market Regime/Signal required-auth static check: config list/update, metric analysis, signal state read, and signal state reset handlers all depend on `get_authenticated_user_dependency`.
 - Passed: Market Regime/Signal route syntax compile in both system Python and `uv run` backend environment.
