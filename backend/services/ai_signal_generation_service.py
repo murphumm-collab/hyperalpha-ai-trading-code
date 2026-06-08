@@ -537,7 +537,7 @@ def generate_signal_with_ai(
                         tool_id = tool_use.get("id", "")
                         func_args = tool_use.get("input", {})
                         logger.info(f"[AI Signal Gen {request_id}] Executing tool: {func_name}({func_args})")
-                        tool_result = _execute_tool(db, func_name, func_args)
+                        tool_result = _execute_tool(db, func_name, func_args, user_id=user_id)
                         logger.info(f"[AI Signal Gen {request_id}] Tool result: {tool_result[:200]}...")
                         messages.append({
                             "role": "tool",
@@ -561,7 +561,7 @@ def generate_signal_with_ai(
                         except json.JSONDecodeError:
                             func_args = {}
                         logger.info(f"[AI Signal Gen {request_id}] Executing tool: {func_name}({func_args})")
-                        tool_result = _execute_tool(db, func_name, func_args)
+                        tool_result = _execute_tool(db, func_name, func_args, user_id=user_id)
                         logger.info(f"[AI Signal Gen {request_id}] Tool result: {tool_result[:200]}...")
                         messages.append({
                             "role": "tool",
@@ -1044,7 +1044,8 @@ def _tool_get_kline_context(
 
 def _tool_get_indicators_batch(
     db: Session, symbol: str, indicators: List[str], time_window: str,
-    exchange: str = "hyperliquid"
+    exchange: str = "hyperliquid",
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Get statistical distribution of multiple indicators in one call."""
     import numpy as np
@@ -1088,6 +1089,7 @@ def _tool_get_indicators_batch(
                     period=time_window,
                     exchange=exchange,
                     klines=klines,
+                    user_id=user_id,
                 )
                 if series is None or len(series) == 0:
                     results["indicators"][indicator] = {"error": err or "Factor computation failed"}
@@ -1305,7 +1307,8 @@ def _combine_signals_with_pool_edge_detection(
 
 def _tool_predict_signal_combination(
     db: Session, symbol: str, signals: List[Dict], logic: str,
-    exchange: str = "hyperliquid"
+    exchange: str = "hyperliquid",
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Predict trigger count when combining multiple signals.
@@ -1370,7 +1373,7 @@ def _tool_predict_signal_combination(
         # Handle factor signal
         if metric and metric.startswith("factor:"):
             factor_triggers = _find_factor_signal_triggers(
-                db, symbol.upper(), sig, start_time_ms, current_time_ms, exchange
+                db, symbol.upper(), sig, start_time_ms, current_time_ms, exchange, user_id=user_id
             )
             if isinstance(factor_triggers, dict) and "error" in factor_triggers:
                 return factor_triggers
@@ -1452,7 +1455,8 @@ def _tool_predict_signal_combination(
 
 def _find_factor_signal_triggers(
     db: Session, symbol: str, sig: Dict,
-    start_time_ms: int, current_time_ms: int, exchange: str
+    start_time_ms: int, current_time_ms: int, exchange: str,
+    user_id: Optional[int] = None,
 ) -> List[int]:
     """Find factor signal trigger timestamps using K-line data and edge detection."""
     import pandas as pd
@@ -1488,6 +1492,7 @@ def _find_factor_signal_triggers(
         period=tw,
         exchange=exchange,
         klines=klines,
+        user_id=user_id,
     )
     if series is None or len(series) == 0:
         return {"error": err or f"Factor {factor_name} computation failed"}
@@ -1613,8 +1618,19 @@ def _find_taker_volume_triggers(
     return triggers
 
 
-def _execute_tool(db: Session, tool_name: str, arguments: Dict) -> str:
+def _execute_tool(
+    db: Session,
+    tool_name: str,
+    arguments: Dict,
+    user_id: Optional[int] = None,
+) -> str:
     """Execute a tool and return JSON result."""
+    if user_id is None:
+        return json.dumps({
+            "error": "Authenticated user context is required.",
+            "reason": "missing_user_context",
+        })
+
     try:
         # Extract exchange parameter with default "hyperliquid" for backward compatibility
         exchange = arguments.get("exchange", "hyperliquid")
@@ -1633,7 +1649,8 @@ def _execute_tool(db: Session, tool_name: str, arguments: Dict) -> str:
                 symbol=arguments.get("symbol", "BTC"),
                 indicators=arguments.get("indicators", []),
                 time_window=arguments.get("time_window", "5m"),
-                exchange=exchange
+                exchange=exchange,
+                user_id=user_id,
             )
         elif tool_name == "predict_signal_combination":
             result = _tool_predict_signal_combination(
@@ -1641,7 +1658,8 @@ def _execute_tool(db: Session, tool_name: str, arguments: Dict) -> str:
                 symbol=arguments.get("symbol", "BTC"),
                 signals=arguments.get("signals", []),
                 logic=arguments.get("logic", "AND"),
-                exchange=exchange
+                exchange=exchange,
+                user_id=user_id,
             )
         else:
             result = {"error": f"Unknown tool: {tool_name}"}
@@ -2020,7 +2038,7 @@ def generate_signal_with_ai_stream(
                         tool_id = tool_use.get("id", "")
                         func_args = tool_use.get("input", {})
                         yield _sse_event("tool_call", {"name": func_name, "arguments": func_args})
-                        tool_result = _execute_tool(db, func_name, func_args)
+                        tool_result = _execute_tool(db, func_name, func_args, user_id=user_id)
                         tool_result_parsed = json.loads(tool_result)
                         yield _sse_event("tool_result", {"name": func_name, "result": tool_result_parsed})
                         tool_calls_log.append({"tool": func_name, "args": func_args, "result": tool_result})
@@ -2041,7 +2059,7 @@ def generate_signal_with_ai_stream(
                         except json.JSONDecodeError:
                             func_args = {}
                         yield _sse_event("tool_call", {"name": func_name, "arguments": func_args})
-                        tool_result = _execute_tool(db, func_name, func_args)
+                        tool_result = _execute_tool(db, func_name, func_args, user_id=user_id)
                         tool_result_parsed = json.loads(tool_result)
                         yield _sse_event("tool_result", {"name": func_name, "result": tool_result_parsed})
                         tool_calls_log.append({"tool": func_name, "args": func_args, "result": tool_result})
