@@ -16,16 +16,19 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
 from database.models import (
+    User,
     Account,
     AIDecisionLog,
     PromptTemplate,
     PromptBacktestTask,
     PromptBacktestItem,
 )
+from api.auth_utils import get_current_user_dependency
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/prompt-backtest", tags=["prompt-backtest"])
@@ -34,6 +37,49 @@ router = APIRouter(prefix="/api/prompt-backtest", tags=["prompt-backtest"])
 # ============================================================================
 # Pydantic Models
 # ============================================================================
+
+def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
+def _ensure_task_owner(db: Session, task_id: int, user_id: int) -> PromptBacktestTask:
+    task = (
+        db.query(PromptBacktestTask)
+        .join(Account, PromptBacktestTask.account_id == Account.id)
+        .filter(
+            PromptBacktestTask.id == task_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        )
+        .first()
+    )
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
+def _ensure_item_owner(db: Session, item_id: int, user_id: int) -> PromptBacktestItem:
+    item = (
+        db.query(PromptBacktestItem)
+        .join(PromptBacktestTask, PromptBacktestItem.task_id == PromptBacktestTask.id)
+        .join(Account, PromptBacktestTask.account_id == Account.id)
+        .filter(
+            PromptBacktestItem.id == item_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        )
+        .first()
+    )
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found")
+    return item
 
 class ReplaceRule(BaseModel):
     find: str
@@ -159,19 +205,18 @@ def _build_task_response(task: PromptBacktestTask) -> TaskStatusResponse:
 def create_backtest_task(
     request: CreateTaskRequest,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Create a new prompt backtest task."""
-    # Validate account exists
-    account = db.query(Account).filter(Account.id == request.account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    _ensure_account_owner(db, request.account_id, current_user.id)
 
     # Get wallet/environment from first decision log
     first_log = None
     if request.items:
         first_log = db.query(AIDecisionLog).filter(
-            AIDecisionLog.id == request.items[0].decision_log_id
+            AIDecisionLog.id == request.items[0].decision_log_id,
+            AIDecisionLog.account_id == request.account_id,
         ).first()
 
     # Create task
@@ -192,7 +237,8 @@ def create_backtest_task(
     # Create items with original data snapshot
     for item_input in request.items:
         original_log = db.query(AIDecisionLog).filter(
-            AIDecisionLog.id == item_input.decision_log_id
+            AIDecisionLog.id == item_input.decision_log_id,
+            AIDecisionLog.account_id == request.account_id,
         ).first()
 
         if not original_log:
@@ -204,7 +250,11 @@ def create_backtest_task(
         if original_log.prompt_template_id:
             template = db.query(PromptTemplate).filter(
                 PromptTemplate.id == original_log.prompt_template_id,
-                PromptTemplate.is_deleted == "false"
+                PromptTemplate.is_deleted == "false",
+                or_(
+                    PromptTemplate.user_id == current_user.id,
+                    PromptTemplate.is_system == "true",
+                ),
             ).first()
             if template:
                 template_name = template.name
@@ -242,12 +292,22 @@ def create_backtest_task(
 def list_backtest_tasks(
     account_id: Optional[int] = None,
     limit: int = 20,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """List backtest tasks, optionally filtered by account."""
-    query = db.query(PromptBacktestTask).order_by(PromptBacktestTask.created_at.desc())
+    query = (
+        db.query(PromptBacktestTask)
+        .join(Account, PromptBacktestTask.account_id == Account.id)
+        .filter(
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        )
+        .order_by(PromptBacktestTask.created_at.desc())
+    )
 
     if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
         query = query.filter(PromptBacktestTask.account_id == account_id)
 
     tasks = query.limit(limit).all()
@@ -260,12 +320,11 @@ def list_backtest_tasks(
 @router.get("/tasks/{task_id}")
 def get_task_status(
     task_id: int,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get task status and progress."""
-    task = db.query(PromptBacktestTask).filter(PromptBacktestTask.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _ensure_task_owner(db, task_id, current_user.id)
 
     return _build_task_response(task).dict()
 
@@ -273,12 +332,11 @@ def get_task_status(
 @router.get("/tasks/{task_id}/results")
 def get_task_results(
     task_id: int,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get comparison results for a task."""
-    task = db.query(PromptBacktestTask).filter(PromptBacktestTask.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _ensure_task_owner(db, task_id, current_user.id)
 
     items = db.query(PromptBacktestItem).filter(
         PromptBacktestItem.task_id == task_id
@@ -351,12 +409,11 @@ def get_task_results(
 @router.get("/items/{item_id}")
 def get_item_detail(
     item_id: int,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get detailed information for a single backtest item."""
-    item = db.query(PromptBacktestItem).filter(PromptBacktestItem.id == item_id).first()
-    if not item:
-        raise HTTPException(status_code=404, detail="Item not found")
+    item = _ensure_item_owner(db, item_id, current_user.id)
 
     return ItemDetailResponse(
         id=item.id,
@@ -379,15 +436,14 @@ def get_item_detail(
 @router.get("/tasks/{task_id}/items")
 def get_task_items_for_import(
     task_id: int,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get all items from a task for importing into workspace.
 
     Returns the modified_prompt and original decision info for each item.
     """
-    task = db.query(PromptBacktestTask).filter(PromptBacktestTask.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _ensure_task_owner(db, task_id, current_user.id)
 
     items = db.query(PromptBacktestItem).filter(
         PromptBacktestItem.task_id == task_id
@@ -396,7 +452,8 @@ def get_task_items_for_import(
     # Get original decision logs for additional info
     decision_log_ids = [item.original_decision_log_id for item in items]
     decision_logs = db.query(AIDecisionLog).filter(
-        AIDecisionLog.id.in_(decision_log_ids)
+        AIDecisionLog.id.in_(decision_log_ids),
+        AIDecisionLog.account_id == task.account_id,
     ).all()
     decision_log_map = {dl.id: dl for dl in decision_logs}
 
@@ -423,12 +480,11 @@ def get_task_items_for_import(
 @router.delete("/tasks/{task_id}")
 def delete_task(
     task_id: int,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Delete a backtest task and all its items."""
-    task = db.query(PromptBacktestTask).filter(PromptBacktestTask.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _ensure_task_owner(db, task_id, current_user.id)
 
     if task.status == "running":
         raise HTTPException(status_code=400, detail="Cannot delete running task")
@@ -443,12 +499,11 @@ def delete_task(
 def retry_failed_items(
     task_id: int,
     background_tasks: BackgroundTasks,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Retry all failed items in a task."""
-    task = db.query(PromptBacktestTask).filter(PromptBacktestTask.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
+    task = _ensure_task_owner(db, task_id, current_user.id)
 
     if task.status == "running":
         raise HTTPException(status_code=400, detail="Task is already running")
