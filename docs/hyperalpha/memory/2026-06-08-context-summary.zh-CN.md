@@ -158,9 +158,17 @@ Plan
 - 不直接合并到 main。
 - GitHub 上传后保持分支，不自动 merge。
 
-## 9. 当前待确认
+## 9. 当前已确认与待确认
 
-- GitHub 远程仓库地址。
+已确认：
+
+- GitHub 完整代码仓库：`https://github.com/murphumm-collab/hyperalpha-ai-trading-code`
+- 工作分支：`codex/hyperalpha-product-plan`
+- 早先创建的 `hyperalpha-ai-trading` 是空的私有占位仓库；完整代码同步以 `hyperalpha-ai-trading-code` fork 仓库为准。
+- 终端 `git push` 仍需要 GitHub CLI/浏览器 sudo 二次验证；当前远程同步通过 GitHub Web/Connector 提交完成。
+
+仍待确认：
+
 - 是否允许新增 RabbitMQ 队列 `QUEUE_AI_TRADING_SIGNAL`。
 - HTTP internal API 精确字段。
 - 订单事件完整类型和字段。
