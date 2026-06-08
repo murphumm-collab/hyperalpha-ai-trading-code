@@ -73,6 +73,37 @@ def _ensure_order_owner(db: Session, order_id: int, user_id: int) -> Order:
     return order
 
 
+def _load_order_request_user(db: Session, request: OrderCreateRequest, current_user: User) -> User:
+    """
+    Resolve the user allowed to create this order.
+
+    The request body keeps user_id for legacy clients, but it is only accepted
+    when it matches a verified body session token or the authenticated request
+    user. This prevents the local/default user fallback from creating orders for
+    arbitrary accounts in multi-user deployments.
+    """
+    if request.session_token:
+        session_user_id = verify_auth_session(db, request.session_token)
+        if not session_user_id or session_user_id != request.user_id:
+            raise HTTPException(status_code=401, detail="Invalid or expired session")
+
+        if current_user.username != "default" and current_user.id != session_user_id:
+            raise HTTPException(status_code=403, detail="Cannot create orders for another user")
+
+        user = db.query(User).filter(User.id == session_user_id).first()
+        if not user:
+            raise HTTPException(status_code=401, detail="Session user not found")
+        return user
+
+    if request.user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot create orders for another user")
+
+    user = db.query(User).filter(User.id == current_user.id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
 @router.post("/create", response_model=OrderOut)
 def create_new_order(
     request: OrderCreateRequest,
@@ -90,38 +121,31 @@ def create_new_order(
         Created order information
     """
     try:
-        user = db.query(User).filter(User.id == request.user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        if current_user.username != "default" and request.user_id != current_user.id:
-            raise HTTPException(status_code=403, detail="Cannot create orders for another user")
+        user = _load_order_request_user(db, request, current_user)
 
         # Authentication: supports either session_token or username+password
         if request.session_token:
-            # Authenticate using session token (hardcoded 180-day password-free feature)
-            session_user_id = verify_auth_session(db, request.session_token)
-            if session_user_id != request.user_id:
-                raise HTTPException(status_code=401, detail="Invalid or expired session")
+            # Already authenticated and matched to the resolved request user.
+            pass
         elif request.username and request.password:
             # Authenticate using username and password
             if user.username != request.username:
                 raise HTTPException(status_code=401, detail="Username does not match")
             
             # Password verification
-            if not user_has_password(db, request.user_id):
+            if not user_has_password(db, user.id):
                 # First transaction, set password
                 if len(request.password.strip()) < 4:
                     raise HTTPException(status_code=400, detail="Password must be at least 4 characters")
                 
-                updated_user = set_user_password(db, request.user_id, request.password)
+                updated_user = set_user_password(db, user.id, request.password)
                 if not updated_user:
                     raise HTTPException(status_code=500, detail="Failed to set trading password")
                 
-                logger.info(f"User {request.user_id} first transaction, trading password set")
+                logger.info(f"User {user.id} first transaction, trading password set")
             else:
                 # Verify existing password
-                if not verify_user_password(db, request.user_id, request.password):
+                if not verify_user_password(db, user.id, request.password):
                     raise HTTPException(status_code=401, detail="Incorrect trading password")
         else:
             raise HTTPException(status_code=400, detail="Please provide either session token or username+password")
