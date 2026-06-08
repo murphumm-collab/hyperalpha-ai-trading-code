@@ -47,6 +47,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
+- Hyperliquid environment shared service functions accept owner guards for setup, switching, config, client, leverage, enable, and disable operations.
 - Trading command AI prompts use each account owner's watchlist instead of a cross-user aggregate list.
 - Automated AI Trader and Program Trader order execution pass a shared hard risk validator before exchange order placement.
 - Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
@@ -145,6 +146,7 @@ Local checkpoint: current branch `HEAD`
 | Trading command watchlist isolation | Done | Hyperliquid/Binance AI prompts use each account owner's watchlist while price collectors use the union |
 | Hyperliquid API ownership guard | Done | Account-level Hyperliquid config, balance, positions, manual order, wallet, agent wallet, actions summary, and upgrade-check APIs validate current user |
 | Hyperliquid account execution environment | Done | Setup/switch/client defaults, AI decision logs, Program Trader, and trading commands use account-level environment before global fallback |
+| Hyperliquid environment service owner guard | Done | Shared setup/switch/config/client/leverage/enable/disable helpers accept `owner_user_id`; Hyperliquid API routes pass current user into service calls |
 | Automated execution hard risk guard | Done | `hard_risk_service.py`; AI Trader and Program Trader reject orders exceeding hard leverage, single-trade margin, projected margin usage, optional TP/SL, or TP/SL side rules |
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
@@ -273,6 +275,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Premium account-owner smoke test in `uv run`: Bob premium did not make Alice premium for Binance quota checks or Hyperliquid builder fee, while Bob retained premium behavior.
 - Passed: Static search found no remaining `User.username != 'default'` premium checks in backend API/services.
 - Passed: Premium-related trading service syntax compile in both system Python and `uv run` backend environment.
+- Passed: Hyperliquid environment owner guard smoke test in `uv run`: cross-user setup/switch/config/environment/leverage/client/enable/disable service calls rejected before wallet/client side effects.
 - Passed: Bot config isolation smoke test in `uv run` with a test encryption key: Alice/Bob Telegram configs and notification configs did not overwrite each other.
 - Passed: Bot model/service/routes/migration syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Bot config requests switched to `authFetch`.
 - Passed: Bot webhook/session isolation smoke test in `uv run`: Alice/Bob Telegram webhook secrets differed, Alice's secret resolved only Alice's token, Alice's AI decision event created only Alice's Bot conversation/message, and push delivery used only Alice's Telegram token/chat binding.

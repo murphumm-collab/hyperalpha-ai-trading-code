@@ -7,7 +7,7 @@ Provides functions for:
 - Client factory with automatic environment detection
 """
 import logging
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from sqlalchemy.orm import Session
 
 from database.models import Account, HyperliquidPosition, HyperliquidWallet, SystemConfig
@@ -22,13 +22,28 @@ from utils.encryption import encrypt_private_key, decrypt_private_key
 logger = logging.getLogger(__name__)
 
 
+def _get_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Optional[Account]:
+    query = db.query(Account).filter(Account.id == account_id)
+    if owner_user_id is not None:
+        query = query.filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    return query.first()
+
+
 def setup_hyperliquid_account(
     db: Session,
     account_id: int,
     environment: str,
     private_key: str,
     max_leverage: int = 3,
-    default_leverage: int = 1
+    default_leverage: int = 1,
+    owner_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Setup Hyperliquid trading for an account
@@ -56,7 +71,7 @@ def setup_hyperliquid_account(
     if default_leverage < 1 or default_leverage > max_leverage:
         raise ValueError(f"default_leverage must be between 1 and {max_leverage}")
 
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
     if not account:
         raise ValueError(f"Account {account_id} not found")
 
@@ -123,15 +138,26 @@ def get_global_trading_mode(db: Session) -> str:
     return "testnet"
 
 
-def get_account_trading_environment(db: Session, account_id: int) -> str:
+def get_account_trading_environment(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> str:
     """Return the account-specific Hyperliquid execution environment."""
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
+    if owner_user_id is not None and not account:
+        raise ValueError(f"Account {account_id} not found")
     if account and account.hyperliquid_environment in ["testnet", "mainnet"]:
         return account.hyperliquid_environment
     return get_global_trading_mode(db)
 
 
-def get_leverage_settings(db: Session, account_id: int, environment: str) -> Dict[str, int]:
+def get_leverage_settings(
+    db: Session,
+    account_id: int,
+    environment: str,
+    owner_user_id: Optional[int] = None,
+) -> Dict[str, int]:
     """
     Get leverage settings for an account in a specific environment
 
@@ -159,7 +185,7 @@ def get_leverage_settings(db: Session, account_id: int, environment: str) -> Dic
     if environment not in ["testnet", "mainnet"]:
         raise ValueError(f"Invalid environment: {environment}. Must be 'testnet' or 'mainnet'")
 
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
     if not account:
         raise ValueError(f"Account {account_id} not found")
 
@@ -194,7 +220,12 @@ def get_leverage_settings(db: Session, account_id: int, environment: str) -> Dic
         }
 
 
-def get_hyperliquid_client(db: Session, account_id: int, override_environment: str = None) -> HyperliquidTradingClient:
+def get_hyperliquid_client(
+    db: Session,
+    account_id: int,
+    override_environment: str = None,
+    owner_user_id: Optional[int] = None,
+) -> HyperliquidTradingClient:
     """
     Get Hyperliquid trading client for an account
 
@@ -215,7 +246,7 @@ def get_hyperliquid_client(db: Session, account_id: int, override_environment: s
     Raises:
         ValueError: If account not configured or private key missing
     """
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
     if not account:
         raise ValueError(f"Account {account_id} not found")
 
@@ -225,7 +256,11 @@ def get_hyperliquid_client(db: Session, account_id: int, override_environment: s
             raise ValueError("override_environment must be 'testnet' or 'mainnet'")
         environment = override_environment
     else:
-        environment = get_account_trading_environment(db, account_id)
+        environment = get_account_trading_environment(
+            db,
+            account_id,
+            owner_user_id=owner_user_id,
+        )
 
     logger.info(f"Getting Hyperliquid client for account {account.name} (ID: {account_id}), environment: {environment}")
 
@@ -284,7 +319,8 @@ def switch_hyperliquid_environment(
     db: Session,
     account_id: int,
     target_environment: str,
-    confirm_switch: bool = False
+    confirm_switch: bool = False,
+    owner_user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     Switch account between testnet and mainnet
@@ -316,7 +352,7 @@ def switch_hyperliquid_environment(
     if target_environment not in ["testnet", "mainnet"]:
         raise ValueError("Target environment must be 'testnet' or 'mainnet'")
 
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
     if not account:
         raise ValueError(f"Account {account_id} not found")
 
@@ -407,7 +443,11 @@ def switch_hyperliquid_environment(
     }
 
 
-def get_account_hyperliquid_config(db: Session, account_id: int) -> Dict[str, Any]:
+def get_account_hyperliquid_config(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Get Hyperliquid configuration for an account
 
@@ -422,7 +462,7 @@ def get_account_hyperliquid_config(db: Session, account_id: int) -> Dict[str, An
     Returns:
         Configuration dict
     """
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
     if not account:
         raise ValueError(f"Account {account_id} not found")
 
@@ -449,11 +489,20 @@ def get_account_hyperliquid_config(db: Session, account_id: int) -> Dict[str, An
     # Determine enabled status: has any wallet OR old hyperliquid_enabled flag
     enabled = has_any_wallet or (account.hyperliquid_enabled == "true")
 
-    current_environment = get_account_trading_environment(db, account_id)
+    current_environment = get_account_trading_environment(
+        db,
+        account_id,
+        owner_user_id=owner_user_id,
+    )
 
     # Get leverage settings for current environment (uses unified getter)
     try:
-        leverage_settings = get_leverage_settings(db, account_id, current_environment)
+        leverage_settings = get_leverage_settings(
+            db,
+            account_id,
+            current_environment,
+            owner_user_id=owner_user_id,
+        )
         max_leverage = leverage_settings["max_leverage"]
         default_leverage = leverage_settings["default_leverage"]
     except Exception as e:
@@ -476,7 +525,11 @@ def get_account_hyperliquid_config(db: Session, account_id: int) -> Dict[str, An
     }
 
 
-def disable_hyperliquid_trading(db: Session, account_id: int) -> Dict[str, Any]:
+def disable_hyperliquid_trading(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Disable Hyperliquid trading for an account
 
@@ -490,7 +543,7 @@ def disable_hyperliquid_trading(db: Session, account_id: int) -> Dict[str, Any]:
     Returns:
         Disable result dict
     """
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
     if not account:
         raise ValueError(f"Account {account_id} not found")
 
@@ -512,7 +565,11 @@ def disable_hyperliquid_trading(db: Session, account_id: int) -> Dict[str, Any]:
     }
 
 
-def enable_hyperliquid_trading(db: Session, account_id: int) -> Dict[str, Any]:
+def enable_hyperliquid_trading(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Re-enable Hyperliquid trading for an account
 
@@ -526,7 +583,7 @@ def enable_hyperliquid_trading(db: Session, account_id: int) -> Dict[str, Any]:
     Raises:
         ValueError: If account has no environment or private keys configured
     """
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = _get_account(db, account_id, owner_user_id=owner_user_id)
     if not account:
         raise ValueError(f"Account {account_id} not found")
 

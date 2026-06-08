@@ -173,7 +173,8 @@ def setup_account(
             environment=request.environment,
             private_key=request.private_key,
             max_leverage=request.max_leverage,
-            default_leverage=request.default_leverage
+            default_leverage=request.default_leverage,
+            owner_user_id=current_user.id,
         )
         return result
     except ValueError as e:
@@ -207,7 +208,8 @@ def switch_environment(
             db=db,
             account_id=account_id,
             target_environment=request.target_environment,
-            confirm_switch=request.confirm_switch
+            confirm_switch=request.confirm_switch,
+            owner_user_id=current_user.id,
         )
         return result
     except ValueError as e:
@@ -234,7 +236,11 @@ def get_config(
     """
     try:
         _ensure_account_owner(db, account_id, current_user.id)
-        config = get_account_hyperliquid_config(db, account_id)
+        config = get_account_hyperliquid_config(
+            db,
+            account_id,
+            owner_user_id=current_user.id,
+        )
         return config
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -271,7 +277,11 @@ def get_balance(
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_account_trading_environment
-            environment = get_account_trading_environment(db, account_id)
+            environment = get_account_trading_environment(
+                db,
+                account_id,
+                owner_user_id=current_user.id,
+            )
 
         if not force_refresh:
             cached_entry = get_cached_account_state(account_id, environment)
@@ -281,7 +291,12 @@ def get_balance(
                 payload["cached_at"] = _ts_to_iso(cached_entry["timestamp"])
                 return payload
 
-        client = get_hyperliquid_client(db, account_id, override_environment=environment)
+        client = get_hyperliquid_client(
+            db,
+            account_id,
+            override_environment=environment,
+            owner_user_id=current_user.id,
+        )
         balance = client.get_account_state(db)
         balance["source"] = "live"
         ts_ms = balance.get("timestamp")
@@ -333,7 +348,11 @@ def get_positions(
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_account_trading_environment
-            environment = get_account_trading_environment(db, account_id)
+            environment = get_account_trading_environment(
+                db,
+                account_id,
+                owner_user_id=current_user.id,
+            )
 
         if not force_refresh:
             cached_entry = get_cached_positions(account_id, environment)
@@ -347,7 +366,12 @@ def get_positions(
                     'cached_at': _ts_to_iso(cached_entry["timestamp"]),
                 }
 
-        client = get_hyperliquid_client(db, account_id, override_environment=environment)
+        client = get_hyperliquid_client(
+            db,
+            account_id,
+            override_environment=environment,
+            owner_user_id=current_user.id,
+        )
         positions = client.get_positions(db)
         return {
             'account_id': account_id,
@@ -387,16 +411,34 @@ def place_manual_order(
     """
     try:
         _ensure_account_owner(db, account_id, current_user.id)
-        client = get_hyperliquid_client(db, account_id, override_environment=request.environment)
+        client = get_hyperliquid_client(
+            db,
+            account_id,
+            override_environment=request.environment,
+            owner_user_id=current_user.id,
+        )
 
         # Validate leverage against wallet limits (uses unified leverage getter)
         from services.hyperliquid_environment import get_account_trading_environment, get_leverage_settings
 
         # Determine actual environment being used
-        actual_environment = request.environment if request.environment else get_account_trading_environment(db, account_id)
+        actual_environment = (
+            request.environment
+            if request.environment
+            else get_account_trading_environment(
+                db,
+                account_id,
+                owner_user_id=current_user.id,
+            )
+        )
 
         # Get leverage settings from wallet (or Account table fallback)
-        leverage_settings = get_leverage_settings(db, account_id, actual_environment)
+        leverage_settings = get_leverage_settings(
+            db,
+            account_id,
+            actual_environment,
+            owner_user_id=current_user.id,
+        )
         max_leverage = leverage_settings["max_leverage"]
 
         if request.leverage > max_leverage:
@@ -445,7 +487,11 @@ def disable_trading(
     """
     try:
         _ensure_account_owner(db, account_id, current_user.id)
-        result = disable_hyperliquid_trading(db, account_id)
+        result = disable_hyperliquid_trading(
+            db,
+            account_id,
+            owner_user_id=current_user.id,
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -467,7 +513,11 @@ def enable_trading(
     """
     try:
         _ensure_account_owner(db, account_id, current_user.id)
-        result = enable_hyperliquid_trading(db, account_id)
+        result = enable_hyperliquid_trading(
+            db,
+            account_id,
+            owner_user_id=current_user.id,
+        )
         return result
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -495,7 +545,11 @@ def test_connection(
     """
     try:
         _ensure_account_owner(db, account_id, current_user.id)
-        client = get_hyperliquid_client(db, account_id)
+        client = get_hyperliquid_client(
+            db,
+            account_id,
+            owner_user_id=current_user.id,
+        )
         result = client.test_connection(db)
         return result
     except ValueError as e:
@@ -715,10 +769,19 @@ def get_account_rate_limit(
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_account_trading_environment
-            environment = get_account_trading_environment(db, account_id)
+            environment = get_account_trading_environment(
+                db,
+                account_id,
+                owner_user_id=current_user.id,
+            )
 
         # Get Hyperliquid client for this account with environment override
-        client = get_hyperliquid_client(db, account_id, override_environment=environment)
+        client = get_hyperliquid_client(
+            db,
+            account_id,
+            override_environment=environment,
+            owner_user_id=current_user.id,
+        )
 
         if not client:
             raise HTTPException(
@@ -775,10 +838,19 @@ def get_account_trading_stats(
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_account_trading_environment
-            environment = get_account_trading_environment(db, account_id)
+            environment = get_account_trading_environment(
+                db,
+                account_id,
+                owner_user_id=current_user.id,
+            )
 
         # Get Hyperliquid client for this account with environment override
-        client = get_hyperliquid_client(db, account_id, override_environment=environment)
+        client = get_hyperliquid_client(
+            db,
+            account_id,
+            override_environment=environment,
+            owner_user_id=current_user.id,
+        )
 
         if not client:
             raise HTTPException(
@@ -898,7 +970,12 @@ def get_account_wallet(
             # Try to get balance for this specific wallet
             try:
                 # Use override_environment to get client for this wallet's environment
-                client = get_hyperliquid_client(db, account_id, override_environment=wallet.environment)
+                client = get_hyperliquid_client(
+                    db,
+                    account_id,
+                    override_environment=wallet.environment,
+                    owner_user_id=current_user.id,
+                )
                 account_state = client.get_account_state(db)
                 wallet_data['balance'] = {
                     'totalEquity': float(account_state.get('total_equity', 0)),
@@ -915,7 +992,11 @@ def get_account_wallet(
                 mainnet_wallet = wallet_data
 
         # Keep response key for frontend compatibility; value is account-scoped.
-        trading_mode = get_account_trading_environment(db, account_id)
+        trading_mode = get_account_trading_environment(
+            db,
+            account_id,
+            owner_user_id=current_user.id,
+        )
 
         return {
             'success': True,
@@ -1029,7 +1110,12 @@ def configure_account_wallet(
                         print(f"[BUILDER_AUTH] Not authorized (max_fee={max_fee} < required={HYPERLIQUID_BUILDER_CONFIG.builder_fee}), triggering authorization")
 
                         # Execute authorization
-                        client = get_hyperliquid_client(db, account_id, override_environment="mainnet")
+                        client = get_hyperliquid_client(
+                            db,
+                            account_id,
+                            override_environment="mainnet",
+                            owner_user_id=current_user.id,
+                        )
                         fee_percentage = f"{HYPERLIQUID_BUILDER_CONFIG.builder_fee / 10 / 100}%"
                         result = client.sdk_exchange.approve_builder_fee(
                             HYPERLIQUID_BUILDER_CONFIG.builder_address,
@@ -1101,7 +1187,12 @@ def configure_account_wallet(
                         print(f"[BUILDER_AUTH] Not authorized (max_fee={max_fee} < required={HYPERLIQUID_BUILDER_CONFIG.builder_fee}), triggering authorization")
 
                         # Execute authorization
-                        client = get_hyperliquid_client(db, account_id, override_environment="mainnet")
+                        client = get_hyperliquid_client(
+                            db,
+                            account_id,
+                            override_environment="mainnet",
+                            owner_user_id=current_user.id,
+                        )
                         fee_percentage = f"{HYPERLIQUID_BUILDER_CONFIG.builder_fee / 10 / 100}%"
                         result = client.sdk_exchange.approve_builder_fee(
                             HYPERLIQUID_BUILDER_CONFIG.builder_address,
@@ -1219,10 +1310,19 @@ def test_wallet_connection(
             raise HTTPException(status_code=400, detail="environment must be 'testnet' or 'mainnet'")
         if not env:
             from services.hyperliquid_environment import get_account_trading_environment
-            env = get_account_trading_environment(db, account_id)
+            env = get_account_trading_environment(
+                db,
+                account_id,
+                owner_user_id=current_user.id,
+            )
 
         try:
-            client = get_hyperliquid_client(db, account_id, override_environment=env)
+            client = get_hyperliquid_client(
+                db,
+                account_id,
+                override_environment=env,
+                owner_user_id=current_user.id,
+            )
             account_state = client.get_account_state(db)
 
             return {
