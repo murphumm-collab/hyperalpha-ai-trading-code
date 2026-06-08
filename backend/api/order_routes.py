@@ -14,6 +14,7 @@ from database.models import User, Order, Account
 from schemas.order import OrderCreate, OrderOut
 from services.order_matching import create_order, check_and_execute_order, get_pending_orders, cancel_order, process_all_pending_orders
 from repositories.user_repo import verify_user_password, user_has_password, set_user_password, verify_auth_session
+from api.auth_utils import get_current_user_dependency
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +57,28 @@ class OrderProcessingResult(BaseModel):
     message: str
 
 
+def _ensure_order_owner(db: Session, order_id: int, user_id: int) -> Order:
+    order = (
+        db.query(Order)
+        .join(Account, Order.account_id == Account.id)
+        .filter(
+            Order.id == order_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        )
+        .first()
+    )
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
+    return order
+
+
 @router.post("/create", response_model=OrderOut)
-def create_new_order(request: OrderCreateRequest, db: Session = Depends(get_db)):
+def create_new_order(
+    request: OrderCreateRequest,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Create a new order
     
@@ -69,10 +90,10 @@ def create_new_order(request: OrderCreateRequest, db: Session = Depends(get_db))
         Created order information
     """
     try:
-        # Get user
-        user = db.query(User).filter(User.id == request.user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="User not found")
+        if request.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Cannot create orders for another user")
+
+        user = current_user
         
         # Authentication: supports either session_token or username+password
         if request.session_token:
@@ -130,6 +151,8 @@ def create_new_order(request: OrderCreateRequest, db: Session = Depends(get_db))
         logger.info(f"User {user.username} created order: {order.order_no}")
         return order
         
+    except HTTPException:
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -139,27 +162,51 @@ def create_new_order(request: OrderCreateRequest, db: Session = Depends(get_db))
 
 
 @router.get("/pending", response_model=List[OrderOut])
-def get_user_pending_orders(user_id: Optional[int] = None, db: Session = Depends(get_db)):
+def get_user_pending_orders(
+    user_id: Optional[int] = None,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Get pending orders
     
     Args:
-        user_id: User ID, if None returns pending orders for all users
+        user_id: Optional current user ID filter for backwards compatibility
         db: Database session
         
     Returns:
         List of pending orders
     """
     try:
-        orders = get_pending_orders(db, user_id)
+        if user_id is not None and user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Cannot view another user's orders")
+
+        orders = (
+            db.query(Order)
+            .join(Account, Order.account_id == Account.id)
+            .filter(
+                Account.user_id == current_user.id,
+                Account.is_deleted != True,
+                Order.status == "PENDING",
+            )
+            .order_by(Order.created_at)
+            .all()
+        )
         return orders
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get pending orders: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get pending orders: {str(e)}")
 
 
 @router.get("/user/{user_id}", response_model=List[OrderOut])
-def get_user_orders(user_id: int, status: Optional[str] = None, db: Session = Depends(get_db)):
+def get_user_orders(
+    user_id: int,
+    status: Optional[str] = None,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Get all orders for a user
     
@@ -172,7 +219,17 @@ def get_user_orders(user_id: int, status: Optional[str] = None, db: Session = De
         List of user's orders
     """
     try:
-        query = db.query(Order).filter(Order.user_id == user_id)
+        if user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Cannot view another user's orders")
+
+        query = (
+            db.query(Order)
+            .join(Account, Order.account_id == Account.id)
+            .filter(
+                Account.user_id == current_user.id,
+                Account.is_deleted != True,
+            )
+        )
         
         if status:
             query = query.filter(Order.status == status)
@@ -180,13 +237,19 @@ def get_user_orders(user_id: int, status: Optional[str] = None, db: Session = De
         orders = query.order_by(Order.created_at.desc()).all()
         return orders
         
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get user orders: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get user orders: {str(e)}")
 
 
 @router.post("/execute/{order_id}", response_model=OrderExecutionResult)
-def execute_order_manually(order_id: int, db: Session = Depends(get_db)):
+def execute_order_manually(
+    order_id: int,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Manually execute a specific order (check execution conditions)
     
@@ -198,9 +261,7 @@ def execute_order_manually(order_id: int, db: Session = Depends(get_db)):
         Order execution result
     """
     try:
-        order = db.query(Order).filter(Order.id == order_id).first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
+        order = _ensure_order_owner(db, order_id, current_user.id)
         
         if order.status != "PENDING":
             return OrderExecutionResult(
@@ -225,13 +286,20 @@ def execute_order_manually(order_id: int, db: Session = Depends(get_db)):
                 message="Order does not meet execution conditions"
             )
             
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to execute order: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to execute order: {str(e)}")
 
 
 @router.post("/cancel/{order_id}")
-def cancel_user_order(order_id: int, reason: str = "User cancelled", db: Session = Depends(get_db)):
+def cancel_user_order(
+    order_id: int,
+    reason: str = "User cancelled",
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Cancel an order
     
@@ -244,9 +312,7 @@ def cancel_user_order(order_id: int, reason: str = "User cancelled", db: Session
         Cancellation result
     """
     try:
-        order = db.query(Order).filter(Order.id == order_id).first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
+        order = _ensure_order_owner(db, order_id, current_user.id)
         
         if order.status != "PENDING":
             raise HTTPException(status_code=400, detail=f"Order status is {order.status}, cannot be cancelled")
@@ -266,7 +332,10 @@ def cancel_user_order(order_id: int, reason: str = "User cancelled", db: Session
 
 
 @router.post("/process-all", response_model=OrderProcessingResult)
-def process_all_orders(db: Session = Depends(get_db)):
+def process_all_orders(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Process all pending orders
     
@@ -277,7 +346,22 @@ def process_all_orders(db: Session = Depends(get_db)):
         Processing statistics
     """
     try:
-        executed_count, total_checked = process_all_pending_orders(db)
+        pending_orders = (
+            db.query(Order)
+            .join(Account, Order.account_id == Account.id)
+            .filter(
+                Account.user_id == current_user.id,
+                Account.is_deleted != True,
+                Order.status == "PENDING",
+            )
+            .order_by(Order.created_at)
+            .all()
+        )
+        executed_count = 0
+        for order in pending_orders:
+            if check_and_execute_order(db, order):
+                executed_count += 1
+        total_checked = len(pending_orders)
         
         return OrderProcessingResult(
             executed_count=executed_count,
@@ -291,7 +375,11 @@ def process_all_orders(db: Session = Depends(get_db)):
 
 
 @router.get("/order/{order_id}", response_model=OrderOut)
-def get_order_details(order_id: int, db: Session = Depends(get_db)):
+def get_order_details(
+    order_id: int,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Get order details
     
@@ -303,9 +391,7 @@ def get_order_details(order_id: int, db: Session = Depends(get_db)):
         Order details
     """
     try:
-        order = db.query(Order).filter(Order.id == order_id).first()
-        if not order:
-            raise HTTPException(status_code=404, detail="Order not found")
+        order = _ensure_order_owner(db, order_id, current_user.id)
         
         return order
         
@@ -317,7 +403,10 @@ def get_order_details(order_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/health")
-def orders_health_check(db: Session = Depends(get_db)):
+def orders_health_check(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """
     Order service health check
     
@@ -326,10 +415,18 @@ def orders_health_check(db: Session = Depends(get_db)):
     """
     try:
         # Count orders by status
-        total_orders = db.query(Order).count()
-        pending_orders = db.query(Order).filter(Order.status == "PENDING").count()
-        filled_orders = db.query(Order).filter(Order.status == "FILLED").count()
-        cancelled_orders = db.query(Order).filter(Order.status == "CANCELLED").count()
+        base_query = (
+            db.query(Order)
+            .join(Account, Order.account_id == Account.id)
+            .filter(
+                Account.user_id == current_user.id,
+                Account.is_deleted != True,
+            )
+        )
+        total_orders = base_query.count()
+        pending_orders = base_query.filter(Order.status == "PENDING").count()
+        filled_orders = base_query.filter(Order.status == "FILLED").count()
+        cancelled_orders = base_query.filter(Order.status == "CANCELLED").count()
         
         import time
         return {

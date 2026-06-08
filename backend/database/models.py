@@ -154,6 +154,10 @@ class Order(Base):
     account = relationship("Account", back_populates="orders")
     trades = relationship("Trade", back_populates="order")
 
+    @property
+    def user_id(self):
+        return self.account.user_id if self.account else None
+
 
 class Trade(Base):
     __tablename__ = "trades"
