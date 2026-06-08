@@ -1419,7 +1419,8 @@ def preview_run_binding(
             trading_client = get_hyperliquid_client(
                 db,
                 binding.account_id,
-                override_environment=wallet.environment
+                override_environment=wallet.environment,
+                owner_user_id=current_user.id,
             )
             environment = wallet.environment
 

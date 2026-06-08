@@ -161,7 +161,12 @@ class HyperliquidSnapshotService:
         try:
             # Use existing API to get Hyperliquid client and account state
             # Pass environment explicitly to ensure correct wallet is used
-            client = get_hyperliquid_client(main_db, account.id, override_environment=environment)
+            client = get_hyperliquid_client(
+                main_db,
+                account.id,
+                override_environment=environment,
+                owner_user_id=account.user_id,
+            )
             account_state = client.get_account_state(main_db)
             try:
                 # Fetch positions to refresh caches for UI consumers

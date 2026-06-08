@@ -539,7 +539,12 @@ def _generate_single_preview(
                 hyperliquid_state = None
             else:
                 try:
-                    client = get_hyperliquid_client(db, account.id, override_environment=hyperliquid_environment)
+                    client = get_hyperliquid_client(
+                        db,
+                        account.id,
+                        override_environment=hyperliquid_environment,
+                        owner_user_id=account.user_id,
+                    )
                     account_state = client.get_account_state(db)
                     positions = client.get_positions(db, include_timing=True)
 

@@ -556,7 +556,12 @@ async def _send_hyperliquid_snapshot(db: Session, account_id: int, environment: 
 
     if account_state is None or positions_data is None:
         try:
-            client = get_hyperliquid_client(db, account_id, override_environment=environment)
+            client = get_hyperliquid_client(
+                db,
+                account_id,
+                override_environment=environment,
+                owner_user_id=account.user_id,
+            )
         except Exception as e:
             logging.warning(f"Failed to initialize Hyperliquid client for account {account.name} ({environment}): {e}")
             # Don't send error to frontend, just log and skip
@@ -578,7 +583,11 @@ async def _send_hyperliquid_snapshot(db: Session, account_id: int, environment: 
         # Cache hit but wallet missing? fall back to client for metadata only.
         if wallet_address is None:
             try:
-                client = get_hyperliquid_client(db, account_id)
+                client = get_hyperliquid_client(
+                    db,
+                    account_id,
+                    owner_user_id=account.user_id,
+                )
                 if client.environment == environment:
                     wallet_address = client.wallet_address
             except Exception:

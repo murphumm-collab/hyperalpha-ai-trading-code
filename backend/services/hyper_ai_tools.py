@@ -1047,7 +1047,12 @@ def execute_get_wallet_status(
             for wallet, account in hl_query.all():
                 try:
                     # Use get_hyperliquid_client to support API Wallet mode
-                    client = get_hyperliquid_client(db, account.id, override_environment=wallet.environment)
+                    client = get_hyperliquid_client(
+                        db,
+                        account.id,
+                        override_environment=wallet.environment,
+                        owner_user_id=user_id,
+                    )
                     account_state = client.get_account_state(db)
 
                     wallet_info = {

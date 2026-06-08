@@ -224,7 +224,11 @@ def list_all_accounts(
                     else:
                         from services.hyperliquid_environment import get_hyperliquid_client
 
-                        client = get_hyperliquid_client(db, account.id)
+                        client = get_hyperliquid_client(
+                            db,
+                            account.id,
+                            owner_user_id=account.user_id,
+                        )
                         account_state = client.get_account_state(db)
 
                     current_cash = float(account_state.get('available_balance', current_cash))
@@ -1357,7 +1361,12 @@ def approve_builder_fee(
             print(f"[BUILDER_AUTH] Using new architecture mainnet wallet for account {account_id}, wallet_address={mainnet_wallet.wallet_address}")
 
         # Get Hyperliquid client with mainnet environment (regardless of current trading mode)
-        client = get_hyperliquid_client(db, account_id, override_environment="mainnet")
+        client = get_hyperliquid_client(
+            db,
+            account_id,
+            override_environment="mainnet",
+            owner_user_id=current_user.id,
+        )
         print(f"[BUILDER_AUTH] Got Hyperliquid client for account {account_id}")
 
         # Calculate fee percentage for display (e.g., 30 -> "0.03%")

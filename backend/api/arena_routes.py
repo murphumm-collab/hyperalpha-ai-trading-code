@@ -164,7 +164,10 @@ def _get_hyperliquid_positions(
             if needs_state or needs_positions or needs_wallet:
                 # Use get_hyperliquid_client to support API Wallet mode
                 client = get_hyperliquid_client(
-                    db, account.id, override_environment=environment
+                    db,
+                    account.id,
+                    override_environment=environment,
+                    owner_user_id=account.user_id,
                 )
 
                 if needs_state:
@@ -1600,7 +1603,12 @@ def update_pnl_data(
             all_hl_fills_by_env = defaultdict(list)
             for (account_id, environment), wallet in hl_wallet_configs.items():
                 try:
-                    client = get_hyperliquid_client(db, account_id, override_environment=environment)
+                    client = get_hyperliquid_client(
+                        db,
+                        account_id,
+                        override_environment=environment,
+                        owner_user_id=current_user.id,
+                    )
                     fills = client._get_user_fills(db)
                     all_hl_fills_by_env[environment].extend(fills)
                     logger.info(f"[Hyperliquid] Fetched {len(fills)} fills for account {account_id} on {environment}")
@@ -1844,7 +1852,12 @@ def _process_fills_for_environment(
         if key not in wallet_configs:
             return None
         try:
-            client = get_hyperliquid_client(db, account_id, override_environment=environment)
+            client = get_hyperliquid_client(
+                db,
+                account_id,
+                override_environment=environment,
+                owner_user_id=current_user.id,
+            )
             return client.get_order_trigger_time(db, int(order_id))
         except Exception as e:
             logger.warning(f"Failed to get trigger time for order {order_id}: {e}")
