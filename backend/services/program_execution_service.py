@@ -135,9 +135,16 @@ class ProgramExecutionService:
             bindings_query = db.query(AccountProgramBinding).join(
                 Account,
                 AccountProgramBinding.account_id == Account.id,
+            ).join(
+                TradingProgram,
+                AccountProgramBinding.program_id == TradingProgram.id,
             ).filter(
                 AccountProgramBinding.is_active == True,
                 AccountProgramBinding.is_deleted != True,
+                Account.is_active == "true",
+                Account.is_deleted != True,
+                TradingProgram.user_id == Account.user_id,
+                TradingProgram.is_deleted != True,
             )
             if pool_user_id is not None:
                 bindings_query = bindings_query.filter(Account.user_id == pool_user_id)
@@ -210,12 +217,17 @@ class ProgramExecutionService:
             bindings = db.query(AccountProgramBinding).join(
                 Account,
                 AccountProgramBinding.account_id == Account.id,
+            ).join(
+                TradingProgram,
+                AccountProgramBinding.program_id == TradingProgram.id,
             ).filter(
                 AccountProgramBinding.is_active == True,
                 AccountProgramBinding.scheduled_trigger_enabled == True,
                 AccountProgramBinding.is_deleted != True,
                 Account.is_active == "true",
                 Account.is_deleted != True,
+                TradingProgram.user_id == Account.user_id,
+                TradingProgram.is_deleted != True,
             ).all()
 
             for binding in bindings:
@@ -269,12 +281,17 @@ class ProgramExecutionService:
             binding = db.query(AccountProgramBinding).join(
                 Account,
                 AccountProgramBinding.account_id == Account.id,
+            ).join(
+                TradingProgram,
+                AccountProgramBinding.program_id == TradingProgram.id,
             ).filter(
                 AccountProgramBinding.id == binding_id,
                 AccountProgramBinding.is_active == True,
                 AccountProgramBinding.is_deleted != True,
                 Account.is_active == "true",
                 Account.is_deleted != True,
+                TradingProgram.user_id == Account.user_id,
+                TradingProgram.is_deleted != True,
             ).first()
 
             if not binding:

@@ -60,7 +60,7 @@ Local checkpoint: current branch `HEAD`
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
 - Hyperliquid environment shared service functions accept owner guards for setup, switching, config, client, leverage, enable, and disable operations.
 - Program Trader execution passes account owner into Hyperliquid environment, client, leverage, and wallet environment lookups.
-- Program Trader scheduled execution skips inactive/deleted account bindings, and order-result log updates must match the current binding/account.
+- Program Trader signal and scheduled execution skip inactive/deleted accounts, inactive/deleted bindings, deleted programs, and cross-owner account/program bindings; order-result log updates must match the current binding/account.
 - AI Trader decision and trading command paths pass account owner into Hyperliquid environment, client, and leverage lookups.
 - Account, Arena, Prompt, WebSocket, Hyper AI, Program preview, and snapshot paths pass owners into Hyperliquid client creation.
 - Strategy manager loads non-deleted account owners and passes request owner into scheduled/signal AI Trader exchange execution.
@@ -184,7 +184,7 @@ Local checkpoint: current branch `HEAD`
 | Hyperliquid account execution environment | Done | Setup/switch/client defaults, AI decision logs, Program Trader, and trading commands use account-level environment before global fallback |
 | Hyperliquid environment service owner guard | Done | Shared setup/switch/config/client/leverage/enable/disable helpers accept `owner_user_id`; Hyperliquid API routes pass current user into service calls |
 | Program Trader Hyperliquid owner propagation | Done | Program execution environment, client, leverage, and wallet lookups pass the binding account owner into Hyperliquid service helpers |
-| Program Trader scheduled/log guard | Done | Scheduled binding cache and trigger reload join active, non-deleted accounts; order-result updates require matching execution `log_id`, `binding_id`, and `account_id` |
+| Program Trader scheduled/signal/log guard | Done | Signal-trigger and scheduled binding reloads require active, non-deleted accounts/bindings and current-owner programs; order-result updates require matching execution `log_id`, `binding_id`, and `account_id` |
 | AI Trader Hyperliquid owner propagation | Done | AI decision prompt/context and trading command execution pass account owner into Hyperliquid environment, client, and leverage helpers |
 | Remaining Hyperliquid client owner propagation | Done | Account, Arena, Prompt, WebSocket, Hyper AI, Program preview, and snapshot callers pass account/current user into `get_hyperliquid_client` |
 | Strategy manager owner propagation | Done | Strategy refresh skips deleted accounts, stores account owner in `StrategyState`, and scheduled/signal triggers pass owner into Hyperliquid/Binance AI Trader execution |
@@ -341,6 +341,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyperliquid environment owner guard smoke test in `uv run`: cross-user setup/switch/config/environment/leverage/client/enable/disable service calls rejected before wallet/client side effects.
 - Passed: Program execution owner propagation smoke test in `uv run`: Program Trader wallet environment lookup passes the binding account owner into Hyperliquid environment resolution.
 - Passed: Program Trader scheduled/log guard smoke test in `uv run`: scheduled cache excludes inactive/deleted account bindings, scheduled trigger reload refuses deleted-account bindings, and order-result updates cannot mutate logs from another binding/account.
+- Passed: Program Trader signal/scheduled binding owner smoke test in `uv run`: signal-trigger lookup, scheduled cache refresh, and scheduled reload execute only active Alice-account/Alice-program bindings while rejecting cross-owner, inactive/deleted account, deleted-program, inactive-binding, and deleted-binding rows.
 - Passed: AI Trader Hyperliquid owner propagation syntax/static check: `ai_decision_service.py` and `trading_commands.py` compile, and remaining Hyperliquid helper calls pass `owner_user_id=account.user_id`.
 - Passed: Remaining Hyperliquid client owner propagation syntax/static check: account, arena, prompt, WebSocket, Program preview, Hyper AI, and snapshot modules compile, with client calls passing account/current user.
 - Passed: Strategy manager owner propagation smoke test in `uv run`: strategy refresh loaded only active owner accounts and scheduled/signal execution passed `request_user_id` into Hyperliquid/Binance AI Trader triggers.
