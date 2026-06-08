@@ -47,6 +47,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped custom factor library CRUD and Hyper AI `save_factor` tool ownership.
 - User API list/login hardening for To C identity isolation.
 - User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle.
+- User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
 
@@ -100,6 +101,7 @@ Local checkpoint: current branch `HEAD`
 | Custom factor ownership | Done | CustomFactor `user_id` migration/model/API and Hyper AI `save_factor` store/list/edit/delete only the current user's custom factors while built-in expression factors remain global |
 | User API hardening | Done | Legacy `/api/users/login` validates `password_hash`; `/api/users/` returns only the current request user |
 | Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; import reads original logs only from the task account |
+| Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts and reject cross-user `account_id` filters |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -168,7 +170,11 @@ Local checkpoint: current branch `HEAD`
 - Passed: User route/repository syntax compile in both system Python and `uv run` backend environment.
 - Passed: Prompt Backtest owner isolation smoke test in `uv run`: Alice saw only her task, Bob received 404 for Alice task/item, and dirty task items could not import Bob's original decision log reason.
 - Passed: Prompt Backtest route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Analytics owner isolation smoke test in `uv run`: Alice summary/account/trade/replay reads excluded Bob's trade PnL/order, Bob replaying Alice trade returned 404, and Bob filtering Alice account returned 404.
+- Passed: Program analytics owner isolation smoke test in `uv run`: Alice program summary/by-program excluded Bob's ProgramExecutionLog, and Bob filtering Alice account returned 404.
+- Passed: Analytics route syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
+- Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
 ## Known Not-Accepted Items

@@ -32,6 +32,17 @@ def get_db():
         db.close()
 
 
+def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
 # ============== Pydantic Models ==============
 
 class MetricsResponse(BaseModel):
@@ -179,6 +190,7 @@ def build_base_query(
     environment: Optional[str],
     account_id: Optional[int],
     exchange: Optional[str] = None,
+    user_id: Optional[int] = None,
 ):
     """Build base query with common filters.
 
@@ -186,7 +198,14 @@ def build_base_query(
     This ensures statistics only count trades that have settled PnL,
     excluding opening trades (pnl=0) and unsync trades (pnl=NULL).
     """
-    query = db.query(AIDecisionLog).filter(
+    query = db.query(AIDecisionLog)
+    if user_id is not None:
+        query = query.join(Account, AIDecisionLog.account_id == Account.id).filter(
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        )
+
+    query = query.filter(
         AIDecisionLog.operation.in_(["buy", "sell", "close"]),
         AIDecisionLog.executed == "true",
         AIDecisionLog.realized_pnl.isnot(None),  # Exclude unsync trades
@@ -221,11 +240,15 @@ def get_analytics_summary(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get overall analytics summary (AI Decision + Program Decision combined)."""
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
     # === AI Decision data ===
-    ai_query = build_base_query(db, start_date, end_date, environment, account_id, exchange)
+    ai_query = build_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     decisions = ai_query.all()
     fee_map = get_fees_for_decisions(decisions)
 
@@ -260,7 +283,7 @@ def get_analytics_summary(
             ai_with_pnl += 1
 
     # === Program Decision data ===
-    prog_query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange)
+    prog_query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     prog_logs = prog_query.all()
     prog_fee_map = get_fees_for_program_logs(prog_logs)
 
@@ -346,10 +369,14 @@ def get_analytics_by_strategy(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get analytics grouped by strategy (prompt template)."""
-    query = build_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     decisions = query.all()
 
     # Get fees for all decisions
@@ -378,7 +405,11 @@ def get_analytics_by_strategy(
     if strategy_ids:
         templates = db.query(PromptTemplate).filter(
             PromptTemplate.id.in_(strategy_ids),
-            PromptTemplate.is_deleted == "false"
+            PromptTemplate.is_deleted == "false",
+            or_(
+                PromptTemplate.user_id == current_user.id,
+                PromptTemplate.is_system == "true",
+            ),
         ).all()
         strategy_names = {t.id: t.name for t in templates}
 
@@ -422,10 +453,11 @@ def get_analytics_by_account(
     end_date: Optional[date] = Query(None),
     environment: Optional[str] = Query("all"),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get analytics grouped by account."""
-    query = build_base_query(db, start_date, end_date, environment, None, exchange)
+    query = build_base_query(db, start_date, end_date, environment, None, exchange, current_user.id)
     decisions = query.all()
 
     # Get fees for all decisions
@@ -450,6 +482,7 @@ def get_analytics_by_account(
     if account_ids:
         accounts = db.query(Account).filter(
             Account.id.in_(account_ids),
+            Account.user_id == current_user.id,
             Account.is_deleted != True
         ).all()
         account_info = {
@@ -501,10 +534,14 @@ def get_analytics_by_symbol(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get analytics grouped by trading symbol."""
-    query = build_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     decisions = query.all()
 
     # Get fees for all decisions
@@ -563,10 +600,14 @@ def get_analytics_by_operation(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get analytics grouped by operation type (buy/sell/close)."""
-    query = build_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     decisions = query.all()
 
     # Get fees for all decisions
@@ -613,10 +654,14 @@ def get_analytics_by_trigger_type(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get analytics grouped by trigger type (signal/scheduled/unknown)."""
-    query = build_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     decisions = query.all()
 
     # Get fees for all decisions
@@ -655,12 +700,16 @@ def get_analytics_by_factor(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get analytics grouped by factor signal triggers."""
     from database.models import SignalTriggerLog
 
-    query = build_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     decisions = query.all()
     fee_map = get_fees_for_decisions(decisions)
 
@@ -931,6 +980,7 @@ def get_entry_type(decision: AIDecisionLog, db: Session) -> str:
     if decision.operation == 'close' and decision.symbol and decision.wallet_address:
         # Find the most recent buy/sell for the same symbol before this close
         opening_trade = db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == decision.account_id,
             AIDecisionLog.symbol == decision.symbol,
             AIDecisionLog.wallet_address == decision.wallet_address,
             AIDecisionLog.operation.in_(['buy', 'sell']),
@@ -955,6 +1005,7 @@ def get_entry_decision(decision: AIDecisionLog, db: Session) -> Optional[AIDecis
     # For close operation, find the corresponding opening trade
     if decision.operation == 'close' and decision.symbol and decision.wallet_address:
         return db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == decision.account_id,
             AIDecisionLog.symbol == decision.symbol,
             AIDecisionLog.wallet_address == decision.wallet_address,
             AIDecisionLog.operation.in_(['buy', 'sell']),
@@ -1027,11 +1078,14 @@ def get_trade_details(
     tag_filter: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
     offset: int = Query(0),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get trade details with rule-based tags for micro-analysis.
     Combines both AIDecisionLog and ProgramExecutionLog records.
     """
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
 
     # === Helper: apply common filters ===
     def _apply_filters_ai(q):
@@ -1067,7 +1121,11 @@ def get_trade_details(
         return q
 
     # === Query AI decisions ===
-    ai_query = db.query(AIDecisionLog).filter(
+    ai_query = db.query(AIDecisionLog).join(
+        Account, AIDecisionLog.account_id == Account.id
+    ).filter(
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
         AIDecisionLog.realized_pnl.isnot(None),
         AIDecisionLog.realized_pnl != 0,
         AIDecisionLog.hyperliquid_order_id.isnot(None),
@@ -1076,7 +1134,11 @@ def get_trade_details(
     ai_decisions = ai_query.order_by(AIDecisionLog.decision_time.desc()).all()
 
     # === Query Program logs ===
-    prog_query = db.query(ProgramExecutionLog).filter(
+    prog_query = db.query(ProgramExecutionLog).join(
+        Account, ProgramExecutionLog.account_id == Account.id
+    ).filter(
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
         ProgramExecutionLog.success == True,
         ProgramExecutionLog.decision_action.in_(["buy", "sell", "close"]),
         ProgramExecutionLog.realized_pnl.isnot(None),
@@ -1167,6 +1229,7 @@ def get_trade_details(
             entry_type = action.upper()
         elif action == "close" and p.decision_symbol and p.wallet_address:
             opening = db.query(ProgramExecutionLog).filter(
+                ProgramExecutionLog.account_id == p.account_id,
                 ProgramExecutionLog.decision_symbol == p.decision_symbol,
                 ProgramExecutionLog.wallet_address == p.wallet_address,
                 ProgramExecutionLog.decision_action.in_(["buy", "sell"]),
@@ -1203,6 +1266,7 @@ def get_trade_details(
             entry_time = p.created_at.isoformat() if p.created_at else None
         elif action == "close" and p.decision_symbol and p.wallet_address:
             opening = db.query(ProgramExecutionLog).filter(
+                ProgramExecutionLog.account_id == p.account_id,
                 ProgramExecutionLog.decision_symbol == p.decision_symbol,
                 ProgramExecutionLog.wallet_address == p.wallet_address,
                 ProgramExecutionLog.decision_action.in_(["buy", "sell"]),
@@ -1268,11 +1332,18 @@ def get_trade_details(
 @router.get("/trades/{trade_id}/replay")
 def get_trade_replay(
     trade_id: int,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get trade replay data including decision chain and trade details."""
     # Get the main trade record
-    trade = db.query(AIDecisionLog).filter(AIDecisionLog.id == trade_id).first()
+    trade = db.query(AIDecisionLog).join(
+        Account, AIDecisionLog.account_id == Account.id
+    ).filter(
+        AIDecisionLog.id == trade_id,
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
+    ).first()
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
 
@@ -1317,6 +1388,7 @@ def get_trade_replay(
         entry_time = trade.decision_time
         # Find corresponding close
         exit_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == trade.account_id,
             AIDecisionLog.symbol == trade.symbol,
             AIDecisionLog.wallet_address == trade.wallet_address,
             AIDecisionLog.operation == 'close',
@@ -1329,6 +1401,7 @@ def get_trade_replay(
         exit_decision = trade
         exit_time = trade.decision_time
         entry_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == trade.account_id,
             AIDecisionLog.symbol == trade.symbol,
             AIDecisionLog.wallet_address == trade.wallet_address,
             AIDecisionLog.operation.in_(['buy', 'sell']),
@@ -1341,6 +1414,7 @@ def get_trade_replay(
     decisions_chain = []
     if entry_time and exit_time:
         chain_query = db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == trade.account_id,
             AIDecisionLog.symbol == trade.symbol,
             AIDecisionLog.wallet_address == trade.wallet_address,
             AIDecisionLog.decision_time >= entry_time,
@@ -1457,6 +1531,7 @@ def _parse_decision_prices(decision: AIDecisionLog) -> dict:
 def get_trade_replay_kline(
     trade_id: int,
     period: str = Query("5m", description="K-line period: 5m, 15m, 1h, 4h"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db)
 ):
     """
@@ -1471,7 +1546,13 @@ def get_trade_replay_kline(
         raise HTTPException(status_code=400, detail=f"Invalid period. Valid: {valid_periods}")
 
     # Get the main trade record (same logic as get_trade_replay)
-    trade = db.query(AIDecisionLog).filter(AIDecisionLog.id == trade_id).first()
+    trade = db.query(AIDecisionLog).join(
+        Account, AIDecisionLog.account_id == Account.id
+    ).filter(
+        AIDecisionLog.id == trade_id,
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
+    ).first()
     if not trade:
         raise HTTPException(status_code=404, detail="Trade not found")
 
@@ -1510,6 +1591,7 @@ def get_trade_replay_kline(
         entry_decision = trade
         entry_time = trade.decision_time
         exit_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == trade.account_id,
             AIDecisionLog.symbol == trade.symbol,
             AIDecisionLog.wallet_address == trade.wallet_address,
             AIDecisionLog.operation == 'close',
@@ -1521,6 +1603,7 @@ def get_trade_replay_kline(
         exit_decision = trade
         exit_time = trade.decision_time
         entry_decision = db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == trade.account_id,
             AIDecisionLog.symbol == trade.symbol,
             AIDecisionLog.wallet_address == trade.wallet_address,
             AIDecisionLog.operation.in_(['buy', 'sell']),
@@ -1652,6 +1735,7 @@ def get_trade_replay_kline(
     # Add HOLD decision markers
     if entry_time and exit_time:
         hold_decisions = db.query(AIDecisionLog).filter(
+            AIDecisionLog.account_id == trade.account_id,
             AIDecisionLog.symbol == trade.symbol,
             AIDecisionLog.wallet_address == trade.wallet_address,
             AIDecisionLog.operation == 'hold',
@@ -1756,13 +1840,21 @@ def build_program_base_query(
     environment: Optional[str],
     account_id: Optional[int],
     exchange: Optional[str] = None,
+    user_id: Optional[int] = None,
 ):
     """Build base query for program execution logs with common filters.
 
     Similar to build_base_query for AIDecisionLog, but for ProgramExecutionLog.
     Only includes executions with non-zero realized_pnl (closed positions).
     """
-    query = db.query(ProgramExecutionLog).filter(
+    query = db.query(ProgramExecutionLog)
+    if user_id is not None:
+        query = query.join(Account, ProgramExecutionLog.account_id == Account.id).filter(
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        )
+
+    query = query.filter(
         ProgramExecutionLog.success == True,
         ProgramExecutionLog.decision_action.in_(["buy", "sell", "close"]),
         ProgramExecutionLog.realized_pnl.isnot(None),  # Exclude unsync trades
@@ -1801,10 +1893,14 @@ def get_program_analytics_summary(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get overall program analytics summary."""
-    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     logs = query.all()
 
     # Get fees for all logs (PnL is read from log.realized_pnl)
@@ -1868,10 +1964,14 @@ def get_program_analytics_by_symbol(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get program analytics grouped by trading symbol."""
-    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     logs = query.all()
 
     fee_map = get_fees_for_program_logs(logs)
@@ -1928,10 +2028,14 @@ def get_program_analytics_by_program(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get program analytics grouped by trading program."""
-    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     logs = query.all()
 
     fee_map = get_fees_for_program_logs(logs)
@@ -1957,6 +2061,7 @@ def get_program_analytics_by_program(
     if program_ids:
         programs = db.query(TradingProgram).filter(
             TradingProgram.id.in_(program_ids),
+            TradingProgram.user_id == current_user.id,
             TradingProgram.is_deleted != True
         ).all()
         for p in programs:
@@ -1999,10 +2104,14 @@ def get_program_analytics_by_trigger_type(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get program analytics grouped by trigger type."""
-    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     logs = query.all()
 
     fee_map = get_fees_for_program_logs(logs)
@@ -2038,10 +2147,14 @@ def get_program_analytics_by_operation(
     environment: Optional[str] = Query("all"),
     account_id: Optional[int] = Query(None),
     exchange: Optional[str] = Query("all"),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Get program analytics grouped by operation type."""
-    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange)
+    if account_id:
+        _ensure_account_owner(db, account_id, current_user.id)
+
+    query = build_program_base_query(db, start_date, end_date, environment, account_id, exchange, current_user.id)
     logs = query.all()
 
     fee_map = get_fees_for_program_logs(logs)
