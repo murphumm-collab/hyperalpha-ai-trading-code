@@ -144,6 +144,18 @@ def _missing_user_context_result() -> str:
     })
 
 
+def _decision_log_query_for_trader_owner(db: Session, trader_id: int, user_id: int):
+    from database.models import Account, AIDecisionLog
+
+    return db.query(AIDecisionLog).join(
+        Account, AIDecisionLog.account_id == Account.id
+    ).filter(
+        AIDecisionLog.account_id == trader_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    )
+
+
 def execute_get_prompt_context(
     db: Session,
     prompt_id: Optional[int],
@@ -424,14 +436,16 @@ def execute_get_trader_details(
 
         # Get 24h stats
         since_24h = datetime.utcnow() - timedelta(hours=24)
-        decision_count = db.query(AIDecisionLog).filter(
-            AIDecisionLog.account_id == trader_id,
+        decision_query = _decision_log_query_for_trader_owner(
+            db,
+            trader_id,
+            user_id,
+        ).filter(
             AIDecisionLog.decision_time >= since_24h
-        ).count()
+        )
+        decision_count = decision_query.count()
 
-        trade_count = db.query(AIDecisionLog).filter(
-            AIDecisionLog.account_id == trader_id,
-            AIDecisionLog.decision_time >= since_24h,
+        trade_count = decision_query.filter(
             AIDecisionLog.operation.in_(["buy", "sell", "close"]),
             AIDecisionLog.executed == "true"
         ).count()
@@ -480,15 +494,20 @@ def execute_get_decision_list(
         # Limit to reasonable range
         limit = min(max(limit, 1), 20)
 
-        # Get total count
-        total_count = db.query(AIDecisionLog).filter(
-            AIDecisionLog.account_id == trader_id
-        ).count()
+        decision_query = _decision_log_query_for_trader_owner(
+            db,
+            trader_id,
+            user_id,
+        )
+        total_count = decision_query.count()
 
         # Get recent decisions
-        decisions = db.query(AIDecisionLog).filter(
-            AIDecisionLog.account_id == trader_id
-        ).order_by(AIDecisionLog.decision_time.desc()).limit(limit).all()
+        decisions = (
+            decision_query
+            .order_by(AIDecisionLog.decision_time.desc())
+            .limit(limit)
+            .all()
+        )
 
         result = {
             "trader_id": trader_id,
