@@ -75,7 +75,8 @@ class BackfillManager:
                         task.symbol,
                         current_start,
                         current_end,
-                        task.period
+                        task.period,
+                        exchange=task.exchange,
                     )
 
                     collected_total += collected_batch

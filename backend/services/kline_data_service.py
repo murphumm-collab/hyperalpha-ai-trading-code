@@ -3,6 +3,7 @@ K线数据统一服务层 - 提供统一的数据操作接口
 """
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
@@ -17,32 +18,49 @@ logger = logging.getLogger(__name__)
 
 
 class KlineDataService:
-    """K线数据统一服务 - 启动时确定交易所，后续不再判断"""
+    """K线数据统一服务 - 支持共享采集与按请求交易所读取"""
 
     def __init__(self):
-        self.exchange_id: Optional[str] = None
+        self.exchange_id: Optional[str] = os.getenv("KLINE_DEFAULT_EXCHANGE", "hyperliquid")
         self.collector: Optional[BaseKlineCollector] = None
+        self._collectors: Dict[str, BaseKlineCollector] = {}
         self._initialized = False
 
+    def _normalize_exchange(self, exchange: Optional[str] = None) -> str:
+        exchange_id = (exchange or self.exchange_id or "hyperliquid").strip().lower()
+        if exchange_id not in ExchangeDataSourceFactory.get_supported_exchanges():
+            raise ValueError(f"Unsupported exchange: {exchange_id}")
+        return exchange_id
+
+    def _get_collector(self, exchange: Optional[str] = None) -> BaseKlineCollector:
+        exchange_id = self._normalize_exchange(exchange)
+        if exchange_id not in self._collectors:
+            self._collectors[exchange_id] = ExchangeDataSourceFactory.get_collector(exchange_id)
+        return self._collectors[exchange_id]
+
+    def resolve_exchange_for_user(
+        self,
+        db: Session,
+        user_id: int,
+        requested_exchange: Optional[str] = None,
+    ) -> str:
+        """Resolve request exchange from explicit input or the user's preference."""
+        if requested_exchange:
+            return self._normalize_exchange(requested_exchange)
+
+        config = db.query(UserExchangeConfig).filter(
+            UserExchangeConfig.user_id == user_id
+        ).first()
+        return self._normalize_exchange(config.selected_exchange if config else None)
+
     async def initialize(self):
-        """初始化服务 - 读取用户配置并确定交易所"""
+        """初始化默认后台采集器；用户接口可按请求 exchange 单独取采集器"""
         if self._initialized:
             return
 
         try:
-            # 从数据库读取用户选择的交易所
-            with SessionLocal() as db:
-                config = db.query(UserExchangeConfig).filter(
-                    UserExchangeConfig.user_id == 1
-                ).first()
-
-                if config:
-                    self.exchange_id = config.selected_exchange
-                else:
-                    self.exchange_id = "hyperliquid"  # 默认值
-
-            # 初始化对应的采集器
-            self.collector = ExchangeDataSourceFactory.get_collector(self.exchange_id)
+            self.exchange_id = self._normalize_exchange(os.getenv("KLINE_DEFAULT_EXCHANGE", self.exchange_id))
+            self.collector = self._get_collector(self.exchange_id)
             self._initialized = True
 
             logger.info(f"KlineDataService initialized with exchange: {self.exchange_id}")
@@ -51,21 +69,28 @@ class KlineDataService:
             logger.error(f"Failed to initialize KlineDataService: {e}")
             # 使用默认配置
             self.exchange_id = "hyperliquid"
-            self.collector = ExchangeDataSourceFactory.get_collector(self.exchange_id)
+            self.collector = self._get_collector(self.exchange_id)
             self._initialized = True
 
     def _ensure_initialized(self):
         """确保服务已初始化"""
         if not self._initialized:
-            raise RuntimeError("KlineDataService not initialized. Call initialize() first.")
+            self.exchange_id = self._normalize_exchange(self.exchange_id)
+            self.collector = self._get_collector(self.exchange_id)
+            self._initialized = True
 
-    async def collect_current_kline(self, symbol: str, period: str = "1m") -> bool:
+    async def collect_current_kline(
+        self,
+        symbol: str,
+        period: str = "1m",
+        exchange: Optional[str] = None,
+    ) -> bool:
         """采集当前分钟的K线数据"""
         self._ensure_initialized()
 
         try:
-            # 使用已确定的采集器获取数据
-            kline_data = await self.collector.fetch_current_kline(symbol, period)
+            collector = self._get_collector(exchange)
+            kline_data = await collector.fetch_current_kline(symbol, period)
             if not kline_data:
                 logger.warning(f"No kline data received for {symbol}")
                 return False
@@ -82,14 +107,15 @@ class KlineDataService:
         symbol: str,
         start_time: datetime,
         end_time: datetime,
-        period: str = "1m"
+        period: str = "1m",
+        exchange: Optional[str] = None,
     ) -> int:
         """采集历史K线数据，返回成功插入的记录数"""
         self._ensure_initialized()
 
         try:
-            # 使用已确定的采集器获取历史数据
-            klines_data = await self.collector.fetch_historical_klines(
+            collector = self._get_collector(exchange)
+            klines_data = await collector.fetch_historical_klines(
                 symbol, start_time, end_time, period
             )
 
@@ -150,9 +176,14 @@ class KlineDataService:
             logger.error(f"Failed to insert kline data: {e}")
             return False
 
-    async def get_data_coverage(self, symbols: List[str] = None) -> List[Dict[str, Any]]:
+    async def get_data_coverage(
+        self,
+        symbols: List[str] = None,
+        exchange: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """获取数据覆盖情况"""
         self._ensure_initialized()
+        exchange_id = self._normalize_exchange(exchange)
 
         try:
             with SessionLocal() as db:
@@ -160,7 +191,7 @@ class KlineDataService:
                     SELECT * FROM kline_coverage_stats
                     WHERE exchange = :exchange
                 """
-                params = {'exchange': self.exchange_id}
+                params = {'exchange': exchange_id}
 
                 if symbols:
                     query += " AND symbol = ANY(:symbols)"
@@ -180,10 +211,12 @@ class KlineDataService:
         symbol: str,
         start_time: datetime,
         end_time: datetime,
-        period: str = "1m"
+        period: str = "1m",
+        exchange: Optional[str] = None,
     ) -> List[tuple]:
         """检测缺失的数据时间段"""
         self._ensure_initialized()
+        exchange_id = self._normalize_exchange(exchange)
 
         try:
             with SessionLocal() as db:
@@ -194,7 +227,7 @@ class KlineDataService:
                     AND period = :period AND timestamp BETWEEN :start_ts AND :end_ts
                     ORDER BY timestamp
                 """), {
-                    'exchange': self.exchange_id,
+                    'exchange': exchange_id,
                     'symbol': symbol,
                     'period': period,
                     'start_ts': int(start_time.timestamp()),
@@ -239,14 +272,16 @@ class KlineDataService:
             logger.error(f"Failed to detect missing ranges: {e}")
             return []
 
-    def get_supported_symbols(self) -> List[str]:
+    def get_supported_symbols(self, exchange: Optional[str] = None) -> List[str]:
         """获取当前交易所支持的交易对"""
         self._ensure_initialized()
-        return self.collector.get_supported_symbols()
+        return self._get_collector(exchange).get_supported_symbols()
 
-    async def refresh_exchange_config(self):
-        """刷新交易所配置（当用户切换交易所时调用）"""
+    async def refresh_exchange_config(self, exchange: Optional[str] = None):
+        """刷新默认后台交易所配置"""
         self._initialized = False
+        if exchange:
+            self.exchange_id = self._normalize_exchange(exchange)
         await self.initialize()
 
 

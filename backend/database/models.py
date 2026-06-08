@@ -673,6 +673,7 @@ class KlineCollectionTask(Base):
     __tablename__ = "kline_collection_tasks"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     exchange = Column(String(20), nullable=False, index=True)
     symbol = Column(String(20), nullable=False, index=True)
     start_time = Column(TIMESTAMP, nullable=False)
@@ -687,6 +688,8 @@ class KlineCollectionTask(Base):
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
     )
+
+    user = relationship("User")
 
 
 class BinanceWallet(Base):

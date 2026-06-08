@@ -10,8 +10,9 @@ from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
 import logging
 
+from api.auth_utils import get_current_user_dependency
 from database.connection import SessionLocal
-from database.models import KlineCollectionTask
+from database.models import KlineCollectionTask, User
 from services.kline_data_service import kline_service
 from services.kline_backfill_manager import BackfillManager
 
@@ -63,15 +64,42 @@ class CoverageResponse(BaseModel):
     coverage_percentage: Optional[float]
 
 
+def _resolve_exchange(db: Session, current_user: User, requested_exchange: Optional[str] = None) -> str:
+    try:
+        return kline_service.resolve_exchange_for_user(db, current_user.id, requested_exchange)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _task_response(task: KlineCollectionTask) -> BackfillTaskResponse:
+    return BackfillTaskResponse(
+        task_id=task.id,
+        exchange=task.exchange,
+        symbol=task.symbol,
+        start_time=task.start_time,
+        end_time=task.end_time,
+        period=task.period,
+        status=task.status,
+        progress=task.progress,
+        total_records=task.total_records or 0,
+        collected_records=task.collected_records or 0,
+        error_message=task.error_message,
+        created_at=task.created_at,
+    )
+
+
 @router.get("/coverage", response_model=List[CoverageResponse])
 async def get_data_coverage(
     symbols: Optional[str] = None,  # 逗号分隔的交易对列表
-    db: Session = Depends(get_db)
+    exchange: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """获取K线数据覆盖情况"""
     try:
         # 确保服务已初始化
         await kline_service.initialize()
+        resolved_exchange = _resolve_exchange(db, current_user, exchange)
 
         # 解析交易对参数
         symbol_list = None
@@ -79,22 +107,46 @@ async def get_data_coverage(
             symbol_list = [s.strip().upper() for s in symbols.split(",")]
 
         # 获取覆盖情况
-        coverage_data = await kline_service.get_data_coverage(symbol_list)
+        coverage_data = await kline_service.get_data_coverage(
+            symbol_list,
+            exchange=resolved_exchange,
+        )
 
         return [CoverageResponse(**item) for item in coverage_data]
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get data coverage: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get data coverage: {str(e)}")
 
 
 @router.get("/backfill-tasks")
-async def get_backfill_tasks(db: Session = Depends(get_db)):
+async def get_backfill_tasks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """获取补漏任务列表"""
     try:
-        tasks = db.query(KlineCollectionTask).order_by(KlineCollectionTask.created_at.desc()).limit(50).all()
-        return {"tasks": [{"task_id": t.id, "symbol": t.symbol, "status": t.status, "progress": t.progress or 0, "total_records": t.total_records or 0, "collected_records": t.collected_records or 0} for t in tasks]}
+        tasks = db.query(KlineCollectionTask).filter(
+            KlineCollectionTask.user_id == current_user.id
+        ).order_by(KlineCollectionTask.created_at.desc()).limit(50).all()
+        return {
+            "tasks": [
+                {
+                    "task_id": t.id,
+                    "exchange": t.exchange,
+                    "symbol": t.symbol,
+                    "status": t.status,
+                    "progress": t.progress or 0,
+                    "total_records": t.total_records or 0,
+                    "collected_records": t.collected_records or 0,
+                }
+                for t in tasks
+            ]
+        }
     except Exception as e:
+        logger.error(f"Failed to get backfill tasks: {e}")
         return {"tasks": []}
 
 @router.get("/data")
@@ -106,15 +158,16 @@ async def get_kline_data(symbol: str, period: str = "1m", limit: int = 1000):
 async def create_backfill_task(
     request: BackfillRequest,
     background_tasks: BackgroundTasks,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """创建补漏任务"""
     try:
         # 确保服务已初始化
         await kline_service.initialize()
 
-        # 使用当前配置的交易所（如果未指定）
-        exchange = request.exchange or kline_service.exchange_id
+        # 使用显式交易所或当前用户配置的交易所
+        exchange = _resolve_exchange(db, current_user, request.exchange)
 
         # 验证时间范围
         if request.start_time >= request.end_time:
@@ -147,6 +200,7 @@ async def create_backfill_task(
 
             # 检查是否有相同 symbol 的任务正在运行
             existing_task = db.query(KlineCollectionTask).filter(
+                KlineCollectionTask.exchange == exchange,
                 KlineCollectionTask.symbol == symbol_upper,
                 KlineCollectionTask.status.in_(["pending", "running"])
             ).first()
@@ -156,6 +210,7 @@ async def create_backfill_task(
                 continue
 
             task = KlineCollectionTask(
+                user_id=current_user.id,
                 exchange=exchange,
                 symbol=symbol_upper,
                 start_time=request.start_time,
@@ -195,27 +250,21 @@ async def create_backfill_task(
 
 
 @router.get("/backfill/status/{task_id}", response_model=BackfillTaskResponse)
-async def get_backfill_status(task_id: int, db: Session = Depends(get_db)):
+async def get_backfill_status(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """获取补漏任务状态"""
     try:
-        task = db.query(KlineCollectionTask).filter(KlineCollectionTask.id == task_id).first()
+        task = db.query(KlineCollectionTask).filter(
+            KlineCollectionTask.id == task_id,
+            KlineCollectionTask.user_id == current_user.id,
+        ).first()
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
 
-        return BackfillTaskResponse(
-            task_id=task.id,
-            exchange=task.exchange,
-            symbol=task.symbol,
-            start_time=task.start_time,
-            end_time=task.end_time,
-            period=task.period,
-            status=task.status,
-            progress=task.progress,
-            total_records=task.total_records or 0,
-            collected_records=task.collected_records or 0,
-            error_message=task.error_message,
-            created_at=task.created_at
-        )
+        return _task_response(task)
 
     except HTTPException:
         raise
@@ -228,34 +277,21 @@ async def get_backfill_status(task_id: int, db: Session = Depends(get_db)):
 async def list_backfill_tasks(
     status: Optional[str] = None,
     limit: int = 50,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """获取补漏任务列表"""
     try:
-        query = db.query(KlineCollectionTask)
+        query = db.query(KlineCollectionTask).filter(
+            KlineCollectionTask.user_id == current_user.id
+        )
 
         if status:
             query = query.filter(KlineCollectionTask.status == status)
 
         tasks = query.order_by(KlineCollectionTask.created_at.desc()).limit(limit).all()
 
-        return [
-            BackfillTaskResponse(
-                task_id=task.id,
-                exchange=task.exchange,
-                symbol=task.symbol,
-                start_time=task.start_time,
-                end_time=task.end_time,
-                period=task.period,
-                status=task.status,
-                progress=task.progress,
-                total_records=task.total_records or 0,
-                collected_records=task.collected_records or 0,
-                error_message=task.error_message,
-                created_at=task.created_at
-            )
-            for task in tasks
-        ]
+        return [_task_response(task) for task in tasks]
 
     except Exception as e:
         logger.error(f"Failed to list tasks: {e}")
@@ -263,10 +299,17 @@ async def list_backfill_tasks(
 
 
 @router.delete("/backfill-tasks/{task_id}")
-async def delete_backfill_task(task_id: int, db: Session = Depends(get_db)):
+async def delete_backfill_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """删除补漏任务"""
     try:
-        task = db.query(KlineCollectionTask).filter(KlineCollectionTask.id == task_id).first()
+        task = db.query(KlineCollectionTask).filter(
+            KlineCollectionTask.id == task_id,
+            KlineCollectionTask.user_id == current_user.id,
+        ).first()
         if not task:
             raise HTTPException(status_code=404, detail="Task not found")
 
@@ -286,12 +329,15 @@ async def delete_backfill_task(task_id: int, db: Session = Depends(get_db)):
 async def detect_data_gaps(
     symbol: str,
     days: int = 7,  # 检查最近几天的数据
-    db: Session = Depends(get_db)
+    exchange: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """检测指定交易对的数据缺失"""
     try:
         # 确保服务已初始化
         await kline_service.initialize()
+        resolved_exchange = _resolve_exchange(db, current_user, exchange)
 
         # 计算时间范围
         end_time = datetime.now()
@@ -299,12 +345,16 @@ async def detect_data_gaps(
 
         # 检测缺失范围
         missing_ranges = await kline_service.detect_missing_ranges(
-            symbol.upper(), start_time, end_time, "1m"
+            symbol.upper(),
+            start_time,
+            end_time,
+            "1m",
+            exchange=resolved_exchange,
         )
 
         return {
             "symbol": symbol.upper(),
-            "exchange": kline_service.exchange_id,
+            "exchange": resolved_exchange,
             "time_range": {
                 "start": start_time.isoformat(),
                 "end": end_time.isoformat()
@@ -323,24 +373,33 @@ async def detect_data_gaps(
             )
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to detect gaps for {symbol}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to detect gaps: {str(e)}")
 
 
 @router.get("/supported-symbols")
-async def get_supported_symbols():
+async def get_supported_symbols(
+    exchange: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """获取当前交易所支持的交易对"""
     try:
         await kline_service.initialize()
-        symbols = kline_service.get_supported_symbols()
+        resolved_exchange = _resolve_exchange(db, current_user, exchange)
+        symbols = kline_service.get_supported_symbols(exchange=resolved_exchange)
 
         return {
-            "exchange": kline_service.exchange_id,
+            "exchange": resolved_exchange,
             "symbols": symbols,
             "count": len(symbols)
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to get supported symbols: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get supported symbols: {str(e)}")
