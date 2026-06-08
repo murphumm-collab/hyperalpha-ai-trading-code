@@ -249,6 +249,17 @@ export default function AiProgramChatModal({
       if (contentType.includes('application/json')) {
         // Background task mode: poll for results
         const taskData = await response.json()
+        if (taskData.status === 'already_running') {
+          toast.error(t('program.aiChat.alreadyRunning', 'This conversation is still responding. Please wait.'))
+          setMessages(prev => prev.filter(m => m.id !== tempUserMsgId && m.id !== tempAssistantMsgId))
+          setUserInput(userMessage)
+          const convId = taskData.conversation_id || currentConversationId
+          if (convId) {
+            await loadMessages(convId)
+          }
+          return
+        }
+
         const taskId = taskData.task_id
         if (!taskId) throw new Error('No task_id returned')
 
@@ -348,6 +359,7 @@ export default function AiProgramChatModal({
       }
     } catch (error) {
       console.error('Chat error:', error)
+      setUserInput(userMessage)
       // Connection lost - reload messages from server instead of deleting
       const convId = finalConversationId || currentConversationId
       if (convId) {

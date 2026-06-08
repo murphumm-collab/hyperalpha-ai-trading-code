@@ -842,18 +842,41 @@ export default function HyperAiPage() {
         })
       })
 
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const detail = data?.detail
+        const message = typeof detail === 'string'
+          ? detail
+          : detail?.message || t('hyperAi.sendFailed', 'Failed to send message')
+        throw new Error(message)
+      }
+
+      if (data.status === 'already_running') {
+        setMessages(prev => prev.slice(0, -2))
+        setInputValue(userMessage)
+        setSending(false)
+        if (data.conversation_id) {
+          setCurrentConvId(data.conversation_id)
+          fetchMessages(data.conversation_id)
+        }
+        return
+      }
+
       if (data.task_id) {
         // Poll for streaming response
         pollTaskResponse(data.task_id, data.conversation_id)
         if (!currentConvId) {
           setCurrentConvId(data.conversation_id)
         }
+      } else {
+        throw new Error(t('hyperAi.missingTask', 'No AI task was created'))
       }
     } catch (e) {
       console.error('Failed to send message:', e)
-      // Remove placeholder on error
-      setMessages(prev => prev.slice(0, -1))
+      // Remove temporary user + assistant messages because the backend did not
+      // accept this message.
+      setMessages(prev => prev.slice(0, -2))
+      setInputValue(userMessage)
       setSending(false)
     }
   }

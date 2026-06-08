@@ -397,6 +397,15 @@ def start_chat(
         user_id=current_user.id,
     )
 
+    manager = get_buffer_manager()
+    existing = manager.get_pending_task_for_conversation(conv.id, user_id=current_user.id)
+    if existing:
+        return {
+            "task_id": existing.task_id,
+            "conversation_id": conv.id,
+            "status": "already_running",
+        }
+
     # Start background task based on mode
     try:
         if is_onboarding:

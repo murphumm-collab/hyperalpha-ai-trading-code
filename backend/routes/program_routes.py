@@ -869,7 +869,7 @@ async def ai_program_chat(
     from fastapi.responses import StreamingResponse
     from services.ai_program_service import generate_program_with_ai_stream
     from services.ai_stream_service import (
-        get_buffer_manager, run_ai_task_in_background, generate_task_id
+        TaskAdmissionError, get_buffer_manager, run_ai_task_in_background, generate_task_id
     )
     from database.connection import SessionLocal
 
@@ -880,7 +880,18 @@ async def ai_program_chat(
     if request.use_background_task:
         task_id = generate_task_id("program")
         manager = get_buffer_manager()
-        manager.create_task(task_id, conversation_id=request.conversation_id, user_id=user_id)
+        if request.conversation_id:
+            existing = manager.get_pending_task_for_conversation(request.conversation_id, user_id=user_id)
+            if existing:
+                return {
+                    "task_id": existing.task_id,
+                    "conversation_id": request.conversation_id,
+                    "status": "already_running",
+                }
+        try:
+            manager.create_task(task_id, conversation_id=request.conversation_id, user_id=user_id)
+        except TaskAdmissionError as exc:
+            raise HTTPException(status_code=429, detail=exc.to_response()) from exc
 
         # Capture request params for background thread
         account_id = request.account_id
