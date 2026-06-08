@@ -14,6 +14,7 @@ import HyperliquidWalletSection from './HyperliquidWalletSection'
 import BinanceWalletSection from './BinanceWalletSection'
 import ExchangeIcon from '@/components/exchange/ExchangeIcon'
 import { getAccountWallet } from '@/lib/hyperliquidApi'
+import { authFetch } from '@/lib/authFetch'
 
 interface ExchangeWalletsPanelProps {
   accountId: number
@@ -74,7 +75,7 @@ export default function ExchangeWalletsPanel({
 
     // Load Binance status
     try {
-      const res = await fetch(`/api/binance/accounts/${accountId}/config`)
+      const res = await authFetch(`/api/binance/accounts/${accountId}/config`)
       if (res.ok) {
         const data = await res.json()
         setStatus(prev => ({

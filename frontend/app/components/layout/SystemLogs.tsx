@@ -8,6 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { AlertCircle, Info, AlertTriangle, RefreshCw, Trash2, TrendingUp, Brain, Bug, Database } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { formatDateTime } from '@/lib/dateTime'
+import { authFetch } from '@/lib/authFetch'
 
 interface LogEntry {
   timestamp: string
@@ -91,7 +92,7 @@ export default function SystemLogs() {
       if (selectedCategory !== 'all') params.append('category', selectedCategory)
       params.append('limit', '100')
 
-      const response = await fetch(`/api/system-logs/?${params}`)
+      const response = await authFetch(`/api/system-logs/?${params}`)
       const data = await response.json()
       setLogs(data.logs || [])
     } catch (error) {
@@ -103,7 +104,7 @@ export default function SystemLogs() {
   // Fetch stats
   const fetchStats = async () => {
     try {
-      const response = await fetch('/api/system-logs/stats')
+      const response = await authFetch('/api/system-logs/stats')
       const data = await response.json()
       setStats(data)
     } catch (error) {
@@ -114,7 +115,7 @@ export default function SystemLogs() {
   // Fetch sampling pool data
   const fetchSamplingPool = async () => {
     try {
-      const response = await fetch('/api/sampling/pool-details')
+      const response = await authFetch('/api/sampling/pool-details')
       const data = await response.json()
       setSamplingPool(data)
     } catch (error) {
@@ -124,7 +125,7 @@ export default function SystemLogs() {
 
   const fetchHyperliquidActions = async () => {
     try {
-      const response = await fetch('/api/hyperliquid/actions/?limit=100')
+      const response = await authFetch('/api/hyperliquid/actions/?limit=100')
       const data = await response.json()
       setHyperliquidActions(data.entries || [])
       setHyperliquidStats(data.stats || null)
@@ -139,7 +140,7 @@ export default function SystemLogs() {
     if (!confirm('Are you sure you want to clear all logs?')) return
 
     try {
-      await fetch('/api/system-logs/', { method: 'DELETE' })
+      await authFetch('/api/system-logs/', { method: 'DELETE' })
       toast.success('Logs cleared')
       fetchLogs()
       fetchStats()

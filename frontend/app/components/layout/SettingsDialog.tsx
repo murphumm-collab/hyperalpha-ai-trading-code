@@ -32,6 +32,7 @@ import { AuthorizationModal } from '@/components/hyperliquid'
 import TraderDataImportDialog from '@/components/trader/TraderDataImportDialog'
 import { useTranslation } from 'react-i18next'
 import { Switch } from '@/components/ui/switch'
+import { authFetch } from '@/lib/authFetch'
 
 interface SettingsDialogProps {
   open: boolean
@@ -380,7 +381,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
   const handleDeleteTrader = async (account: AIAccount) => {
     if (!confirm(t('trader.confirmDeleteDesc'))) return
     try {
-      const res = await fetch(`/api/account/${account.id}`, { method: 'DELETE' })
+      const res = await authFetch(`/api/account/${account.id}`, { method: 'DELETE' })
       const data = await res.json()
       if (res.ok && data.deleted) {
         toast.success(t('common.delete') + ' OK')

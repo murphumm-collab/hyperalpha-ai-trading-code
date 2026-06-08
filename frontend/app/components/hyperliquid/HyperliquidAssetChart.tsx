@@ -33,6 +33,7 @@ import { getModelChartLogo, getModelColor } from '../portfolio/logoAssets'
 import FlipNumber from '../portfolio/FlipNumber'
 import type { HyperliquidEnvironment } from '@/lib/types/hyperliquid'
 import { formatDateTime } from '@/lib/dateTime'
+import { authFetch } from '@/lib/authFetch'
 
 interface HyperliquidAssetData {
   timestamp: number
@@ -132,7 +133,7 @@ export default function HyperliquidAssetChart({
       }
       params.set('end_date', now.toISOString())
 
-      const response = await fetch(`/api/account/asset-curve?${params.toString()}`)
+      const response = await authFetch(`/api/account/asset-curve?${params.toString()}`)
       if (!response.ok) {
         throw new Error('Failed to fetch asset curve data')
       }

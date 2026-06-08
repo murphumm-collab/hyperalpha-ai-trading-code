@@ -13,6 +13,7 @@ import {
 import type { HyperliquidSymbolMeta } from '@/lib/api'
 import { formatDateTime } from '@/lib/dateTime'
 import { useTranslation } from 'react-i18next'
+import { authFetch } from '@/lib/authFetch'
 
 interface StrategyConfig {
   price_threshold: number
@@ -107,9 +108,9 @@ export default function StrategyPanel({
     try {
       // Fetch trader-specific config and signal pools in parallel
       const [strategyResponse, signalsResponse, globalResponse] = await Promise.all([
-        fetch(`/api/account/${accountId}/strategy`),
-        fetch('/api/signals'),
-        fetch('/api/config/global-sampling'),
+        authFetch(`/api/account/${accountId}/strategy`),
+        authFetch('/api/signals'),
+        authFetch('/api/config/global-sampling'),
       ])
 
       if (strategyResponse.ok) {
@@ -256,7 +257,7 @@ export default function StrategyPanel({
         exchange: exchange,
       }
       console.log('Frontend saving payload:', payload)
-      const response = await fetch(`/api/account/${accountId}/strategy`, {
+      const response = await authFetch(`/api/account/${accountId}/strategy`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
@@ -298,7 +299,7 @@ export default function StrategyPanel({
 
     try {
       setSaving(true)
-      const response = await fetch('/api/config/global-sampling', {
+      const response = await authFetch('/api/config/global-sampling', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

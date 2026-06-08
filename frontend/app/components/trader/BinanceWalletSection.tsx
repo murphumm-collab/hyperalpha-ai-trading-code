@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge'
 import { Wallet, Eye, EyeOff, CheckCircle, RefreshCw, Trash2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import RebateIneligibleModal from '@/components/binance/RebateIneligibleModal'
+import { authFetch } from '@/lib/authFetch'
 
 interface BinanceWalletSectionProps {
   accountId: number
@@ -92,7 +93,7 @@ export default function BinanceWalletSection({
   const loadWalletInfo = async () => {
     try {
       setLoadingConfig(true)
-      const res = await fetch(`${API_BASE}/accounts/${accountId}/config`)
+      const res = await authFetch(`${API_BASE}/accounts/${accountId}/config`)
       if (!res.ok) return
 
       const data = await res.json()
@@ -114,7 +115,7 @@ export default function BinanceWalletSection({
         setTestnetDefaultLeverage(data.testnet?.default_leverage || 1)
         // Load balance
         try {
-          const balanceRes = await fetch(`${API_BASE}/accounts/${accountId}/balance?environment=testnet`)
+          const balanceRes = await authFetch(`${API_BASE}/accounts/${accountId}/balance?environment=testnet`)
           if (balanceRes.ok) {
             const balance = await balanceRes.json()
             setTestnetWallet(prev => prev ? { ...prev, balance } : null)
@@ -138,7 +139,7 @@ export default function BinanceWalletSection({
         setMainnetDefaultLeverage(data.mainnet?.default_leverage || 1)
         // Load balance
         try {
-          const balanceRes = await fetch(`${API_BASE}/accounts/${accountId}/balance?environment=mainnet`)
+          const balanceRes = await authFetch(`${API_BASE}/accounts/${accountId}/balance?environment=mainnet`)
           if (balanceRes.ok) {
             const balance = await balanceRes.json()
             setMainnetWallet(prev => prev ? { ...prev, balance } : null)
@@ -148,7 +149,7 @@ export default function BinanceWalletSection({
         }
         // Load daily quota for mainnet
         try {
-          const quotaRes = await fetch(`${API_BASE}/accounts/${accountId}/daily-quota`)
+          const quotaRes = await authFetch(`${API_BASE}/accounts/${accountId}/daily-quota`)
           if (quotaRes.ok) {
             const quota = await quotaRes.json()
             if (quota.limited) {
@@ -199,7 +200,7 @@ export default function BinanceWalletSection({
 
     try {
       setSaving(true)
-      const res = await fetch(`${API_BASE}/accounts/${accountId}/setup`, {
+      const res = await authFetch(`${API_BASE}/accounts/${accountId}/setup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -255,7 +256,7 @@ export default function BinanceWalletSection({
     const setTesting = environment === 'testnet' ? setTestingTestnet : setTestingMainnet
     try {
       setTesting(true)
-      const res = await fetch(`${API_BASE}/accounts/${accountId}/balance?environment=${environment}`)
+      const res = await authFetch(`${API_BASE}/accounts/${accountId}/balance?environment=${environment}`)
       if (res.ok) {
         const data = await res.json()
         toast.success(`✅ Connected! Balance: $${data.total_equity?.toFixed(2) || '0.00'}`)
@@ -280,7 +281,7 @@ export default function BinanceWalletSection({
     if (!pendingMainnetBinding) return
     try {
       setSavingMainnet(true)
-      const res = await fetch(`${API_BASE}/accounts/${accountId}/confirm-limited-binding`, {
+      const res = await authFetch(`${API_BASE}/accounts/${accountId}/confirm-limited-binding`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -314,7 +315,7 @@ export default function BinanceWalletSection({
     const setSaving = environment === 'testnet' ? setSavingTestnet : setSavingMainnet
     try {
       setSaving(true)
-      const res = await fetch(`${API_BASE}/accounts/${accountId}/wallet?environment=${environment}`, {
+      const res = await authFetch(`${API_BASE}/accounts/${accountId}/wallet?environment=${environment}`, {
         method: 'DELETE'
       })
       if (res.ok) {

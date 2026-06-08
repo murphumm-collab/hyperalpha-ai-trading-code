@@ -4,6 +4,7 @@ import TradingFloor, { type TraderData, type ExchangeMonitor } from './TradingFl
 import type { CharacterState } from './pixelData/characters'
 import type { Position } from '@/components/portfolio/HyperliquidMultiAccountSummary'
 import type { HyperliquidEnvironment } from '@/lib/types/hyperliquid'
+import { authFetch } from '@/lib/authFetch'
 
 interface AccountData {
   account_id: number
@@ -76,7 +77,7 @@ export default function ArenaView({
         start.setHours(now.getHours() - 24)
         params.set('start_date', start.toISOString())
         params.set('end_date', now.toISOString())
-        const res = await fetch(`/api/account/asset-curve?${params}`)
+        const res = await authFetch(`/api/account/asset-curve?${params}`)
         if (!res.ok) return
         const data: { account_id: number; exchange?: string; total_assets: number; timestamp: number }[] = await res.json()
         // Group by account_exchange, downsample to ~30 points

@@ -34,6 +34,7 @@ import {
   createBacktestTask,
   BacktestTaskItemForImport,
 } from '@/lib/api'
+import { authFetch } from '@/lib/authFetch'
 import BacktestHistoryModal from './BacktestHistoryModal'
 
 dayjs.extend(utc)
@@ -132,7 +133,7 @@ export default function PromptBacktest({
         params.append('before_time', beforeTime)
       }
 
-      const response = await fetch(`/api/arena/model-chat?${params}`)
+      const response = await authFetch(`/api/arena/model-chat?${params}`)
       const data = await response.json()
       const entries = data.entries || []
 
@@ -209,7 +210,7 @@ export default function PromptBacktest({
       params.append('ids', ids.join(','))
       params.append('include_snapshots', 'true')
 
-      const response = await fetch(`/api/arena/model-chat?${params}`)
+      const response = await authFetch(`/api/arena/model-chat?${params}`)
       const data = await response.json()
       const entriesWithSnapshots = data.entries || []
 
