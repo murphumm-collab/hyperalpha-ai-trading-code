@@ -91,7 +91,11 @@ async def list_user_accounts(session_token: str, db: Session = Depends(get_db)):
                     else:
                         from services.hyperliquid_environment import get_hyperliquid_client
 
-                        client = get_hyperliquid_client(db, account.id)
+                        client = get_hyperliquid_client(
+                            db,
+                            account.id,
+                            owner_user_id=user_id,
+                        )
                         account_state = client.get_account_state(db)
 
                     current_cash = float(account_state.get('available_balance', current_cash))
@@ -156,13 +160,10 @@ async def get_account_details(
     """Get account details"""
     try:
         user_id = await get_current_user_id(session_token, db)
-        account = get_account(db, account_id)
+        account = get_account(db, account_id, owner_user_id=user_id)
 
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
-
-        if account.user_id != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
 
         # Check if this is a Hyperliquid account
         hyperliquid_environment = getattr(account, "hyperliquid_environment", None)
@@ -179,7 +180,11 @@ async def get_account_details(
                 else:
                     from services.hyperliquid_environment import get_hyperliquid_client
 
-                    client = get_hyperliquid_client(db, account.id)
+                    client = get_hyperliquid_client(
+                        db,
+                        account.id,
+                        owner_user_id=user_id,
+                    )
                     account_state = client.get_account_state(db)
 
                 current_cash = float(account_state.get('available_balance', current_cash))
@@ -206,13 +211,10 @@ async def update_trading_account(
     """Update trading account"""
     try:
         user_id = await get_current_user_id(session_token, db)
-        account = get_account(db, account_id)
+        account = get_account(db, account_id, owner_user_id=user_id)
         
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
-        
-        if account.user_id != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
         
         # Check if new name conflicts with existing accounts
         if account_data.name:
@@ -250,13 +252,10 @@ async def delete_trading_account(
     """Delete trading account (soft delete)"""
     try:
         user_id = await get_current_user_id(session_token, db)
-        account = get_account(db, account_id)
+        account = get_account(db, account_id, owner_user_id=user_id)
         
         if not account:
             raise HTTPException(status_code=404, detail="Account not found")
-        
-        if account.user_id != user_id:
-            raise HTTPException(status_code=403, detail="Access denied")
         
         deactivate_account(db, account_id, owner_user_id=user_id)
         return {"message": f"Account {account.name} deactivated successfully"}

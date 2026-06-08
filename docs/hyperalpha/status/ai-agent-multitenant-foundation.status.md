@@ -59,6 +59,7 @@ Local checkpoint: current branch `HEAD`
 - Legacy `/api/accounts` account management routes expose and update `auto_trading_enabled` consistently with safe-start defaults.
 - Legacy `/api/accounts` updates preserve existing API keys when clients echo masked key responses.
 - Legacy account repository update, cash update, activate, and deactivate helpers support owner guards for session-token account routes.
+- Legacy account repository reads support owner guards; account-management and WebSocket owner checks use guarded account reads.
 - Auth-aware identity runtime token, membership sync, Signal Manager strategy-analysis, market-regime config, factor analysis, and premium sampling-config requests.
 - Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
 - User-scoped membership sync and logout clearing so one user cannot overwrite or delete other users' premium status.
@@ -158,6 +159,7 @@ Local checkpoint: current branch `HEAD`
 | Legacy account auto-trading field | Done | `/api/accounts` create/update/list/detail/default responses include `auto_trading_enabled`; create/default remain paused unless explicitly enabled |
 | Legacy account masked key preservation | Done | Repository updates ignore short masked API key echoes like `****1234`/`********1234` while accepting fresh keys |
 | Legacy account repository owner guard | Done | `account_repo` update/cash/activate/deactivate helpers accept `owner_user_id`; session-token account routes pass the verified user |
+| Legacy account repository read owner guard | Done | `get_account` accepts `owner_user_id`; account-management detail/update/delete and WebSocket account registration/order creation use owner-guarded reads |
 | Frontend identity/signal config auth | Done | Auth runtime token sync, membership sync/clear, Signal Manager analysis/config, Market Regime config, factor evaluation, and premium sampling config use `authFetch` |
 | Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
 | Membership sync isolation | Done | `/api/users/sync-membership` and `/api/users/clear-membership` update/delete only the current request user's `UserSubscription` |
@@ -271,6 +273,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Backend syntax compile after legacy account schemas/routes/repository accepted and returned `auto_trading_enabled`.
 - Passed: Legacy masked API key preservation smoke test in `uv run`: masked update echoes preserved the stored key, fresh keys replaced it, and long real keys starting with stars were not treated as masks.
 - Passed: Account repository owner guard smoke test in `uv run`: cross-user update/cash/deactivate/activate returned `None`, Bob's account stayed unchanged, and masked API key updates preserved the stored key.
+- Passed: Account repository read owner guard smoke test in `uv run`: cross-user `get_account` returned `None`, owner reads succeeded, default no-owner reads stayed compatible, and soft-deleted accounts stayed hidden.
 - Passed: AuthContext, Signal Manager user strategy/config calls, Market Regime config, and Premium sampling config switched to `authFetch`; remaining Signal Manager bare fetches are public market K-line preview reads; frontend production build passed.
 - Passed: Membership isolation smoke test in `uv run`: Alice sync/logout did not alter Bob's subscription and spoofed frontend username was ignored.
 - Passed: `user_routes.py` syntax compile in both system Python and `uv run` backend environment after membership isolation fix.

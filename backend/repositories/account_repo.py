@@ -43,9 +43,16 @@ def create_account(
     return account
 
 
-def get_account(db: Session, account_id: int) -> Optional[Account]:
+def get_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Optional[Account]:
     """Get account by ID"""
-    return db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+    query = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True)
+    if owner_user_id is not None:
+        query = query.filter(Account.user_id == owner_user_id)
+    return query.first()
 
 
 def get_accounts_by_user(db: Session, user_id: int, active_only: bool = True) -> List[Account]:

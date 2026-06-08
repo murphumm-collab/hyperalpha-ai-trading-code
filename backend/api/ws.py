@@ -220,11 +220,7 @@ def _resolve_ws_user(db: Session, websocket: WebSocket, msg: Optional[dict[str, 
 
 
 def _ensure_ws_account_owner(db: Session, account_id: int, user_id: int) -> Account:
-    account = db.query(Account).filter(
-        Account.id == account_id,
-        Account.user_id == user_id,
-        Account.is_deleted != True,
-    ).first()
+    account = get_account(db, account_id, owner_user_id=user_id)
     if not account:
         raise PermissionError("account not found")
     return account
@@ -1078,8 +1074,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         from services.order_matching import create_order
 
                         # Get account and user object
-                        account = get_account(db, account_id)
-                        if not account or account.user_id != connection_user.id:
+                        account = get_account(
+                            db,
+                            account_id,
+                            owner_user_id=connection_user.id,
+                        )
+                        if not account:
                             await websocket.send_text(json.dumps({"type": "error", "message": "account not found"}))
                             continue
 
