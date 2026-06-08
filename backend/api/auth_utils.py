@@ -312,3 +312,16 @@ def get_current_user_dependency(
         authorization=authorization,
         allow_default=True,
     )
+
+
+def get_authenticated_user_dependency(
+    session_token: Optional[str] = Query(None),
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db),
+) -> User:
+    return resolve_request_user(
+        db=db,
+        session_token=session_token,
+        authorization=authorization,
+        allow_default=False,
+    )

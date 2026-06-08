@@ -3,8 +3,10 @@ System Log API Routes
 提供系统日志查询接口
 """
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from typing import Optional, List, Dict, Any
+from api.auth_utils import get_authenticated_user_dependency
+from database.models import User
 from services.system_logger import system_logger
 
 router = APIRouter(prefix="/api/system-logs", tags=["System Logs"])
@@ -14,7 +16,8 @@ router = APIRouter(prefix="/api/system-logs", tags=["System Logs"])
 async def get_system_logs(
     level: Optional[str] = Query(None, description="日志级别过滤: INFO, WARNING, ERROR"),
     category: Optional[str] = Query(None, description="日志分类过滤: price_update, ai_decision, system_error"),
-    limit: int = Query(100, ge=1, le=500, description="返回的最大日志数量")
+    limit: int = Query(100, ge=1, le=500, description="返回的最大日志数量"),
+    current_user: User = Depends(get_authenticated_user_dependency),
 ) -> Dict[str, Any]:
     """
     获取系统日志列表
@@ -42,7 +45,9 @@ async def get_system_logs(
 
 
 @router.get("/categories")
-async def get_log_categories() -> Dict[str, List[str]]:
+async def get_log_categories(
+    current_user: User = Depends(get_authenticated_user_dependency),
+) -> Dict[str, List[str]]:
     """
     获取可用的日志分类和级别
 
@@ -57,7 +62,9 @@ async def get_log_categories() -> Dict[str, List[str]]:
 
 
 @router.delete("/")
-async def clear_system_logs() -> Dict[str, str]:
+async def clear_system_logs(
+    current_user: User = Depends(get_authenticated_user_dependency),
+) -> Dict[str, str]:
     """
     清空所有系统日志
 
@@ -69,7 +76,9 @@ async def clear_system_logs() -> Dict[str, str]:
 
 
 @router.get("/stats")
-async def get_log_stats() -> Dict[str, Any]:
+async def get_log_stats(
+    current_user: User = Depends(get_authenticated_user_dependency),
+) -> Dict[str, Any]:
     """
     获取日志统计信息
 

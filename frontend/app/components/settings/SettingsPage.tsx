@@ -24,6 +24,7 @@ import {
   testNewsSource,
   getNewsStats,
 } from '@/lib/api'
+import { authFetch } from '@/lib/authFetch'
 import type {
   HyperliquidSymbolMeta,
   BinanceSymbolMeta,
@@ -126,7 +127,7 @@ export default function SettingsPage() {
   const toggleLanguage = (lang: 'en' | 'zh') => {
     i18n.changeLanguage(lang)
     // Sync language to backend for Bot integration
-    fetch('/api/config/ui_language', {
+    authFetch('/api/config/ui_language', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: lang }),

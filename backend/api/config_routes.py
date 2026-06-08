@@ -10,11 +10,12 @@ import logging
 
 from database.connection import SessionLocal
 from database.models import SystemConfig, GlobalSamplingConfig, User
-from api.auth_utils import get_current_user_dependency
+from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/config", tags=["config"])
+ALLOWED_SYSTEM_CONFIG_UPDATE_KEYS = {"ui_language"}
 
 
 def get_db():
@@ -189,8 +190,16 @@ class ConfigValueRequest(BaseModel):
 
 
 @router.put("/{key}")
-async def update_system_config(key: str, payload: ConfigValueRequest, db: Session = Depends(get_db)):
-    """Update a single system config value by key."""
+async def update_system_config(
+    key: str,
+    payload: ConfigValueRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
+    """Update an allowed system config value by key."""
+    if key not in ALLOWED_SYSTEM_CONFIG_UPDATE_KEYS:
+        raise HTTPException(status_code=403, detail="System config key is not user-editable")
+
     config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
     if config:
         config.value = payload.value

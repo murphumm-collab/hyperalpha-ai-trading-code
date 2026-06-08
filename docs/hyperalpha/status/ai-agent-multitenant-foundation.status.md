@@ -49,6 +49,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle.
 - User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads.
 - User-bound WebSocket bootstrap/account switching/order/snapshot/asset-curve requests and per-user asset-curve broadcasts.
+- Required-auth guard for system log reads/deletes and generic system config writes; generic config writes are limited to `ui_language`.
 - Development progress and acceptance markers.
 - REST manual order-placement APIs are not changed in this slice; WebSocket order placement now validates the connection user's account ownership.
 
@@ -104,6 +105,7 @@ Local checkpoint: current branch `HEAD`
 | Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; import reads original logs only from the task account |
 | Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts and reject cross-user `account_id` filters |
 | WebSocket ownership | Done | WS resolves session/JWT identity from query/header/message token, ignores client-provided username for bootstrap, rejects cross-user `switch_account`, scopes asset curves by current user, and sends auth tokens from frontend WS requests |
+| Global config/log auth | Done | `get_authenticated_user_dependency` requires a real session/JWT for system logs and generic config updates; `/api/config/{key}` only permits `ui_language` |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -178,6 +180,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: WebSocket owner isolation smoke test in `uv run`: Bob could not pass the WS account owner guard for Alice's account, Alice/default asset curves returned only their own account rows.
 - Passed: Frontend WS auth static check: remaining `send(JSON.stringify(...))` calls in the main app and asset-curve component go through `withWsAuth`.
 - Passed: WebSocket route syntax compile in both system Python and `uv run` backend environment; frontend production build passed after WS token propagation.
+- Passed: Required config auth smoke test in `uv run`: anonymous required-auth resolution returned 401, `ui_language` update succeeded for an authenticated user, and `hyperliquid_trading_mode` generic update returned 403.
+- Passed: Auth/config/system-log route syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Settings language update switched to `authFetch`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
@@ -191,3 +195,4 @@ Local checkpoint: current branch `HEAD`
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Telegram/Discord external bot long-connection routing is not fully multi-tenant yet; this slice scopes stored credentials and notification config, but concurrent per-user bot runtimes/webhook dispatch still need a dedicated design.
 - Factor computation/value storage is still global by factor name; custom factor CRUD is user-scoped, but per-user computed factor values need a dedicated schema if private custom factors should be precomputed.
+- Admin RBAC is not implemented yet; newly required-auth system log/config endpoints require a real user token but do not distinguish operators/admins from ordinary authenticated users.
