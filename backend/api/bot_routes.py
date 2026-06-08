@@ -681,7 +681,7 @@ async def _start_discord_gateway_background(token: str, owner_user_id: int):
         )
 
     try:
-        await start_discord_gateway(token, handle_discord_message)
+        await start_discord_gateway(token, handle_discord_message, owner_user_id=owner_user_id)
     except Exception as e:
         print(f"[Discord] Gateway startup failed: {e}", flush=True)
 
@@ -769,7 +769,7 @@ async def _process_discord_message_internal(
                         label = _get_tool_label(data["name"], lang)
                         msg = f"【🤖Hyper AI】{label}..."
                         asyncio.run_coroutine_threadsafe(
-                            send_discord_message_via_client(user_id, msg), loop
+                            send_discord_message_via_client(user_id, msg, owner_user_id=owner_user_id), loop
                         )
                     elif event_type == "content":
                         full_resp += data.get("text", "")
@@ -801,7 +801,7 @@ async def disconnect_discord_bot(
     if not token:
         raise HTTPException(status_code=404, detail="Discord bot not configured")
 
-    await stop_discord_gateway()
+    await stop_discord_gateway(current_user.id)
     update_bot_status(db, "discord", "disconnected", user_id=current_user.id)
     return {"success": True}
 
@@ -813,7 +813,7 @@ def get_discord_status(
 ):
     """Get Discord bot connection status including Gateway state."""
     config = get_bot_config(db, "discord", current_user.id)
-    gateway_running = is_discord_client_running()
+    gateway_running = is_discord_client_running(current_user.id)
     return {
         "config": config,
         "gateway_running": gateway_running,

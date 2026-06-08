@@ -42,6 +42,7 @@ Local checkpoint: current branch `HEAD`
 - Account-owner-scoped premium checks for Binance mainnet quotas and Hyperliquid builder fee decisions.
 - User-scoped Telegram/Discord bot credential API and bot notification configuration reads/writes.
 - User-scoped Telegram webhook secret routing, per-user Telegram polling tasks, bot chat bindings, bot conversations, and AI/event notifications.
+- User-scoped Discord Gateway runtime clients for concurrent per-user bot long connections.
 - User-scoped legacy paper/order-matching API reads, manual execution, cancellation, processing, and health counts.
 - User-scoped trader data export/import account ownership validation.
 - User-scoped Hyperliquid exchange action log reads and stats.
@@ -107,6 +108,7 @@ Local checkpoint: current branch `HEAD`
 | Premium entitlement isolation | Done | AI Trader, Program Trader, Binance API, and Hyperliquid builder fee checks use the account owner's subscription instead of any premium user in the database |
 | Bot config API isolation | Done | `bot_configs.user_id` migration/model/service/API plus frontend `authFetch` prevent users from overwriting each other's Telegram/Discord credentials or notification toggles |
 | Bot webhook/session isolation | Done | Telegram webhook secrets route inbound updates to one user's token/conversation; Telegram polling runs per user; BotChatBinding and system-event push are user-scoped |
+| Discord gateway isolation | Done | Discord Gateway clients, loops, message handlers, status, disconnect, startup restore, and progress messages are keyed by owner user |
 | Legacy order route isolation | Done | `/api/orders/*` resolves current user, validates order/account ownership, scopes pending/list/detail/cancel/execute/process/health, and no longer trusts URL/body `user_id` for access |
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
 | Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
@@ -181,6 +183,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Bot model/service/routes/migration syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Bot config requests switched to `authFetch`.
 - Passed: Bot webhook/session isolation smoke test in `uv run`: Alice/Bob Telegram webhook secrets differed, Alice's secret resolved only Alice's token, Alice's AI decision event created only Alice's Bot conversation/message, and push delivery used only Alice's Telegram token/chat binding.
 - Passed: Bot webhook/session isolation syntax compile in both system Python and `uv run` backend environment for Bot API/routes/services/model/migration plus AI/Signal/Program notification callers.
+- Passed: Discord gateway multi-client smoke test in `uv run` with a fake Discord client: two owner users had independent clients/tokens, sending via user 2 used user 2's token, stopping user 1 did not stop user 2, and stop-all cleared all clients.
+- Passed: Discord gateway multi-client syntax compile in both system Python and `uv run` backend environment for Discord service, Bot routes, and startup restore.
 - Passed: Legacy order route isolation smoke test in `uv run`: Bob could not read Alice's order, pending orders and health counts were current-user scoped.
 - Passed: Legacy order route re-smoke after create-order compatibility adjustment for body `session_token`/password auth.
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
@@ -227,6 +231,6 @@ Local checkpoint: current branch `HEAD`
 - Redis/distributed job queue execution is not implemented in this slice; DB persistence and admission limits cover single-server task/chunk recovery and capacity isolation, not multi-instance worker orchestration.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
-- Discord external bot long-connection is not fully multi-tenant yet; this slice binds Discord message handling to the resolved owner user, but the underlying `discord.py` gateway client is still a single global client per process.
+- Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.
 - Factor computation/value storage is still global by factor name; custom factor CRUD is user-scoped, but per-user computed factor values need a dedicated schema if private custom factors should be precomputed.
 - Admin role-management UI is not implemented yet; roles are currently controlled by DB state, `AUTH_ADMIN_USERNAMES`/`AUTH_ADMIN_EMAILS`, or JWT role/group claims.

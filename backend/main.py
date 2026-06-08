@@ -610,35 +610,46 @@ async def restore_discord_gateway():
 
         db = SessionLocal()
         try:
-            config = db.query(BotConfig).filter(
+            configs = db.query(BotConfig).filter(
                 BotConfig.platform == "discord",
                 BotConfig.status == "connected"
-            ).first()
+            ).all()
 
-            if not config:
+            if not configs:
                 return
 
-            token = get_decrypted_bot_token(db, "discord", config.user_id)
-            if not token:
-                return
+            for config in configs:
+                if config.user_id is None:
+                    continue
 
-            # Register Discord adapter
-            adapter = get_discord_adapter()
-            await adapter.start(token)
-            register_adapter(adapter)
-            print(f"[startup] Discord adapter registered")
+                token = get_decrypted_bot_token(db, "discord", config.user_id)
+                if not token:
+                    continue
 
-            async def handle_discord_message(user_id: int, username: str, display_name: str, text: str) -> str:
-                return await _process_discord_message_internal(
-                    user_id,
-                    username,
-                    display_name,
-                    text,
-                    owner_user_id=config.user_id,
+                # Register Discord adapter for legacy adapter-based callers.
+                adapter = get_discord_adapter()
+                await adapter.start(token)
+                register_adapter(adapter)
+
+                async def handle_discord_message(
+                    user_id: int,
+                    username: str,
+                    display_name: str,
+                    text: str,
+                    owner_user_id: int = config.user_id,
+                ) -> str:
+                    return await _process_discord_message_internal(
+                        user_id,
+                        username,
+                        display_name,
+                        text,
+                        owner_user_id=owner_user_id,
+                    )
+
+                asyncio.create_task(
+                    start_discord_gateway(token, handle_discord_message, owner_user_id=config.user_id)
                 )
-
-            asyncio.create_task(start_discord_gateway(token, handle_discord_message))
-            print(f"[startup] Discord Gateway restore initiated for @{config.bot_username}")
+                print(f"[startup] Discord Gateway restore initiated for user={config.user_id} @{config.bot_username}")
         finally:
             db.close()
     except Exception as e:

@@ -9,13 +9,17 @@ Architecture:
 import asyncio
 import logging
 import re
-from typing import Optional, Callable, Any
+from typing import Dict, Optional, Callable, Any
 
 logger = logging.getLogger(__name__)
 
-_discord_client = None
-_message_handler: Optional[Callable] = None
-_discord_loop: Optional[asyncio.AbstractEventLoop] = None  # Event loop where Discord runs
+_discord_clients: Dict[int, Any] = {}
+_message_handlers: Dict[int, Callable] = {}
+_discord_loops: Dict[int, asyncio.AbstractEventLoop] = {}
+
+
+def _runtime_key(owner_user_id: Optional[int] = None) -> int:
+    return int(owner_user_id or 0)
 
 
 def _get_discord_module():
@@ -105,17 +109,23 @@ async def send_discord_message(token: str, user_id: int, text: str) -> bool:
         return False
 
 
-async def send_discord_message_via_client(user_id: int, text: str) -> bool:
+async def send_discord_message_via_client(
+    user_id: int,
+    text: str,
+    owner_user_id: Optional[int] = None,
+) -> bool:
     """Send a DM using the running Gateway client (preferred for replies)."""
-    global _discord_client, _discord_loop
-    if not _discord_client or not _discord_client.is_ready():
+    key = _runtime_key(owner_user_id)
+    client = _discord_clients.get(key)
+    client_loop = _discord_loops.get(key)
+    if not client or not client.is_ready():
         return False
 
     async def _send():
         try:
             from services.message_formatter import format_for_discord
 
-            user = await _discord_client.fetch_user(user_id)
+            user = await client.fetch_user(user_id)
             if not user:
                 return False
 
@@ -134,14 +144,14 @@ async def send_discord_message_via_client(user_id: int, text: str) -> bool:
     # If we're in the Discord event loop, run directly
     try:
         current_loop = asyncio.get_running_loop()
-        if current_loop == _discord_loop:
+        if current_loop == client_loop:
             return await _send()
     except RuntimeError:
         pass
 
     # Otherwise, schedule on Discord's event loop
-    if _discord_loop and _discord_loop.is_running():
-        future = asyncio.run_coroutine_threadsafe(_send(), _discord_loop)
+    if client_loop and client_loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(_send(), client_loop)
         try:
             return future.result(timeout=30)
         except Exception as e:
@@ -151,19 +161,26 @@ async def send_discord_message_via_client(user_id: int, text: str) -> bool:
     return False
 
 
-def is_discord_client_running() -> bool:
+def is_discord_client_running(owner_user_id: Optional[int] = None) -> bool:
     """Check if Discord Gateway client is running and connected."""
-    global _discord_client
-    return _discord_client is not None and _discord_client.is_ready()
+    if owner_user_id is not None:
+        client = _discord_clients.get(_runtime_key(owner_user_id))
+        return client is not None and client.is_ready()
+    return any(client.is_ready() for client in _discord_clients.values())
 
 
-def get_discord_client():
+def get_discord_client(owner_user_id: Optional[int] = None):
     """Get the running Discord client instance."""
-    global _discord_client
-    return _discord_client
+    if owner_user_id is not None:
+        return _discord_clients.get(_runtime_key(owner_user_id))
+    return next(iter(_discord_clients.values()), None)
 
 
-async def start_discord_gateway(token: str, message_callback: Callable):
+async def start_discord_gateway(
+    token: str,
+    message_callback: Callable,
+    owner_user_id: Optional[int] = None,
+):
     """
     Start the Discord Gateway client for receiving DM messages.
 
@@ -171,27 +188,28 @@ async def start_discord_gateway(token: str, message_callback: Callable):
         token: Bot token from Discord Developer Portal
         message_callback: Async function(user_id, username, display_name, text) -> response_text
     """
-    global _discord_client, _message_handler, _discord_loop
-
     discord = _get_discord_module()
     if not discord:
         print("[Discord] discord.py not installed, skipping Gateway startup", flush=True)
         return
 
-    _message_handler = message_callback
-    _discord_loop = asyncio.get_event_loop()  # Store the event loop
+    key = _runtime_key(owner_user_id)
+    await stop_discord_gateway(owner_user_id)
+    _message_handlers[key] = message_callback
+    _discord_loops[key] = asyncio.get_event_loop()  # Store the event loop
 
     intents = discord.Intents.default()
     intents.message_content = True
     intents.dm_messages = True
 
-    _discord_client = discord.Client(intents=intents)
+    client = discord.Client(intents=intents)
+    _discord_clients[key] = client
 
-    @_discord_client.event
+    @client.event
     async def on_ready():
-        print(f"[Discord] Gateway connected as {_discord_client.user}", flush=True)
+        print(f"[Discord] Gateway connected for user={owner_user_id} as {client.user}", flush=True)
 
-    @_discord_client.event
+    @client.event
     async def on_message(message):
         if message.author.bot:
             return
@@ -205,9 +223,10 @@ async def start_discord_gateway(token: str, message_callback: Callable):
 
         print(f"[Discord] DM from {username} ({user_id}): {text[:50]}...", flush=True)
 
-        if _message_handler:
+        message_handler = _message_handlers.get(key)
+        if message_handler:
             try:
-                response = await _message_handler(user_id, username, display_name, text)
+                response = await message_handler(user_id, username, display_name, text)
                 if response:
                     if len(response) <= 2000:
                         await message.channel.send(response)
@@ -219,25 +238,29 @@ async def start_discord_gateway(token: str, message_callback: Callable):
                 logger.error(f"[Discord] Message handler error: {e}")
                 await message.channel.send("Sorry, an error occurred while processing your message.")
 
-    @_discord_client.event
+    @client.event
     async def on_disconnect():
-        print("[Discord] Gateway disconnected, will auto-reconnect...", flush=True)
+        print(f"[Discord] Gateway disconnected for user={owner_user_id}, will auto-reconnect...", flush=True)
 
     try:
-        await _discord_client.start(token)
+        await client.start(token)
     except Exception as e:
-        print(f"[Discord] Gateway error: {e}", flush=True)
-        _discord_client = None
+        print(f"[Discord] Gateway error for user={owner_user_id}: {e}", flush=True)
+        _discord_clients.pop(key, None)
+        _message_handlers.pop(key, None)
+        _discord_loops.pop(key, None)
 
 
-async def stop_discord_gateway():
-    """Stop the Discord Gateway client."""
-    global _discord_client, _discord_loop
-    if _discord_client:
-        await _discord_client.close()
-        _discord_client = None
-        _discord_loop = None
-        print("[Discord] Gateway stopped", flush=True)
+async def stop_discord_gateway(owner_user_id: Optional[int] = None):
+    """Stop one user's Discord Gateway client, or all clients when omitted."""
+    keys = list(_discord_clients.keys()) if owner_user_id is None else [_runtime_key(owner_user_id)]
+    for key in keys:
+        client = _discord_clients.pop(key, None)
+        _message_handlers.pop(key, None)
+        _discord_loops.pop(key, None)
+        if client:
+            await client.close()
+            print(f"[Discord] Gateway stopped for user_key={key}", flush=True)
 
 
 # ============================================================================
