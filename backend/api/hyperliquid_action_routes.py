@@ -6,7 +6,8 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from database.connection import SessionLocal
-from database.models import HyperliquidExchangeAction
+from database.models import Account, HyperliquidExchangeAction, User
+from api.auth_utils import get_current_user_dependency
 
 router = APIRouter(prefix="/api/hyperliquid/actions", tags=["Hyperliquid Actions"])
 
@@ -47,9 +48,17 @@ def list_exchange_actions(
     account_id: Optional[int] = Query(None),
     environment: Optional[str] = Query(None, regex="^(testnet|mainnet)$"),
     wallet_address: Optional[str] = Query(None),
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db),
 ) -> Dict[str, Any]:
-    query = db.query(HyperliquidExchangeAction)
+    query = (
+        db.query(HyperliquidExchangeAction)
+        .join(Account, HyperliquidExchangeAction.account_id == Account.id)
+        .filter(
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        )
+    )
 
     if account_id is not None:
         query = query.filter(HyperliquidExchangeAction.account_id == account_id)

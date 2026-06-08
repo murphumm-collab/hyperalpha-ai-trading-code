@@ -42,6 +42,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Telegram/Discord bot credential API and bot notification configuration reads/writes.
 - User-scoped legacy paper/order-matching API reads, manual execution, cancellation, processing, and health counts.
 - User-scoped trader data export/import account ownership validation.
+- User-scoped Hyperliquid exchange action log reads and stats.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
 
@@ -90,6 +91,7 @@ Local checkpoint: current branch `HEAD`
 | Bot config API isolation | Done | `bot_configs.user_id` migration/model/service/API plus frontend `authFetch` prevent users from overwriting each other's Telegram/Discord credentials or notification toggles |
 | Legacy order route isolation | Done | `/api/orders/*` resolves current user, validates order/account ownership, scopes pending/list/detail/cancel/execute/process/health, and no longer trusts URL/body `user_id` for access |
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
+| Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -147,6 +149,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
 - Passed: Trader data owner isolation smoke test in `uv run`: Alice could preview import into her trader; Bob received 404 for Alice's trader.
 - Passed: Trader data route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Hyperliquid action owner isolation smoke test in `uv run`: Alice action stats excluded Bob's action; Bob filtering Alice account returned no entries.
+- Passed: Hyperliquid action route syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
