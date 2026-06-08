@@ -7,8 +7,9 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
+from api.auth_utils import get_authenticated_user_dependency
 from database.connection import get_db
-from database.models import SystemConfig
+from database.models import SystemConfig, User
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +68,11 @@ def set_retention_days(db: Session, days: int, exchange: str = "hyperliquid") ->
 
 
 @router.get("/storage-stats")
-def get_storage_stats(exchange: str = "hyperliquid", db: Session = Depends(get_db)):
+def get_storage_stats(
+    exchange: str = "hyperliquid",
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get storage statistics for market flow data tables by exchange"""
     try:
         # Tables with exchange column
@@ -156,6 +161,7 @@ def get_data_coverage(
     tz_offset: int = 0,
     exchange: str = "hyperliquid",
     data_type: str = "market_flow",
+    current_user: User = Depends(get_authenticated_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Get data coverage heatmap for market data.
@@ -252,14 +258,22 @@ def get_data_coverage(
 
 
 @router.get("/retention-days")
-def get_retention_days_api(exchange: str = "hyperliquid", db: Session = Depends(get_db)):
+def get_retention_days_api(
+    exchange: str = "hyperliquid",
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get current retention days setting for specific exchange"""
     days = get_retention_days(db, exchange)
     return RetentionDaysResponse(days=days, exchange=exchange)
 
 
 @router.put("/retention-days")
-def update_retention_days(request: RetentionDaysRequest, db: Session = Depends(get_db)):
+def update_retention_days(
+    request: RetentionDaysRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Update retention days setting for specific exchange"""
     if request.days < 7 or request.days > 730:
         raise HTTPException(status_code=400, detail="Retention days must be between 7 and 730")
@@ -271,7 +285,11 @@ def update_retention_days(request: RetentionDaysRequest, db: Session = Depends(g
 
 
 @router.get("/collection-days")
-def get_collection_days(exchange: str = "hyperliquid", db: Session = Depends(get_db)):
+def get_collection_days(
+    exchange: str = "hyperliquid",
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get total days of market flow data collection for specific exchange.
     Calculated from earliest record timestamp to now.
     """
@@ -296,6 +314,7 @@ def get_collection_days(exchange: str = "hyperliquid", db: Session = Depends(get
 @router.post("/binance/backfill")
 async def start_binance_backfill(
     force: bool = False,
+    current_user: User = Depends(get_authenticated_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Start Binance historical data backfill task.
@@ -352,7 +371,10 @@ async def start_binance_backfill(
 
 
 @router.get("/binance/backfill/status")
-def get_binance_backfill_status(db: Session = Depends(get_db)):
+def get_binance_backfill_status(
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get current Binance backfill task status."""
     from database.models import BinanceBackfillTask
 
@@ -377,7 +399,10 @@ def get_binance_backfill_status(db: Session = Depends(get_db)):
 # ==================== Hyperliquid Backfill ====================
 
 @router.post("/hyperliquid/backfill")
-async def start_hyperliquid_backfill(db: Session = Depends(get_db)):
+async def start_hyperliquid_backfill(
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Start Hyperliquid K-line backfill task.
     Uses current watchlist symbols.
     Backfills: K-lines (~5000 records, ~3.5 days per symbol).
@@ -420,7 +445,10 @@ async def start_hyperliquid_backfill(db: Session = Depends(get_db)):
 
 
 @router.get("/hyperliquid/backfill/status")
-def get_hyperliquid_backfill_status(db: Session = Depends(get_db)):
+def get_hyperliquid_backfill_status(
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get current Hyperliquid backfill task status."""
     from database.models import HyperliquidBackfillTask
 

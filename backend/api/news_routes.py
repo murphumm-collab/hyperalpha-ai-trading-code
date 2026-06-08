@@ -17,8 +17,9 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from api.auth_utils import get_authenticated_user_dependency
 from database.connection import get_db
-from database.models import SystemConfig, NewsArticle
+from database.models import SystemConfig, NewsArticle, User
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +173,10 @@ def list_news_articles(
     }
 
 @router.get("/sources")
-def get_news_sources(db: Session = Depends(get_db)):
+def get_news_sources(
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get all configured news sources."""
     config = db.query(SystemConfig).filter(
         SystemConfig.key == NEWS_SOURCES_CONFIG_KEY
@@ -194,6 +198,7 @@ def get_news_sources(db: Session = Depends(get_db)):
 @router.put("/sources")
 def update_news_sources(
     req: NewsSourcesUpdateRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Update news sources configuration."""
@@ -226,7 +231,10 @@ def update_news_sources(
 # ---- POST /api/news/sources/test ----
 
 @router.post("/sources/test")
-def test_news_source(req: TestSourceRequest):
+def test_news_source(
+    req: TestSourceRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
+):
     """
     Test a news source URL: fetch and parse, return sample articles.
     Does NOT save to database.
@@ -311,7 +319,10 @@ def test_news_source(req: TestSourceRequest):
 # ---- GET /api/news/stats ----
 
 @router.get("/stats")
-def get_news_stats(db: Session = Depends(get_db)):
+def get_news_stats(
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get news collection statistics."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     h24_ago = now - timedelta(hours=24)

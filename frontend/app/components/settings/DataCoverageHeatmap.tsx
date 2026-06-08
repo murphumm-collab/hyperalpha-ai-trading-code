@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { authFetch } from '@/lib/authFetch'
 
 interface CoverageItem {
   date: string
@@ -40,7 +41,7 @@ export default function DataCoverageHeatmap({
       setSelectedSymbol(null)
       setCoverage([])
       try {
-        const res = await fetch(
+        const res = await authFetch(
           `/api/system/data-coverage?days=365&exchange=${exchange}&data_type=${dataType}`
         )
         if (res.ok) {
@@ -66,7 +67,7 @@ export default function DataCoverageHeatmap({
       setCoverageLoading(true)
       try {
         const tzOffset = new Date().getTimezoneOffset()
-        const res = await fetch(
+        const res = await authFetch(
           `/api/system/data-coverage?days=${days}&symbol=${selectedSymbol}&tz_offset=${tzOffset}&exchange=${exchange}&data_type=${dataType}`
         )
         if (res.ok) {

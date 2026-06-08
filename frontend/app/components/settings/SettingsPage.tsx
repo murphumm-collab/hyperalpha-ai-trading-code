@@ -166,7 +166,7 @@ export default function SettingsPage() {
   const fetchStorageStats = useCallback(async (exchange: string) => {
     setStorageLoading(true)
     try {
-      const res = await fetch(`/api/system/storage-stats?exchange=${exchange}`)
+      const res = await authFetch(`/api/system/storage-stats?exchange=${exchange}`)
       if (res.ok) {
         const data: StorageStats = await res.json()
         setStorageStats((prev) => ({ ...prev, [exchange]: data }))
@@ -219,7 +219,7 @@ export default function SettingsPage() {
   // Fetch backfill status for an exchange
   const fetchBackfillStatus = useCallback(async (exchange: string) => {
     try {
-      const res = await fetch(`/api/system/${exchange}/backfill/status`)
+      const res = await authFetch(`/api/system/${exchange}/backfill/status`)
       if (res.ok) {
         const data = await res.json()
         setBackfillStatus(prev => {
@@ -247,7 +247,7 @@ export default function SettingsPage() {
 
       // Poll while running - use functional update to get latest status
       const interval = setInterval(async () => {
-        const res = await fetch(`/api/system/${currentExchange}/backfill/status`)
+        const res = await authFetch(`/api/system/${currentExchange}/backfill/status`)
         if (res.ok) {
           const data = await res.json()
           setBackfillStatus(prev => {
@@ -279,7 +279,7 @@ export default function SettingsPage() {
       const url = force
         ? `/api/system/${exchange}/backfill?force=true`
         : `/api/system/${exchange}/backfill`
-      const res = await fetch(url, { method: 'POST' })
+      const res = await authFetch(url, { method: 'POST' })
       if (res.ok) {
         await fetchBackfillStatus(exchange)
       } else {
@@ -381,7 +381,7 @@ export default function SettingsPage() {
     setRetentionError(null)
     setRetentionSuccess(null)
     try {
-      const res = await fetch('/api/system/retention-days', {
+      const res = await authFetch('/api/system/retention-days', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ days, exchange: currentExchange }),
