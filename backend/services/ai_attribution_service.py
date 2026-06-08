@@ -15,7 +15,6 @@ from typing import Dict, List, Optional, Any, Generator
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
-from sqlalchemy import text
 
 from database.models import (
     AiAttributionConversation, AiAttributionMessage,
@@ -259,28 +258,52 @@ def _define_tools():
 _define_tools()
 
 
-def _execute_tool(db: Session, tool_name: str, args: Dict) -> str:
+def _missing_user_context_result() -> str:
+    return json.dumps({
+        "error": "Authenticated user context is required.",
+        "reason": "missing_user_context",
+    })
+
+
+def _account_exists_for_user(db: Session, account_id: int, user_id: int) -> bool:
+    return db.query(Account.id).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first() is not None
+
+
+def _execute_tool(db: Session, tool_name: str, args: Dict, user_id: Optional[int] = None) -> str:
     """Execute a tool and return JSON result string"""
+    if user_id is None:
+        return _missing_user_context_result()
+
     try:
         if tool_name == "list_ai_accounts":
-            return _tool_list_ai_accounts(db)
+            return _tool_list_ai_accounts(db, user_id=user_id)
         elif tool_name == "get_attribution_summary":
-            return _tool_get_attribution_summary(db, args)
+            return _tool_get_attribution_summary(db, args, user_id=user_id)
         elif tool_name == "get_account_strategy":
-            return _tool_get_account_strategy(db, args)
+            return _tool_get_account_strategy(db, args, user_id=user_id)
         elif tool_name == "get_prompt_template":
-            return _tool_get_prompt_template(db, args)
+            return _tool_get_prompt_template(db, args, user_id=user_id)
         elif tool_name == "get_signal_pool_config":
-            return _tool_get_signal_pool_config(db, args)
+            return _tool_get_signal_pool_config(db, args, user_id=user_id)
         elif tool_name == "get_trade_decision_chain":
-            return _tool_get_trade_decision_chain(db, args)
+            return _tool_get_trade_decision_chain(db, args, user_id=user_id)
         elif tool_name == "suggest_prompt_modification":
             return _tool_suggest_prompt_modification(args)
         elif tool_name == "get_factor_attribution":
-            return _tool_get_factor_attribution(db, args)
+            return _tool_get_factor_attribution(db, args, user_id=user_id)
         elif tool_name == "query_factors":
             from services.hyper_ai_tools import execute_query_factors
-            return execute_query_factors(db, args.get("exchange", "hyperliquid"), args.get("symbol"), forward_period=args.get("forward_period", "4h"))
+            return execute_query_factors(
+                db,
+                args.get("exchange", "hyperliquid"),
+                args.get("symbol"),
+                forward_period=args.get("forward_period", "4h"),
+                user_id=user_id,
+            )
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
     except Exception as e:
@@ -338,7 +361,7 @@ def _get_fees_for_decisions(decisions: List[AIDecisionLog]) -> Dict[int, float]:
     return result
 
 
-def _tool_get_attribution_summary(db: Session, args: Dict) -> str:
+def _tool_get_attribution_summary(db: Session, args: Dict, user_id: int) -> str:
     """Get trading performance summary"""
     account_id = args.get("account_id", 0)
     exchange = args.get("exchange")
@@ -351,11 +374,18 @@ def _tool_get_attribution_summary(db: Session, args: Dict) -> str:
     if not environment:
         return json.dumps({"error": "environment is required (testnet or mainnet)"})
 
+    if account_id > 0 and not _account_exists_for_user(db, account_id, user_id):
+        return json.dumps({"error": f"Account {account_id} not found"})
+
     start_date = datetime.now() - timedelta(days=days)
 
     # Build query with exchange and environment filter
     # Only include trades with non-zero PnL (exclude opening trades)
-    query = db.query(AIDecisionLog).filter(
+    query = db.query(AIDecisionLog).join(
+        Account, AIDecisionLog.account_id == Account.id
+    ).filter(
+        Account.user_id == user_id,
+        Account.is_deleted != True,
         AIDecisionLog.operation.in_(["buy", "sell", "close"]),
         AIDecisionLog.executed == "true",
         AIDecisionLog.realized_pnl.isnot(None),
@@ -422,7 +452,7 @@ def _tool_get_attribution_summary(db: Session, args: Dict) -> str:
     })
 
 
-def _tool_get_account_strategy(db: Session, args: Dict) -> str:
+def _tool_get_account_strategy(db: Session, args: Dict, user_id: int) -> str:
     """Get account strategy configuration"""
     from database.models import AccountStrategyConfig
     from repositories.strategy_repo import parse_signal_pool_ids
@@ -431,7 +461,11 @@ def _tool_get_account_strategy(db: Session, args: Dict) -> str:
     if not account_id:
         return json.dumps({"error": "account_id is required"})
 
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
     if not account:
         return json.dumps({"error": f"Account {account_id} not found"})
 
@@ -455,11 +489,12 @@ def _tool_get_account_strategy(db: Session, args: Dict) -> str:
         signal_pool_ids = parse_signal_pool_ids(strategy)
         # Query pool names
         if signal_pool_ids:
-            result = db.execute(
-                text("SELECT id, pool_name FROM signal_pools WHERE id = ANY(:ids)"),
-                {"ids": signal_pool_ids}
-            ).fetchall()
-            pool_name_map = {row[0]: row[1] for row in result}
+            pools = db.query(SignalPool).filter(
+                SignalPool.id.in_(signal_pool_ids),
+                SignalPool.user_id == user_id,
+                SignalPool.is_deleted != True,
+            ).all()
+            pool_name_map = {pool.id: pool.pool_name for pool in pools}
             signal_pool_names = [pool_name_map.get(pid) for pid in signal_pool_ids if pool_name_map.get(pid)]
 
     return json.dumps({
@@ -478,13 +513,17 @@ def _tool_get_account_strategy(db: Session, args: Dict) -> str:
     })
 
 
-def _tool_get_prompt_template(db: Session, args: Dict) -> str:
+def _tool_get_prompt_template(db: Session, args: Dict, user_id: int) -> str:
     """Get prompt template content for an account"""
     account_id = args.get("account_id")
     if not account_id:
         return json.dumps({"error": "account_id is required"})
 
-    account = db.query(Account).filter(Account.id == account_id).first()
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
     if not account:
         return json.dumps({"error": f"Account {account_id} not found"})
 
@@ -500,13 +539,19 @@ def _tool_get_prompt_template(db: Session, args: Dict) -> str:
     })
 
 
-def _tool_get_signal_pool_config(db: Session, args: Dict) -> str:
+def _tool_get_signal_pool_config(db: Session, args: Dict, user_id: int) -> str:
     """Get signal pool configuration with detailed signal trigger conditions"""
+    from database.models import SignalDefinition
+
     pool_id = args.get("pool_id")
     if not pool_id:
         return json.dumps({"error": "pool_id is required"})
 
-    pool = db.query(SignalPool).filter(SignalPool.id == pool_id).first()
+    pool = db.query(SignalPool).filter(
+        SignalPool.id == pool_id,
+        SignalPool.user_id == user_id,
+        SignalPool.is_deleted != True,
+    ).first()
     if not pool:
         return json.dumps({"error": f"Signal pool {pool_id} not found"})
 
@@ -529,21 +574,22 @@ def _tool_get_signal_pool_config(db: Session, args: Dict) -> str:
     # Fetch detailed signal configurations
     signals_detail = []
     if signal_ids:
-        result = db.execute(
-            text("SELECT id, signal_name, description, trigger_condition FROM signal_definitions WHERE id = ANY(:ids)"),
-            {"ids": signal_ids}
-        ).fetchall()
-        for row in result:
-            trigger_condition = row[3]
+        signals = db.query(SignalDefinition).filter(
+            SignalDefinition.id.in_(signal_ids),
+            SignalDefinition.user_id == user_id,
+            SignalDefinition.is_deleted != True,
+        ).all()
+        for signal in signals:
+            trigger_condition = signal.trigger_condition
             if isinstance(trigger_condition, str):
                 try:
                     trigger_condition = json.loads(trigger_condition)
                 except:
                     pass
             signals_detail.append({
-                "id": row[0],
-                "name": row[1],
-                "description": row[2],
+                "id": signal.id,
+                "name": signal.signal_name,
+                "description": signal.description,
                 "trigger_condition": trigger_condition
             })
 
@@ -558,7 +604,7 @@ def _tool_get_signal_pool_config(db: Session, args: Dict) -> str:
     })
 
 
-def _tool_get_trade_decision_chain(db: Session, args: Dict) -> str:
+def _tool_get_trade_decision_chain(db: Session, args: Dict, user_id: int) -> str:
     """Get detailed trade decision chain"""
     account_id = args.get("account_id")
     exchange = args.get("exchange")
@@ -575,7 +621,14 @@ def _tool_get_trade_decision_chain(db: Session, args: Dict) -> str:
     if not environment:
         return json.dumps({"error": "environment is required (testnet or mainnet)"})
 
-    query = db.query(AIDecisionLog).filter(
+    if not _account_exists_for_user(db, account_id, user_id):
+        return json.dumps({"error": f"Account {account_id} not found"})
+
+    query = db.query(AIDecisionLog).join(
+        Account, AIDecisionLog.account_id == Account.id
+    ).filter(
+        Account.user_id == user_id,
+        Account.is_deleted != True,
         AIDecisionLog.account_id == account_id,
         AIDecisionLog.executed == "true",
         AIDecisionLog.realized_pnl.isnot(None),
@@ -639,9 +692,13 @@ def _tool_suggest_prompt_modification(args: Dict) -> str:
     })
 
 
-def _tool_list_ai_accounts(db: Session) -> str:
+def _tool_list_ai_accounts(db: Session, user_id: int) -> str:
     """List all AI trading accounts with their IDs, names, and models"""
-    accounts = db.query(Account).filter(Account.account_type == "AI").all()
+    accounts = db.query(Account).filter(
+        Account.user_id == user_id,
+        Account.account_type == "AI",
+        Account.is_deleted != True,
+    ).all()
 
     if not accounts:
         return json.dumps({"message": "No AI accounts found", "accounts": []})
@@ -659,7 +716,7 @@ def _tool_list_ai_accounts(db: Session) -> str:
     return json.dumps({"accounts": account_list, "count": len(account_list)})
 
 
-def _tool_get_factor_attribution(db: Session, args: Dict) -> str:
+def _tool_get_factor_attribution(db: Session, args: Dict, user_id: int) -> str:
     """Analyze trading performance grouped by factor signal triggers."""
     from database.models import SignalTriggerLog
 
@@ -673,9 +730,16 @@ def _tool_get_factor_attribution(db: Session, args: Dict) -> str:
     if not environment:
         return json.dumps({"error": "environment is required"})
 
+    if account_id > 0 and not _account_exists_for_user(db, account_id, user_id):
+        return json.dumps({"error": f"Account {account_id} not found"})
+
     start_date = datetime.now() - timedelta(days=days)
 
-    query = db.query(AIDecisionLog).filter(
+    query = db.query(AIDecisionLog).join(
+        Account, AIDecisionLog.account_id == Account.id
+    ).filter(
+        Account.user_id == user_id,
+        Account.is_deleted != True,
         AIDecisionLog.operation.in_(["buy", "sell", "close"]),
         AIDecisionLog.executed == "true",
         AIDecisionLog.realized_pnl.isnot(None),
@@ -1043,7 +1107,7 @@ def generate_attribution_analysis_stream(
                         tool_id = tool_use.get("id", "")
                         func_args = tool_use.get("input", {})
                         yield f"event: tool_call\ndata: {json.dumps({'name': func_name, 'arguments': func_args})}\n\n"
-                        result = _execute_tool(db, func_name, func_args)
+                        result = _execute_tool(db, func_name, func_args, user_id=user_id)
                         yield f"event: tool_result\ndata: {json.dumps({'name': func_name, 'result': json.loads(result)})}\n\n"
                         tool_calls_log.append({"tool": func_name, "args": func_args, "result": result})
                         messages.append({"role": "tool", "tool_call_id": tool_id, "content": result})
@@ -1059,7 +1123,7 @@ def generate_attribution_analysis_stream(
                         except:
                             func_args = {}
                         yield f"event: tool_call\ndata: {json.dumps({'name': func_name, 'arguments': func_args})}\n\n"
-                        result = _execute_tool(db, func_name, func_args)
+                        result = _execute_tool(db, func_name, func_args, user_id=user_id)
                         yield f"event: tool_result\ndata: {json.dumps({'name': func_name, 'result': json.loads(result)})}\n\n"
                         tool_calls_log.append({"tool": func_name, "args": func_args, "result": result})
                         messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
