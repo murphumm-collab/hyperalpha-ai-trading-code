@@ -2730,7 +2730,7 @@ def execute_update_program_binding(
     user_id: Optional[int] = None,
 ) -> str:
     """Update a program binding's configuration."""
-    from database.models import AccountProgramBinding, Account
+    from database.models import AccountProgramBinding, Account, TradingProgram
 
     if blocked := _require_tool_user(user_id):
         return blocked
@@ -2738,10 +2738,15 @@ def execute_update_program_binding(
     try:
         binding = db.query(AccountProgramBinding).join(
             Account, AccountProgramBinding.account_id == Account.id
+        ).join(
+            TradingProgram, AccountProgramBinding.program_id == TradingProgram.id
         ).filter(
             AccountProgramBinding.id == binding_id,
             Account.user_id == user_id,
-            AccountProgramBinding.is_deleted != True
+            Account.is_deleted != True,
+            TradingProgram.user_id == user_id,
+            TradingProgram.is_deleted != True,
+            AccountProgramBinding.is_deleted != True,
         ).first()
         if not binding:
             return json.dumps({"error": f"Program binding {binding_id} not found"})
