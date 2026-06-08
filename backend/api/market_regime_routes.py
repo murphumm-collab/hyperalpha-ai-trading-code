@@ -8,8 +8,9 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import logging
 
+from api.auth_utils import get_authenticated_user_dependency
 from database.connection import SessionLocal
-from database.models import MarketRegimeConfig
+from database.models import MarketRegimeConfig, User
 from services.market_regime_service import get_market_regime
 
 logger = logging.getLogger(__name__)
@@ -161,7 +162,10 @@ async def get_regime_batch(
 
 
 @router.get("/configs/list", response_model=List[RegimeConfigResponse])
-async def list_regime_configs(db: Session = Depends(get_db)):
+async def list_regime_configs(
+    current_user: User = Depends(get_authenticated_user_dependency),
+    db: Session = Depends(get_db),
+):
     """List all market regime configurations"""
     try:
         configs = db.query(MarketRegimeConfig).all()
@@ -203,6 +207,7 @@ async def list_regime_configs(db: Session = Depends(get_db)):
 async def update_regime_config(
     config_id: int,
     request: RegimeConfigUpdateRequest,
+    current_user: User = Depends(get_authenticated_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Update a market regime configuration"""

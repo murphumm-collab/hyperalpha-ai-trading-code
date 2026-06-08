@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
-from api.auth_utils import get_current_user_dependency
+from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from database.connection import SessionLocal
 from database.models import User
 
@@ -524,6 +524,7 @@ def analyze_metric(
     period: str = Query("5m", description="Time period (e.g., 5m, 15m)"),
     days: int = Query(7, le=30, description="Days of history to analyze"),
     exchange: str = Query("hyperliquid", description="Exchange (hyperliquid or binance)"),
+    current_user: User = Depends(get_authenticated_user_dependency),
     db: Session = Depends(get_db)
 ):
     """
@@ -826,7 +827,9 @@ def test_signal(
 
 
 @router.get("/states")
-def get_signal_states():
+def get_signal_states(
+    current_user: User = Depends(get_authenticated_user_dependency),
+):
     """Get current signal states for monitoring"""
     from services.signal_detection_service import signal_detection_service
     return {
@@ -842,7 +845,8 @@ def get_signal_states():
 def reset_signal_states(
     signal_id: Optional[int] = Query(None),
     pool_id: Optional[int] = Query(None),
-    symbol: Optional[str] = Query(None)
+    symbol: Optional[str] = Query(None),
+    current_user: User = Depends(get_authenticated_user_dependency),
 ):
     """Reset signal and pool states (useful for testing)"""
     from services.signal_detection_service import signal_detection_service
