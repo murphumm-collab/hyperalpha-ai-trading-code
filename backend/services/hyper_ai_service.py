@@ -742,7 +742,7 @@ def _execute_harnessed_tool_call(
         yield format_sse_event("tool_error", _tool_error_event_data(meta, severity="circuit_breaker"))
         return tool_result
 
-    risk_assessment = assess_tool_risk(db, fn_name, fn_args)
+    risk_assessment = assess_tool_risk(db, fn_name, fn_args, user_id=user_id)
     confirmed, blocked_result = yield from _await_tool_confirmation(
         db=db,
         assistant_msg=assistant_msg,

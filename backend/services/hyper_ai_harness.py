@@ -339,33 +339,54 @@ def _json_id_list_contains(raw: Any, target_id: int) -> bool:
     return int(target_id) in {int(value) for value in values if str(value).isdigit()}
 
 
-def _prompt_bound_to_active_trader(db: Session, prompt_id: int) -> bool:
+def _prompt_bound_to_active_trader(
+    db: Session,
+    prompt_id: int,
+    user_id: Optional[int],
+) -> bool:
+    if user_id is None:
+        return True
     return db.query(AccountPromptBinding).join(
         Account, Account.id == AccountPromptBinding.account_id
     ).filter(
         AccountPromptBinding.prompt_template_id == prompt_id,
         AccountPromptBinding.is_deleted != True,
+        Account.user_id == user_id,
         Account.is_active == "true",
         Account.is_deleted != True,
     ).first() is not None
 
 
-def _program_bound_to_active_trader(db: Session, program_id: int) -> bool:
+def _program_bound_to_active_trader(
+    db: Session,
+    program_id: int,
+    user_id: Optional[int],
+) -> bool:
+    if user_id is None:
+        return True
     return db.query(AccountProgramBinding).join(
         Account, Account.id == AccountProgramBinding.account_id
     ).filter(
         AccountProgramBinding.program_id == program_id,
         AccountProgramBinding.is_deleted != True,
         AccountProgramBinding.is_active == True,
+        Account.user_id == user_id,
         Account.is_active == "true",
         Account.is_deleted != True,
     ).first() is not None
 
 
-def _signal_pool_bound_to_active_trader(db: Session, pool_id: int) -> bool:
+def _signal_pool_bound_to_active_trader(
+    db: Session,
+    pool_id: int,
+    user_id: Optional[int],
+) -> bool:
+    if user_id is None:
+        return True
     strategy_configs = db.query(AccountStrategyConfig).join(
         Account, Account.id == AccountStrategyConfig.account_id
     ).filter(
+        Account.user_id == user_id,
         Account.is_active == "true",
         Account.is_deleted != True,
     ).all()
@@ -378,6 +399,7 @@ def _signal_pool_bound_to_active_trader(db: Session, pool_id: int) -> bool:
     ).filter(
         AccountProgramBinding.is_deleted != True,
         AccountProgramBinding.is_active == True,
+        Account.user_id == user_id,
         Account.is_active == "true",
         Account.is_deleted != True,
     ).all()
@@ -392,6 +414,7 @@ def assess_tool_risk(
     db: Session,
     tool_name: str,
     arguments: Dict[str, Any],
+    user_id: Optional[int] = None,
 ) -> ToolRiskAssessment:
     if tool_name in HIGH_RISK_TOOLS:
         return ToolRiskAssessment(
@@ -407,17 +430,17 @@ def assess_tool_risk(
     try:
         if tool_name == "save_prompt" and arguments.get("prompt_id"):
             prompt_id = int(arguments["prompt_id"])
-            if _prompt_bound_to_active_trader(db, prompt_id):
+            if _prompt_bound_to_active_trader(db, prompt_id, user_id):
                 risk_level = RISK_HIGH
                 reason = "prompt_bound_to_active_trader"
         elif tool_name == "save_program" and arguments.get("program_id"):
             program_id = int(arguments["program_id"])
-            if _program_bound_to_active_trader(db, program_id):
+            if _program_bound_to_active_trader(db, program_id, user_id):
                 risk_level = RISK_HIGH
                 reason = "program_bound_to_active_trader"
         elif tool_name == "update_signal_pool" and arguments.get("pool_id"):
             pool_id = int(arguments["pool_id"])
-            if _signal_pool_bound_to_active_trader(db, pool_id):
+            if _signal_pool_bound_to_active_trader(db, pool_id, user_id):
                 risk_level = RISK_HIGH
                 reason = "signal_pool_bound_to_active_trader"
     except Exception as exc:
