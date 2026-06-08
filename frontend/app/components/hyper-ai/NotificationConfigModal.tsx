@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { Switch } from '@/components/ui/switch'
 import { Loader2 } from 'lucide-react'
+import { authFetch } from '@/lib/authFetch'
 
 interface SignalPool {
   id: number
@@ -56,8 +57,8 @@ export default function NotificationConfigModal({
     setLoading(true)
     try {
       const [configRes, signalsRes] = await Promise.all([
-        fetch('/api/bot/notification-config'),
-        fetch('/api/signals'),
+        authFetch('/api/bot/notification-config'),
+        authFetch('/api/signals'),
       ])
       const configData = await configRes.json()
       const signalsData = await signalsRes.json()
@@ -73,7 +74,7 @@ export default function NotificationConfigModal({
   const saveConfig = async (newConfig: NotificationConfig) => {
     setSaving(true)
     try {
-      await fetch('/api/bot/notification-config', {
+      await authFetch('/api/bot/notification-config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newConfig),

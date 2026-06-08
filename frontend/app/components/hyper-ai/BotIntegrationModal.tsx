@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { ExternalLink, Copy, Check, Loader2, XCircle } from 'lucide-react'
+import { authFetch } from '@/lib/authFetch'
 
 interface BotIntegrationModalProps {
   open: boolean
@@ -67,7 +68,7 @@ export default function BotIntegrationModal({
     setError(null)
     try {
       const endpoint = isTelegram ? '/api/bot/telegram/connect' : '/api/bot/discord/connect'
-      const res = await fetch(endpoint, {
+      const res = await authFetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bot_token: token }),

@@ -7,6 +7,8 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
+from database.models import User
+from api.auth_utils import get_current_user_dependency
 from services.bot_service import (
     get_bot_config,
     get_all_bot_configs,
@@ -46,22 +48,33 @@ class BotStatusRequest(BaseModel):
 
 
 @router.get("/configs")
-def list_bot_configs(db: Session = Depends(get_db)):
+def list_bot_configs(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """List all bot configurations."""
-    return {"configs": get_all_bot_configs(db)}
+    return {"configs": get_all_bot_configs(db, current_user.id)}
 
 
 @router.get("/config/{platform}")
-def get_bot_config_endpoint(platform: str, db: Session = Depends(get_db)):
+def get_bot_config_endpoint(
+    platform: str,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get bot configuration for a specific platform."""
-    config = get_bot_config(db, platform)
+    config = get_bot_config(db, platform, current_user.id)
     if not config:
         return {"config": None, "configured": False}
     return {"config": config, "configured": True}
 
 
 @router.post("/config")
-def save_bot_config_endpoint(request: BotConfigRequest, db: Session = Depends(get_db)):
+def save_bot_config_endpoint(
+    request: BotConfigRequest,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Save or update bot configuration."""
     # Validate platform - allow known platforms (new platforms should be added here)
     known_platforms = ["telegram", "discord", "whatsapp", "wechat"]
@@ -77,18 +90,24 @@ def save_bot_config_endpoint(request: BotConfigRequest, db: Session = Depends(ge
         bot_token=request.bot_token,
         bot_username=request.bot_username,
         bot_app_id=request.bot_app_id,
+        user_id=current_user.id,
     )
     return {"success": True, "config": config}
 
 
 @router.put("/status")
-def update_bot_status_endpoint(request: BotStatusRequest, db: Session = Depends(get_db)):
+def update_bot_status_endpoint(
+    request: BotStatusRequest,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Update bot connection status."""
     success = update_bot_status(
         db=db,
         platform=request.platform,
         status=request.status,
         error_message=request.error_message,
+        user_id=current_user.id,
     )
     if not success:
         raise HTTPException(status_code=404, detail=f"Bot config for {request.platform} not found")
@@ -96,9 +115,13 @@ def update_bot_status_endpoint(request: BotStatusRequest, db: Session = Depends(
 
 
 @router.delete("/config/{platform}")
-def delete_bot_config_endpoint(platform: str, db: Session = Depends(get_db)):
+def delete_bot_config_endpoint(
+    platform: str,
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Delete bot configuration."""
-    success = delete_bot_config(db, platform)
+    success = delete_bot_config(db, platform, current_user.id)
     if not success:
         raise HTTPException(status_code=404, detail=f"Bot config for {platform} not found")
     return {"success": True}
@@ -116,6 +139,10 @@ DEFAULT_NOTIFICATION_CONFIG = {
 }
 
 
+def _notification_config_key(user_id: int) -> str:
+    return f"{NOTIFICATION_CONFIG_KEY}:{user_id}"
+
+
 class NotificationConfigRequest(BaseModel):
     ai_trader: bool = True
     program_trader: bool = True
@@ -123,11 +150,14 @@ class NotificationConfigRequest(BaseModel):
 
 
 @router.get("/notification-config")
-def get_notification_config(db: Session = Depends(get_db)):
+def get_notification_config(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get bot push notification configuration."""
     from database.models import SystemConfig
     config = db.query(SystemConfig).filter(
-        SystemConfig.key == NOTIFICATION_CONFIG_KEY
+        SystemConfig.key == _notification_config_key(current_user.id)
     ).first()
     if not config:
         return {"config": DEFAULT_NOTIFICATION_CONFIG}
@@ -140,6 +170,7 @@ def get_notification_config(db: Session = Depends(get_db)):
 @router.put("/notification-config")
 def update_notification_config(
     request: NotificationConfigRequest,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Update bot push notification configuration."""
@@ -150,13 +181,13 @@ def update_notification_config(
         "signal_pools": request.signal_pools,
     }
     config = db.query(SystemConfig).filter(
-        SystemConfig.key == NOTIFICATION_CONFIG_KEY
+        SystemConfig.key == _notification_config_key(current_user.id)
     ).first()
     if config:
         config.value = json.dumps(config_data)
     else:
         config = SystemConfig(
-            key=NOTIFICATION_CONFIG_KEY,
+            key=_notification_config_key(current_user.id),
             value=json.dumps(config_data)
         )
         db.add(config)
@@ -164,11 +195,12 @@ def update_notification_config(
     return {"success": True, "config": config_data}
 
 
-def get_notification_config_dict(db: Session) -> dict:
+def get_notification_config_dict(db: Session, user_id: int | None = None) -> dict:
     """Helper function to get notification config as dict (for use in hooks)."""
     from database.models import SystemConfig
+    key = _notification_config_key(user_id) if user_id is not None else NOTIFICATION_CONFIG_KEY
     config = db.query(SystemConfig).filter(
-        SystemConfig.key == NOTIFICATION_CONFIG_KEY
+        SystemConfig.key == key
     ).first()
     if not config:
         return DEFAULT_NOTIFICATION_CONFIG.copy()
@@ -255,6 +287,7 @@ class TelegramConnectRequest(BaseModel):
 @router.post("/telegram/connect")
 async def connect_telegram_bot(
     request: TelegramConnectRequest,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Validate token, save config, and start Long Polling for Telegram bot."""
@@ -264,7 +297,7 @@ async def connect_telegram_bot(
         raise HTTPException(status_code=400, detail=f"Invalid bot token: {result.get('error')}")
 
     # If rebinding: stop old polling and remove webhook
-    old_token = get_decrypted_bot_token(db, "telegram")
+    old_token = get_decrypted_bot_token(db, "telegram", current_user.id)
     if old_token and old_token != request.bot_token:
         try:
             from services.telegram_bot_service import stop_telegram_polling
@@ -280,16 +313,17 @@ async def connect_telegram_bot(
         bot_token=request.bot_token,
         bot_username=result.get("username"),
         bot_app_id=result.get("bot_id"),
+        user_id=current_user.id,
     )
 
     # Start Long Polling mode (no HTTPS/public URL required)
     from services.telegram_bot_service import start_telegram_polling
     polling_result = await start_telegram_polling(request.bot_token)
     if not polling_result["success"]:
-        update_bot_status(db, "telegram", "error", polling_result.get("error"))
+        update_bot_status(db, "telegram", "error", polling_result.get("error"), current_user.id)
         raise HTTPException(status_code=500, detail=f"Failed to start polling: {polling_result.get('error')}")
 
-    update_bot_status(db, "telegram", "connected")
+    update_bot_status(db, "telegram", "connected", user_id=current_user.id)
 
     # Register Telegram adapter
     from services.telegram_bot_service import get_telegram_adapter
@@ -301,10 +335,12 @@ async def connect_telegram_bot(
     # Create or get the shared Bot conversation (one per user, shared across platforms)
     from database.models import HyperAiConversation
     bot_conv = db.query(HyperAiConversation).filter(
+        HyperAiConversation.user_id == current_user.id,
         HyperAiConversation.is_bot_conversation == True
     ).first()
     if not bot_conv:
         bot_conv = HyperAiConversation(
+            user_id=current_user.id,
             title="Hyper AI Bot",
             is_bot_conversation=True
         )
@@ -321,9 +357,12 @@ async def connect_telegram_bot(
 
 
 @router.post("/telegram/disconnect")
-async def disconnect_telegram_bot(db: Session = Depends(get_db)):
+async def disconnect_telegram_bot(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Stop polling and disconnect Telegram bot."""
-    token = get_decrypted_bot_token(db, "telegram")
+    token = get_decrypted_bot_token(db, "telegram", current_user.id)
     if not token:
         raise HTTPException(status_code=404, detail="Telegram bot not configured")
 
@@ -332,16 +371,17 @@ async def disconnect_telegram_bot(db: Session = Depends(get_db)):
     await stop_telegram_polling()
     await remove_telegram_webhook(token)
 
-    update_bot_status(db, "telegram", "disconnected")
+    update_bot_status(db, "telegram", "disconnected", user_id=current_user.id)
     return {"success": True}
 
 
 @router.post("/telegram/retry-webhook")
 async def retry_telegram_connection(
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db)
 ):
     """Retry connection for an already-configured Telegram bot."""
-    token = get_decrypted_bot_token(db, "telegram")
+    token = get_decrypted_bot_token(db, "telegram", current_user.id)
     if not token:
         raise HTTPException(status_code=404, detail="Telegram bot not configured")
 
@@ -349,10 +389,10 @@ async def retry_telegram_connection(
     from services.telegram_bot_service import start_telegram_polling
     polling_result = await start_telegram_polling(token)
     if not polling_result["success"]:
-        update_bot_status(db, "telegram", "error", polling_result.get("error"))
+        update_bot_status(db, "telegram", "error", polling_result.get("error"), current_user.id)
         raise HTTPException(status_code=500, detail=f"Failed to start polling: {polling_result.get('error')}")
 
-    update_bot_status(db, "telegram", "connected")
+    update_bot_status(db, "telegram", "connected", user_id=current_user.id)
     return {"success": True}
 
 
@@ -530,6 +570,7 @@ class DiscordConnectRequest(BaseModel):
 @router.post("/discord/connect")
 async def connect_discord_bot(
     request: DiscordConnectRequest,
+    current_user: User = Depends(get_current_user_dependency),
     db: Session = Depends(get_db)
 ):
     """
@@ -548,9 +589,10 @@ async def connect_discord_bot(
         bot_token=request.bot_token,
         bot_username=result.get("username"),
         bot_app_id=result.get("bot_id"),
+        user_id=current_user.id,
     )
 
-    update_bot_status(db, "discord", "connected")
+    update_bot_status(db, "discord", "connected", user_id=current_user.id)
 
     # Register Discord adapter
     from services.discord_bot_service import get_discord_adapter
@@ -562,10 +604,12 @@ async def connect_discord_bot(
     # Create or get the shared Bot conversation (one per user, shared across platforms)
     from database.models import HyperAiConversation
     bot_conv = db.query(HyperAiConversation).filter(
+        HyperAiConversation.user_id == current_user.id,
         HyperAiConversation.is_bot_conversation == True
     ).first()
     if not bot_conv:
         bot_conv = HyperAiConversation(
+            user_id=current_user.id,
             title="Hyper AI Bot",
             is_bot_conversation=True
         )
@@ -695,21 +739,27 @@ async def _process_discord_message_internal(
 
 
 @router.post("/discord/disconnect")
-async def disconnect_discord_bot(db: Session = Depends(get_db)):
+async def disconnect_discord_bot(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Stop Gateway client and disconnect Discord bot."""
-    token = get_decrypted_bot_token(db, "discord")
+    token = get_decrypted_bot_token(db, "discord", current_user.id)
     if not token:
         raise HTTPException(status_code=404, detail="Discord bot not configured")
 
     await stop_discord_gateway()
-    update_bot_status(db, "discord", "disconnected")
+    update_bot_status(db, "discord", "disconnected", user_id=current_user.id)
     return {"success": True}
 
 
 @router.get("/discord/status")
-def get_discord_status(db: Session = Depends(get_db)):
+def get_discord_status(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     """Get Discord bot connection status including Gateway state."""
-    config = get_bot_config(db, "discord")
+    config = get_bot_config(db, "discord", current_user.id)
     gateway_running = is_discord_client_running()
     return {
         "config": config,

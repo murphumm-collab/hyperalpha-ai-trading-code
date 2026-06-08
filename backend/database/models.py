@@ -1723,7 +1723,8 @@ class BotConfig(Base):
     __tablename__ = "bot_configs"
 
     id = Column(Integer, primary_key=True, index=True)
-    platform = Column(String(20), unique=True, nullable=False)  # telegram / discord
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    platform = Column(String(20), nullable=False)  # telegram / discord
     bot_token_encrypted = Column(Text, nullable=True)
     bot_username = Column(String(100), nullable=True)
     bot_app_id = Column(String(50), nullable=True)
@@ -1733,12 +1734,17 @@ class BotConfig(Base):
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 
+    user = relationship("User")
+
+    __table_args__ = (UniqueConstraint("user_id", "platform", name="uq_bot_configs_user_platform"),)
+
 
 class BotChatBinding(Base):
     """Track chat_ids that have interacted with the bot (for push broadcast)."""
     __tablename__ = "bot_chat_bindings"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     platform = Column(String(20), nullable=False)  # telegram / discord
     chat_id = Column(String(100), nullable=False)
     username = Column(String(100), nullable=True)
@@ -1746,6 +1752,8 @@ class BotChatBinding(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     last_message_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+    user = relationship("User")
 
 
 # ============================================================================

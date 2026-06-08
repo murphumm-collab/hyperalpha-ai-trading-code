@@ -655,7 +655,7 @@ export default function HyperAiPage() {
 
   const fetchBotConfig = async () => {
     try {
-      const res = await fetch('/api/bot/config/telegram')
+      const res = await authFetch('/api/bot/config/telegram')
       const data = await res.json()
       setBotConfig(data.config || null)
     } catch (e) {
@@ -665,7 +665,7 @@ export default function HyperAiPage() {
 
   const fetchDiscordBotConfig = async () => {
     try {
-      const res = await fetch('/api/bot/config/discord')
+      const res = await authFetch('/api/bot/config/discord')
       const data = await res.json()
       setDiscordBotConfig(data.config || null)
     } catch (e) {
@@ -675,7 +675,7 @@ export default function HyperAiPage() {
 
   const fetchNotificationConfig = async () => {
     try {
-      const res = await fetch('/api/bot/notification-config')
+      const res = await authFetch('/api/bot/notification-config')
       const data = await res.json()
       const cfg = data.config || { ai_trader: true, program_trader: true, signal_pools: {} }
       let count = 0

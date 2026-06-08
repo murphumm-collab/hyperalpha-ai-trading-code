@@ -39,6 +39,7 @@ Local checkpoint: current branch `HEAD`
 - Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
 - User-scoped membership sync and logout clearing so one user cannot overwrite or delete other users' premium status.
 - Account-owner-scoped premium checks for Binance mainnet quotas and Hyperliquid builder fee decisions.
+- User-scoped Telegram/Discord bot credential API and bot notification configuration reads/writes.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
 
@@ -84,6 +85,7 @@ Local checkpoint: current branch `HEAD`
 | Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
 | Membership sync isolation | Done | `/api/users/sync-membership` and `/api/users/clear-membership` update/delete only the current request user's `UserSubscription` |
 | Premium entitlement isolation | Done | AI Trader, Program Trader, Binance API, and Hyperliquid builder fee checks use the account owner's subscription instead of any premium user in the database |
+| Bot config API isolation | Done | `bot_configs.user_id` migration/model/service/API plus frontend `authFetch` prevent users from overwriting each other's Telegram/Discord credentials or notification toggles |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -135,6 +137,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Premium account-owner smoke test in `uv run`: Bob premium did not make Alice premium for Binance quota checks or Hyperliquid builder fee, while Bob retained premium behavior.
 - Passed: Static search found no remaining `User.username != 'default'` premium checks in backend API/services.
 - Passed: Premium-related trading service syntax compile in both system Python and `uv run` backend environment.
+- Passed: Bot config isolation smoke test in `uv run` with a test encryption key: Alice/Bob Telegram configs and notification configs did not overwrite each other.
+- Passed: Bot model/service/routes/migration syntax compile in both system Python and `uv run` backend environment; frontend production build passed after Bot config requests switched to `authFetch`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
@@ -144,3 +148,4 @@ Local checkpoint: current branch `HEAD`
 - Redis/distributed job queue execution is not implemented in this slice; DB persistence covers single-server task/chunk recovery, not multi-instance worker orchestration.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
+- Telegram/Discord external bot long-connection routing is not fully multi-tenant yet; this slice scopes stored credentials and notification config, but concurrent per-user bot runtimes/webhook dispatch still need a dedicated design.

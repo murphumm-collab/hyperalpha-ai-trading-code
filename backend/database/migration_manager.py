@@ -76,6 +76,7 @@ MIGRATIONS = [
     "add_ai_stream_persistence.py",
     "add_soft_delete_fields.py",
     "create_bot_integration_tables.py",
+    "add_bot_config_user_scope.py",
     "fix_is_deleted_default.py",
     "create_factor_system_tables.py",
     "add_exchange_to_factor_effectiveness.py",
