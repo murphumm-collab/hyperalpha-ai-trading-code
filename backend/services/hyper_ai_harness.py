@@ -305,9 +305,15 @@ def execute_tool_with_meta(
     db: Session,
     tool_name: str,
     arguments: Dict[str, Any],
-    user_id: int = 1,
+    user_id: Optional[int] = None,
     api_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, ToolExecutionMeta]:
+    if user_id is None:
+        message = "Tool execution was blocked because user context is missing."
+        meta = blocked_meta(tool_name, message)
+        meta.code = "missing_user_context"
+        return blocked_tool_result(message), meta
+
     result = execute_hyper_ai_tool(
         db,
         tool_name,

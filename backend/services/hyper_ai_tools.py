@@ -3558,10 +3558,17 @@ def execute_delete_program_binding(db: Session, binding_id: int, user_id: int = 
 
 def execute_hyper_ai_tool(
     db: Session, tool_name: str, arguments: Dict[str, Any],
-    user_id: int = 1, api_config: Optional[Dict[str, Any]] = None
+    user_id: Optional[int] = None, api_config: Optional[Dict[str, Any]] = None
 ) -> str:
     """Execute a Hyper AI tool by name."""
     try:
+        if user_id is None:
+            return json.dumps({
+                "status": "blocked",
+                "message": "Tool execution requires authenticated user context.",
+                "executed": False
+            }, ensure_ascii=False)
+
         if tool_name == "get_system_overview":
             return execute_get_system_overview(db, user_id=user_id)
 

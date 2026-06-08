@@ -716,6 +716,13 @@ def _execute_harnessed_tool_call(
     user_id: Optional[int] = None,
 ) -> Generator[str, None, str]:
     """Execute a Hyper AI tool with runtime harness guardrails."""
+    if user_id is None:
+        tool_result = blocked_tool_result("Tool execution was blocked because user context is missing.")
+        meta = blocked_meta(fn_name, "Tool execution requires authenticated user context.")
+        meta.code = "missing_user_context"
+        yield format_sse_event("tool_error", _tool_error_event_data(meta, severity="missing_user_context"))
+        return tool_result
+
     if failure_tracker.is_tripped(fn_name):
         tool_result = circuit_breaker_result(fn_name)
         meta = blocked_meta(fn_name, "Tool is temporarily unavailable after repeated infrastructure failures.")
@@ -737,7 +744,7 @@ def _execute_harnessed_tool_call(
         return blocked_result
 
     if fn_name in SUBAGENT_TOOL_NAMES:
-        tool_result = yield from execute_subagent_tool(db, fn_name, fn_args, user_id=user_id or 1)
+        tool_result = yield from execute_subagent_tool(db, fn_name, fn_args, user_id=user_id)
         contract_ok, warning = SubAgentContractChecker.check(fn_name, tool_result)
         if not contract_ok:
             tool_result = f"{warning}\n{tool_result}"
@@ -751,7 +758,7 @@ def _execute_harnessed_tool_call(
         db,
         fn_name,
         fn_args,
-        user_id=user_id or 1,
+        user_id=user_id,
         api_config=llm_config,
     )
     failure_tracker.record(meta)
@@ -790,6 +797,12 @@ def stream_chat_response(
     a string. This generator yields subagent_progress events (forwarded to frontend)
     and finally yields the result string for the main LLM to continue reasoning.
     """
+    if user_id is None:
+        yield format_sse_event("error", {
+            "message": "Authenticated user context is required."
+        })
+        return
+
     # Get LLM config
     llm_config = get_llm_config(db, user_id=user_id)
     if not llm_config.get("configured"):

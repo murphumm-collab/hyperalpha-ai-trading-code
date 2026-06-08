@@ -37,6 +37,14 @@ SUBAGENT_DISPLAY_NAMES = {
 logger = logging.getLogger(__name__)
 
 
+def _missing_user_context_result(subagent: str) -> str:
+    return json.dumps({
+        "subagent": subagent,
+        "status": "blocked",
+        "error": "Sub-agent execution requires authenticated user context."
+    })
+
+
 # Sub-agent tool definitions in OpenAI format
 # Note: Sub-agents inherit Hyper AI's LLM configuration, no account_id needed
 SUBAGENT_TOOLS = [
@@ -292,7 +300,7 @@ def execute_call_prompt_ai(
     task: str,
     conversation_id: Optional[int] = None,
     prompt_id: Optional[int] = None,
-    user_id: int = 1
+    user_id: Optional[int] = None
 ) -> Generator[str, None, str]:
     """
     Execute Prompt AI sub-agent. Returns a generator that yields progress
@@ -304,6 +312,9 @@ def execute_call_prompt_ai(
     logger.info(f"[call_prompt_ai] task={task[:50]}..., conv_id={conversation_id}, prompt_id={prompt_id}")
 
     try:
+        if user_id is None:
+            return _missing_user_context_result("prompt_ai")
+
         llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
@@ -343,7 +354,7 @@ def execute_call_program_ai(
     task: str,
     conversation_id: Optional[int] = None,
     program_id: Optional[int] = None,
-    user_id: int = 1
+    user_id: Optional[int] = None
 ) -> Generator[str, None, str]:
     """Execute Program AI sub-agent. Yields progress events, returns result JSON."""
     from services.ai_program_service import generate_program_with_ai_stream
@@ -352,6 +363,9 @@ def execute_call_program_ai(
     logger.info(f"[call_program_ai] task={task[:50]}..., conv_id={conversation_id}")
 
     try:
+        if user_id is None:
+            return _missing_user_context_result("program_ai")
+
         llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
@@ -390,7 +404,7 @@ def execute_call_signal_ai(
     db: Session,
     task: str,
     conversation_id: Optional[int] = None,
-    user_id: int = 1
+    user_id: Optional[int] = None
 ) -> Generator[str, None, str]:
     """Execute Signal AI sub-agent. Yields progress events, returns result JSON."""
     from services.ai_signal_generation_service import generate_signal_with_ai_stream
@@ -399,6 +413,9 @@ def execute_call_signal_ai(
     logger.info(f"[call_signal_ai] task={task[:50]}..., conv_id={conversation_id}")
 
     try:
+        if user_id is None:
+            return _missing_user_context_result("signal_ai")
+
         llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
@@ -436,7 +453,7 @@ def execute_call_attribution_ai(
     db: Session,
     task: str,
     conversation_id: Optional[int] = None,
-    user_id: int = 1
+    user_id: Optional[int] = None
 ) -> Generator[str, None, str]:
     """Execute Attribution AI sub-agent. Yields progress events, returns result JSON."""
     from services.ai_attribution_service import generate_attribution_analysis_stream
@@ -445,6 +462,9 @@ def execute_call_attribution_ai(
     logger.info(f"[call_attribution_ai] task={task[:50]}..., conv_id={conversation_id}")
 
     try:
+        if user_id is None:
+            return _missing_user_context_result("attribution_ai")
+
         llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
@@ -482,7 +502,7 @@ def execute_subagent_tool(
     db: Session,
     tool_name: str,
     arguments: Dict[str, Any],
-    user_id: int = 1
+    user_id: Optional[int] = None
 ) -> Generator[str, None, str]:
     """
     Execute a sub-agent tool by name. Returns a generator that yields
@@ -493,6 +513,13 @@ def execute_subagent_tool(
         tool_result = yield from gen  # forwards progress events, gets result
     """
     try:
+        if user_id is None:
+            return json.dumps({
+                "subagent": tool_name,
+                "status": "blocked",
+                "error": "Sub-agent execution requires authenticated user context."
+            })
+
         if tool_name == "call_prompt_ai":
             return (yield from execute_call_prompt_ai(
                 db,
