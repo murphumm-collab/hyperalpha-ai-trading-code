@@ -55,11 +55,22 @@ def _clear_client_cache(account_id: int = None, environment: str = None):
         _client_cache.clear()
 
 
-def _is_premium_user(db: Session) -> bool:
-    """Check if there is a premium member currently logged in"""
+def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
+def _is_premium_user(db: Session, user_id: int) -> bool:
+    """Check whether the current user has an active premium subscription."""
     try:
         subscription = db.query(UserSubscription).join(User).filter(
-            User.username != 'default',
+            User.id == user_id,
             UserSubscription.subscription_type == 'premium'
         ).first()
         return subscription is not None
@@ -107,7 +118,8 @@ class ManualOrderRequest(BaseModel):
 def setup_wallet(
     account_id: int,
     request: BinanceSetupRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Setup Binance Futures wallet for an account.
@@ -116,10 +128,7 @@ def setup_wallet(
     For mainnet, checks rebate eligibility first. If not eligible,
     returns error code 'REBATE_INELIGIBLE' for frontend to show options.
     """
-    # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    _ensure_account_owner(db, account_id, current_user.id)
 
     # Validate credentials by testing connection
     try:
@@ -140,7 +149,7 @@ def setup_wallet(
 
         if not rebate_info.get("eligible", False):
             # Check if user is premium - premium users can proceed without rebate
-            is_premium = _is_premium_user(db)
+            is_premium = _is_premium_user(db, current_user.id)
             if not is_premium:
                 # Return special response for frontend to handle
                 return {
@@ -197,8 +206,13 @@ def setup_wallet(
 
 
 @router.get("/accounts/{account_id}/config")
-def get_config(account_id: int, db: Session = Depends(get_db)):
+def get_config(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Get Binance wallet configuration for an account"""
+    _ensure_account_owner(db, account_id, current_user.id)
     wallets = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id
     ).all()
@@ -250,13 +264,15 @@ def get_config(account_id: int, db: Session = Depends(get_db)):
 def get_balance(
     account_id: int,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get Binance Futures account balance"""
     start_threads = get_current_thread_count()
     start_time = time.monotonic()
     if not environment:
         environment = get_global_trading_mode(db)
+    _ensure_account_owner(db, account_id, current_user.id)
 
     wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
@@ -289,11 +305,13 @@ def get_balance(
 def get_positions(
     account_id: int,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get Binance Futures open positions"""
     if not environment:
         environment = get_global_trading_mode(db)
+    _ensure_account_owner(db, account_id, current_user.id)
 
     wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
@@ -317,11 +335,13 @@ def place_order(
     account_id: int,
     request: ManualOrderRequest,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Place a manual order on Binance Futures"""
     if not environment:
         environment = get_global_trading_mode(db)
+    _ensure_account_owner(db, account_id, current_user.id)
 
     wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
@@ -381,11 +401,13 @@ def close_position(
     account_id: int,
     symbol: str,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Close entire position for a symbol"""
     if not environment:
         environment = get_global_trading_mode(db)
+    _ensure_account_owner(db, account_id, current_user.id)
 
     wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
@@ -411,9 +433,11 @@ def close_position(
 def delete_wallet(
     account_id: int,
     environment: str,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Disable Binance wallet for an account"""
+    _ensure_account_owner(db, account_id, current_user.id)
     wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
         BinanceWallet.environment == environment
@@ -433,13 +457,15 @@ def delete_wallet(
 def get_account_summary(
     account_id: int,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get Binance account summary for dashboard display."""
     start_threads = get_current_thread_count()
     start_time = time.monotonic()
     if not environment:
         environment = get_global_trading_mode(db)
+    _ensure_account_owner(db, account_id, current_user.id)
 
     wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
@@ -490,11 +516,13 @@ def get_account_summary(
 def get_rate_limit(
     account_id: int,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get Binance API rate limit (weight per minute) for an account."""
     if not environment:
         environment = get_global_trading_mode(db)
+    _ensure_account_owner(db, account_id, current_user.id)
 
     wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
@@ -546,13 +574,21 @@ def get_price(symbol: str):
 
 
 @router.get("/wallets/all")
-def get_all_binance_wallets(db: Session = Depends(get_db)):
+def get_all_binance_wallets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Get all Binance wallets across all accounts for manual trading page.
     Returns wallet info with masked API keys.
     """
-    wallets = db.query(BinanceWallet).filter(
-        BinanceWallet.is_active == "true"
+    wallets = db.query(BinanceWallet).join(
+        Account,
+        BinanceWallet.account_id == Account.id,
+    ).filter(
+        BinanceWallet.is_active == "true",
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
     ).all()
 
     result = []
@@ -590,7 +626,8 @@ def get_all_binance_wallets(db: Session = Depends(get_db)):
 def get_binance_trading_stats(
     account_id: int,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get trading statistics for Binance account.
@@ -611,6 +648,7 @@ def get_binance_trading_stats(
         # Determine environment
         if environment is None:
             environment = get_global_trading_mode(db)
+        _ensure_account_owner(db, account_id, current_user.id)
 
         # Get wallet
         wallet = db.query(BinanceWallet).filter(
@@ -646,7 +684,8 @@ def get_binance_trading_stats(
 def check_rebate_eligibility(
     api_key: str,
     secret_key: str,
-    environment: str = "mainnet"
+    environment: str = "mainnet",
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Check if a Binance account is eligible for API broker rebate.
@@ -713,16 +752,14 @@ class ConfirmLimitedBindingRequest(BaseModel):
 def confirm_limited_binding(
     account_id: int,
     request: ConfirmLimitedBindingRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Confirm binding for non-rebate mainnet account with daily quota limit.
     Called when user chooses "Continue with limited quota" in RebateIneligibleModal.
     """
-    # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    _ensure_account_owner(db, account_id, current_user.id)
 
     # Validate credentials
     try:
@@ -778,7 +815,11 @@ def confirm_limited_binding(
 
 
 @router.get("/accounts/{account_id}/daily-quota")
-def get_daily_quota(account_id: int, db: Session = Depends(get_db)):
+def get_daily_quota(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Get daily quota usage for Binance mainnet non-rebate accounts.
 
@@ -801,6 +842,8 @@ def get_daily_quota(account_id: int, db: Session = Depends(get_db)):
             account_id=account_id,
         )
 
+    _ensure_account_owner(db, account_id, current_user.id)
+
     # Check if mainnet wallet exists
     mainnet_wallet = db.query(BinanceWallet).filter(
         BinanceWallet.account_id == account_id,
@@ -819,7 +862,7 @@ def get_daily_quota(account_id: int, db: Session = Depends(get_db)):
         return {"limited": False, "used": 0, "limit": DAILY_QUOTA_LIMIT, "remaining": DAILY_QUOTA_LIMIT}
 
     # Check premium status
-    if _is_premium_user(db):
+    if _is_premium_user(db, current_user.id):
         _log_request()
         return {"limited": False, "used": 0, "limit": DAILY_QUOTA_LIMIT, "remaining": DAILY_QUOTA_LIMIT}
 
