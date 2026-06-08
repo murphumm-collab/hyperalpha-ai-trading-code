@@ -54,5 +54,19 @@ BINANCE_BROKER_CONFIG = BinanceBrokerConfig(
 # This limits the number of AI-executed trades per day to prevent excessive API usage
 BINANCE_DAILY_QUOTA_LIMIT = 40
 
+# Hard risk guardrails for automated AI/Program execution. Users can still set
+# stricter account-level leverage, but these platform caps prevent obvious
+# runaway orders before they reach an exchange.
+AI_HARD_MAX_SINGLE_TRADE_MARGIN_FRACTION = float(
+    os.getenv("AI_HARD_MAX_SINGLE_TRADE_MARGIN_FRACTION", "0.5")
+)
+AI_HARD_MAX_PROJECTED_MARGIN_USAGE_PERCENT = float(
+    os.getenv("AI_HARD_MAX_PROJECTED_MARGIN_USAGE_PERCENT", "75")
+)
+AI_HARD_MAX_LEVERAGE = int(os.getenv("AI_HARD_MAX_LEVERAGE", "50"))
+AI_HARD_MAX_ORDER_NOTIONAL_USD = float(os.getenv("AI_HARD_MAX_ORDER_NOTIONAL_USD", "0"))
+AI_HARD_REQUIRE_STOP_LOSS = os.getenv("AI_HARD_REQUIRE_STOP_LOSS", "false").lower() == "true"
+AI_HARD_REQUIRE_TAKE_PROFIT = os.getenv("AI_HARD_REQUIRE_TAKE_PROFIT", "false").lower() == "true"
+
 # Factor Engine toggle (set to "true" to enable factor computation)
 FACTOR_ENGINE_ENABLED = os.getenv("FACTOR_ENGINE_ENABLED", "false").lower() == "true"

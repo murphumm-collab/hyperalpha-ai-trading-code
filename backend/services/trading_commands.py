@@ -40,6 +40,7 @@ from services.hyperliquid_symbol_service import (
 from services.binance_symbol_service import (
     get_selected_symbols as get_binance_selected_symbols,
 )
+from services.hard_risk_service import validate_automated_trade_risk
 from config.settings import BINANCE_DAILY_QUOTA_LIMIT
 
 
@@ -699,6 +700,32 @@ def place_ai_driven_hyperliquid_order(
                 price = prices.get(symbol)
                 if not price or price <= 0:
                     logger.warning(f"Invalid price for {symbol} for {account.name}")
+                    save_ai_decision(db, account, decision, portfolio, executed=False, **decision_kwargs)
+                    continue
+
+                risk_result = validate_automated_trade_risk(
+                    source="ai_trader",
+                    exchange="hyperliquid",
+                    account_id=account.id,
+                    operation=operation,
+                    symbol=symbol,
+                    target_portion_of_balance=target_portion,
+                    leverage=leverage,
+                    max_leverage=max_leverage,
+                    market_price=price,
+                    available_balance=available_balance,
+                    total_equity=total_equity,
+                    margin_usage_percent=margin_usage,
+                    take_profit_price=decision.get("take_profit_price"),
+                    stop_loss_price=decision.get("stop_loss_price"),
+                )
+                risk_result.annotate(decision)
+                if not risk_result.allowed:
+                    logger.warning(
+                        "AI decision rejected by hard risk guard for %s: %s",
+                        account.name,
+                        "; ".join(risk_result.reasons),
+                    )
                     save_ai_decision(db, account, decision, portfolio, executed=False, **decision_kwargs)
                     continue
 
@@ -1519,6 +1546,8 @@ def place_ai_driven_binance_order(
                 _execute_binance_decision(
                     db, account, client, decision, portfolio, positions, account_prices,
                     available_balance=available_balance,
+                    total_equity=total_equity,
+                    margin_usage_percent=margin_usage,
                     max_leverage=wallet.max_leverage or 20,
                     default_leverage=wallet.default_leverage or 5,
                     decision_kwargs=decision_kwargs,
@@ -1541,6 +1570,8 @@ def _execute_binance_decision(
     positions: List[Dict[str, Any]],
     prices: Dict[str, float],
     available_balance: float = 0.0,
+    total_equity: float = 0.0,
+    margin_usage_percent: float = 0.0,
     max_leverage: int = 20,
     default_leverage: int = 5,
     decision_kwargs: Optional[Dict[str, Any]] = None,
@@ -1619,6 +1650,32 @@ def _execute_binance_decision(
     price = prices.get(symbol, 0)
     if not price or price <= 0:
         logger.warning(f"[BINANCE] Invalid price for {symbol} for {account.name}")
+        save_ai_decision(db, account, decision, portfolio, executed=False, **decision_kwargs)
+        return
+
+    risk_result = validate_automated_trade_risk(
+        source="ai_trader",
+        exchange="binance",
+        account_id=account.id,
+        operation=operation,
+        symbol=symbol,
+        target_portion_of_balance=target_portion,
+        leverage=leverage,
+        max_leverage=max_leverage,
+        market_price=price,
+        available_balance=available_balance,
+        total_equity=total_equity,
+        margin_usage_percent=margin_usage_percent,
+        take_profit_price=take_profit_price,
+        stop_loss_price=stop_loss_price,
+    )
+    risk_result.annotate(decision)
+    if not risk_result.allowed:
+        logger.warning(
+            "[BINANCE] AI decision rejected by hard risk guard for %s: %s",
+            account.name,
+            "; ".join(risk_result.reasons),
+        )
         save_ai_decision(db, account, decision, portfolio, executed=False, **decision_kwargs)
         return
 

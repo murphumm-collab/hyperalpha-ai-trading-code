@@ -26,10 +26,11 @@ Local checkpoint: current branch `HEAD`
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
 - Trading command AI prompts use each account owner's watchlist instead of a cross-user aggregate list.
+- Automated AI Trader and Program Trader order execution pass a shared hard risk validator before exchange order placement.
 - Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
 - Auth-aware frontend watchlist reads for Klines, Arena NewsZone, Signal Manager, and Dashboard Insight.
 - Development progress and acceptance markers.
-- No order-placement API or final risk-policy changes.
+- Manual order-placement APIs are not changed in this slice.
 
 ## Progress Markers
 
@@ -60,13 +61,14 @@ Local checkpoint: current branch `HEAD`
 | Trading command watchlist isolation | Done | Hyperliquid/Binance AI prompts use each account owner's watchlist while price collectors use the union |
 | Hyperliquid API ownership guard | Done | Account-level Hyperliquid config, balance, positions, manual order, wallet, agent wallet, actions summary, and upgrade-check APIs validate current user |
 | Hyperliquid account execution environment | Done | Setup/switch/client defaults, AI decision logs, Program Trader, and trading commands use account-level environment before global fallback |
+| Automated execution hard risk guard | Done | `hard_risk_service.py`; AI Trader and Program Trader reject orders exceeding hard leverage, single-trade margin, projected margin usage, optional TP/SL, or TP/SL side rules |
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
 | Frontend watchlist auth | Done | Klines, Arena NewsZone, Signal Manager, and Dashboard Insight use auth-aware watchlist fetches |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
 | Remote push | Blocked | Terminal GitHub HTTPS credentials unavailable |
-| Acceptance | Partial | Multi-user AI foundation checks passed; live Casdoor env acceptance, distributed job queue, and live order execution remain unaccepted |
+| Acceptance | Partial | Multi-user AI foundation and automated hard-risk checks passed; live Casdoor env acceptance, distributed job queue, and real exchange execution remain unaccepted |
 
 ## Verification Log
 
@@ -89,6 +91,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend watchlist fetch audit found no remaining bare `/symbols/watchlist` requests; production Vite build passed.
 - Passed: Hyperliquid owner guard route compile, whitespace check, and frontend production build after wallet selector auth update.
 - Passed: Hyperliquid account execution environment compile and whitespace check.
+- Passed: Hard risk service smoke test in `uv run`: accepted normal small entry, rejected oversized/overleveraged/invalid TP-SL entry, allowed close while margin usage was high.
+- Passed: AI Trader and Program Trader hard risk integration compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
@@ -97,4 +101,4 @@ Local checkpoint: current branch `HEAD`
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
 - Redis/distributed job queue execution is not implemented in this slice; DB persistence covers single-server task/chunk recovery, not multi-instance worker orchestration.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
-- Full live-order execution acceptance is still pending; this slice only scopes watchlists and account prompt symbol inputs, not final risk policy or order-routing governance.
+- Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.

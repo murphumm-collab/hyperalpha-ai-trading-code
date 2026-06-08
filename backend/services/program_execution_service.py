@@ -40,6 +40,7 @@ from program_trader.executor import execute_strategy
 from program_trader.models import MarketData, ActionType
 from program_trader.data_provider import DataProvider
 from config.settings import BINANCE_DAILY_QUOTA_LIMIT
+from services.hard_risk_service import validate_automated_trade_risk
 
 logger = logging.getLogger(__name__)
 
@@ -772,6 +773,13 @@ class ProgramExecutionService:
                 logger.info(f"[ProgramExecution] Updated log {log_id} with quota exceeded status")
                 return
 
+            if isinstance(order_result, dict) and order_result.get("status") == "risk_rejected":
+                log.success = False
+                log.error_message = f"Executed: NO - Hard risk rejected: {order_result.get('error', '')}"
+                db.commit()
+                logger.info(f"[ProgramExecution] Updated log {log_id} with risk rejection status")
+                return
+
             # Extract order IDs from result
             order_id = order_result.get('order_id')
             tp_order_id = order_result.get('tp_order_id')
@@ -868,7 +876,11 @@ class ProgramExecutionService:
     ):
         """Handle the decision from program execution - execute actual trade."""
         from program_trader.executor import validate_decision
-        from services.hyperliquid_environment import get_account_trading_environment, get_hyperliquid_client
+        from services.hyperliquid_environment import (
+            get_account_trading_environment,
+            get_hyperliquid_client,
+            get_leverage_settings,
+        )
 
         op = decision.operation.lower() if hasattr(decision, 'operation') else decision.action.value
 
@@ -972,6 +984,40 @@ class ProgramExecutionService:
                     logger.error(f"[ProgramExecution] Invalid TP/SL: {tp_errors}")
                     return False
 
+            if exchange == "binance":
+                leverage_settings = self._get_binance_leverage_settings(
+                    db, binding.account_id, environment or "mainnet"
+                )
+            else:
+                leverage_settings = get_leverage_settings(
+                    db, binding.account_id, environment or "mainnet"
+                )
+            max_leverage = leverage_settings.get("max_leverage", 10)
+            risk_result = validate_automated_trade_risk(
+                source="program_trader",
+                exchange=exchange,
+                account_id=binding.account_id,
+                operation=op,
+                symbol=decision.symbol,
+                target_portion_of_balance=getattr(decision, "target_portion_of_balance", 0),
+                leverage=getattr(decision, "leverage", 1),
+                max_leverage=max_leverage,
+                market_price=market_price,
+                available_balance=available_balance,
+                total_equity=account_info.get("total_equity", account_info.get("total_assets", 0)),
+                margin_usage_percent=account_info.get("margin_usage_percent", 0),
+                take_profit_price=getattr(decision, "take_profit_price", None),
+                stop_loss_price=getattr(decision, "stop_loss_price", None),
+            )
+            if not risk_result.allowed:
+                error_message = "; ".join(risk_result.reasons)
+                logger.warning(
+                    "[ProgramExecution] Decision rejected by hard risk guard for binding %s: %s",
+                    binding.id,
+                    error_message,
+                )
+                return {"status": "risk_rejected", "error": error_message}
+
             # Execute based on operation type
             order_result = None
             if op == "buy":
@@ -994,6 +1040,8 @@ class ProgramExecutionService:
             else:
                 error_msg = order_result.get('error', 'Unknown error') if order_result else 'No result'
                 logger.error(f"[ProgramExecution] Order failed on {exchange}: {error_msg}")
+                if isinstance(order_result, dict) and order_result.get("status") == "risk_rejected":
+                    return order_result
                 return None
 
         except Exception as e:
