@@ -1689,11 +1689,12 @@ def execute_save_program(
     name: str,
     code: str,
     program_id: int = None,
-    description: str = None
+    description: str = None,
+    user_id: int = 1,
 ) -> str:
     """Create or update a trading program by calling existing API handlers."""
     from routes.program_routes import (
-        create_program, update_program, ProgramCreate, ProgramUpdate
+        _create_program_for_user, _update_program_for_user, ProgramCreate, ProgramUpdate
     )
     from fastapi import HTTPException
 
@@ -1701,12 +1702,12 @@ def execute_save_program(
         if program_id:
             # Update existing program
             data = ProgramUpdate(name=name, code=code, description=description)
-            result = update_program(program_id, data, db)
+            result = _update_program_for_user(program_id, data, db, user_id)
             action = "updated"
         else:
             # Create new program
             data = ProgramCreate(name=name, code=code, description=description)
-            result = create_program(data, db)
+            result = _create_program_for_user(data, db, user_id)
             action = "created"
 
         return json.dumps({
@@ -1735,7 +1736,8 @@ def execute_create_ai_trader(
     name: str,
     model: str,
     base_url: str,
-    api_key: str
+    api_key: str,
+    user_id: int = 1,
 ) -> str:
     """Create a new AI Trader with LLM config only. Strategy and wallet binding done separately."""
     from database.models import Account
@@ -1768,7 +1770,7 @@ def execute_create_ai_trader(
 
         # Step 2: Create Account with LLM config only
         account = Account(
-            user_id=1,
+            user_id=user_id,
             name=name,
             account_type="AI",
             is_active="true",
@@ -2939,11 +2941,11 @@ def execute_get_factor_functions(category: str = None) -> str:
     })
 
 
-def execute_web_search(db: Session, query: str, max_results: int = 5) -> str:
+def execute_web_search(db: Session, query: str, max_results: int = 5, user_id: int = 1) -> str:
     """Search the web using Tavily API. Returns error with setup guide if key not configured."""
     from services.hyper_ai_tool_registry import get_tool_api_key
 
-    api_key = get_tool_api_key(db, "tavily")
+    api_key = get_tool_api_key(db, "tavily", user_id=user_id)
     if not api_key:
         return json.dumps({
             "error": "Web search is not configured. The user needs to set up their Tavily API key.",
@@ -3421,7 +3423,8 @@ def execute_hyper_ai_tool(
                 name=arguments.get("name"),
                 code=arguments.get("code"),
                 program_id=arguments.get("program_id"),
-                description=arguments.get("description")
+                description=arguments.get("description"),
+                user_id=user_id,
             )
 
         elif tool_name == "create_ai_trader":
@@ -3430,7 +3433,8 @@ def execute_hyper_ai_tool(
                 name=arguments.get("name"),
                 model=arguments.get("model"),
                 base_url=arguments.get("base_url"),
-                api_key=arguments.get("api_key")
+                api_key=arguments.get("api_key"),
+                user_id=user_id,
             )
 
         # --- Query tools: list resources ---
@@ -3577,7 +3581,8 @@ def execute_hyper_ai_tool(
         elif tool_name == "web_search":
             return execute_web_search(
                 db, query=arguments.get("query", ""),
-                max_results=arguments.get("max_results", 5)
+                max_results=arguments.get("max_results", 5),
+                user_id=user_id,
             )
 
         elif tool_name == "fetch_url":

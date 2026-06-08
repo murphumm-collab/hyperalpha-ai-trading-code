@@ -22,6 +22,7 @@ import {
 import PacmanLoader from '@/components/ui/pacman-loader'
 import { TradingAccount } from '@/lib/api'
 import { pollAiStream } from '@/lib/pollAiStream'
+import { authFetch } from '@/lib/authFetch'
 import { Copy, Check, Wrench, Send, Loader2 } from 'lucide-react'
 
 interface SaveSuggestion {
@@ -146,7 +147,7 @@ export default function AiProgramChatModal({
   useEffect(() => {
     if (!currentConversationId || !selectedAccountId) return
     const params = `?account_id=${selectedAccountId}`
-    fetch(`/api/programs/ai-conversations/${currentConversationId}/messages${params}`)
+    authFetch(`/api/programs/ai-conversations/${currentConversationId}/messages${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.token_usage !== undefined) setTokenUsage(data.token_usage) })
       .catch(() => {})
@@ -158,7 +159,7 @@ export default function AiProgramChatModal({
       const url = programId
         ? `/api/programs/ai-conversations?program_id=${programId}`
         : '/api/programs/ai-conversations'
-      const response = await fetch(url)
+      const response = await authFetch(url)
       if (response.ok) {
         const data = await response.json()
         setConversations(data || [])
@@ -173,7 +174,7 @@ export default function AiProgramChatModal({
   const loadMessages = async (conversationId: number) => {
     try {
       const params = selectedAccountId ? `?account_id=${selectedAccountId}` : ''
-      const response = await fetch(`/api/programs/ai-conversations/${conversationId}/messages${params}`)
+      const response = await authFetch(`/api/programs/ai-conversations/${conversationId}/messages${params}`)
       if (response.ok) {
         const data = await response.json()
         // Map API fields to frontend format
@@ -230,7 +231,7 @@ export default function AiProgramChatModal({
     let finalConversationId: number | null = null
 
     try {
-      const response = await fetch('/api/programs/ai-chat', {
+      const response = await authFetch('/api/programs/ai-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

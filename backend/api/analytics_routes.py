@@ -13,7 +13,8 @@ from sqlalchemy import func, case, and_, or_
 from sqlalchemy.orm import Session
 
 from database.connection import SessionLocal
-from database.models import AIDecisionLog, Account, PromptTemplate, ProgramExecutionLog, TradingProgram
+from api.auth_utils import get_current_user_dependency
+from database.models import AIDecisionLog, Account, PromptTemplate, ProgramExecutionLog, TradingProgram, User
 from database.snapshot_connection import SnapshotSessionLocal
 from database.snapshot_models import HyperliquidTrade, HyperliquidAccountSnapshot
 import logging
@@ -730,10 +731,22 @@ class AiAttributionChatRequest(PydanticBaseModel):
     useBackgroundTask: bool = True
 
 
+def _ensure_attribution_account_access(db: Session, account_id: int, user_id: int) -> None:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.account_type == "AI",
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="AI account not found")
+
+
 @router.post("/ai-attribution/chat-stream")
 async def ai_attribution_chat_stream(
     request: AiAttributionChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     SSE streaming endpoint for AI attribution analysis chat.
@@ -744,6 +757,8 @@ async def ai_attribution_chat_stream(
     """
     from services.ai_stream_service import get_buffer_manager, generate_task_id, run_ai_task_in_background
     from database.connection import SessionLocal
+
+    _ensure_attribution_account_access(db, request.accountId, current_user.id)
 
     # Background task mode
     if request.useBackgroundTask:
@@ -762,6 +777,7 @@ async def ai_attribution_chat_stream(
         account_id = request.accountId
         user_message = request.userMessage
         conversation_id = request.conversationId
+        user_id = current_user.id
 
         def generator_func():
             bg_db = SessionLocal()
@@ -770,7 +786,8 @@ async def ai_attribution_chat_stream(
                     db=bg_db,
                     account_id=account_id,
                     user_message=user_message,
-                    conversation_id=conversation_id
+                    conversation_id=conversation_id,
+                    user_id=user_id,
                 )
             finally:
                 bg_db.close()
@@ -784,7 +801,8 @@ async def ai_attribution_chat_stream(
             db=db,
             account_id=request.accountId,
             user_message=request.userMessage,
-            conversation_id=request.conversationId
+            conversation_id=request.conversationId,
+            user_id=current_user.id,
         ),
         media_type="text/event-stream",
         headers={
@@ -796,9 +814,12 @@ async def ai_attribution_chat_stream(
 
 
 @router.get("/ai-attribution/conversations")
-async def list_attribution_conversations(db: Session = Depends(get_db)):
+async def list_attribution_conversations(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Get list of AI attribution analysis conversations."""
-    conversations = get_attribution_conversations(db)
+    conversations = get_attribution_conversations(db, user_id=current_user.id)
     return {"conversations": conversations}
 
 
@@ -806,19 +827,21 @@ async def list_attribution_conversations(db: Session = Depends(get_db)):
 async def get_conversation_messages(
     conversation_id: int,
     account_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get messages for a specific conversation with compression points and token usage."""
     import json as json_module
     from database.models import AiAttributionConversation, HyperAiProfile
     from services.ai_context_compression_service import calculate_token_usage, restore_tool_calls_to_messages
 
-    messages = get_attribution_messages(db, conversation_id)
+    messages = get_attribution_messages(db, conversation_id, user_id=current_user.id)
 
     # Get compression points from conversation
     compression_points = []
     conversation = db.query(AiAttributionConversation).filter(
-        AiAttributionConversation.id == conversation_id
+        AiAttributionConversation.id == conversation_id,
+        AiAttributionConversation.user_id == current_user.id,
     ).first()
     if conversation and conversation.compression_points:
         try:
@@ -832,18 +855,22 @@ async def get_conversation_messages(
     token_model = None
     api_format = "openai"
     if account_id:
-        acct = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+        acct = db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).first()
         if acct and acct.model:
             token_model = acct.model
             from services.ai_decision_service import detect_api_format
             _, fmt = detect_api_format(acct.base_url or "")
             api_format = fmt or "openai"
     if not token_model:
-        profile = db.query(HyperAiProfile).first()
+        profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == current_user.id).first()
         if profile and profile.llm_model:
             token_model = profile.llm_model
             from services.hyper_ai_service import get_llm_config
-            llm_config = get_llm_config(db)
+            llm_config = get_llm_config(db, user_id=current_user.id)
             api_format = llm_config.get("api_format", "openai")
 
     # Calculate token usage (only messages after compression point + summary)

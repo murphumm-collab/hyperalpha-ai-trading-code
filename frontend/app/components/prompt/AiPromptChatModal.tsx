@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select'
 import { TradingAccount } from '@/lib/api'
 import { pollAiStream } from '@/lib/pollAiStream'
+import { authFetch } from '@/lib/authFetch'
 import PacmanLoader from '@/components/ui/pacman-loader'
 import { copyToClipboard } from '@/lib/utils'
 import { Wrench, Send, Loader2 } from 'lucide-react'
@@ -138,7 +139,7 @@ export default function AiPromptChatModal({
   useEffect(() => {
     if (!currentConversationId || !selectedAccountId) return
     const params = `?account_id=${selectedAccountId}`
-    fetch(`/api/prompts/ai-conversations/${currentConversationId}/messages${params}`)
+    authFetch(`/api/prompts/ai-conversations/${currentConversationId}/messages${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.token_usage !== undefined) setTokenUsage(data.token_usage) })
       .catch(() => {})
@@ -147,7 +148,7 @@ export default function AiPromptChatModal({
   const loadConversations = async () => {
     setLoadingConversations(true)
     try {
-      const response = await fetch('/api/prompts/ai-conversations')
+      const response = await authFetch('/api/prompts/ai-conversations')
       if (response.ok) {
         const data = await response.json()
         setConversations(data.conversations || [])
@@ -165,7 +166,7 @@ export default function AiPromptChatModal({
   const loadMessages = async (conversationId: number) => {
     try {
       const params = selectedAccountId ? `?account_id=${selectedAccountId}` : ''
-      const response = await fetch(`/api/prompts/ai-conversations/${conversationId}/messages${params}`)
+      const response = await authFetch(`/api/prompts/ai-conversations/${conversationId}/messages${params}`)
       if (response.ok) {
         const data = await response.json()
         // Map API fields to frontend format
@@ -225,7 +226,7 @@ export default function AiPromptChatModal({
     let finalConversationId: number | null = null
 
     try {
-      const response = await fetch('/api/prompts/ai-chat-stream', {
+      const response = await authFetch('/api/prompts/ai-chat-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

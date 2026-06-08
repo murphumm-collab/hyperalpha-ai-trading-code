@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database.connection import SessionLocal
+from api.auth_utils import get_current_user_dependency
 from repositories import prompt_repo
 from database.models import PromptTemplate, Account
 from schemas.prompt import (
@@ -687,28 +688,32 @@ class AiChatResponse(BaseModel):
         populate_by_name = True
 
 
+def _ensure_prompt_account_access(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="AI Trader not found")
+    if account.account_type != "AI":
+        raise HTTPException(status_code=400, detail="Selected account is not an AI Trader")
+    return account
+
+
 @router.post("/ai-chat", response_model=AiChatResponse)
 def ai_chat(
     request: AiChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> AiChatResponse:
     """
     Send a message to AI prompt generation assistant
 
     Premium feature - requires active subscription
     """
-    # Get user (default user for now)
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     # Get AI Trader account
-    account = db.query(Account).filter(Account.id == request.account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="AI Trader not found")
-
-    if account.account_type != "AI":
-        raise HTTPException(status_code=400, detail="Selected account is not an AI Trader")
+    account = _ensure_prompt_account_access(db, request.account_id, current_user.id)
 
     # Generate response
     result = generate_prompt_with_ai(
@@ -716,7 +721,7 @@ def ai_chat(
         account=account,
         user_message=request.user_message,
         conversation_id=request.conversation_id,
-        user_id=user.id,
+        user_id=current_user.id,
         prompt_id=request.prompt_id
     )
 
@@ -733,7 +738,8 @@ def ai_chat(
 @router.post("/ai-chat-stream")
 def ai_chat_stream(
     request: AiChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Send a message to AI prompt generation assistant.
@@ -747,18 +753,8 @@ def ai_chat_stream(
     from services.ai_stream_service import get_buffer_manager, generate_task_id, run_ai_task_in_background
     from database.connection import SessionLocal
 
-    # Get user (default user for now)
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     # Get AI Trader account
-    account = db.query(Account).filter(Account.id == request.account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="AI Trader not found")
-
-    if account.account_type != "AI":
-        raise HTTPException(status_code=400, detail="Selected account is not an AI Trader")
+    account = _ensure_prompt_account_access(db, request.account_id, current_user.id)
 
     # Background task mode
     if request.use_background_task:
@@ -778,14 +774,20 @@ def ai_chat_stream(
         account_id = account.id
         user_message = request.user_message
         conversation_id = request.conversation_id
-        user_id = user.id
+        user_id = current_user.id
         prompt_id = request.prompt_id
 
         def generator_func():
             # Create new db session for background thread
             bg_db = SessionLocal()
             try:
-                bg_account = bg_db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+                bg_account = bg_db.query(Account).filter(
+                    Account.id == account_id,
+                    Account.user_id == user_id,
+                    Account.is_deleted != True,
+                ).first()
+                if not bg_account:
+                    raise HTTPException(status_code=404, detail="AI Trader not found")
                 yield from generate_prompt_with_ai_stream(
                     db=bg_db,
                     account=bg_account,
@@ -807,7 +809,7 @@ def ai_chat_stream(
             account=account,
             user_message=request.user_message,
             conversation_id=request.conversation_id,
-            user_id=user.id,
+            user_id=current_user.id,
             prompt_id=request.prompt_id
         ),
         media_type="text/event-stream",
@@ -822,21 +824,17 @@ def ai_chat_stream(
 @router.get("/ai-conversations")
 def list_ai_conversations(
     limit: int = 20,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> Dict:
     """
     Get list of AI prompt generation conversations
 
     Premium feature - requires active subscription
     """
-    # Get user (default user for now)
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     conversations = get_conversation_history(
         db=db,
-        user_id=user.id,
+        user_id=current_user.id,
         limit=limit
     )
 
@@ -847,22 +845,18 @@ def list_ai_conversations(
 def get_conversation_messages_api(
     conversation_id: int,
     account_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> Dict:
     """
     Get all messages in a specific conversation with token usage
 
     Premium feature - requires active subscription
     """
-    # Get user (default user for now)
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     messages = get_conversation_messages(
         db=db,
         conversation_id=conversation_id,
-        user_id=user.id
+        user_id=current_user.id
     )
 
     if messages is None:
@@ -875,7 +869,7 @@ def get_conversation_messages_api(
 
     conversation = db.query(AiPromptConversation).filter(
         AiPromptConversation.id == conversation_id,
-        AiPromptConversation.user_id == user.id
+        AiPromptConversation.user_id == current_user.id
     ).first()
 
     compression_points = []
@@ -889,18 +883,22 @@ def get_conversation_messages_api(
     token_model = None
     api_format = "openai"
     if account_id:
-        acct = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+        acct = db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).first()
         if acct and acct.model:
             token_model = acct.model
             from services.ai_decision_service import detect_api_format
             _, fmt = detect_api_format(acct.base_url or "")
             api_format = fmt or "openai"
     if not token_model:
-        profile = db.query(HyperAiProfile).first()
+        profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == current_user.id).first()
         if profile and profile.llm_model:
             token_model = profile.llm_model
             from services.hyper_ai_service import get_llm_config
-            llm_config = get_llm_config(db)
+            llm_config = get_llm_config(db, user_id=current_user.id)
             api_format = llm_config.get("api_format", "openai")
 
     # Calculate token usage (only messages after compression point + summary)

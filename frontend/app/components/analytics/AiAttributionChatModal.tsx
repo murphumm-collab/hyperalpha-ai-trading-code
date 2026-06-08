@@ -22,6 +22,7 @@ import {
 import PacmanLoader from '@/components/ui/pacman-loader'
 import { TradingAccount } from '@/lib/api'
 import { pollAiStream } from '@/lib/pollAiStream'
+import { authFetch } from '@/lib/authFetch'
 import { Wrench, Send, Loader2 } from 'lucide-react'
 
 interface DiagnosisResult {
@@ -133,7 +134,7 @@ export default function AiAttributionChatModal({
   useEffect(() => {
     if (!currentConversationId || !selectedAccountId) return
     const params = `?account_id=${selectedAccountId}`
-    fetch(`/api/analytics/ai-attribution/conversations/${currentConversationId}/messages${params}`)
+    authFetch(`/api/analytics/ai-attribution/conversations/${currentConversationId}/messages${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.token_usage !== undefined) setTokenUsage(data.token_usage) })
       .catch(() => {})
@@ -142,7 +143,7 @@ export default function AiAttributionChatModal({
   const loadConversations = async () => {
     setLoadingConversations(true)
     try {
-      const response = await fetch('/api/analytics/ai-attribution/conversations')
+      const response = await authFetch('/api/analytics/ai-attribution/conversations')
       if (response.ok) {
         const data = await response.json()
         setConversations(data.conversations || [])
@@ -157,7 +158,7 @@ export default function AiAttributionChatModal({
   const loadMessages = async (conversationId: number) => {
     try {
       const params = selectedAccountId ? `?account_id=${selectedAccountId}` : ''
-      const response = await fetch(`/api/analytics/ai-attribution/conversations/${conversationId}/messages${params}`)
+      const response = await authFetch(`/api/analytics/ai-attribution/conversations/${conversationId}/messages${params}`)
       if (response.ok) {
         const data = await response.json()
         // Map tool_calls_log from API to analysisLog for display
@@ -220,7 +221,7 @@ export default function AiAttributionChatModal({
     setMessages(prev => [...prev, tempUserMsg, tempAssistantMsg])
 
     try {
-      const response = await fetch('/api/analytics/ai-attribution/chat-stream', {
+      const response = await authFetch('/api/analytics/ai-attribution/chat-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

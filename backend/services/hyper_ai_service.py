@@ -713,6 +713,7 @@ def _execute_harnessed_tool_call(
     fn_args: Dict[str, Any],
     failure_tracker: ToolFailureTracker,
     llm_config: Dict[str, Any],
+    user_id: Optional[int] = None,
 ) -> Generator[str, None, str]:
     """Execute a Hyper AI tool with runtime harness guardrails."""
     if failure_tracker.is_tripped(fn_name):
@@ -736,7 +737,7 @@ def _execute_harnessed_tool_call(
         return blocked_result
 
     if fn_name in SUBAGENT_TOOL_NAMES:
-        tool_result = yield from execute_subagent_tool(db, fn_name, fn_args, user_id=1)
+        tool_result = yield from execute_subagent_tool(db, fn_name, fn_args, user_id=user_id or 1)
         contract_ok, warning = SubAgentContractChecker.check(fn_name, tool_result)
         if not contract_ok:
             tool_result = f"{warning}\n{tool_result}"
@@ -750,7 +751,7 @@ def _execute_harnessed_tool_call(
         db,
         fn_name,
         fn_args,
-        user_id=1,
+        user_id=user_id or 1,
         api_config=llm_config,
     )
     failure_tracker.record(meta)
@@ -1020,6 +1021,7 @@ def stream_chat_response(
                             fn_args=fn_args,
                             failure_tracker=failure_tracker,
                             llm_config=llm_config,
+                            user_id=user_id,
                         )
 
                         # Emit skill_loaded event so frontend can show skill status
@@ -1073,6 +1075,7 @@ def stream_chat_response(
                             fn_args=fn_args,
                             failure_tracker=failure_tracker,
                             llm_config=llm_config,
+                            user_id=user_id,
                         )
 
                         # Emit skill_loaded event so frontend can show skill status

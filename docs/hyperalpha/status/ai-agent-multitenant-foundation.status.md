@@ -7,13 +7,15 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 Status: Local Commit Complete / Remote Push Blocked
 
-Local commit: current branch `HEAD` (`feat: add multi-tenant AI agent foundation`)
+Local commit: current branch `HEAD`
 
 ## Scope
 
 - User-scoped Hyper AI profile, memory, conversations, skills, and tool settings.
 - User-scoped Signal AI chat/history plus account ownership validation.
-- Auth-aware Hyper AI and Signal AI frontend requests.
+- User-scoped Prompt AI, Program AI, and Attribution AI chat/history entry points.
+- User-scoped Program CRUD, bindings, preview-run, executions, and backtest result reads.
+- Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, and Attribution AI frontend requests.
 - Development progress and acceptance markers.
 - No live order execution changes.
 
@@ -28,17 +30,22 @@ Local commit: current branch `HEAD` (`feat: add multi-tenant AI agent foundation
 | Hyper AI DB user scoping | Done | `add_hyper_ai_user_scope.py`, model `user_id` fields |
 | Hyper AI route filtering | Done | Profile, conversations, memory, skills, tools scoped by current user |
 | Signal AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
-| Frontend token propagation | Done | `authFetch` used by Hyper AI, onboarding, Signal AI chat, and polling |
+| Prompt AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
+| Program AI route filtering | Done | Chat/history endpoints use current user; Program CRUD/bindings/backtest reads are scoped |
+| Attribution AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
+| AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, `save_program`, `create_ai_trader`, and `web_search` config lookup |
+| Frontend token propagation | Done | `authFetch` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, and polling |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
 | Remote push | Blocked | Terminal GitHub HTTPS credentials unavailable |
-| Acceptance | Partial | Foundation checks passed; production auth and full sub-agent isolation remain unaccepted |
+| Acceptance | Partial | Multi-user AI foundation checks passed; production auth, Kline AI, job queue, and live order execution remain unaccepted |
 
 ## Verification Log
 
 - Passed: Python syntax compile for changed backend files.
 - Passed: Frontend production build with Vite.
+- Passed: Static search found no remaining `user_id=1`, bare `get_llm_config(db)`, or default-user AI entry in the scoped AI files except removed legacy helper before cleanup.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
@@ -46,6 +53,6 @@ Local commit: current branch `HEAD` (`feat: add multi-tenant AI agent foundation
 
 - Production-grade Casdoor/JWKS token signature verification is not implemented in this slice.
 - Redis/job-queue backed AI task persistence is not implemented in this slice.
-- Prompt AI, Program AI, Attribution AI, and Kline AI still have legacy/default-user paths that require follow-up scoping.
-- Hyper AI external tool execution still needs `user_id` propagation inside tool calls; tool config storage/listing is scoped in this slice.
+- Kline AI and any remaining legacy market-analysis paths still require user scoping review.
+- Prompt templates and signal pools do not yet have first-class `user_id` ownership columns, so template/pool entity isolation still needs a schema follow-up.
 - AI strategy execution and order routing are intentionally unchanged.

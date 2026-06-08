@@ -16,6 +16,7 @@ import json
 import asyncio
 
 from database.connection import get_db
+from api.auth_utils import get_current_user_dependency
 from database.models import (
     TradingProgram, AccountProgramBinding, ProgramExecutionLog,
     User, Account, SignalPool, BacktestResult, BacktestTriggerLog
@@ -215,15 +216,111 @@ class TestRunResponse(BaseModel):
 # Helper Functions
 # ============================================================================
 
-def get_default_user(db: Session) -> User:
-    """Get or create default user."""
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        user = User(username="default", email="default@local")
-        db.add(user)
-        db.commit()
-        db.refresh(user)
-    return user
+def _ensure_program_account_access(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.account_type == "AI",
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="AI account not found")
+    return account
+
+
+def _get_program_for_user(db: Session, program_id: int, user_id: int) -> TradingProgram:
+    program = db.query(TradingProgram).filter(
+        TradingProgram.id == program_id,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
+    ).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="Program not found")
+    return program
+
+
+def _get_program_binding_for_user(db: Session, binding_id: int, user_id: int) -> AccountProgramBinding:
+    binding = db.query(AccountProgramBinding).join(
+        Account, AccountProgramBinding.account_id == Account.id
+    ).join(
+        TradingProgram, AccountProgramBinding.program_id == TradingProgram.id
+    ).filter(
+        AccountProgramBinding.id == binding_id,
+        AccountProgramBinding.is_deleted != True,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
+    ).first()
+    if not binding:
+        raise HTTPException(status_code=404, detail="Binding not found")
+    return binding
+
+
+def _get_backtest_for_user(db: Session, backtest_id: int, user_id: int) -> BacktestResult:
+    backtest = db.query(BacktestResult).filter(
+        BacktestResult.id == backtest_id,
+        BacktestResult.user_id == user_id,
+    ).first()
+    if backtest:
+        return backtest
+
+    backtest = db.query(BacktestResult).join(
+        AccountProgramBinding, BacktestResult.binding_id == AccountProgramBinding.id
+    ).join(
+        Account, AccountProgramBinding.account_id == Account.id
+    ).filter(
+        BacktestResult.id == backtest_id,
+        BacktestResult.binding_id.isnot(None),
+        Account.user_id == user_id,
+    ).first()
+    if not backtest:
+        raise HTTPException(status_code=404, detail="Backtest not found")
+    return backtest
+
+
+def _create_program_for_user(data: ProgramCreate, db: Session, user_id: int) -> ProgramResponse:
+    validation = validate_strategy_code(data.code)
+    if not validation.is_valid:
+        raise HTTPException(status_code=400, detail=f"Invalid code: {'; '.join(validation.errors)}")
+
+    program = TradingProgram(
+        user_id=user_id,
+        name=data.name,
+        description=data.description,
+        code=data.code,
+        params=json.dumps(data.params) if data.params else None,
+        icon=data.icon,
+    )
+    db.add(program)
+    db.commit()
+    db.refresh(program)
+
+    return _program_to_response(program, db)
+
+
+def _update_program_for_user(program_id: int, data: ProgramUpdate, db: Session, user_id: int) -> ProgramResponse:
+    program = _get_program_for_user(db, program_id, user_id)
+
+    if data.code:
+        validation = validate_strategy_code(data.code)
+        if not validation.is_valid:
+            raise HTTPException(status_code=400, detail=f"Invalid code: {'; '.join(validation.errors)}")
+        program.code = data.code
+
+    if data.name is not None:
+        program.name = data.name
+    if data.description is not None:
+        program.description = data.description
+    if data.params is not None:
+        program.params = json.dumps(data.params)
+    if data.icon is not None:
+        program.icon = data.icon
+
+    db.commit()
+    db.refresh(program)
+
+    return _program_to_response(program, db)
 
 
 def _program_to_response(program: TradingProgram, db: Session) -> ProgramResponse:
@@ -658,9 +755,13 @@ def list_signal_pools(db: Session = Depends(get_db)):
 
 
 @router.get("/accounts/", response_model=List[AccountInfo])
-def list_accounts(db: Session = Depends(get_db)):
+def list_accounts(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """List available AI Traders for binding."""
     accounts = db.query(Account).filter(
+        Account.user_id == current_user.id,
         Account.is_active == "true",
         Account.account_type == "AI",
         Account.is_deleted != True
@@ -673,11 +774,13 @@ def list_accounts(db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.get("/", response_model=List[ProgramResponse])
-def list_programs(db: Session = Depends(get_db)):
+def list_programs(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """List all trading programs (code templates)."""
-    user = get_default_user(db)
     programs = db.query(TradingProgram).filter(
-        TradingProgram.user_id == user.id,
+        TradingProgram.user_id == current_user.id,
         TradingProgram.is_deleted != True
     ).order_by(TradingProgram.updated_at.desc()).all()
 
@@ -685,27 +788,13 @@ def list_programs(db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=ProgramResponse)
-def create_program(data: ProgramCreate, db: Session = Depends(get_db)):
+def create_program(
+    data: ProgramCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Create a new trading program."""
-    user = get_default_user(db)
-
-    validation = validate_strategy_code(data.code)
-    if not validation.is_valid:
-        raise HTTPException(status_code=400, detail=f"Invalid code: {'; '.join(validation.errors)}")
-
-    program = TradingProgram(
-        user_id=user.id,
-        name=data.name,
-        description=data.description,
-        code=data.code,
-        params=json.dumps(data.params) if data.params else None,
-        icon=data.icon,
-    )
-    db.add(program)
-    db.commit()
-    db.refresh(program)
-
-    return _program_to_response(program, db)
+    return _create_program_for_user(data, db, current_user.id)
 
 
 # ============================================================================
@@ -749,7 +838,8 @@ class MessageResponse(BaseModel):
 @router.post("/ai-chat")
 async def ai_program_chat(
     request: AiProgramChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     AI-assisted program coding with SSE streaming.
@@ -762,8 +852,8 @@ async def ai_program_chat(
     )
     from database.connection import SessionLocal
 
-    user = db.query(User).first()
-    user_id = user.id if user else 1
+    user_id = current_user.id
+    _ensure_program_account_access(db, request.account_id, user_id)
 
     # Background task mode: return task_id immediately
     if request.use_background_task:
@@ -820,13 +910,13 @@ async def ai_program_chat(
 async def list_ai_conversations(
     program_id: Optional[int] = None,
     limit: int = Query(default=20, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """List AI program coding conversations."""
     from database.models import AiProgramConversation
 
-    user = db.query(User).first()
-    user_id = user.id if user else 1
+    user_id = current_user.id
 
     query = db.query(AiProgramConversation).filter(
         AiProgramConversation.user_id == user_id
@@ -855,14 +945,14 @@ async def list_ai_conversations(
 async def get_conversation_messages(
     conversation_id: int,
     account_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get messages for a specific conversation with compression points and token usage."""
     from database.models import AiProgramConversation, AiProgramMessage, HyperAiProfile
     from services.ai_context_compression_service import calculate_token_usage, restore_tool_calls_to_messages
 
-    user = db.query(User).first()
-    user_id = user.id if user else 1
+    user_id = current_user.id
 
     conversation = db.query(AiProgramConversation).filter(
         AiProgramConversation.id == conversation_id,
@@ -927,18 +1017,22 @@ async def get_conversation_messages(
     token_model = None
     api_format = "openai"
     if account_id:
-        account = db.query(Account).filter(Account.id == account_id).first()
+        account = db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        ).first()
         if account and account.model:
             token_model = account.model
             from services.ai_decision_service import detect_api_format
             _, fmt = detect_api_format(account.base_url or "")
             api_format = fmt or "openai"
     if not token_model:
-        profile = db.query(HyperAiProfile).first()
+        profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).first()
         if profile and profile.llm_model:
             token_model = profile.llm_model
             from services.hyper_ai_service import get_llm_config
-            llm_config = get_llm_config(db)
+            llm_config = get_llm_config(db, user_id=user_id)
             api_format = llm_config.get("api_format", "openai")
 
     # Calculate token usage (only messages after compression point + summary)
@@ -979,59 +1073,36 @@ async def get_conversation_messages(
 # ============================================================================
 
 @router.get("/{program_id}", response_model=ProgramResponse)
-def get_program(program_id: int, db: Session = Depends(get_db)):
+def get_program(
+    program_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Get a trading program by ID."""
-    user = get_default_user(db)
-    program = db.query(TradingProgram).filter(
-        TradingProgram.id == program_id,
-        TradingProgram.user_id == user.id,
-        TradingProgram.is_deleted != True
-    ).first()
-
-    if not program:
-        raise HTTPException(status_code=404, detail="Program not found")
-
+    program = _get_program_for_user(db, program_id, current_user.id)
     return _program_to_response(program, db)
 
 
 @router.put("/{program_id}", response_model=ProgramResponse)
-def update_program(program_id: int, data: ProgramUpdate, db: Session = Depends(get_db)):
+def update_program(
+    program_id: int,
+    data: ProgramUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Update a trading program."""
-    user = get_default_user(db)
-    program = db.query(TradingProgram).filter(
-        TradingProgram.id == program_id,
-        TradingProgram.user_id == user.id,
-        TradingProgram.is_deleted != True
-    ).first()
-
-    if not program:
-        raise HTTPException(status_code=404, detail="Program not found")
-
-    if data.code:
-        validation = validate_strategy_code(data.code)
-        if not validation.is_valid:
-            raise HTTPException(status_code=400, detail=f"Invalid code: {'; '.join(validation.errors)}")
-        program.code = data.code
-
-    if data.name is not None:
-        program.name = data.name
-    if data.description is not None:
-        program.description = data.description
-    if data.params is not None:
-        program.params = json.dumps(data.params)
-    if data.icon is not None:
-        program.icon = data.icon
-
-    db.commit()
-    db.refresh(program)
-
-    return _program_to_response(program, db)
+    return _update_program_for_user(program_id, data, db, current_user.id)
 
 
 @router.delete("/{program_id}")
-def delete_program(program_id: int, db: Session = Depends(get_db)):
+def delete_program(
+    program_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Delete a trading program with dependency checking."""
     from services.entity_deletion_service import delete_trading_program
+    _get_program_for_user(db, program_id, current_user.id)
     result = delete_trading_program(db, program_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Program not found"))
@@ -1061,11 +1132,20 @@ def validate_code(data: dict, db: Session = Depends(get_db)):
 def list_bindings(
     program_id: Optional[int] = Query(None),
     account_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """List program bindings, optionally filtered by program_id or account_id."""
-    query = db.query(AccountProgramBinding).filter(
-        AccountProgramBinding.is_deleted != True
+    query = db.query(AccountProgramBinding).join(
+        Account, AccountProgramBinding.account_id == Account.id
+    ).join(
+        TradingProgram, AccountProgramBinding.program_id == TradingProgram.id
+    ).filter(
+        AccountProgramBinding.is_deleted != True,
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
+        TradingProgram.user_id == current_user.id,
+        TradingProgram.is_deleted != True,
     )
 
     if program_id:
@@ -1078,17 +1158,15 @@ def list_bindings(
 
 
 @router.post("/bindings/", response_model=BindingResponse)
-def create_binding(data: BindingCreate, account_id: int = Query(...), db: Session = Depends(get_db)):
+def create_binding(
+    data: BindingCreate,
+    account_id: int = Query(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Create a new binding between an AI Trader and a Program."""
-    # Verify account exists
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="AI Trader not found")
-
-    # Verify program exists
-    program = db.query(TradingProgram).filter(TradingProgram.id == data.program_id, TradingProgram.is_deleted != True).first()
-    if not program:
-        raise HTTPException(status_code=404, detail="Program not found")
+    _ensure_program_account_access(db, account_id, current_user.id)
+    _get_program_for_user(db, data.program_id, current_user.id)
 
     # Check for duplicate binding
     existing = db.query(AccountProgramBinding).filter(
@@ -1117,15 +1195,14 @@ def create_binding(data: BindingCreate, account_id: int = Query(...), db: Sessio
 
 
 @router.put("/bindings/{binding_id}", response_model=BindingResponse)
-def update_binding(binding_id: int, data: BindingUpdate, db: Session = Depends(get_db)):
+def update_binding(
+    binding_id: int,
+    data: BindingUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Update a program binding's trigger configuration."""
-    binding = db.query(AccountProgramBinding).filter(
-        AccountProgramBinding.id == binding_id,
-        AccountProgramBinding.is_deleted != True
-    ).first()
-
-    if not binding:
-        raise HTTPException(status_code=404, detail="Binding not found")
+    binding = _get_program_binding_for_user(db, binding_id, current_user.id)
 
     if data.signal_pool_ids is not None:
         binding.signal_pool_ids = json.dumps(data.signal_pool_ids)
@@ -1147,9 +1224,14 @@ def update_binding(binding_id: int, data: BindingUpdate, db: Session = Depends(g
 
 
 @router.delete("/bindings/{binding_id}")
-def delete_binding(binding_id: int, db: Session = Depends(get_db)):
+def delete_binding(
+    binding_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Delete a program binding with active-status checking."""
     from services.entity_deletion_service import delete_program_binding
+    _get_program_binding_for_user(db, binding_id, current_user.id)
     result = delete_program_binding(db, binding_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Binding not found"))
@@ -1182,7 +1264,11 @@ class PreviewRunResponse(BaseModel):
 
 
 @router.post("/bindings/{binding_id}/preview-run", response_model=PreviewRunResponse)
-def preview_run_binding(binding_id: int, db: Session = Depends(get_db)):
+def preview_run_binding(
+    binding_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Preview-run a program binding with real account data in sandbox environment.
 
@@ -1209,12 +1295,7 @@ def preview_run_binding(binding_id: int, db: Session = Depends(get_db)):
     start_time = time.time()
 
     # Get binding
-    binding = db.query(AccountProgramBinding).filter(
-        AccountProgramBinding.id == binding_id,
-        AccountProgramBinding.is_deleted != True
-    ).first()
-    if not binding:
-        raise HTTPException(status_code=404, detail="Binding not found")
+    binding = _get_program_binding_for_user(db, binding_id, current_user.id)
 
     # Get exchange from binding (default to hyperliquid for backward compatibility)
     exchange = getattr(binding, 'exchange', None) or 'hyperliquid'
@@ -1222,6 +1303,7 @@ def preview_run_binding(binding_id: int, db: Session = Depends(get_db)):
     # Get program
     program = db.query(TradingProgram).filter(
         TradingProgram.id == binding.program_id,
+        TradingProgram.user_id == current_user.id,
         TradingProgram.is_deleted != True
     ).first()
     if not program:
@@ -1430,7 +1512,12 @@ def preview_run_binding(binding_id: int, db: Session = Depends(get_db)):
 # ============================================================================
 
 @router.post("/{program_id}/backtest", response_model=BacktestResponse)
-def run_backtest(program_id: int, request: BacktestRequest, db: Session = Depends(get_db)):
+def run_backtest(
+    program_id: int,
+    request: BacktestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Run backtest on a trading program.
 
     Deprecated legacy endpoint. Do not add new backtest functionality here.
@@ -1440,15 +1527,7 @@ def run_backtest(program_id: int, request: BacktestRequest, db: Session = Depend
     from database.models import CryptoKline
     from datetime import datetime, timedelta
 
-    user = get_default_user(db)
-    program = db.query(TradingProgram).filter(
-        TradingProgram.id == program_id,
-        TradingProgram.user_id == user.id,
-        TradingProgram.is_deleted != True
-    ).first()
-
-    if not program:
-        raise HTTPException(status_code=404, detail="Program not found")
+    program = _get_program_for_user(db, program_id, current_user.id)
 
     # Convert datetime to seconds timestamp for comparison with CryptoKline.timestamp
     start_time_s = int((datetime.utcnow() - timedelta(days=request.days)).timestamp())
@@ -1553,10 +1632,16 @@ def list_executions(
     action: Optional[str] = Query(None, regex="^(buy|sell|hold|close)$", description="Filter by decision action"),
     limit: int = Query(50, le=200),
     exchange: Optional[str] = Query(None, regex="^(hyperliquid|binance)$"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """List program execution logs for Feed display."""
-    query = db.query(ProgramExecutionLog)
+    query = db.query(ProgramExecutionLog).join(
+        Account, ProgramExecutionLog.account_id == Account.id
+    ).filter(
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
+    )
 
     if account_id:
         query = query.filter(ProgramExecutionLog.account_id == account_id)
@@ -1592,7 +1677,10 @@ def list_executions(
         account_name = account.name if account else "Unknown"
 
         # Get program name
-        program = db.query(TradingProgram).filter(TradingProgram.id == log.program_id).first()
+        program = db.query(TradingProgram).filter(
+            TradingProgram.id == log.program_id,
+            TradingProgram.user_id == current_user.id,
+        ).first()
         program_name = program.name if program else "Unknown"
 
         # Get signal pool name if applicable
@@ -1801,7 +1889,11 @@ class BacktestRequest(BaseModel):
 
 
 @router.post("/backtest")
-async def run_backtest(request: BacktestRequest, db: Session = Depends(get_db)):
+async def run_backtest(
+    request: BacktestRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Run backtest for a program binding with SSE progress updates.
 
@@ -1828,17 +1920,12 @@ async def run_backtest(request: BacktestRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="End time must be after start time")
 
     # Get binding info
-    binding = db.query(AccountProgramBinding).filter(
-        AccountProgramBinding.id == request.binding_id,
-        AccountProgramBinding.is_deleted != True
-    ).first()
-
-    if not binding:
-        raise HTTPException(status_code=404, detail="Binding not found")
+    binding = _get_program_binding_for_user(db, request.binding_id, current_user.id)
 
     # Get program
     program = db.query(TradingProgram).filter(
         TradingProgram.id == binding.program_id,
+        TradingProgram.user_id == current_user.id,
         TradingProgram.is_deleted != True
     ).first()
 
@@ -1913,7 +2000,7 @@ async def run_backtest(request: BacktestRequest, db: Session = Depends(get_db)):
             backtest_record = BacktestResult(
                 backtest_type="program",
                 binding_id=request.binding_id,
-                user_id=binding.account.user_id if binding.account else None,
+                user_id=current_user.id,
                 config=json.dumps({
                     "signal_pool_ids": signal_pool_ids,
                     "symbols": list(symbols),
@@ -2251,15 +2338,18 @@ def get_backtest_history(
     binding_id: int = Query(..., description="Binding ID to get history for"),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get backtest history for a specific binding.
 
     Returns a list of past backtest results (summary only, no equity curve).
     """
+    _get_program_binding_for_user(db, binding_id, current_user.id)
     query = db.query(BacktestResult).filter(
         BacktestResult.binding_id == binding_id,
+        BacktestResult.user_id == current_user.id,
         BacktestResult.backtest_type == 'program'
     ).order_by(BacktestResult.created_at.desc())
 
@@ -2298,15 +2388,17 @@ def get_backtest_history(
 
 
 @router.get("/backtest/{backtest_id}")
-def get_backtest_result(backtest_id: int, db: Session = Depends(get_db)):
+def get_backtest_result(
+    backtest_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Get backtest result summary by ID.
 
     Returns the backtest result without trigger logs (use /triggers endpoint for logs).
     """
-    backtest = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
-    if not backtest:
-        raise HTTPException(status_code=404, detail="Backtest not found")
+    backtest = _get_backtest_for_user(db, backtest_id, current_user.id)
 
     # Parse equity_curve if stored as JSON string
     equity_curve = backtest.equity_curve
@@ -2355,7 +2447,8 @@ def get_backtest_triggers(
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     action_filter: Optional[str] = Query(None, description="Filter by action: buy, sell, close, hold"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get trigger logs for a backtest (summary list).
@@ -2363,9 +2456,7 @@ def get_backtest_triggers(
     Returns paginated list of trigger logs without full decision_input/output.
     Use /triggers/{trigger_id} for full details.
     """
-    backtest = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
-    if not backtest:
-        raise HTTPException(status_code=404, detail="Backtest not found")
+    _get_backtest_for_user(db, backtest_id, current_user.id)
 
     query = db.query(BacktestTriggerLog).filter(
         BacktestTriggerLog.backtest_id == backtest_id
@@ -2409,15 +2500,17 @@ def get_backtest_triggers(
 
 
 @router.get("/backtest/{backtest_id}/markers")
-def get_backtest_markers(backtest_id: int, db: Session = Depends(get_db)):
+def get_backtest_markers(
+    backtest_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Get chart markers for a backtest.
 
     Returns all non-HOLD triggers with minimal data for chart display.
     """
-    backtest = db.query(BacktestResult).filter(BacktestResult.id == backtest_id).first()
-    if not backtest:
-        raise HTTPException(status_code=404, detail="Backtest not found")
+    _get_backtest_for_user(db, backtest_id, current_user.id)
 
     triggers = db.query(
         BacktestTriggerLog.trigger_index,
@@ -2442,7 +2535,11 @@ def get_backtest_markers(backtest_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/backtest/trigger/{trigger_id}")
-def get_trigger_detail(trigger_id: int, db: Session = Depends(get_db)):
+def get_trigger_detail(
+    trigger_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Get full details for a single trigger log.
 
@@ -2451,6 +2548,7 @@ def get_trigger_detail(trigger_id: int, db: Session = Depends(get_db)):
     trigger = db.query(BacktestTriggerLog).filter(BacktestTriggerLog.id == trigger_id).first()
     if not trigger:
         raise HTTPException(status_code=404, detail="Trigger log not found")
+    _get_backtest_for_user(db, trigger.backtest_id, current_user.id)
 
     # Parse JSON fields
     decision_input = trigger.decision_input

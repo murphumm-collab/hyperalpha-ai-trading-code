@@ -304,7 +304,7 @@ def execute_call_prompt_ai(
     logger.info(f"[call_prompt_ai] task={task[:50]}..., conv_id={conversation_id}, prompt_id={prompt_id}")
 
     try:
-        llm_config = get_llm_config(db)
+        llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
                 "subagent": "prompt_ai",
@@ -352,7 +352,7 @@ def execute_call_program_ai(
     logger.info(f"[call_program_ai] task={task[:50]}..., conv_id={conversation_id}")
 
     try:
-        llm_config = get_llm_config(db)
+        llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
                 "subagent": "program_ai",
@@ -399,7 +399,7 @@ def execute_call_signal_ai(
     logger.info(f"[call_signal_ai] task={task[:50]}..., conv_id={conversation_id}")
 
     try:
-        llm_config = get_llm_config(db)
+        llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
                 "subagent": "signal_ai",
@@ -445,7 +445,7 @@ def execute_call_attribution_ai(
     logger.info(f"[call_attribution_ai] task={task[:50]}..., conv_id={conversation_id}")
 
     try:
-        llm_config = get_llm_config(db)
+        llm_config = get_llm_config(db, user_id=user_id)
         if not llm_config.get("configured"):
             return json.dumps({
                 "subagent": "attribution_ai",
@@ -533,4 +533,3 @@ def execute_subagent_tool(
     except Exception as e:
         logger.error(f"[execute_subagent_tool] Error executing {tool_name}: {e}")
         return json.dumps({"error": str(e)})
-
