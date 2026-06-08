@@ -25,6 +25,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
 - Hyper AI tool execution, harness calls, sub-agent calls, and chat streams fail closed when authenticated user context is missing.
 - Hyper AI direct tool functions no longer default to user `1`; protected direct calls require explicit user context.
+- Hyper AI external tool config registry requires explicit user context and never reads or writes the first profile by fallback.
 - Hyper AI profile and LLM config reads require explicit user context and no longer fall back to the first stored profile.
 - Hyper AI conversation helper reads, message writes, and LLM context construction validate conversation ownership.
 - Hyper AI memory helper reads, saves, updates, deletes, and `save_memory` tool writes require explicit user context.
@@ -112,6 +113,7 @@ Local checkpoint: current branch `HEAD`
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, wallet status, tracked wallet tools, Strategy Radar, `save_program`, `create_ai_trader`, and `web_search` config lookup |
 | AI tool missing-user fail-closed | Done | Hyper AI dispatcher, harness, sub-agent dispatcher, and stream entry reject missing user context instead of falling back to user `1` |
 | AI tool direct-call user context | Done | Hyper AI direct tool functions reject missing `user_id`; system logs are admin-gated; direct factor/trader tools are user-scoped |
+| AI external tool config isolation | Done | `hyper_ai_tool_registry` requires explicit `user_id`; Tavily/API key configs read/write only the current user's Hyper AI profile |
 | Hyper AI profile no implicit fallback | Done | `get_or_create_profile(None)` fails closed; `get_llm_config(None)` returns unconfigured with `missing_user_context` instead of reading the first profile |
 | Hyper AI conversation helper ownership | Done | Conversation creation/read helpers require user context; message writes and LLM context building reject conversations not owned by that user |
 | Hyper AI memory helper ownership | Done | Memory read/add/update/delete/limit helpers require user context; `save_memory` tool passes current `user_id` and blocks missing context |
@@ -194,6 +196,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
 - Passed: Hyper AI missing-user-context smoke test in `uv run`: dispatcher, harness, sub-agent dispatcher, and stream entry returned blocked/error before touching DB/LLM/exchange work; static search found no remaining `user_id or 1` in the Hyper AI tool execution chain.
 - Passed: Hyper AI direct tool user-context smoke test in `uv run`: missing direct tool user context was blocked, system logs required admin role, factor library output was scoped to the current user, and cross-user trader/factor access was rejected.
+- Passed: Hyper AI external tool registry smoke test in `uv run`: missing user context raised before profile lookup, Alice and Bob tool configs stayed isolated, and updating Alice's Tavily config did not modify Bob's config.
 - Passed: Hyper AI profile user-context smoke test in `uv run`: no-user LLM config did not read the first stored profile, `get_or_create_profile(None)` failed closed, explicit user 2 read only user 2 profile config, and no-user suggestions returned an empty missing-context result.
 - Passed: Hyper AI conversation ownership smoke test in `uv run`: Bob could not read Alice's messages, write into Alice's conversation, or build an LLM prompt from Alice's history; Bob's own conversation still read/wrote normally.
 - Passed: Hyper AI memory ownership smoke test in `uv run`: missing user context was blocked, Alice could not update/delete Bob's memory, and the Hyper AI `save_memory` tool stored new memory under the current owner.

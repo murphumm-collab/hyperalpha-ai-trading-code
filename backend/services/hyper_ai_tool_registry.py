@@ -45,13 +45,17 @@ EXTERNAL_TOOL_REGISTRY: Dict[str, dict] = {
 
 # --- Config Helpers ---
 
-def get_tool_configs(db: Session, user_id: Optional[int] = None) -> dict:
+def _require_user_id(user_id: Optional[int]) -> int:
+    if user_id is None:
+        raise ValueError("Tool config access requires authenticated user context.")
+    return user_id
+
+
+def get_tool_configs(db: Session, user_id: Optional[int]) -> dict:
     """Read tool_configs JSON from HyperAiProfile."""
     from database.models import HyperAiProfile
-    query = db.query(HyperAiProfile)
-    if user_id is not None:
-        query = query.filter(HyperAiProfile.user_id == user_id)
-    profile = query.first()
+    owner_id = _require_user_id(user_id)
+    profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == owner_id).first()
     if not profile or not profile.tool_configs:
         return {}
     try:
@@ -60,21 +64,19 @@ def get_tool_configs(db: Session, user_id: Optional[int] = None) -> dict:
         return {}
 
 
-def save_tool_configs(db: Session, configs: dict, user_id: Optional[int] = None):
+def save_tool_configs(db: Session, configs: dict, user_id: Optional[int]):
     """Write tool_configs JSON to HyperAiProfile."""
     from database.models import HyperAiProfile
-    query = db.query(HyperAiProfile)
-    if user_id is not None:
-        query = query.filter(HyperAiProfile.user_id == user_id)
-    profile = query.first()
+    owner_id = _require_user_id(user_id)
+    profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == owner_id).first()
     if not profile:
-        profile = HyperAiProfile(user_id=user_id)
+        profile = HyperAiProfile(user_id=owner_id)
         db.add(profile)
     profile.tool_configs = json.dumps(configs)
     db.commit()
 
 
-def get_tool_api_key(db: Session, tool_name: str, user_id: Optional[int] = None) -> Optional[str]:
+def get_tool_api_key(db: Session, tool_name: str, user_id: Optional[int]) -> Optional[str]:
     """Get decrypted API key for a tool. Returns None if not configured."""
     from utils.encryption import decrypt_private_key
     configs = get_tool_configs(db, user_id=user_id)
@@ -88,7 +90,7 @@ def get_tool_api_key(db: Session, tool_name: str, user_id: Optional[int] = None)
         return None
 
 
-def set_tool_api_key(db: Session, tool_name: str, api_key: str, user_id: Optional[int] = None):
+def set_tool_api_key(db: Session, tool_name: str, api_key: str, user_id: Optional[int]):
     """Encrypt and save API key for a tool."""
     from utils.encryption import encrypt_private_key
     configs = get_tool_configs(db, user_id=user_id)
@@ -99,7 +101,7 @@ def set_tool_api_key(db: Session, tool_name: str, api_key: str, user_id: Optiona
     save_tool_configs(db, configs, user_id=user_id)
 
 
-def remove_tool_config(db: Session, tool_name: str, user_id: Optional[int] = None):
+def remove_tool_config(db: Session, tool_name: str, user_id: Optional[int]):
     """Remove configuration for a tool."""
     configs = get_tool_configs(db, user_id=user_id)
     if tool_name in configs:
