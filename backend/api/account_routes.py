@@ -11,8 +11,9 @@ from decimal import Decimal
 import logging
 import time
 
+from api.auth_utils import get_current_user_dependency
 from database.connection import SessionLocal
-from database.models import Account, Position, Trade, CryptoPrice, AccountAssetSnapshot, HyperliquidWallet, AccountPromptBinding
+from database.models import Account, Position, Trade, CryptoPrice, AccountAssetSnapshot, HyperliquidWallet, AccountPromptBinding, User
 from services.asset_curve_calculator import invalidate_asset_curve_cache
 from services.ai_decision_service import (
     build_chat_completion_endpoints,
@@ -52,6 +53,17 @@ def _normalize_bool(value, default=True) -> bool:
     if isinstance(value, str):
         return value.strip().lower() in {"true", "1", "yes", "y", "on"}
     return bool(value)
+
+
+def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+    return account
 
 
 def _serialize_strategy(account: Account, strategy, db: Session = None) -> StrategyConfig:
@@ -113,8 +125,12 @@ def _serialize_strategy(account: Account, strategy, db: Session = None) -> Strat
 
 
 @router.get("/list")
-def list_all_accounts(include_hidden: bool = False, db: Session = Depends(get_db)):
-    """Get all active accounts (for paper trading demo)
+def list_all_accounts(
+    include_hidden: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Get active accounts for the current user.
 
     Args:
         include_hidden: If True, include accounts with show_on_dashboard=False.
@@ -123,11 +139,14 @@ def list_all_accounts(include_hidden: bool = False, db: Session = Depends(get_db
     start_threads = get_current_thread_count()
     start_time = time.monotonic()
     try:
-        from database.models import User
         from eth_account import Account as EthAccount
         from services.hyperliquid_environment import decrypt_private_key
 
-        query = db.query(Account).filter(Account.is_active == "true", Account.is_deleted != True)
+        query = db.query(Account).filter(
+            Account.user_id == current_user.id,
+            Account.is_active == "true",
+            Account.is_deleted != True,
+        )
         if not include_hidden:
             query = query.filter(Account.show_on_dashboard == True)
         accounts = query.all()
@@ -241,17 +260,15 @@ def list_all_accounts(include_hidden: bool = False, db: Session = Depends(get_db
 
 
 @router.get("/{account_id}/overview")
-def get_specific_account_overview(account_id: int, db: Session = Depends(get_db)):
+def get_specific_account_overview(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Get overview for a specific account"""
     try:
-        # Get the specific account
-        account = db.query(Account).filter(
-            Account.id == account_id,
-            Account.is_active == "true",
-            Account.is_deleted != True
-        ).first()
-        
-        if not account:
+        account = _ensure_account_owner(db, account_id, current_user.id)
+        if account.is_active != "true":
             raise HTTPException(status_code=404, detail="Account not found")
         
         # Calculate positions value for this specific account
@@ -291,14 +308,14 @@ def get_specific_account_overview(account_id: int, db: Session = Depends(get_db)
 
 
 @router.get("/{account_id}/strategy", response_model=StrategyConfig)
-def get_account_strategy(account_id: int, db: Session = Depends(get_db)):
+def get_account_strategy(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Fetch AI trading strategy configuration for an account."""
-    account = (
-        db.query(Account)
-        .filter(Account.id == account_id, Account.is_active == "true", Account.is_deleted != True)
-        .first()
-    )
-    if not account:
+    account = _ensure_account_owner(db, account_id, current_user.id)
+    if account.is_active != "true":
         raise HTTPException(status_code=404, detail="Account not found")
 
     strategy = get_strategy_by_account(db, account_id)
@@ -329,15 +346,12 @@ def update_account_strategy(
     account_id: int,
     payload: StrategyConfigUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Update AI trading strategy configuration for an account."""
     print(f"Backend received payload for account {account_id}: {payload}")
-    account = (
-        db.query(Account)
-        .filter(Account.id == account_id, Account.is_active == "true", Account.is_deleted != True)
-        .first()
-    )
-    if not account:
+    account = _ensure_account_owner(db, account_id, current_user.id)
+    if account.is_active != "true":
         raise HTTPException(status_code=404, detail="Account not found")
 
     # Validate price threshold
@@ -380,11 +394,17 @@ def update_account_strategy(
 
 
 @router.get("/overview")
-def get_account_overview(db: Session = Depends(get_db)):
-    """Get overview for the default account (for paper trading demo)"""
+def get_account_overview(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Get overview for the current user's first active account."""
     try:
-        # Get the first active account (default account)
-        account = db.query(Account).filter(Account.is_active == "true", Account.is_deleted != True).first()
+        account = db.query(Account).filter(
+            Account.user_id == current_user.id,
+            Account.is_active == "true",
+            Account.is_deleted != True,
+        ).first()
         
         if not account:
             raise HTTPException(status_code=404, detail="No active account found")
@@ -428,19 +448,13 @@ def get_account_overview(db: Session = Depends(get_db)):
 
 
 @router.post("/")
-def create_new_account(payload: dict, db: Session = Depends(get_db)):
-    """Create a new account for the default user (for paper trading demo)"""
+def create_new_account(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Create a new account for the current user."""
     try:
-        from database.models import User
-        
-        # Get the default user (or first user)
-        user = db.query(User).filter(User.username == "default").first()
-        if not user:
-            user = db.query(User).first()
-        
-        if not user:
-            raise HTTPException(status_code=404, detail="No user found")
-        
         # Validate required fields
         if "name" not in payload or not payload["name"]:
             raise HTTPException(status_code=400, detail="Account name is required")
@@ -453,7 +467,7 @@ def create_new_account(payload: dict, db: Session = Depends(get_db)):
         avatar_preset_id = random.randint(1, 12)
 
         new_account = Account(
-            user_id=user.id,
+            user_id=current_user.id,
             version="v1",
             name=payload["name"],
             account_type=payload.get("account_type", "AI"),
@@ -514,7 +528,7 @@ def create_new_account(payload: dict, db: Session = Depends(get_db)):
         return {
             "id": new_account.id,
             "user_id": new_account.user_id,
-            "username": user.username,
+            "username": current_user.username,
             "name": new_account.name,
             "account_type": new_account.account_type,
             "initial_capital": float(new_account.initial_capital),
@@ -535,18 +549,18 @@ def create_new_account(payload: dict, db: Session = Depends(get_db)):
 
 
 @router.put("/{account_id}")
-def update_account_settings(account_id: int, payload: dict, db: Session = Depends(get_db)):
-    """Update account settings (for paper trading demo)"""
+def update_account_settings(
+    account_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Update account settings for the current user's account."""
     try:
         logger.info(f"Updating account {account_id} with payload: {payload}")
 
-        account = db.query(Account).filter(
-            Account.id == account_id,
-            Account.is_active == "true",
-            Account.is_deleted != True
-        ).first()
-
-        if not account:
+        account = _ensure_account_owner(db, account_id, current_user.id)
+        if account.is_active != "true":
             raise HTTPException(status_code=404, detail="Account not found")
         
         # Update fields if provided (allow empty strings for api_key and base_url)
@@ -619,8 +633,13 @@ def update_account_settings(account_id: int, payload: dict, db: Session = Depend
 
 
 @router.delete("/{account_id}")
-def delete_account(account_id: int, db: Session = Depends(get_db)):
+def delete_account(
+    account_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Soft-delete an AI Trader with dependency checking."""
+    _ensure_account_owner(db, account_id, current_user.id)
     result = delete_trader(db, account_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Trader not found"))
@@ -636,13 +655,17 @@ def get_asset_curve(
     account_id: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
-    """Get asset curve data for all accounts (or specific account) with specified timeframe and trading mode"""
+    """Get asset curve data for the current user's accounts."""
     start_threads = get_current_thread_count()
     start_time = time.monotonic()
     try:
         from services.asset_curve_calculator import get_all_asset_curves_data_new
+        if account_id:
+            _ensure_account_owner(db, account_id, current_user.id)
+
         data = get_all_asset_curves_data_new(
             db,
             timeframe=timeframe,
@@ -650,6 +673,7 @@ def get_asset_curve(
             environment=environment,
             wallet_address=wallet_address,
             account_id=account_id,
+            user_id=current_user.id,
             start_date=start_date,
             end_date=end_date,
         )
@@ -674,9 +698,10 @@ def get_asset_curve(
 @router.get("/asset-curve/timeframe")
 def get_asset_curve_by_timeframe(
     timeframe: str = "1d",
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
-    """Get asset curve data for all accounts within a specified timeframe (20 data points)
+    """Get asset curve data for the current user's accounts within a specified timeframe.
     
     Args:
         timeframe: Time period, options: 5m, 1h, 1d
@@ -695,13 +720,19 @@ def get_asset_curve_by_timeframe(
         }
         period = timeframe_map[timeframe]
         
-        # Get all active accounts
-        accounts = db.query(Account).filter(Account.is_active == "true", Account.is_deleted != True).all()
+        accounts = db.query(Account).filter(
+            Account.user_id == current_user.id,
+            Account.is_active == "true",
+            Account.is_deleted != True,
+        ).all()
         if not accounts:
             return []
+        account_ids = [account.id for account in accounts]
         
         # Get all unique symbols from all account positions and trades
-        symbols_query = db.query(Trade.symbol, Trade.market).distinct().all()
+        symbols_query = db.query(Trade.symbol, Trade.market).filter(
+            Trade.account_id.in_(account_ids)
+        ).distinct().all()
         unique_symbols = set()
         for symbol, market in symbols_query:
             unique_symbols.add((symbol, market))
@@ -828,7 +859,10 @@ def get_asset_curve_by_timeframe(
 
 
 @router.post("/test-llm")
-def test_llm_connection(payload: dict):
+def test_llm_connection(
+    payload: dict,
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Test LLM connection with provided credentials"""
     try:
         import requests
@@ -1030,7 +1064,8 @@ def trigger_ai_trade(
     account_id: int,
     force_operation: str = None,  # Optional: "buy", "sell", "close", "hold"
     symbol: str = None,  # Optional: specific symbol to trade
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Manually trigger AI trading for a specific account.
@@ -1044,12 +1079,8 @@ def trigger_ai_trade(
         Trade execution result
     """
     try:
+        account = _ensure_account_owner(db, account_id, current_user.id)
         from services.trading_commands import place_ai_driven_crypto_order
-
-        # Validate account exists and is active
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
 
         if account.is_active != "true":
             raise HTTPException(status_code=400, detail=f"Account {account.name} is inactive")
@@ -1254,7 +1285,8 @@ def check_builder_authorization(
 @router.post("/hyperliquid/approve-builder")
 def approve_builder_fee(
     account_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Trigger builder fee approval for a Hyperliquid account.
@@ -1278,11 +1310,7 @@ def approve_builder_fee(
         from config.settings import HYPERLIQUID_BUILDER_CONFIG
         from services.hyperliquid_environment import get_hyperliquid_client
 
-        # Get account
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            print(f"[BUILDER_AUTH] ERROR: Account {account_id} not found")
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         # Check if account has mainnet wallet configured (new architecture first, then fallback)
         mainnet_wallet = db.query(HyperliquidWallet).filter(
@@ -1356,7 +1384,8 @@ def approve_builder_fee(
 
 @router.get("/hyperliquid/check-mainnet-accounts")
 def check_mainnet_accounts(
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Check builder fee authorization for all active mainnet trading accounts.
@@ -1395,7 +1424,9 @@ def check_mainnet_accounts(
         ).filter(
             HyperliquidWallet.environment == "mainnet",
             HyperliquidWallet.private_key_encrypted.isnot(None),
-            Account.auto_trading_enabled == "true"
+            Account.auto_trading_enabled == "true",
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
         ).all()
 
         logger.info(f"Found {len(mainnet_wallets)} accounts with mainnet wallet in wallets table")
@@ -1458,6 +1489,7 @@ def check_mainnet_accounts(
         # === Fallback: Check old architecture (accounts table field) ===
         # Query accounts with mainnet key in accounts table (not already checked)
         old_accounts = db.query(Account).filter(
+            Account.user_id == current_user.id,
             Account.auto_trading_enabled == "true",
             Account.hyperliquid_mainnet_private_key.isnot(None),
             Account.hyperliquid_mainnet_private_key != "",
@@ -1541,7 +1573,8 @@ def check_mainnet_accounts(
 @router.post("/{account_id}/disable-trading")
 def disable_trading(
     account_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Disable auto trading for an account.
@@ -1561,13 +1594,7 @@ def disable_trading(
         }
     """
     try:
-        # Get account
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Account {account_id} not found"
-            )
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         # Disable auto trading
         account.auto_trading_enabled = "false"
@@ -1599,7 +1626,8 @@ def disable_trading(
 @router.patch("/dashboard-visibility")
 def update_dashboard_visibility(
     visibility_updates: List[dict],
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Batch update show_on_dashboard for multiple accounts.
@@ -1615,7 +1643,11 @@ def update_dashboard_visibility(
             account_id = item.get("account_id")
             show = item.get("show_on_dashboard", True)
 
-            account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+            account = db.query(Account).filter(
+                Account.id == account_id,
+                Account.user_id == current_user.id,
+                Account.is_deleted != True,
+            ).first()
             if account:
                 account.show_on_dashboard = show
                 updated.append({"account_id": account_id, "show_on_dashboard": show})

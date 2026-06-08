@@ -104,6 +104,7 @@ def get_all_asset_curves_data_new(
     environment: Optional[str] = None,
     wallet_address: Optional[str] = None,
     account_id: Optional[int] = None,
+    user_id: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> List[Dict]:
@@ -127,6 +128,7 @@ def get_all_asset_curves_data_new(
             environment=effective_environment,
             wallet_address=wallet_address,
             account_id=account_id,
+            user_id=user_id,
             start_date=start_date,
             end_date=end_date,
         )
@@ -137,6 +139,7 @@ def get_all_asset_curves_data_new(
             bucket_minutes,
             environment=effective_environment,
             account_id=account_id,
+            user_id=user_id,
             start_date=start_date,
             end_date=end_date,
         )
@@ -151,7 +154,7 @@ def get_all_asset_curves_data_new(
         return []
 
     current_max_snapshot_id: Optional[int] = db.query(func.max(AccountAssetSnapshot.id)).scalar()
-    cache_key = f"{timeframe}_{trading_mode}"
+    cache_key = f"{timeframe}_{trading_mode}_user:{user_id or 'all'}_account:{account_id or 'all'}"
 
     with _CACHE_LOCK:
         cache_entry = _ASSET_CURVE_CACHE.get(cache_key)
@@ -167,7 +170,12 @@ def get_all_asset_curves_data_new(
         Account.is_active == "true",
         Account.show_on_dashboard == True,
         Account.is_deleted != True,
-    ).all()
+    )
+    if user_id:
+        accounts = accounts.filter(Account.user_id == user_id)
+    if account_id:
+        accounts = accounts.filter(Account.id == account_id)
+    accounts = accounts.all()
     account_map = {account.id: account for account in accounts}
     rows = _get_bucketed_snapshots(db, bucket_minutes)
 
@@ -228,6 +236,7 @@ def _build_hyperliquid_asset_curve(
     environment: Optional[str] = None,
     wallet_address: Optional[str] = None,
     account_id: Optional[int] = None,
+    user_id: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> List[Dict]:
@@ -253,6 +262,8 @@ def _build_hyperliquid_asset_curve(
         # Filter by specific account if provided
         if account_id:
             account_query = account_query.filter(Account.id == account_id)
+        if user_id:
+            account_query = account_query.filter(Account.user_id == user_id)
 
         accounts = account_query.all()
 
@@ -376,6 +387,7 @@ def _build_binance_asset_curve(
     bucket_minutes: int,
     environment: Optional[str] = None,
     account_id: Optional[int] = None,
+    user_id: Optional[int] = None,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
 ) -> List[Dict]:
@@ -393,6 +405,8 @@ def _build_binance_asset_curve(
     )
     if account_id:
         account_query = account_query.filter(Account.id == account_id)
+    if user_id:
+        account_query = account_query.filter(Account.user_id == user_id)
 
     accounts = account_query.all()
     if not accounts:

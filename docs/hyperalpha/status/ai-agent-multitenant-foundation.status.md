@@ -17,6 +17,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Program CRUD, bindings, preview-run, executions, and backtest result reads.
 - User-scoped Kline AI analysis creation, history, and detail reads.
 - User-scoped K-line data service exchange resolution and backfill task visibility/deletion.
+- User-scoped account dashboard/config/action routes and asset curve reads.
 - User-scoped PromptTemplate, SignalDefinition, and SignalPool ownership.
 - User-scoped Hyper Insight wallet-tracking runtime config, token sync, websocket state, and wallet-signal callbacks.
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
@@ -52,6 +53,7 @@ Local checkpoint: current branch `HEAD`
 | Attribution AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
 | Kline AI route filtering | Done | Analysis creation validates account owner; history/detail use current user |
 | K-line data/backfill user scoping | Done | K-line data routes resolve exchange from current user or explicit `exchange`; backfill tasks store `user_id` and are listed/statused/deleted by owner |
+| Account route ownership | Done | Account list/overview/strategy/create/update/delete, LLM test, manual AI trigger, builder checks, disable-trading, dashboard visibility, and asset curve reads are scoped to current user |
 | Strategy entity ownership | Done | `add_strategy_entity_user_scope.py`; PromptTemplate, SignalDefinition, SignalPool CRUD scoped by current user |
 | Hyper Insight runtime user scoping | Done | `add_hyper_insight_wallet_runtime_user_scope.py`; token/status/websocket state and wallet pool matching are user-scoped |
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, wallet status, tracked wallet tools, Strategy Radar, `save_program`, `create_ai_trader`, and `web_search` config lookup |
@@ -103,6 +105,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: K-line exchange/task isolation smoke test in `uv run`: two users resolved different exchanges; one user's backfill task was invisible to the other user.
 - Passed: K-line service/routes/model/migration syntax compile in both system Python and `uv run` backend environment.
 - Passed: Static search found no remaining `UserExchangeConfig.user_id == 1` reads in backend API/services.
+- Passed: Account route ownership smoke test in `uv run`: account list, cross-user disable/trigger rejection, dashboard visibility filtering, and paper asset curve user filtering passed.
+- Passed: Account route and asset curve syntax compile in both system Python and `uv run` backend environment.
+- Passed: Static account route scan confirmed account queries now use `current_user` or `_ensure_account_owner`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
