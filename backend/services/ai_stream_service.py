@@ -34,6 +34,7 @@ import logging
 import os
 import threading
 import time
+import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generator, List, Optional
@@ -537,7 +538,7 @@ def format_sse_event(event_type: str, data: Any) -> str:
 
 def generate_task_id(prefix: str = "ai") -> str:
     """Generate a unique task ID."""
-    return f"{prefix}_{int(time.time() * 1000)}_{id(threading.current_thread()) % 10000}"
+    return f"{prefix}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:12]}"
 
 
 def run_ai_task_in_background(

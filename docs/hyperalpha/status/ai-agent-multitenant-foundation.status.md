@@ -26,6 +26,7 @@ Local checkpoint: current branch `HEAD`
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
 - AI stream task admission has global and per-user running-task limits for single-server DeepSeek/Qwen capacity isolation.
+- AI stream task IDs use UUID entropy to avoid multi-user/multi-request collisions under high concurrency.
 - Admin-only AI runtime visibility shows shared model capacity, queue depth, and per-user buffered task occupancy.
 - Hyper AI and Program AI task admission is conversation-scoped, so one conversation cannot run overlapping writes while other users/conversations can still run.
 - Context compression memory extraction stores long-term memories under the current user.
@@ -102,6 +103,7 @@ Local checkpoint: current branch `HEAD`
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
 | AI stream task admission limits | Done | `AI_STREAM_MAX_RUNNING_GLOBAL` and `AI_STREAM_MAX_RUNNING_PER_USER` cap shared LLM task concurrency before model calls are submitted |
+| AI stream task ID entropy | Done | `generate_task_id()` keeps the readable prefix/timestamp and adds UUID entropy to prevent same-thread same-millisecond collisions |
 | AI runtime admin visibility | Done | Admin-only `/api/ai-stream/admin/runtime` plus Settings AI Runtime section expose shared capacity, queue depth, and per-user task occupancy without message/tool payloads |
 | Conversation task admission | Done | Hyper AI and Program AI return `already_running` for the same user's active conversation task while allowing other users/conversations to start under capacity limits |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
@@ -171,6 +173,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream persistence models/migration/service syntax compile.
 - Passed: AI stream admission smoke test in `uv run`: per-user limit rejected a third concurrent task for one user, global limit rejected the next task when global running count was full, and completing a task reopened capacity.
 - Passed: AI stream admission syntax compile in both system Python and `uv run` backend environment for StreamBuffer plus Hyper AI, Prompt AI, Signal AI, Attribution AI, and Hyper AI service task entry points.
+- Passed: AI stream task ID UUID smoke test in `uv run`: 5000 sequential task IDs with the same prefix were unique and preserved the expected prefix/timestamp/random-suffix shape.
 - Passed: AI runtime admin stats syntax compile in both system Python and `uv run` backend environment for `ai_stream_service.py` and `ai_stream_routes.py`.
 - Passed: AI runtime admin stats smoke test in `uv run`: in-memory Alice/Bob/anonymous tasks produced correct global running/completed/error totals, per-user occupancy, oldest-running age, and username enrichment from the admin endpoint.
 - Passed: Frontend production build after adding the Settings AI Runtime capacity and per-user occupancy section.
