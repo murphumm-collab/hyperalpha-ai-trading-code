@@ -2004,11 +2004,16 @@ def execute_list_traders(
                 AccountPromptBinding.is_deleted != True
             ).first()
             if pb:
-                tpl = db.get(PromptTemplate, pb.prompt_template_id)
-                prompt_binding = {
-                    "prompt_id": pb.prompt_template_id,
-                    "prompt_name": tpl.name if tpl else "Unknown"
-                }
+                tpl = db.query(PromptTemplate).filter(
+                    PromptTemplate.id == pb.prompt_template_id,
+                    (PromptTemplate.user_id == user_id) | (PromptTemplate.is_system == "true"),
+                    PromptTemplate.is_deleted == "false",
+                ).first()
+                if tpl:
+                    prompt_binding = {
+                        "prompt_id": tpl.id,
+                        "prompt_name": tpl.name,
+                    }
 
             # Program bindings
             prog_bindings = db.query(AccountProgramBinding).filter(
@@ -2017,12 +2022,18 @@ def execute_list_traders(
             ).all()
             program_bindings = []
             for pgb in prog_bindings:
-                prog = db.get(TradingProgram, pgb.program_id)
+                prog = db.query(TradingProgram).filter(
+                    TradingProgram.id == pgb.program_id,
+                    TradingProgram.user_id == user_id,
+                    TradingProgram.is_deleted != True,
+                ).first()
+                if not prog:
+                    continue
                 pool_ids = json.loads(pgb.signal_pool_ids) if pgb.signal_pool_ids else []
                 program_bindings.append({
                     "binding_id": pgb.id,
-                    "program_id": pgb.program_id,
-                    "program_name": prog.name if prog else "Unknown",
+                    "program_id": prog.id,
+                    "program_name": prog.name,
                     "exchange": pgb.exchange or "hyperliquid",
                     "signal_pool_ids": pool_ids,
                     "trigger_interval": pgb.trigger_interval,
