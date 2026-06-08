@@ -2045,6 +2045,7 @@ def get_program_analytics_by_program(
 
     by_program: Dict[Optional[int], List[Dict]] = {}
     program_names: Dict[int, str] = {}
+    logged_program_names: Dict[int, str] = {}
 
     for log in logs:
         pnl = float(log.realized_pnl) if log.realized_pnl else 0
@@ -2058,17 +2059,18 @@ def get_program_analytics_by_program(
         by_program[program_id].append(record)
 
         if program_id and log.program_name:
-            program_names[program_id] = log.program_name
+            logged_program_names[program_id] = log.program_name
 
     program_ids = [pid for pid in by_program.keys() if pid is not None]
     if program_ids:
         programs = db.query(TradingProgram).filter(
             TradingProgram.id.in_(program_ids),
             TradingProgram.user_id == current_user.id,
-            TradingProgram.is_deleted != True
         ).all()
         for p in programs:
-            program_names[p.id] = p.name
+            program_names[p.id] = (
+                logged_program_names.get(p.id, p.name) if p.is_deleted else p.name
+            )
 
     items = []
     for program_id, records in by_program.items():

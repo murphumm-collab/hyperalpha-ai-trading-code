@@ -88,7 +88,7 @@ Local checkpoint: current branch `HEAD`
 - Private custom factors are excluded from shared factor precomputation/effectiveness storage; resolver supports current-user private factor lookup.
 - User API list/login hardening for To C identity isolation.
 - User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle, original decision-log reads, and background system-prompt template resolution.
-- User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads.
+- User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads and current-user program-name visibility.
 - User-bound WebSocket bootstrap/account switching/order/snapshot/asset-curve requests and per-user asset-curve broadcasts.
 - Arena trade feed and model-chat strategy-name lookups render only current-user/system prompt templates, current-user programs, and current-user signal pools.
 - Required-auth guard for system log reads/deletes and generic system config writes; generic config writes are limited to `ui_language`.
@@ -204,7 +204,7 @@ Local checkpoint: current branch `HEAD`
 | Private factor precompute guard | Done | Shared factor computation/effectiveness now processes only public `builtin_expression` rows; private custom factors resolve only with `user_id` for runtime/on-demand use |
 | User API hardening | Done | Legacy `/api/users/login` validates `password_hash`; `/api/users/` returns only the current request user |
 | Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; original decision-log reads join account ownership; background prompt resolution rejects cross-user private templates |
-| Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts and reject cross-user `account_id` filters |
+| Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts, reject cross-user `account_id` filters, and avoid cross-user program-name fallbacks |
 | WebSocket ownership | Done | WS resolves session/JWT identity from query/header/message token, ignores client-provided username for bootstrap, rejects cross-user `switch_account`, scopes asset curves by current user, and sends auth tokens from frontend WS requests |
 | Arena strategy-name visibility | Done | Arena trade feed and model-chat batch name lookups filter prompt templates by current-user/system visibility, programs by current user, and signal pools by current user |
 | Global config/log auth | Done | `get_authenticated_user_dependency` requires a real session/JWT for system logs and generic config updates; `/api/config/{key}` only permits `ui_language` |
@@ -349,6 +349,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Prompt Backtest owner guard re-smoke in `uv run`: decision-log helpers hide Bob/deleted-account logs from Alice, import lookup returns only Alice-owned logs, system-prompt lookup ignores Bob's private template binding, and item result writes require matching task ownership.
 - Passed: Analytics owner isolation smoke test in `uv run`: Alice summary/account/trade/replay reads excluded Bob's trade PnL/order, Bob replaying Alice trade returned 404, and Bob filtering Alice account returned 404.
 - Passed: Program analytics owner isolation smoke test in `uv run`: Alice program summary/by-program excluded Bob's ProgramExecutionLog, and Bob filtering Alice account returned 404.
+- Passed: Program analytics program-name visibility smoke test in `uv run`: Alice-owned logs with Bob program IDs return generic names instead of Bob's stored `program_name`, while Alice-owned and deleted-owned program names remain visible.
 - Passed: Analytics route syntax compile in both system Python and `uv run` backend environment.
 - Passed: Arena strategy-name visibility smoke test in `uv run`: owned decision rows do not display Bob's private prompt/program/signal-pool names, while Alice-owned and system prompt names remain visible.
 - Passed: WebSocket owner isolation smoke test in `uv run`: Bob could not pass the WS account owner guard for Alice's account, Alice/default asset curves returned only their own account rows.
