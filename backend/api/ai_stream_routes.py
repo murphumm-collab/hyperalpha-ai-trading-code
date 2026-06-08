@@ -9,11 +9,47 @@ Endpoints:
 - GET /api/ai-stream/{task_id}/status - Get task status only
 """
 from fastapi import APIRouter, Query, HTTPException, Depends
-from services.ai_stream_service import get_buffer_manager
-from api.auth_utils import get_current_user_dependency
+from sqlalchemy.orm import Session
+
+from services.ai_stream_service import get_ai_runtime_stats, get_buffer_manager
+from api.auth_utils import get_admin_user_dependency, get_current_user_dependency
+from database.connection import get_db
 from database.models import User
 
 router = APIRouter(prefix="/api/ai-stream", tags=["AI Stream"])
+
+
+@router.get("/admin/runtime")
+def get_admin_ai_runtime(
+    current_user: User = Depends(get_admin_user_dependency),
+    db: Session = Depends(get_db),
+):
+    """Return admin-only AI stream runtime capacity and per-user occupancy."""
+    stats = get_ai_runtime_stats()
+    user_entries = stats.get("users", [])
+    user_ids = [
+        entry.get("user_id")
+        for entry in user_entries
+        if entry.get("user_id") is not None
+    ]
+    users_by_id = {}
+    if user_ids:
+        rows = db.query(User).filter(User.id.in_(user_ids)).all()
+        users_by_id = {user.id: user for user in rows}
+
+    stats["users"] = [
+        {
+            **entry,
+            "username": users_by_id[entry["user_id"]].username
+            if entry.get("user_id") in users_by_id
+            else None,
+            "email": users_by_id[entry["user_id"]].email
+            if entry.get("user_id") in users_by_id
+            else None,
+        }
+        for entry in user_entries
+    ]
+    return stats
 
 
 @router.get("/{task_id}")

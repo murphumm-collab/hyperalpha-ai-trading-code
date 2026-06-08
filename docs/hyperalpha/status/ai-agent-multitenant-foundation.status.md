@@ -26,6 +26,7 @@ Local checkpoint: current branch `HEAD`
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
 - AI stream task admission has global and per-user running-task limits for single-server DeepSeek/Qwen capacity isolation.
+- Admin-only AI runtime visibility shows shared model capacity, queue depth, and per-user buffered task occupancy.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
 - User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
@@ -97,6 +98,7 @@ Local checkpoint: current branch `HEAD`
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
 | AI stream task admission limits | Done | `AI_STREAM_MAX_RUNNING_GLOBAL` and `AI_STREAM_MAX_RUNNING_PER_USER` cap shared LLM task concurrency before model calls are submitted |
+| AI runtime admin visibility | Done | Admin-only `/api/ai-stream/admin/runtime` plus Settings AI Runtime section expose shared capacity, queue depth, and per-user task occupancy without message/tool payloads |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
 | Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
@@ -161,6 +163,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream persistence models/migration/service syntax compile.
 - Passed: AI stream admission smoke test in `uv run`: per-user limit rejected a third concurrent task for one user, global limit rejected the next task when global running count was full, and completing a task reopened capacity.
 - Passed: AI stream admission syntax compile in both system Python and `uv run` backend environment for StreamBuffer plus Hyper AI, Prompt AI, Signal AI, Attribution AI, and Hyper AI service task entry points.
+- Passed: AI runtime admin stats syntax compile in both system Python and `uv run` backend environment for `ai_stream_service.py` and `ai_stream_routes.py`.
+- Passed: AI runtime admin stats smoke test in `uv run`: in-memory Alice/Bob/anonymous tasks produced correct global running/completed/error totals, per-user occupancy, oldest-running age, and username enrichment from the admin endpoint.
+- Passed: Frontend production build after adding the Settings AI Runtime capacity and per-user occupancy section.
 - Passed: Compression memory owner propagation compile, static call-site search, and whitespace check.
 - Passed: User symbol watchlist route/service/tool compile and static search confirming user-facing GET/PUT and Hyper AI tools pass `user_id`.
 - Passed: Trading command static review confirming account AI prompt symbols are sourced from each account owner's watchlist.

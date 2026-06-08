@@ -619,12 +619,50 @@ def submit_ai_background_task(
     return _ai_background_executor.submit(func, *args, **kwargs)
 
 
-def get_ai_runtime_stats() -> Dict[str, int]:
+def get_ai_runtime_stats() -> Dict[str, Any]:
     """Return bounded AI executor stats for low-frequency health monitoring."""
     manager = get_buffer_manager()
 
     with manager._tasks_lock:
-        running_tasks = sum(1 for task in manager._tasks.values() if task.status == "running")
+        now = time.time()
+        running_tasks = 0
+        completed_tasks = 0
+        error_tasks = 0
+        user_stats: Dict[Optional[int], Dict[str, Any]] = {}
+
+        for task in manager._tasks.values():
+            entry = user_stats.setdefault(task.user_id, {
+                "user_id": task.user_id,
+                "total_tasks": 0,
+                "running_tasks": 0,
+                "completed_tasks": 0,
+                "error_tasks": 0,
+                "oldest_running_age_seconds": None,
+            })
+            entry["total_tasks"] += 1
+
+            if task.status == "running":
+                running_tasks += 1
+                entry["running_tasks"] += 1
+                age_seconds = max(0, int(now - task.created_at))
+                current_oldest = entry["oldest_running_age_seconds"]
+                if current_oldest is None or age_seconds > current_oldest:
+                    entry["oldest_running_age_seconds"] = age_seconds
+            elif task.status == "completed":
+                completed_tasks += 1
+                entry["completed_tasks"] += 1
+            elif task.status == "error":
+                error_tasks += 1
+                entry["error_tasks"] += 1
+
+        users = sorted(
+            user_stats.values(),
+            key=lambda item: (
+                -int(item["running_tasks"]),
+                -int(item["total_tasks"]),
+                item["user_id"] if item["user_id"] is not None else -1,
+            ),
+        )
 
     task_threads = len(getattr(_ai_task_executor, "_threads", ()))
     background_threads = len(getattr(_ai_background_executor, "_threads", ()))
@@ -633,6 +671,9 @@ def get_ai_runtime_stats() -> Dict[str, int]:
 
     return {
         "running_tasks": running_tasks,
+        "completed_buffered_tasks": completed_tasks,
+        "error_buffered_tasks": error_tasks,
+        "total_buffered_tasks": running_tasks + completed_tasks + error_tasks,
         "task_max_workers": AI_TASK_MAX_WORKERS,
         "task_max_running_global": AI_STREAM_MAX_RUNNING_GLOBAL,
         "task_max_running_per_user": AI_STREAM_MAX_RUNNING_PER_USER,
@@ -641,4 +682,5 @@ def get_ai_runtime_stats() -> Dict[str, int]:
         "background_max_workers": AI_BACKGROUND_MAX_WORKERS,
         "background_threads": background_threads,
         "background_queue": background_queue,
+        "users": users,
     }

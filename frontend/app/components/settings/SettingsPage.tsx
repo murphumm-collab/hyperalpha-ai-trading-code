@@ -71,6 +71,33 @@ interface AdminAuditLog {
   created_at?: string | null
 }
 
+interface AiRuntimeUserStats {
+  user_id?: number | null
+  username?: string | null
+  email?: string | null
+  total_tasks: number
+  running_tasks: number
+  completed_tasks: number
+  error_tasks: number
+  oldest_running_age_seconds?: number | null
+}
+
+interface AiRuntimeStats {
+  running_tasks: number
+  completed_buffered_tasks: number
+  error_buffered_tasks: number
+  total_buffered_tasks: number
+  task_max_workers: number
+  task_max_running_global: number
+  task_max_running_per_user: number
+  task_threads: number
+  task_queue: number
+  background_max_workers: number
+  background_threads: number
+  background_queue: number
+  users: AiRuntimeUserStats[]
+}
+
 export default function SettingsPage() {
   const { t, i18n } = useTranslation()
   const { user: authUser, setUser: setAuthUser } = useAuth()
@@ -157,6 +184,9 @@ export default function SettingsPage() {
   const [adminAuditLogs, setAdminAuditLogs] = useState<AdminAuditLog[]>([])
   const [adminAuditLoading, setAdminAuditLoading] = useState(false)
   const [adminAuditError, setAdminAuditError] = useState<string | null>(null)
+  const [aiRuntimeStats, setAiRuntimeStats] = useState<AiRuntimeStats | null>(null)
+  const [aiRuntimeLoading, setAiRuntimeLoading] = useState(false)
+  const [aiRuntimeError, setAiRuntimeError] = useState<string | null>(null)
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -290,12 +320,31 @@ export default function SettingsPage() {
     }
   }, [])
 
+  const fetchAiRuntimeStats = useCallback(async () => {
+    setAiRuntimeLoading(true)
+    setAiRuntimeError(null)
+    try {
+      const res = await authFetch('/api/ai-stream/admin/runtime')
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        throw new Error(data.detail || 'Failed to load AI runtime')
+      }
+      const data: AiRuntimeStats = await res.json()
+      setAiRuntimeStats(data)
+    } catch (err) {
+      setAiRuntimeError(err instanceof Error ? err.message : 'Failed to load AI runtime')
+    } finally {
+      setAiRuntimeLoading(false)
+    }
+  }, [])
+
   const fetchAdminData = useCallback(async () => {
     await Promise.all([
       fetchAdminUsers(),
       fetchAdminAuditLogs(),
+      fetchAiRuntimeStats(),
     ])
-  }, [fetchAdminAuditLogs, fetchAdminUsers])
+  }, [fetchAdminAuditLogs, fetchAdminUsers, fetchAiRuntimeStats])
 
   useEffect(() => {
     if (
@@ -303,8 +352,10 @@ export default function SettingsPage() {
       && canManageUsers
       && adminUsers.length === 0
       && adminAuditLogs.length === 0
+      && !aiRuntimeStats
       && !adminUsersLoading
       && !adminAuditLoading
+      && !aiRuntimeLoading
     ) {
       fetchAdminData()
     }
@@ -314,6 +365,8 @@ export default function SettingsPage() {
     adminAuditLogs.length,
     adminUsers.length,
     adminUsersLoading,
+    aiRuntimeLoading,
+    aiRuntimeStats,
     canManageUsers,
     fetchAdminData,
   ])
@@ -1451,10 +1504,10 @@ export default function SettingsPage() {
                     size="sm"
                     variant="outline"
                     onClick={fetchAdminData}
-                    disabled={adminUsersLoading || adminAuditLoading}
+                    disabled={adminUsersLoading || adminAuditLoading || aiRuntimeLoading}
                     className="w-full gap-2 md:w-auto"
                   >
-                    <RefreshCw className={`h-4 w-4 ${adminUsersLoading || adminAuditLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-4 w-4 ${adminUsersLoading || adminAuditLoading || aiRuntimeLoading ? 'animate-spin' : ''}`} />
                     {t('common.refresh', 'Refresh')}
                   </Button>
                 </div>
@@ -1481,6 +1534,104 @@ export default function SettingsPage() {
 
                 {adminUsersError && <div className="text-sm text-red-500">{adminUsersError}</div>}
                 {adminUsersSuccess && <div className="text-sm text-green-500">{adminUsersSuccess}</div>}
+
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-sm font-medium">{t('settings.aiRuntime', 'AI Runtime')}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.aiRuntimeDesc', 'Shared model capacity and per-user occupancy')}
+                      </div>
+                    </div>
+                    {aiRuntimeStats && (
+                      <Badge
+                        variant={
+                          aiRuntimeStats.task_max_running_global > 0
+                            && aiRuntimeStats.running_tasks >= aiRuntimeStats.task_max_running_global
+                            ? 'destructive'
+                            : 'outline'
+                        }
+                      >
+                        {aiRuntimeStats.running_tasks}/{aiRuntimeStats.task_max_running_global || t('settings.unlimited', 'unlimited')}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {aiRuntimeError && <div className="text-sm text-red-500">{aiRuntimeError}</div>}
+
+                  {aiRuntimeLoading && !aiRuntimeStats ? (
+                    <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
+                  ) : aiRuntimeStats ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-4 sm:grid-cols-4">
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.runningTasks', 'Running')}</div>
+                          <div className="text-xl font-semibold">{aiRuntimeStats.running_tasks}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.taskQueue', 'Task Queue')}</div>
+                          <div className="text-xl font-semibold">{aiRuntimeStats.task_queue}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.backgroundQueue', 'Background Queue')}</div>
+                          <div className="text-xl font-semibold">{aiRuntimeStats.background_queue}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.perUserLimit', 'Per User Limit')}</div>
+                          <div className="text-xl font-semibold">{aiRuntimeStats.task_max_running_per_user}</div>
+                        </div>
+                      </div>
+
+                      {aiRuntimeStats.users.length === 0 ? (
+                        <div className="text-sm text-muted-foreground">
+                          {t('settings.noAiRuntimeUsers', 'No buffered AI tasks')}
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {aiRuntimeStats.users.map((entry, index) => (
+                            <div
+                              key={`${entry.user_id ?? 'anonymous'}-${index}`}
+                              className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(160px,1fr)_100px_100px_100px_120px] md:items-center"
+                            >
+                              <div className="min-w-0">
+                                <div className="truncate text-sm font-medium">
+                                  {entry.username || t('settings.anonymousUser', 'Anonymous')}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  ID {entry.user_id ?? t('settings.notAvailable', 'N/A')}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">{t('settings.runningTasks', 'Running')}</div>
+                                <div className="text-sm font-medium">{entry.running_tasks}</div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">{t('settings.totalTasks', 'Total')}</div>
+                                <div className="text-sm font-medium">{entry.total_tasks}</div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">{t('settings.errorTasks', 'Errors')}</div>
+                                <div className="text-sm font-medium">{entry.error_tasks}</div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">{t('settings.oldestRunning', 'Oldest')}</div>
+                                <div className="text-sm font-medium">
+                                  {entry.oldest_running_age_seconds == null
+                                    ? t('settings.notAvailable', 'N/A')
+                                    : `${entry.oldest_running_age_seconds}s`}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      {t('settings.noAiRuntimeStats', 'No runtime stats loaded')}
+                    </div>
+                  )}
+                </div>
 
                 {adminUsersLoading && adminUsers.length === 0 ? (
                   <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
