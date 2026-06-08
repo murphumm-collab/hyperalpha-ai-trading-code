@@ -19,6 +19,7 @@ Local commit: current branch `HEAD`
 - User-scoped PromptTemplate, SignalDefinition, and SignalPool ownership.
 - User-scoped Hyper Insight wallet-tracking runtime config, token sync, websocket state, and wallet-signal callbacks.
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
+- AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
 - Development progress and acceptance markers.
 - No live order execution changes.
@@ -42,6 +43,7 @@ Local commit: current branch `HEAD`
 | Hyper Insight runtime user scoping | Done | `add_hyper_insight_wallet_runtime_user_scope.py`; token/status/websocket state and wallet pool matching are user-scoped |
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, wallet status, tracked wallet tools, Strategy Radar, `save_program`, `create_ai_trader`, and `web_search` config lookup |
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
+| AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
@@ -59,6 +61,7 @@ Local commit: current branch `HEAD`
 - Passed: Prompt/Signal ownership route compile and frontend build after strategy entity `user_id` migration and auth-aware manager requests.
 - Passed: Hyper Insight wallet runtime route/service compile and frontend build after per-user token/status/websocket scoping.
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
+- Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 

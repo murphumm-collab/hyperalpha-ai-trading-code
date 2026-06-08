@@ -804,12 +804,12 @@ def ai_chat_stream(
 
         # Check for existing running task on this conversation
         if request.conversation_id:
-            existing = manager.get_pending_task_for_conversation(request.conversation_id)
+            existing = manager.get_pending_task_for_conversation(request.conversation_id, user_id=current_user.id)
             if existing:
                 return {"task_id": existing.task_id, "status": "already_running"}
 
         # Create task
-        manager.create_task(task_id, conversation_id=request.conversation_id)
+        manager.create_task(task_id, conversation_id=request.conversation_id, user_id=current_user.id)
 
         # Capture request data for background thread
         account_id = account.id

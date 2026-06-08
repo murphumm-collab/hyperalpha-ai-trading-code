@@ -767,11 +767,11 @@ async def ai_attribution_chat_stream(
 
         # Check for existing running task
         if request.conversationId:
-            existing = manager.get_pending_task_for_conversation(request.conversationId)
+            existing = manager.get_pending_task_for_conversation(request.conversationId, user_id=current_user.id)
             if existing:
                 return {"task_id": existing.task_id, "status": "already_running"}
 
-        manager.create_task(task_id, conversation_id=request.conversationId)
+        manager.create_task(task_id, conversation_id=request.conversationId, user_id=current_user.id)
 
         # Capture request data
         account_id = request.accountId

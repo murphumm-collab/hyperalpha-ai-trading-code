@@ -419,13 +419,17 @@ def start_chat(
 
 
 @router.post("/confirm-tool")
-def confirm_tool(request: ConfirmationRequest):
+def confirm_tool(
+    request: ConfirmationRequest,
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Submit a runtime checkpoint response for a pending Hyper AI tool call."""
     manager = get_buffer_manager()
     accepted = manager.submit_confirmation(
         request.task_id,
         request.confirmation_id,
         request.confirmed,
+        user_id=current_user.id,
     )
     if not accepted:
         raise HTTPException(status_code=404, detail="No matching pending confirmation")

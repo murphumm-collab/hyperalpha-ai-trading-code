@@ -1213,7 +1213,7 @@ def start_chat_task(
     """Start a chat task in background and return task_id."""
     task_id = generate_task_id("hyper")
     manager = get_buffer_manager()
-    manager.create_task(task_id, conversation_id)
+    manager.create_task(task_id, conversation_id, user_id=user_id)
 
     def generator_func():
         from database.connection import SessionLocal
@@ -1327,7 +1327,7 @@ def start_onboarding_chat_task(
     """Start an onboarding chat task in background."""
     task_id = generate_task_id("onboard")
     manager = get_buffer_manager()
-    manager.create_task(task_id, conversation_id)
+    manager.create_task(task_id, conversation_id, user_id=user_id)
 
     # Default to English if not specified
     effective_lang = lang or "en"
@@ -1585,7 +1585,7 @@ def start_insight_task(
     """Start a one-shot Insight analysis task without chat conversation persistence."""
     task_id = generate_task_id("insight")
     manager = get_buffer_manager()
-    manager.create_task(task_id, None)
+    manager.create_task(task_id, None, user_id=user_id)
 
     effective_lang = lang or "en"
 

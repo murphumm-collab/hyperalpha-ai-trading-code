@@ -1067,11 +1067,11 @@ async def ai_signal_chat_stream(
 
         # Check for existing running task
         if request.conversation_id:
-            existing = manager.get_pending_task_for_conversation(request.conversation_id)
+            existing = manager.get_pending_task_for_conversation(request.conversation_id, user_id=current_user.id)
             if existing:
                 return {"task_id": existing.task_id, "status": "already_running"}
 
-        manager.create_task(task_id, conversation_id=request.conversation_id)
+        manager.create_task(task_id, conversation_id=request.conversation_id, user_id=current_user.id)
 
         # Capture request data
         account_id = request.account_id

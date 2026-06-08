@@ -880,7 +880,7 @@ async def ai_program_chat(
     if request.use_background_task:
         task_id = generate_task_id("program")
         manager = get_buffer_manager()
-        manager.create_task(task_id, conversation_id=request.conversation_id)
+        manager.create_task(task_id, conversation_id=request.conversation_id, user_id=user_id)
 
         # Capture request params for background thread
         account_id = request.account_id

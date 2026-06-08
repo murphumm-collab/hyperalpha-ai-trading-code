@@ -69,6 +69,7 @@ class StreamTask:
     """Represents a streaming task with its buffer and metadata."""
     task_id: str
     conversation_id: Optional[int] = None
+    user_id: Optional[int] = None
     status: str = "running"  # running, completed, error
     chunks: List[StreamChunk] = field(default_factory=list)
     created_at: float = field(default_factory=time.time)
@@ -150,19 +151,29 @@ class StreamBufferManager:
                 del self._tasks[task_id]
                 logger.debug(f"[StreamBuffer] Cleaned up expired task: {task_id}")
 
-    def create_task(self, task_id: str, conversation_id: Optional[int] = None) -> StreamTask:
+    def create_task(
+        self,
+        task_id: str,
+        conversation_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> StreamTask:
         """Create a new stream task."""
         with self._tasks_lock:
             if task_id in self._tasks:
                 logger.warning(f"[StreamBuffer] Task {task_id} already exists, overwriting")
-            task = StreamTask(task_id=task_id, conversation_id=conversation_id)
+            task = StreamTask(task_id=task_id, conversation_id=conversation_id, user_id=user_id)
             self._tasks[task_id] = task
             return task
 
-    def get_task(self, task_id: str) -> Optional[StreamTask]:
+    def get_task(self, task_id: str, user_id: Optional[int] = None) -> Optional[StreamTask]:
         """Get a task by ID."""
         with self._tasks_lock:
-            return self._tasks.get(task_id)
+            task = self._tasks.get(task_id)
+            if not task:
+                return None
+            if user_id is not None and task.user_id != user_id:
+                return None
+            return task
 
     def add_chunk(self, task_id: str, event_type: str, data: Dict[str, Any]):
         """Add a chunk to a task's buffer."""
@@ -171,7 +182,12 @@ class StreamBufferManager:
             if task:
                 task.chunks.append(StreamChunk(event_type=event_type, data=data))
 
-    def get_chunks(self, task_id: str, offset: int = 0) -> tuple[List[StreamChunk], str]:
+    def get_chunks(
+        self,
+        task_id: str,
+        offset: int = 0,
+        user_id: Optional[int] = None,
+    ) -> tuple[List[StreamChunk], str]:
         """
         Get chunks from a task starting at offset.
         Returns (chunks, status).
@@ -179,6 +195,8 @@ class StreamBufferManager:
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if not task:
+                return [], "not_found"
+            if user_id is not None and task.user_id != user_id:
                 return [], "not_found"
             return task.chunks[offset:], task.status
 
@@ -209,11 +227,19 @@ class StreamBufferManager:
                     if hasattr(task, key):
                         setattr(task, key, value)
 
-    def submit_confirmation(self, task_id: str, confirmation_id: str, confirmed: bool) -> bool:
+    def submit_confirmation(
+        self,
+        task_id: str,
+        confirmation_id: str,
+        confirmed: bool,
+        user_id: Optional[int] = None,
+    ) -> bool:
         """Submit a user response for a pending runtime checkpoint."""
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if not task or task.status != "running":
+                return False
+            if user_id is not None and task.user_id != user_id:
                 return False
             if not task.pending_confirmation_id:
                 return False
@@ -252,11 +278,19 @@ class StreamBufferManager:
             task.pending_confirmation_id = None
             task.confirmation_event.clear()
 
-    def get_pending_task_for_conversation(self, conversation_id: int) -> Optional[StreamTask]:
+    def get_pending_task_for_conversation(
+        self,
+        conversation_id: int,
+        user_id: Optional[int] = None,
+    ) -> Optional[StreamTask]:
         """Check if there's a running task for a conversation."""
         with self._tasks_lock:
             for task in self._tasks.values():
-                if task.conversation_id == conversation_id and task.status == "running":
+                if (
+                    task.conversation_id == conversation_id
+                    and task.status == "running"
+                    and (user_id is None or task.user_id == user_id)
+                ):
                     return task
             return None
 
