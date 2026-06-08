@@ -36,14 +36,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const syncHyperInsightRuntimeToken = async (token: string | null) => {
     try {
+      const authToken = token || Cookies.get('arena_token')
+      const authHeaders = authToken ? { Authorization: `Bearer ${authToken}` } : undefined
       if (!token) {
-        await fetch('/api/signals/wallet-tracking/token', { method: 'DELETE' })
+        if (!authToken) return
+        await fetch('/api/signals/wallet-tracking/token', {
+          method: 'DELETE',
+          headers: authHeaders,
+          credentials: 'include',
+        })
         return
       }
 
       await fetch('/api/signals/wallet-tracking/token', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        credentials: 'include',
         body: JSON.stringify({ access_token: token }),
       })
     } catch (error) {
@@ -301,10 +309,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Local logout: clear Arena cookies and state
     // Casdoor session remains active, but next login will show account selection
     // because we use prompt=select_account in getSignInUrl()
+    await syncHyperInsightRuntimeToken(null)
     Cookies.remove('arena_token')
     Cookies.remove('arena_refresh_token')
     Cookies.remove('arena_user')
-    await syncHyperInsightRuntimeToken(null)
     setUser(null)
     setMembership(null)
 

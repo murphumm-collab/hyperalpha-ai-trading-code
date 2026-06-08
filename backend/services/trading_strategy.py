@@ -48,6 +48,7 @@ def _as_aware(dt: Optional[datetime]) -> Optional[datetime]:
 @dataclass
 class StrategyState:
     account_id: int
+    user_id: Optional[int]
     price_threshold: float  # Deprecated, kept for compatibility
     trigger_interval: int   # Trigger interval (seconds) - scheduled trigger fallback
     signal_pool_ids: List[int]  # Signal pool bindings for signal-based triggering (OR relationship)
@@ -356,6 +357,7 @@ class HyperliquidStrategyManager(StrategyManager):
         """Callback when a signal pool triggers - find and execute bound strategies"""
         pool_id = pool.get("pool_id")  # Fixed: key is "pool_id" not "id"
         pool_name = pool.get("pool_name", "Unknown")
+        pool_user_id = pool.get("user_id")
         event_time = datetime.now(timezone.utc)
         trigger_type = pool.get("trigger_type", "signal")
         wallet_event = pool.get("wallet_event")
@@ -374,6 +376,8 @@ class HyperliquidStrategyManager(StrategyManager):
         found_match = False
         for account_id, state in self.strategies.items():
             print(f"[HyperliquidStrategy] Account {account_id}: signal_pool_ids={state.signal_pool_ids}, enabled={state.enabled}")
+            if pool_user_id is not None and state.user_id != pool_user_id:
+                continue
             if pool_id in state.signal_pool_ids:
                 found_match = True
                 # Try to mark as triggered (handles running state check)
@@ -422,6 +426,7 @@ class HyperliquidStrategyManager(StrategyManager):
                     pool_ids = parse_signal_pool_ids(strategy)
                     state = StrategyState(
                         account_id=strategy.account_id,
+                        user_id=account.user_id,
                         price_threshold=strategy.price_threshold,
                         trigger_interval=strategy.trigger_interval,
                         signal_pool_ids=pool_ids,

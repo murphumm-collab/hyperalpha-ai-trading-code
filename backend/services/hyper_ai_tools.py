@@ -20,7 +20,6 @@ import requests
 from sqlalchemy.orm import Session
 from sqlalchemy import text, func
 
-from database.models import SystemConfig
 from services.hyper_ai_subagents import SUBAGENT_TOOLS, execute_subagent_tool
 
 logger = logging.getLogger(__name__)
@@ -987,7 +986,12 @@ def execute_get_system_overview(db: Session, user_id: int = 1) -> str:
         return json.dumps({"error": str(e)})
 
 
-def execute_get_wallet_status(db: Session, exchange: str = "all", environment: str = "all") -> str:
+def execute_get_wallet_status(
+    db: Session,
+    exchange: str = "all",
+    environment: str = "all",
+    user_id: int = 1,
+) -> str:
     """Get wallet balance and position summary using real-time API (same as frontend)."""
     from database.models import HyperliquidWallet, BinanceWallet, Account
     from services.hyperliquid_environment import get_hyperliquid_client
@@ -1001,7 +1005,10 @@ def execute_get_wallet_status(db: Session, exchange: str = "all", environment: s
         if exchange in ["all", "hyperliquid"]:
             hl_query = db.query(HyperliquidWallet, Account).join(
                 Account, HyperliquidWallet.account_id == Account.id
-            ).filter(HyperliquidWallet.is_active == "true")
+            ).filter(
+                HyperliquidWallet.is_active == "true",
+                Account.user_id == user_id,
+            )
 
             if environment != "all":
                 hl_query = hl_query.filter(HyperliquidWallet.environment == environment)
@@ -1056,7 +1063,10 @@ def execute_get_wallet_status(db: Session, exchange: str = "all", environment: s
         if exchange in ["all", "binance"]:
             bn_query = db.query(BinanceWallet, Account).join(
                 Account, BinanceWallet.account_id == Account.id
-            ).filter(BinanceWallet.is_active == "true")
+            ).filter(
+                BinanceWallet.is_active == "true",
+                Account.user_id == user_id,
+            )
 
             if environment != "all":
                 bn_query = bn_query.filter(BinanceWallet.environment == environment)
@@ -2023,7 +2033,7 @@ def execute_list_signal_pools(db: Session, pool_id: int = None, user_id: int = 1
         return json.dumps({"error": str(e)})
 
 
-def execute_analyze_tracked_address(db: Session, address: str) -> str:
+def execute_analyze_tracked_address(db: Session, address: str, user_id: int = 1) -> str:
     """Fetch protected Hyper Insight address detail for Hyper AI analysis."""
     from services.hyper_insight_wallet_service import hyper_insight_wallet_service
 
@@ -2031,11 +2041,11 @@ def execute_analyze_tracked_address(db: Session, address: str) -> str:
     if not normalized:
         return json.dumps({"error": "address is required"})
 
-    snapshot = hyper_insight_wallet_service.get_status_snapshot()
+    snapshot = hyper_insight_wallet_service.get_status_snapshot(user_id)
     synced_addresses = [str(item).strip().lower() for item in (snapshot.get("synced_addresses") or []) if str(item).strip()]
     synced_set = set(synced_addresses)
 
-    access_token = _get_hyper_insight_access_token(db)
+    access_token = _get_hyper_insight_access_token(db, user_id=user_id)
     if not access_token:
         return json.dumps({
             "error": "Please log in to Hyper Alpha Arena before using Hyper Insight analysis.",
@@ -3169,11 +3179,11 @@ def execute_fetch_url(url: str, max_length: int = 8000) -> str:
     })
 
 
-def execute_get_tracked_wallets(db: Session) -> str:
+def execute_get_tracked_wallets(db: Session, user_id: int = 1) -> str:
     """Return the current Hyper Insight sync state and synced tracked wallets."""
     from services.hyper_insight_wallet_service import hyper_insight_wallet_service
 
-    snapshot = hyper_insight_wallet_service.get_status_snapshot()
+    snapshot = hyper_insight_wallet_service.get_status_snapshot(user_id)
     synced_addresses = snapshot.get("synced_addresses") or []
     result = {
         "connected": snapshot.get("status") == "connected",
@@ -3189,16 +3199,17 @@ def execute_get_tracked_wallets(db: Session) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
 
-_STRATEGY_RADAR_UNIVERSE_CACHE: dict[str, Any] = {"expires_at": None, "payload": None}
+_STRATEGY_RADAR_UNIVERSE_CACHE: dict[int, dict[str, Any]] = {}
 
 
-def _get_hyper_insight_access_token(db: Session) -> str:
-    token_row = db.query(SystemConfig).filter(SystemConfig.key == "hyper_insight_wallet_access_token").first()
-    return ((token_row.value if token_row else "") or "").strip()
+def _get_hyper_insight_access_token(db: Session, user_id: int = 1) -> str:
+    from services.hyper_insight_wallet_service import hyper_insight_wallet_service
+
+    return hyper_insight_wallet_service.get_access_token(user_id)
 
 
-def _strategy_radar_headers(db: Session) -> dict[str, str] | None:
-    access_token = _get_hyper_insight_access_token(db)
+def _strategy_radar_headers(db: Session, user_id: int = 1) -> dict[str, str] | None:
+    access_token = _get_hyper_insight_access_token(db, user_id=user_id)
     if not access_token:
         return None
     return {"Authorization": f"Bearer {access_token}"}
@@ -3208,10 +3219,11 @@ def _strategy_radar_base_url() -> str:
     return os.getenv("HYPER_INSIGHT_API_BASE_URL", "https://hyper.akooi.com").rstrip("/")
 
 
-def _fetch_strategy_radar_universe(db: Session, *, force_refresh: bool = False) -> dict:
+def _fetch_strategy_radar_universe(db: Session, *, user_id: int = 1, force_refresh: bool = False) -> dict:
     now = datetime.now(timezone.utc)
-    cached_until = _STRATEGY_RADAR_UNIVERSE_CACHE.get("expires_at")
-    cached_payload = _STRATEGY_RADAR_UNIVERSE_CACHE.get("payload")
+    user_cache = _STRATEGY_RADAR_UNIVERSE_CACHE.get(user_id) or {}
+    cached_until = user_cache.get("expires_at")
+    cached_payload = user_cache.get("payload")
     if (
         not force_refresh
         and cached_payload is not None
@@ -3220,7 +3232,7 @@ def _fetch_strategy_radar_universe(db: Session, *, force_refresh: bool = False) 
     ):
         return cached_payload
 
-    headers = _strategy_radar_headers(db)
+    headers = _strategy_radar_headers(db, user_id=user_id)
     if headers is None:
         return {
             "ok": False,
@@ -3254,16 +3266,18 @@ def _fetch_strategy_radar_universe(db: Session, *, force_refresh: bool = False) 
     payload = response.json()
     if isinstance(payload, dict):
         payload["ok"] = True
-        _STRATEGY_RADAR_UNIVERSE_CACHE["payload"] = payload
-        _STRATEGY_RADAR_UNIVERSE_CACHE["expires_at"] = now + timedelta(minutes=10)
+        _STRATEGY_RADAR_UNIVERSE_CACHE[user_id] = {
+            "payload": payload,
+            "expires_at": now + timedelta(minutes=10),
+        }
         return payload
     return {"ok": False, "error": "Strategy Radar returned an invalid universe response."}
 
 
-def execute_get_strategy_radar_universe(db: Session) -> str:
+def execute_get_strategy_radar_universe(db: Session, user_id: int = 1) -> str:
     """Return Strategy Radar's currently queryable symbol/period/regime combinations."""
     try:
-        payload = _fetch_strategy_radar_universe(db)
+        payload = _fetch_strategy_radar_universe(db, user_id=user_id)
         return json.dumps(payload, indent=2, ensure_ascii=False)
     except requests.RequestException as exc:
         logger.error("[strategy_radar_universe] Error: %s", exc)
@@ -3299,6 +3313,7 @@ def execute_search_strategy_radar(
     risk_level: str | None = None,
     timeframe: str | None = None,
     limit: int = 5,
+    user_id: int = 1,
 ) -> str:
     """Search protected Strategy Radar S2S endpoints for current strategy candidates."""
     safe_symbol = (symbol or "").strip().upper()
@@ -3312,7 +3327,7 @@ def execute_search_strategy_radar(
     if not safe_symbol:
         return json.dumps({"ok": False, "error": "symbol is required"}, ensure_ascii=False)
 
-    universe = _fetch_strategy_radar_universe(db)
+    universe = _fetch_strategy_radar_universe(db, user_id=user_id)
     if not universe.get("ok"):
         return json.dumps(universe, ensure_ascii=False)
 
@@ -3335,7 +3350,7 @@ def execute_search_strategy_radar(
             "usage_note": "Only combinations returned by get_strategy_radar_universe are supported.",
         }, ensure_ascii=False)
 
-    headers = _strategy_radar_headers(db)
+    headers = _strategy_radar_headers(db, user_id=user_id)
     if headers is None:
         return json.dumps({
             "ok": False,
@@ -3416,7 +3431,8 @@ def execute_hyper_ai_tool(
             return execute_get_wallet_status(
                 db,
                 exchange=arguments.get("exchange", "all"),
-                environment=arguments.get("environment", "all")
+                environment=arguments.get("environment", "all"),
+                user_id=user_id,
             )
 
         elif tool_name == "get_api_reference":
@@ -3482,13 +3498,14 @@ def execute_hyper_ai_tool(
             return execute_analyze_tracked_address(
                 db,
                 address=arguments.get("address", ""),
+                user_id=user_id,
             )
 
         elif tool_name == "get_tracked_wallets":
-            return execute_get_tracked_wallets(db)
+            return execute_get_tracked_wallets(db, user_id=user_id)
 
         elif tool_name == "get_strategy_radar_universe":
-            return execute_get_strategy_radar_universe(db)
+            return execute_get_strategy_radar_universe(db, user_id=user_id)
 
         elif tool_name == "search_strategy_radar":
             return execute_search_strategy_radar(
@@ -3502,6 +3519,7 @@ def execute_hyper_ai_tool(
                 risk_level=arguments.get("risk_level"),
                 timeframe=arguments.get("timeframe"),
                 limit=arguments.get("limit", 5),
+                user_id=user_id,
             )
 
         elif tool_name == "save_signal_pool":

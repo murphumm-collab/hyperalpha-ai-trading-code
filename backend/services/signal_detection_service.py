@@ -242,7 +242,7 @@ class SignalDetectionService:
                 # Load enabled signal pools
                 result = db.execute(
                     text("""
-                        SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange, source_type
+                        SELECT id, pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, user_id
                         FROM signal_pools
                         WHERE enabled = true
                           AND (is_deleted IS NULL OR is_deleted = false)
@@ -273,6 +273,7 @@ class SignalDetectionService:
                         "logic": row[5] or "OR",
                         "exchange": row[6] or "hyperliquid",
                         "source_type": row[7] or "market_signals",
+                        "user_id": row[8],
                     })
 
                 # Load all enabled signals
@@ -379,6 +380,7 @@ class SignalDetectionService:
             trigger_result = {
                 "pool_id": pool_id,
                 "pool_name": pool_name,
+                "user_id": pool.get("user_id"),
                 "symbol": symbol,
                 "logic": logic,
                 "trigger_time": time.time(),

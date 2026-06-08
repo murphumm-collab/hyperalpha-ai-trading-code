@@ -97,8 +97,8 @@ def _build_pool_response(row) -> SignalPoolResponse:
     )
 
 
-def _schedule_wallet_runtime_refresh() -> None:
-    hyper_insight_wallet_service.request_refresh()
+def _schedule_wallet_runtime_refresh(user_id: int) -> None:
+    hyper_insight_wallet_service.request_refresh(user_id)
 
 
 class WalletTrackingRuntimeRequest(BaseModel):
@@ -152,31 +152,41 @@ def list_signals(
 
 
 @router.get("/wallet-tracking/status")
-def get_wallet_tracking_status() -> dict[str, Any]:
+def get_wallet_tracking_status(
+    current_user: User = Depends(get_current_user_dependency),
+) -> dict[str, Any]:
     """Get runtime status for Hyper Insight wallet tracking integration."""
-    return hyper_insight_wallet_service.get_status_snapshot()
+    return hyper_insight_wallet_service.get_status_snapshot(current_user.id)
 
 
 @router.put("/wallet-tracking/runtime")
-async def update_wallet_tracking_runtime(payload: WalletTrackingRuntimeRequest):
+async def update_wallet_tracking_runtime(
+    payload: WalletTrackingRuntimeRequest,
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Enable or disable runtime integration and optionally sync a fresh access token."""
-    await hyper_insight_wallet_service.set_enabled(payload.enabled)
+    await hyper_insight_wallet_service.set_enabled(current_user.id, payload.enabled)
     if payload.access_token:
-        await hyper_insight_wallet_service.sync_access_token(payload.access_token)
-    return hyper_insight_wallet_service.get_status_snapshot()
+        await hyper_insight_wallet_service.sync_access_token(current_user.id, payload.access_token)
+    return hyper_insight_wallet_service.get_status_snapshot(current_user.id)
 
 
 @router.post("/wallet-tracking/token")
-async def sync_wallet_tracking_token(payload: WalletTrackingTokenRequest):
+async def sync_wallet_tracking_token(
+    payload: WalletTrackingTokenRequest,
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Sync the latest HAA access token for future reconnects."""
-    await hyper_insight_wallet_service.sync_access_token(payload.access_token)
+    await hyper_insight_wallet_service.sync_access_token(current_user.id, payload.access_token)
     return {"success": True}
 
 
 @router.delete("/wallet-tracking/token")
-async def clear_wallet_tracking_token():
+async def clear_wallet_tracking_token(
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Clear the persisted runtime access token."""
-    await hyper_insight_wallet_service.clear_access_token()
+    await hyper_insight_wallet_service.clear_access_token(current_user.id)
     return {"success": True}
 
 
@@ -363,7 +373,7 @@ def create_pool(
     db.commit()
     row = result.fetchone()
     response = _build_pool_response(row)
-    _schedule_wallet_runtime_refresh()
+    _schedule_wallet_runtime_refresh(current_user.id)
     return response
 
 
@@ -478,7 +488,7 @@ def update_pool(
     if not row:
         raise HTTPException(status_code=404, detail="Pool not found")
     response = _build_pool_response(row)
-    _schedule_wallet_runtime_refresh()
+    _schedule_wallet_runtime_refresh(current_user.id)
     return response
 
 
@@ -501,7 +511,7 @@ def delete_pool(
     result = delete_signal_pool(db, pool_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Pool not found"))
-    _schedule_wallet_runtime_refresh()
+    _schedule_wallet_runtime_refresh(current_user.id)
     return result
 
 

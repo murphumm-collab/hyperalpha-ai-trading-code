@@ -208,6 +208,23 @@ class SystemConfig(Base):
     )
 
 
+class HyperInsightWalletRuntimeConfig(Base):
+    """Per-user Hyper Insight wallet tracking runtime configuration."""
+    __tablename__ = "hyper_insight_wallet_runtime_configs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True, index=True)
+    enabled = Column(Boolean, nullable=False, server_default=text("false"))
+    access_token = Column(Text, nullable=True)
+    token_synced_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+
+
 class CryptoPrice(Base):
     __tablename__ = "crypto_prices"
 

@@ -123,16 +123,23 @@ class ProgramExecutionService:
         """Called when a signal pool triggers - execute bound programs."""
         pool_id = pool.get("pool_id")
         pool_name = pool.get("pool_name", "Unknown")
+        pool_user_id = pool.get("user_id")
 
         logger.info(f"[ProgramExecution] Signal triggered: {pool_name} (pool_id={pool_id}) on {symbol}")
 
         db = SessionLocal()
         try:
             # Find active bindings that include this pool_id
-            all_bindings = db.query(AccountProgramBinding).filter(
+            bindings_query = db.query(AccountProgramBinding).join(
+                Account,
+                AccountProgramBinding.account_id == Account.id,
+            ).filter(
                 AccountProgramBinding.is_active == True,
-                AccountProgramBinding.is_deleted != True
-            ).all()
+                AccountProgramBinding.is_deleted != True,
+            )
+            if pool_user_id is not None:
+                bindings_query = bindings_query.filter(Account.user_id == pool_user_id)
+            all_bindings = bindings_query.all()
 
             # Filter bindings that have this pool_id in their signal_pool_ids
             bindings = []
