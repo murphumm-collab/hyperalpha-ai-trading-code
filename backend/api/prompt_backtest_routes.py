@@ -81,6 +81,47 @@ def _ensure_item_owner(db: Session, item_id: int, user_id: int) -> PromptBacktes
         raise HTTPException(status_code=404, detail="Item not found")
     return item
 
+
+def _decision_log_for_account_owner(
+    db: Session,
+    decision_log_id: int,
+    account_id: int,
+    user_id: int,
+) -> Optional[AIDecisionLog]:
+    return (
+        db.query(AIDecisionLog)
+        .join(Account, AIDecisionLog.account_id == Account.id)
+        .filter(
+            AIDecisionLog.id == decision_log_id,
+            AIDecisionLog.account_id == account_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        )
+        .first()
+    )
+
+
+def _decision_logs_for_account_owner(
+    db: Session,
+    decision_log_ids: List[int],
+    account_id: int,
+    user_id: int,
+) -> List[AIDecisionLog]:
+    if not decision_log_ids:
+        return []
+    return (
+        db.query(AIDecisionLog)
+        .join(Account, AIDecisionLog.account_id == Account.id)
+        .filter(
+            AIDecisionLog.id.in_(decision_log_ids),
+            AIDecisionLog.account_id == account_id,
+            Account.user_id == user_id,
+            Account.is_deleted != True,
+        )
+        .all()
+    )
+
+
 class ReplaceRule(BaseModel):
     find: str
     replace: str
@@ -214,10 +255,12 @@ def create_backtest_task(
     # Get wallet/environment from first decision log
     first_log = None
     if request.items:
-        first_log = db.query(AIDecisionLog).filter(
-            AIDecisionLog.id == request.items[0].decision_log_id,
-            AIDecisionLog.account_id == request.account_id,
-        ).first()
+        first_log = _decision_log_for_account_owner(
+            db,
+            request.items[0].decision_log_id,
+            request.account_id,
+            current_user.id,
+        )
 
     # Create task
     task = PromptBacktestTask(
@@ -236,10 +279,12 @@ def create_backtest_task(
 
     # Create items with original data snapshot
     for item_input in request.items:
-        original_log = db.query(AIDecisionLog).filter(
-            AIDecisionLog.id == item_input.decision_log_id,
-            AIDecisionLog.account_id == request.account_id,
-        ).first()
+        original_log = _decision_log_for_account_owner(
+            db,
+            item_input.decision_log_id,
+            request.account_id,
+            current_user.id,
+        )
 
         if not original_log:
             logger.warning(f"Decision log {item_input.decision_log_id} not found, skipping")
@@ -451,10 +496,12 @@ def get_task_items_for_import(
 
     # Get original decision logs for additional info
     decision_log_ids = [item.original_decision_log_id for item in items]
-    decision_logs = db.query(AIDecisionLog).filter(
-        AIDecisionLog.id.in_(decision_log_ids),
-        AIDecisionLog.account_id == task.account_id,
-    ).all()
+    decision_logs = _decision_logs_for_account_owner(
+        db,
+        decision_log_ids,
+        task.account_id,
+        current_user.id,
+    )
     decision_log_map = {dl.id: dl for dl in decision_logs}
 
     result_items = []

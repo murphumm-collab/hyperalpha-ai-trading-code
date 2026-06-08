@@ -85,7 +85,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped custom factor library CRUD and Hyper AI `save_factor` tool ownership.
 - Private custom factors are excluded from shared factor precomputation/effectiveness storage; resolver supports current-user private factor lookup.
 - User API list/login hardening for To C identity isolation.
-- User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle.
+- User-scoped Prompt Backtest task/list/status/results/item/import/delete/retry lifecycle, original decision-log reads, and background system-prompt template resolution.
 - User-scoped Analytics summary/by-dimension/trade-detail/replay/program-analytics reads.
 - User-bound WebSocket bootstrap/account switching/order/snapshot/asset-curve requests and per-user asset-curve broadcasts.
 - Required-auth guard for system log reads/deletes and generic system config writes; generic config writes are limited to `ui_language`.
@@ -198,7 +198,7 @@ Local checkpoint: current branch `HEAD`
 | Custom factor ownership | Done | CustomFactor `user_id` migration/model/API and Hyper AI `save_factor` store/list/edit/delete only the current user's custom factors while built-in expression factors remain global |
 | Private factor precompute guard | Done | Shared factor computation/effectiveness now processes only public `builtin_expression` rows; private custom factors resolve only with `user_id` for runtime/on-demand use |
 | User API hardening | Done | Legacy `/api/users/login` validates `password_hash`; `/api/users/` returns only the current request user |
-| Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; import reads original logs only from the task account |
+| Prompt Backtest ownership | Done | Backtest task creation validates account owner; task/list/status/results/item/import/delete/retry endpoints are current-user scoped; original decision-log reads join account ownership; background prompt resolution rejects cross-user private templates |
 | Analytics ownership | Done | Summary/by-strategy/by-account/by-symbol/by-operation/by-trigger/by-factor/trades/replay/kline/program analytics endpoints filter by current-user accounts and reject cross-user `account_id` filters |
 | WebSocket ownership | Done | WS resolves session/JWT identity from query/header/message token, ignores client-provided username for bootstrap, rejects cross-user `switch_account`, scopes asset curves by current user, and sends auth tokens from frontend WS requests |
 | Global config/log auth | Done | `get_authenticated_user_dependency` requires a real session/JWT for system logs and generic config updates; `/api/config/{key}` only permits `ui_language` |
@@ -338,6 +338,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: User route/repository syntax compile in both system Python and `uv run` backend environment.
 - Passed: Prompt Backtest owner isolation smoke test in `uv run`: Alice saw only her task, Bob received 404 for Alice task/item, and dirty task items could not import Bob's original decision log reason.
 - Passed: Prompt Backtest route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Prompt Backtest owner guard re-smoke in `uv run`: decision-log helpers hide Bob/deleted-account logs from Alice, import lookup returns only Alice-owned logs, system-prompt lookup ignores Bob's private template binding, and item result writes require matching task ownership.
 - Passed: Analytics owner isolation smoke test in `uv run`: Alice summary/account/trade/replay reads excluded Bob's trade PnL/order, Bob replaying Alice trade returned 404, and Bob filtering Alice account returned 404.
 - Passed: Program analytics owner isolation smoke test in `uv run`: Alice program summary/by-program excluded Bob's ProgramExecutionLog, and Bob filtering Alice account returned 404.
 - Passed: Analytics route syntax compile in both system Python and `uv run` backend environment.

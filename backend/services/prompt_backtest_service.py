@@ -15,7 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
-from sqlalchemy import text
+from sqlalchemy import or_, text
 from database.connection import SessionLocal
 from database.models import (
     Account,
@@ -57,7 +57,7 @@ def execute_backtest_task(task_id: int) -> None:
             db.commit()
             return
 
-        system_prompt = _get_system_prompt(db, account.id)
+        system_prompt = _get_system_prompt(db, account.id, account.user_id)
 
         items = db.query(PromptBacktestItem).filter(
             PromptBacktestItem.task_id == task_id,
@@ -196,7 +196,8 @@ def _save_item_result(item_id: int, task_id: int, result: Dict) -> None:
     """Save item result and update task count atomically."""
     with SessionLocal() as db:
         item = db.query(PromptBacktestItem).filter(
-            PromptBacktestItem.id == item_id
+            PromptBacktestItem.id == item_id,
+            PromptBacktestItem.task_id == task_id,
         ).first()
 
         if not item:
@@ -230,7 +231,7 @@ def _save_item_result(item_id: int, task_id: int, result: Dict) -> None:
         db.commit()
 
 
-def _get_system_prompt(db, account_id: int) -> str:
+def _get_system_prompt(db, account_id: int, owner_user_id: int) -> str:
     """Get system prompt from account's prompt binding."""
     binding = db.query(AccountPromptBinding).filter(
         AccountPromptBinding.account_id == account_id,
@@ -239,7 +240,12 @@ def _get_system_prompt(db, account_id: int) -> str:
 
     if binding and binding.prompt_template_id:
         template = db.query(PromptTemplate).filter(
-            PromptTemplate.id == binding.prompt_template_id
+            PromptTemplate.id == binding.prompt_template_id,
+            PromptTemplate.is_deleted == "false",
+            or_(
+                PromptTemplate.user_id == owner_user_id,
+                PromptTemplate.is_system == "true",
+            ),
         ).first()
         if template and template.system_template_text:
             return template.system_template_text
