@@ -12,7 +12,8 @@ from database.models import User, UserExchangeConfig, UserSubscription
 from api.auth_utils import get_current_user_dependency
 from repositories.user_repo import (
     create_user, get_user, get_user_by_username,
-    update_user, create_auth_session, verify_auth_session
+    update_user, create_auth_session, verify_auth_session,
+    verify_user_password
 )
 from datetime import datetime
 from pydantic import BaseModel
@@ -66,10 +67,8 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=UserAuthResponse)
 async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
     try:
-        # For now, just verify username exists and create session
-        # Password verification can be implemented later
         user = get_user_by_username(db, login_data.username)
-        if not user:
+        if not user or not verify_user_password(db, user.id, login_data.password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         # Create auth session
@@ -162,18 +161,17 @@ async def update_user_profile(
 
 
 @router.get("/", response_model=List[UserOut])
-async def list_users(db: Session = Depends(get_db)):
+async def list_users(
+    current_user: User = Depends(get_current_user_dependency),
+    db: Session = Depends(get_db),
+):
     try:
-        users = db.query(User).filter(User.is_active == "true").order_by(User.username).all()
-        return [
-            UserOut(
-                id=user.id,
-                username=user.username,
-                email=user.email,
-                is_active=user.is_active == "true"
-            )
-            for user in users
-        ]
+        return [UserOut(
+            id=current_user.id,
+            username=current_user.username,
+            email=current_user.email,
+            is_active=current_user.is_active == "true"
+        )]
         
     except Exception as e:
         logger.error(f"Failed to list users: {e}", exc_info=True)

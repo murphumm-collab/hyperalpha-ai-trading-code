@@ -45,6 +45,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Hyperliquid exchange action log reads and stats.
 - User-scoped sampling preferences with effective global sampling pool aggregation.
 - User-scoped custom factor library CRUD and Hyper AI `save_factor` tool ownership.
+- User API list/login hardening for To C identity isolation.
 - Development progress and acceptance markers.
 - Manual order-placement APIs are not changed in this slice.
 
@@ -96,6 +97,7 @@ Local checkpoint: current branch `HEAD`
 | Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
 | Sampling preference isolation | Done | `/api/config/global-sampling` stores current-user preferences; effective global pool config uses max depth and min interval across user preferences |
 | Custom factor ownership | Done | CustomFactor `user_id` migration/model/API and Hyper AI `save_factor` store/list/edit/delete only the current user's custom factors while built-in expression factors remain global |
+| User API hardening | Done | Legacy `/api/users/login` validates `password_hash`; `/api/users/` returns only the current request user |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -159,6 +161,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Sampling config route/model/migration syntax compile in both system Python and `uv run` backend environment.
 - Passed: Custom factor owner isolation smoke test in `uv run`: Alice/Bob could save same custom factor name independently; Alice library excluded Bob private factor; Alice could not delete Bob factor.
 - Passed: Custom factor route/model/migration/tool syntax compile in both system Python and `uv run` backend environment.
+- Passed: User login/list smoke test in `uv run`: wrong password rejected, correct password created a session, user listing returned only current user.
+- Passed: User route/repository syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
