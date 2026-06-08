@@ -22,6 +22,7 @@ import {
 import PacmanLoader from '@/components/ui/pacman-loader'
 import { TradingAccount } from '@/lib/api'
 import { pollAiStream } from '@/lib/pollAiStream'
+import { authFetch } from '@/lib/authFetch'
 import { Wrench, Send, Loader2 } from 'lucide-react'
 
 // Exchange logos
@@ -192,7 +193,7 @@ export default function AiSignalChatModal({
   useEffect(() => {
     if (!currentConversationId || !selectedAccountId) return
     const params = `?account_id=${selectedAccountId}`
-    fetch(`/api/signals/ai-conversations/${currentConversationId}/messages${params}`)
+    authFetch(`/api/signals/ai-conversations/${currentConversationId}/messages${params}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data?.token_usage !== undefined) setTokenUsage(data.token_usage) })
       .catch(() => {})
@@ -201,7 +202,7 @@ export default function AiSignalChatModal({
   const loadConversations = async () => {
     setLoadingConversations(true)
     try {
-      const response = await fetch('/api/signals/ai-conversations')
+      const response = await authFetch('/api/signals/ai-conversations')
       if (response.ok) {
         const data = await response.json()
         setConversations(data.conversations || [])
@@ -216,7 +217,7 @@ export default function AiSignalChatModal({
   const loadMessages = async (conversationId: number) => {
     try {
       const params = selectedAccountId ? `?account_id=${selectedAccountId}` : ''
-      const response = await fetch(`/api/signals/ai-conversations/${conversationId}/messages${params}`)
+      const response = await authFetch(`/api/signals/ai-conversations/${conversationId}/messages${params}`)
       if (response.ok) {
         const data = await response.json()
         const mappedMessages = (data.messages || []).map((m: any) => {
@@ -272,7 +273,7 @@ export default function AiSignalChatModal({
     setMessages(prev => [...prev, tempUserMsg, tempAssistantMsg])
 
     try {
-      const response = await fetch('/api/signals/ai-chat-stream', {
+      const response = await authFetch('/api/signals/ai-chat-stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

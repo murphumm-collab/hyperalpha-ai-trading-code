@@ -1456,11 +1456,13 @@ class HyperAiProfile(Base):
     - LLM provider configuration (API endpoint, key, model)
     - Onboarding status
 
-    Single-user system: only one profile exists per installation.
+    Multi-user system: one profile exists per user. Existing local installs
+    are backfilled to the default user by migration.
     """
     __tablename__ = "hyper_ai_profile"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, unique=True, index=True)
 
     # User identity
     nickname = Column(String(100), nullable=True)  # User's preferred name/nickname
@@ -1503,6 +1505,8 @@ class HyperAiProfile(Base):
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
 
+    user = relationship("User")
+
 
 class HyperAiMemory(Base):
     """
@@ -1522,6 +1526,7 @@ class HyperAiMemory(Base):
     __tablename__ = "hyper_ai_memory"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     # Memory content
     category = Column(String(50), nullable=False, index=True)  # preference / decision / lesson / insight
@@ -1534,6 +1539,8 @@ class HyperAiMemory(Base):
 
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), index=True)
     updated_at = Column(TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp())
+
+    user = relationship("User")
 
 
 class HyperAiConversation(Base):
@@ -1549,6 +1556,7 @@ class HyperAiConversation(Base):
     __tablename__ = "hyper_ai_conversations"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
 
     # Conversation metadata
     title = Column(String(200), nullable=False, default="Hyper AI Chat")
@@ -1570,6 +1578,7 @@ class HyperAiConversation(Base):
     compressed_at = Column(TIMESTAMP, nullable=True)  # When compression was performed
 
     # Relationships
+    user = relationship("User")
     messages = relationship(
         "HyperAiMessage",
         back_populates="conversation",

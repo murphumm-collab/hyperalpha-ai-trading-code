@@ -45,10 +45,13 @@ EXTERNAL_TOOL_REGISTRY: Dict[str, dict] = {
 
 # --- Config Helpers ---
 
-def get_tool_configs(db: Session) -> dict:
+def get_tool_configs(db: Session, user_id: Optional[int] = None) -> dict:
     """Read tool_configs JSON from HyperAiProfile."""
     from database.models import HyperAiProfile
-    profile = db.query(HyperAiProfile).first()
+    query = db.query(HyperAiProfile)
+    if user_id is not None:
+        query = query.filter(HyperAiProfile.user_id == user_id)
+    profile = query.first()
     if not profile or not profile.tool_configs:
         return {}
     try:
@@ -57,21 +60,24 @@ def get_tool_configs(db: Session) -> dict:
         return {}
 
 
-def save_tool_configs(db: Session, configs: dict):
+def save_tool_configs(db: Session, configs: dict, user_id: Optional[int] = None):
     """Write tool_configs JSON to HyperAiProfile."""
     from database.models import HyperAiProfile
-    profile = db.query(HyperAiProfile).first()
+    query = db.query(HyperAiProfile)
+    if user_id is not None:
+        query = query.filter(HyperAiProfile.user_id == user_id)
+    profile = query.first()
     if not profile:
-        profile = HyperAiProfile()
+        profile = HyperAiProfile(user_id=user_id)
         db.add(profile)
     profile.tool_configs = json.dumps(configs)
     db.commit()
 
 
-def get_tool_api_key(db: Session, tool_name: str) -> Optional[str]:
+def get_tool_api_key(db: Session, tool_name: str, user_id: Optional[int] = None) -> Optional[str]:
     """Get decrypted API key for a tool. Returns None if not configured."""
     from utils.encryption import decrypt_private_key
-    configs = get_tool_configs(db)
+    configs = get_tool_configs(db, user_id=user_id)
     tool_cfg = configs.get(tool_name, {})
     encrypted = tool_cfg.get("api_key_encrypted")
     if not encrypted:
@@ -82,23 +88,23 @@ def get_tool_api_key(db: Session, tool_name: str) -> Optional[str]:
         return None
 
 
-def set_tool_api_key(db: Session, tool_name: str, api_key: str):
+def set_tool_api_key(db: Session, tool_name: str, api_key: str, user_id: Optional[int] = None):
     """Encrypt and save API key for a tool."""
     from utils.encryption import encrypt_private_key
-    configs = get_tool_configs(db)
+    configs = get_tool_configs(db, user_id=user_id)
     if tool_name not in configs:
         configs[tool_name] = {}
     configs[tool_name]["api_key_encrypted"] = encrypt_private_key(api_key)
     configs[tool_name]["enabled"] = True
-    save_tool_configs(db, configs)
+    save_tool_configs(db, configs, user_id=user_id)
 
 
-def remove_tool_config(db: Session, tool_name: str):
+def remove_tool_config(db: Session, tool_name: str, user_id: Optional[int] = None):
     """Remove configuration for a tool."""
-    configs = get_tool_configs(db)
+    configs = get_tool_configs(db, user_id=user_id)
     if tool_name in configs:
         del configs[tool_name]
-        save_tool_configs(db, configs)
+        save_tool_configs(db, configs, user_id=user_id)
 
 
 # --- Validation Functions ---

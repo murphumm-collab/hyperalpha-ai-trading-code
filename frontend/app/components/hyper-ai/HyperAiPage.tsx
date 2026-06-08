@@ -51,6 +51,7 @@ import {
   Search as SearchIcon
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
+import { authFetch } from '@/lib/authFetch'
 import BotIntegrationModal from './BotIntegrationModal'
 import NotificationConfigModal from './NotificationConfigModal'
 import ToolConfigModal, { type ToolInfo } from './ToolConfigModal'
@@ -170,7 +171,7 @@ function MemoryModal({
   useEffect(() => {
     if (open) {
       setLoading(true)
-      fetch('/api/hyper-ai/memories?limit=50')
+      authFetch('/api/hyper-ai/memories?limit=50')
         .then(res => res.json())
         .then(data => setMemories(data.memories || []))
         .catch(() => setMemories([]))
@@ -335,7 +336,7 @@ function LLMConfigModal({
     setError('')
 
     try {
-      const res = await fetch('/api/hyper-ai/profile/llm', {
+      const res = await authFetch('/api/hyper-ai/profile/llm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -519,7 +520,7 @@ function WelcomeMessage({
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetch('/api/hyper-ai/suggestions')
+    authFetch('/api/hyper-ai/suggestions')
       .then(res => res.json())
       .then(data => {
         setSuggestions(data.suggestions || [])
@@ -689,7 +690,7 @@ export default function HyperAiPage() {
 
   const fetchExternalTools = async () => {
     try {
-      const res = await fetch('/api/hyper-ai/tools')
+      const res = await authFetch('/api/hyper-ai/tools')
       const data = await res.json()
       setExternalTools(data.tools || [])
     } catch (e) {
@@ -699,7 +700,7 @@ export default function HyperAiPage() {
 
   const fetchConversations = async () => {
     try {
-      const res = await fetch('/api/hyper-ai/conversations')
+      const res = await authFetch('/api/hyper-ai/conversations')
       const data = await res.json()
       setConversations(data.conversations || [])
     } catch (e) {
@@ -709,7 +710,7 @@ export default function HyperAiPage() {
 
   const fetchMessages = async (convId: number) => {
     try {
-      const res = await fetch(`/api/hyper-ai/conversations/${convId}/messages`)
+      const res = await authFetch(`/api/hyper-ai/conversations/${convId}/messages`)
       const data = await res.json()
       setMessages(data.messages || [])
       setCompressionPoints(data.compression_points || [])
@@ -721,7 +722,7 @@ export default function HyperAiPage() {
 
   const fetchProviders = async () => {
     try {
-      const res = await fetch('/api/hyper-ai/providers')
+      const res = await authFetch('/api/hyper-ai/providers')
       const data = await res.json()
       setProviders(data.providers || [])
     } catch (e) {
@@ -731,7 +732,7 @@ export default function HyperAiPage() {
 
   const fetchProfile = async () => {
     try {
-      const res = await fetch('/api/hyper-ai/profile')
+      const res = await authFetch('/api/hyper-ai/profile')
       const data = await res.json()
       setProfile(data)
       if (data.nickname) {
@@ -744,7 +745,7 @@ export default function HyperAiPage() {
 
   const fetchSkills = async () => {
     try {
-      const res = await fetch('/api/hyper-ai/skills')
+      const res = await authFetch('/api/hyper-ai/skills')
       const data = await res.json()
       setSkills(data.skills || [])
     } catch (e) {
@@ -755,7 +756,7 @@ export default function HyperAiPage() {
   const toggleSkill = async (skillName: string, enabled: boolean) => {
     setSkillsLoading(true)
     try {
-      await fetch(`/api/hyper-ai/skills/${skillName}/toggle`, {
+      await authFetch(`/api/hyper-ai/skills/${skillName}/toggle`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled })
@@ -774,7 +775,7 @@ export default function HyperAiPage() {
     setSkillsLoading(true)
     try {
       for (const [name, enabled] of Object.entries(pendingSkillToggles)) {
-        await fetch(`/api/hyper-ai/skills/${name}/toggle`, {
+        await authFetch(`/api/hyper-ai/skills/${name}/toggle`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ enabled })
@@ -831,7 +832,7 @@ export default function HyperAiPage() {
     ])
 
     try {
-      const res = await fetch('/api/hyper-ai/chat', {
+      const res = await authFetch('/api/hyper-ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -869,7 +870,7 @@ export default function HyperAiPage() {
     })))
 
     try {
-      const res = await fetch('/api/hyper-ai/confirm-tool', {
+      const res = await authFetch('/api/hyper-ai/confirm-tool', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

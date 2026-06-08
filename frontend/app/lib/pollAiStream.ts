@@ -6,6 +6,8 @@
  * and a maximum polling duration guard.
  */
 
+import { authFetch } from '@/lib/authFetch'
+
 export interface PollChunk {
   event_type: string
   data: Record<string, any>
@@ -70,7 +72,7 @@ export async function pollAiStream(
     await new Promise(resolve => setTimeout(resolve, interval))
 
     try {
-      const res = await fetch(`/api/ai-stream/${taskId}?offset=${offset}`)
+      const res = await authFetch(`/api/ai-stream/${taskId}?offset=${offset}`)
 
       if (res.status === 404) {
         consecutive404++

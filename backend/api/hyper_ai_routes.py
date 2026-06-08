@@ -23,7 +23,8 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 
 from database.connection import get_db
-from database.models import HyperAiConversation
+from database.models import HyperAiConversation, User
+from api.auth_utils import get_current_user_dependency
 from services.hyper_ai_service import (
     get_or_create_profile,
     get_llm_config,
@@ -85,10 +86,13 @@ def list_providers():
 
 
 @router.get("/profile")
-def get_profile(db: Session = Depends(get_db)):
+def get_profile(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Get user profile including LLM config status and trading preferences."""
-    profile = get_or_create_profile(db)
-    llm_config = get_llm_config(db)
+    profile = get_or_create_profile(db, user_id=current_user.id)
+    llm_config = get_llm_config(db, user_id=current_user.id)
 
     # Get base_url for display
     base_url = llm_config.get("base_url", "") if llm_config.get("configured") else ""
@@ -150,7 +154,11 @@ def test_connection(request: TestConnectionRequest):
 
 
 @router.post("/profile/llm")
-def save_llm_configuration(request: LLMConfigRequest, db: Session = Depends(get_db)):
+def save_llm_configuration(
+    request: LLMConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Save LLM provider configuration after testing connection."""
     # Validate provider
     if request.provider != "custom":
@@ -192,16 +200,21 @@ def save_llm_configuration(request: LLMConfigRequest, db: Session = Depends(get_
         provider=request.provider,
         api_key=request.api_key,
         model=model,
-        base_url=request.base_url
+        base_url=request.base_url,
+        user_id=current_user.id,
     )
 
     return {"success": True, "provider": profile.llm_provider, "model": profile.llm_model}
 
 
 @router.post("/profile/preferences")
-def save_preferences(request: PreferencesRequest, db: Session = Depends(get_db)):
+def save_preferences(
+    request: PreferencesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Save trading preferences and mark onboarding as completed."""
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=current_user.id)
 
     if request.trading_style is not None:
         profile.trading_style = request.trading_style
@@ -230,23 +243,28 @@ def save_preferences(request: PreferencesRequest, db: Session = Depends(get_db))
 
 
 @router.get("/suggestions")
-def get_suggestions(db: Session = Depends(get_db)):
+def get_suggestions(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Get suggested questions for welcome screen.
     Returns cached suggestions or triggers async update if stale (>6 hours).
     For new users (no conversations), returns is_new_user=True.
     """
     from services.hyper_ai_service import get_or_update_suggestions
-    return get_or_update_suggestions(db)
+    return get_or_update_suggestions(db, user_id=current_user.id)
 
 @router.get("/conversations")
 def list_conversations(
     limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """List recent conversations (excluding onboarding). Bot conversations pinned first."""
     conversations = db.query(HyperAiConversation).filter(
-        HyperAiConversation.is_onboarding != True
+        HyperAiConversation.user_id == current_user.id,
+        HyperAiConversation.is_onboarding != True,
     ).order_by(
         HyperAiConversation.is_bot_conversation.desc(),
         HyperAiConversation.updated_at.desc()
@@ -268,9 +286,12 @@ def list_conversations(
 
 
 @router.post("/conversations")
-def create_conversation(db: Session = Depends(get_db)):
+def create_conversation(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Create a new conversation."""
-    conv = get_or_create_conversation(db)
+    conv = get_or_create_conversation(db, user_id=current_user.id)
     return {
         "id": conv.id,
         "title": conv.title,
@@ -282,18 +303,20 @@ def create_conversation(db: Session = Depends(get_db)):
 def get_messages(
     conversation_id: int,
     limit: int = Query(50, ge=1, le=200),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get messages from a conversation with compression points and token usage."""
     from database.models import HyperAiConversation, HyperAiProfile
     from services.ai_context_compression_service import calculate_token_usage, restore_tool_calls_to_messages
     import json as json_module
 
-    messages = get_conversation_messages(db, conversation_id, limit)
+    messages = get_conversation_messages(db, conversation_id, limit, user_id=current_user.id)
 
     # Get compression points from conversation
     conversation = db.query(HyperAiConversation).filter(
-        HyperAiConversation.id == conversation_id
+        HyperAiConversation.id == conversation_id,
+        HyperAiConversation.user_id == current_user.id,
     ).first()
 
     compression_points = []
@@ -305,11 +328,11 @@ def get_messages(
 
     # Calculate token usage (only messages after compression point + summary)
     token_usage = None
-    profile = db.query(HyperAiProfile).first()
+    profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == current_user.id).first()
     if profile and profile.llm_model and messages:
         from services.ai_context_compression_service import get_last_compression_point
         from database.models import HyperAiMessage
-        llm_config = get_llm_config(db)
+        llm_config = get_llm_config(db, user_id=current_user.id)
         api_format = llm_config.get("api_format", "openai")
 
         # Load ORM objects for id-based filtering
@@ -343,7 +366,11 @@ def get_messages(
 
 
 @router.post("/chat")
-def start_chat(request: ChatRequest, db: Session = Depends(get_db)):
+def start_chat(
+    request: ChatRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Start a chat with Hyper AI.
     Returns task_id for polling via /api/ai-stream/{task_id}.
@@ -351,7 +378,7 @@ def start_chat(request: ChatRequest, db: Session = Depends(get_db)):
     mode="onboarding" uses a special prompt for profile collection.
     """
     # Check LLM config
-    llm_config = get_llm_config(db)
+    llm_config = get_llm_config(db, user_id=current_user.id)
     if not llm_config.get("configured"):
         raise HTTPException(
             status_code=400,
@@ -360,13 +387,30 @@ def start_chat(request: ChatRequest, db: Session = Depends(get_db)):
 
     # Get or create conversation (mark as onboarding if in onboarding mode)
     is_onboarding = request.mode == "onboarding"
-    conv = get_or_create_conversation(db, request.conversation_id, is_onboarding=is_onboarding)
+    conv = get_or_create_conversation(
+        db,
+        request.conversation_id,
+        is_onboarding=is_onboarding,
+        user_id=current_user.id,
+    )
 
     # Start background task based on mode
     if is_onboarding:
-        task_id = start_onboarding_chat_task(db, conv.id, request.message, request.lang)
+        task_id = start_onboarding_chat_task(
+            db,
+            conv.id,
+            request.message,
+            request.lang,
+            user_id=current_user.id,
+        )
     else:
-        task_id = start_chat_task(db, conv.id, request.message, request.lang)
+        task_id = start_chat_task(
+            db,
+            conv.id,
+            request.message,
+            request.lang,
+            user_id=current_user.id,
+        )
 
     return {
         "task_id": task_id,
@@ -389,9 +433,13 @@ def confirm_tool(request: ConfirmationRequest):
 
 
 @router.post("/insight")
-def start_insight(request: InsightRequest, db: Session = Depends(get_db)):
+def start_insight(
+    request: InsightRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Start a one-shot Insight analysis task without chat conversation persistence."""
-    llm_config = get_llm_config(db)
+    llm_config = get_llm_config(db, user_id=current_user.id)
     if not llm_config.get("configured"):
         raise HTTPException(
             status_code=400,
@@ -403,6 +451,7 @@ def start_insight(request: InsightRequest, db: Session = Depends(get_db)):
         context=request.context,
         selected_event=request.selected_event,
         lang=request.lang,
+        user_id=current_user.id,
     )
     return {"task_id": task_id}
 
@@ -412,7 +461,8 @@ def start_insight(request: InsightRequest, db: Session = Depends(get_db)):
 def list_memories(
     category: Optional[str] = Query(None, description="Filter by category"),
     limit: int = Query(20, ge=1, le=100),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """List user memories, optionally filtered by category."""
     from services.hyper_ai_memory_service import get_memories, MEMORY_CATEGORIES
@@ -420,16 +470,20 @@ def list_memories(
     if category and category not in MEMORY_CATEGORIES:
         raise HTTPException(status_code=400, detail=f"Invalid category. Valid: {MEMORY_CATEGORIES}")
 
-    memories = get_memories(db, category=category, limit=limit)
+    memories = get_memories(db, category=category, limit=limit, user_id=current_user.id)
     return {"memories": memories, "categories": MEMORY_CATEGORIES}
 
 
 @router.delete("/memories/{memory_id}")
-def delete_memory_endpoint(memory_id: int, db: Session = Depends(get_db)):
+def delete_memory_endpoint(
+    memory_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Delete (deactivate) a memory."""
     from services.hyper_ai_memory_service import delete_memory
 
-    success = delete_memory(db, memory_id)
+    success = delete_memory(db, memory_id, user_id=current_user.id)
     if not success:
         raise HTTPException(status_code=404, detail="Memory not found")
     return {"success": True}
@@ -437,12 +491,15 @@ def delete_memory_endpoint(memory_id: int, db: Session = Depends(get_db)):
 
 # Skill endpoints
 @router.get("/skills")
-def list_skills(db: Session = Depends(get_db)):
+def list_skills(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """List all available skills with their enabled/disabled status."""
     from services.hyper_ai_skill_engine import scan_all_skills, get_enabled_skills
 
     all_skills = scan_all_skills()
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=current_user.id)
     enabled = get_enabled_skills(all_skills, profile.enabled_skills)
     enabled_names = {s["name"] for s in enabled}
 
@@ -465,7 +522,12 @@ class SkillToggleRequest(BaseModel):
 
 
 @router.put("/skills/{skill_name}/toggle")
-def toggle_skill(skill_name: str, body: SkillToggleRequest, db: Session = Depends(get_db)):
+def toggle_skill(
+    skill_name: str,
+    body: SkillToggleRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Enable or disable a specific skill for the current user."""
     import json as _json
     from services.hyper_ai_skill_engine import scan_all_skills
@@ -475,7 +537,7 @@ def toggle_skill(skill_name: str, body: SkillToggleRequest, db: Session = Depend
     if skill_name not in valid_names:
         raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
 
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=current_user.id)
 
     # Parse current enabled list (None = all enabled)
     if profile.enabled_skills is None:
@@ -505,13 +567,16 @@ def toggle_skill(skill_name: str, body: SkillToggleRequest, db: Session = Depend
 
 
 @router.get("/tools")
-def list_tools(db: Session = Depends(get_db)):
+def list_tools(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """List all registered external tools with their config status."""
     from services.hyper_ai_tool_registry import (
         EXTERNAL_TOOL_REGISTRY, get_tool_configs,
     )
 
-    configs = get_tool_configs(db)
+    configs = get_tool_configs(db, user_id=current_user.id)
     tools = []
     for name, meta in EXTERNAL_TOOL_REGISTRY.items():
         tool_cfg = configs.get(name, {})
@@ -540,7 +605,10 @@ class ToolConfigRequest(BaseModel):
 
 @router.put("/tools/{tool_name}/config")
 async def save_tool_config(
-    tool_name: str, body: ToolConfigRequest, db: Session = Depends(get_db)
+    tool_name: str,
+    body: ToolConfigRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Save configuration for an external tool. Optionally validates the key."""
     from services.hyper_ai_tool_registry import (
@@ -560,12 +628,16 @@ async def save_tool_config(
         if not ok:
             return {"success": False, "error": err}
 
-    set_tool_api_key(db, tool_name, api_key)
+    set_tool_api_key(db, tool_name, api_key, user_id=current_user.id)
     return {"success": True, "tool_name": tool_name}
 
 
 @router.delete("/tools/{tool_name}/config")
-def delete_tool_config(tool_name: str, db: Session = Depends(get_db)):
+def delete_tool_config(
+    tool_name: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Remove configuration for an external tool."""
     from services.hyper_ai_tool_registry import (
         EXTERNAL_TOOL_REGISTRY, remove_tool_config,
@@ -574,5 +646,5 @@ def delete_tool_config(tool_name: str, db: Session = Depends(get_db)):
     if tool_name not in EXTERNAL_TOOL_REGISTRY:
         raise HTTPException(status_code=404, detail=f"Tool '{tool_name}' not found")
 
-    remove_tool_config(db, tool_name)
+    remove_tool_config(db, tool_name, user_id=current_user.id)
     return {"success": True, "tool_name": tool_name}

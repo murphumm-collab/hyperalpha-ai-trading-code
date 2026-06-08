@@ -727,6 +727,7 @@ from services.ai_signal_generation_service import (
     get_signal_conversation_messages
 )
 from database.models import User
+from api.auth_utils import get_current_user_dependency
 
 
 class AiSignalChatRequest(BaseModel):
@@ -754,23 +755,33 @@ class AiSignalChatResponse(BaseModel):
         populate_by_name = True
 
 
+def _ensure_signal_account_access(db: Session, account_id: int, user_id: int) -> None:
+    from database.models import Account
+
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="Account not found")
+
+
 @router.post("/ai-chat", response_model=AiSignalChatResponse)
 def ai_signal_chat(
     request: AiSignalChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> AiSignalChatResponse:
     """Send a message to AI signal generation assistant"""
-    # Get user (default user for now)
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+    _ensure_signal_account_access(db, request.account_id, current_user.id)
 
     result = generate_signal_with_ai(
         db=db,
         account_id=request.account_id,
         user_message=request.user_message,
         conversation_id=request.conversation_id,
-        user_id=user.id
+        user_id=current_user.id
     )
 
     return AiSignalChatResponse(
@@ -786,16 +797,13 @@ def ai_signal_chat(
 @router.get("/ai-conversations")
 def list_ai_signal_conversations(
     limit: int = 20,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> dict:
     """Get list of AI signal generation conversations"""
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     conversations = get_signal_conversation_history(
         db=db,
-        user_id=user.id,
+        user_id=current_user.id,
         limit=limit
     )
 
@@ -806,21 +814,18 @@ def list_ai_signal_conversations(
 def get_ai_signal_conversation_messages(
     conversation_id: int,
     account_id: Optional[int] = Query(None),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> dict:
     """Get all messages in a specific conversation with compression points and token usage"""
     import json as json_module
     from database.models import AiSignalConversation, HyperAiProfile
     from services.ai_context_compression_service import calculate_token_usage, restore_tool_calls_to_messages
 
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     messages = get_signal_conversation_messages(
         db=db,
         conversation_id=conversation_id,
-        user_id=user.id
+        user_id=current_user.id
     )
 
     if messages is None:
@@ -829,7 +834,8 @@ def get_ai_signal_conversation_messages(
     # Get compression points from conversation
     compression_points = []
     conversation = db.query(AiSignalConversation).filter(
-        AiSignalConversation.id == conversation_id
+        AiSignalConversation.id == conversation_id,
+        AiSignalConversation.user_id == current_user.id,
     ).first()
     if conversation and conversation.compression_points:
         try:
@@ -842,18 +848,22 @@ def get_ai_signal_conversation_messages(
     api_format = "openai"
     if account_id:
         from database.models import Account
-        acct = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+        acct = db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).first()
         if acct and acct.model:
             token_model = acct.model
             from services.ai_decision_service import detect_api_format
             _, fmt = detect_api_format(acct.base_url or "")
             api_format = fmt or "openai"
     if not token_model:
-        profile = db.query(HyperAiProfile).first()
+        profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == current_user.id).first()
         if profile and profile.llm_model:
             token_model = profile.llm_model
             from services.hyper_ai_service import get_llm_config
-            llm_config = get_llm_config(db)
+            llm_config = get_llm_config(db, user_id=current_user.id)
             api_format = llm_config.get("api_format", "openai")
 
     # Calculate token usage (only messages after compression point + summary)
@@ -896,7 +906,8 @@ def get_ai_signal_conversation_messages(
 @router.post("/ai-chat-stream")
 async def ai_signal_chat_stream(
     request: AiSignalChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Send a message to AI signal generation assistant.
@@ -918,12 +929,10 @@ async def ai_signal_chat_stream(
     from services.ai_stream_service import get_buffer_manager, generate_task_id, run_ai_task_in_background
     from database.connection import SessionLocal
 
-    user = db.query(User).filter(User.username == "default").first()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-
     # Background task mode
     if request.use_background_task:
+        _ensure_signal_account_access(db, request.account_id, current_user.id)
+
         task_id = generate_task_id("signal")
         manager = get_buffer_manager()
 
@@ -939,7 +948,7 @@ async def ai_signal_chat_stream(
         account_id = request.account_id
         user_message = request.user_message
         conversation_id = request.conversation_id
-        user_id = user.id
+        user_id = current_user.id
 
         def generator_func():
             bg_db = SessionLocal()
@@ -958,13 +967,15 @@ async def ai_signal_chat_stream(
         return {"task_id": task_id, "status": "started"}
 
     # SSE streaming mode (default)
+    _ensure_signal_account_access(db, request.account_id, current_user.id)
+
     def event_generator():
         for event in generate_signal_with_ai_stream(
             db=db,
             account_id=request.account_id,
             user_message=request.user_message,
             conversation_id=request.conversation_id,
-            user_id=user.id
+            user_id=current_user.id
         ):
             yield event
 

@@ -24,6 +24,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Loader2, CheckCircle2, AlertCircle, ArrowRight, Bot, User, ChevronDown, Send } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
+import { authFetch } from '@/lib/authFetch'
 
 interface LLMProvider {
   id: string
@@ -68,7 +69,7 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
 
   const fetchProviders = async () => {
     try {
-      const res = await fetch('/api/hyper-ai/providers')
+      const res = await authFetch('/api/hyper-ai/providers')
       const data = await res.json()
       setProviders(data.providers || [])
     } catch (e) {
@@ -106,7 +107,7 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
     setTestResult(null)
 
     try {
-      const saveRes = await fetch('/api/hyper-ai/profile/llm', {
+      const saveRes = await authFetch('/api/hyper-ai/profile/llm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -313,7 +314,7 @@ function ChatStep({ onSkip, onComplete }: { onSkip: () => void; onComplete: () =
       // Use navigator.language as primary source - i18n.changeLanguage may not have completed yet
       const lang = navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en'
 
-      const res = await fetch('/api/hyper-ai/chat', {
+      const res = await authFetch('/api/hyper-ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -353,7 +354,7 @@ function ChatStep({ onSkip, onComplete }: { onSkip: () => void; onComplete: () =
     setLastOffset(0)
 
     try {
-      const res = await fetch('/api/hyper-ai/chat', {
+      const res = await authFetch('/api/hyper-ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { authFetch } from '@/lib/authFetch'
 import { ExternalLink, Loader2, XCircle, Check, Trash2 } from 'lucide-react'
 
 interface ConfigField {
@@ -85,7 +86,7 @@ export default function ToolConfigModal({
     setSaving(true)
     setError(null)
     try {
-      const res = await fetch(`/api/hyper-ai/tools/${tool.name}/config`, {
+      const res = await authFetch(`/api/hyper-ai/tools/${tool.name}/config`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: values, validate_key: true }),
@@ -109,7 +110,7 @@ export default function ToolConfigModal({
     setRemoving(true)
     setError(null)
     try {
-      const res = await fetch(`/api/hyper-ai/tools/${tool.name}/config`, {
+      const res = await authFetch(`/api/hyper-ai/tools/${tool.name}/config`, {
         method: 'DELETE',
       })
       if (res.ok) {

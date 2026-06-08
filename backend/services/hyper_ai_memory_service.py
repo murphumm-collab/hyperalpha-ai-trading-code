@@ -50,7 +50,8 @@ def get_memories(
     db: Session,
     category: Optional[str] = None,
     limit: int = 20,
-    active_only: bool = True
+    active_only: bool = True,
+    user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """
     Retrieve memories, optionally filtered by category.
@@ -65,6 +66,9 @@ def get_memories(
         List of memory dictionaries
     """
     query = db.query(HyperAiMemory)
+
+    if user_id is not None:
+        query = query.filter(HyperAiMemory.user_id == user_id)
 
     if active_only:
         query = query.filter(HyperAiMemory.is_active == True)
@@ -81,6 +85,7 @@ def get_memories(
     return [
         {
             "id": m.id,
+            "user_id": m.user_id,
             "category": m.category,
             "content": m.content,
             "source": m.source,
@@ -96,7 +101,8 @@ def add_memory(
     category: str,
     content: str,
     source: str = "conversation",
-    importance: float = 0.5
+    importance: float = 0.5,
+    user_id: Optional[int] = None,
 ) -> HyperAiMemory:
     """
     Add a new memory entry.
@@ -112,6 +118,7 @@ def add_memory(
         Created memory object
     """
     memory = HyperAiMemory(
+        user_id=user_id,
         category=category,
         content=content,
         source=source,
@@ -149,9 +156,12 @@ def update_memory(
     return memory
 
 
-def delete_memory(db: Session, memory_id: int) -> bool:
+def delete_memory(db: Session, memory_id: int, user_id: Optional[int] = None) -> bool:
     """Soft delete a memory by marking it inactive."""
-    memory = db.query(HyperAiMemory).filter(HyperAiMemory.id == memory_id).first()
+    query = db.query(HyperAiMemory).filter(HyperAiMemory.id == memory_id)
+    if user_id is not None:
+        query = query.filter(HyperAiMemory.user_id == user_id)
+    memory = query.first()
     if not memory:
         return False
 
@@ -189,7 +199,8 @@ def batch_dedup_memories(
     db: Session,
     new_memories: List[Dict[str, Any]],
     api_config: Dict[str, Any],
-    source: str = "compression"
+    source: str = "compression",
+    user_id: Optional[int] = None,
 ) -> int:
     """
     Batch deduplication: compare all new memories against all existing in 1 LLM call.
@@ -207,7 +218,7 @@ def batch_dedup_memories(
         return 0
 
     # Get all active memories (exclude user_info from onboarding)
-    existing = get_memories(db, limit=MAX_MEMORIES)
+    existing = get_memories(db, limit=MAX_MEMORIES, user_id=user_id)
     existing = [m for m in existing if m.get("category") != "user_info"]
 
     # If no existing memories, just add all
@@ -217,9 +228,9 @@ def batch_dedup_memories(
             cat = mem.get("category", "context")
             if cat not in MEMORY_CATEGORIES or not mem.get("content"):
                 continue
-            add_memory(db, cat, mem["content"], source, mem.get("importance", 0.5))
+            add_memory(db, cat, mem["content"], source, mem.get("importance", 0.5), user_id=user_id)
             count += 1
-        enforce_memory_limit(db)
+        enforce_memory_limit(db, user_id=user_id)
         return count
 
     # Build prompt with existing and new memories
@@ -247,9 +258,9 @@ def batch_dedup_memories(
             cat = mem.get("category", "context")
             if cat not in MEMORY_CATEGORIES or not mem.get("content"):
                 continue
-            add_memory(db, cat, mem["content"], source, mem.get("importance", 0.5))
+            add_memory(db, cat, mem["content"], source, mem.get("importance", 0.5), user_id=user_id)
             count += 1
-        enforce_memory_limit(db)
+        enforce_memory_limit(db, user_id=user_id)
         return count
 
     # Execute actions
@@ -268,7 +279,7 @@ def batch_dedup_memories(
         action = act.get("action", "ADD").upper()
 
         if action == "ADD":
-            add_memory(db, cat, content, source, importance)
+            add_memory(db, cat, content, source, importance, user_id=user_id)
             count += 1
         elif action == "UPDATE":
             eid = act.get("existing_id")
@@ -279,17 +290,17 @@ def batch_dedup_memories(
                 update_memory(db, eid, content=merged, importance=max(importance, old_imp))
                 count += 1
             else:
-                add_memory(db, cat, content, source, importance)
+                add_memory(db, cat, content, source, importance, user_id=user_id)
                 count += 1
         elif action == "DELETE":
             eid = act.get("existing_id")
             if eid:
-                delete_memory(db, eid)
-            add_memory(db, cat, content, source, importance)
+                delete_memory(db, eid, user_id=user_id)
+            add_memory(db, cat, content, source, importance, user_id=user_id)
             count += 1
         # NONE: discard, do nothing
 
-    enforce_memory_limit(db)
+    enforce_memory_limit(db, user_id=user_id)
     return count
 
 
@@ -368,26 +379,32 @@ def _call_llm_for_dedup(
         return None
 
 
-def enforce_memory_limit(db: Session) -> int:
+def enforce_memory_limit(db: Session, user_id: Optional[int] = None) -> int:
     """
     Enforce MAX_MEMORIES limit by soft-deleting lowest importance memories.
     Excludes user_info category (managed by onboarding).
     Returns number of memories evicted.
     """
-    active_count = db.query(HyperAiMemory).filter(
+    active_query = db.query(HyperAiMemory).filter(
         HyperAiMemory.is_active == True,
         HyperAiMemory.category != "user_info"
-    ).count()
+    )
+    if user_id is not None:
+        active_query = active_query.filter(HyperAiMemory.user_id == user_id)
+    active_count = active_query.count()
 
     if active_count <= MAX_MEMORIES:
         return 0
 
     excess = active_count - MAX_MEMORIES
     # Get lowest importance memories to evict
-    to_evict = db.query(HyperAiMemory).filter(
+    evict_query = db.query(HyperAiMemory).filter(
         HyperAiMemory.is_active == True,
         HyperAiMemory.category != "user_info"
-    ).order_by(
+    )
+    if user_id is not None:
+        evict_query = evict_query.filter(HyperAiMemory.user_id == user_id)
+    to_evict = evict_query.order_by(
         HyperAiMemory.importance.asc(),
         HyperAiMemory.created_at.asc()
     ).limit(excess).all()
@@ -522,7 +539,8 @@ def extract_memories_from_conversation(
 def process_compression_memories(
     db: Session,
     conversation_text: str,
-    api_config: Dict[str, Any]
+    api_config: Dict[str, Any],
+    user_id: Optional[int] = None,
 ) -> int:
     """
     Extract and store memories during context compression.
@@ -545,6 +563,6 @@ def process_compression_memories(
     if not valid:
         return 0
 
-    count = batch_dedup_memories(db, valid, api_config, source="compression")
+    count = batch_dedup_memories(db, valid, api_config, source="compression", user_id=user_id)
     logger.warning(f"[Memory] Processed {count} memories from compression (batch mode)")
     return count

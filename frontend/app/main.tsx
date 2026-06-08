@@ -45,6 +45,7 @@ import { SplashScreen, HyperAiOnboarding, HyperAiPage } from '@/components/hyper
 import ArenaAssets from '@/components/arena/ArenaAssets'
 // Remove CallbackPage import - handle inline
 import { AIDecision, getAccounts, checkMainnetAccounts, approveBuilder, type UnauthorizedAccount } from '@/lib/api'
+import { authFetch } from '@/lib/authFetch'
 import { checkWalletUpgradeNeeded } from '@/lib/hyperliquidApi'
 import { AuthorizationModal, AgentWalletUpgradeModal } from '@/components/hyperliquid'
 import { ArenaDataProvider } from '@/contexts/ArenaDataContext'
@@ -137,7 +138,7 @@ function App() {
   // Check Hyper AI configuration during splash phase
   const checkHyperAiConfig = useCallback(async () => {
     try {
-      const res = await fetch('/api/hyper-ai/profile')
+      const res = await authFetch('/api/hyper-ai/profile')
       const data = await res.json()
       return !data.llm_configured
     } catch (e) {

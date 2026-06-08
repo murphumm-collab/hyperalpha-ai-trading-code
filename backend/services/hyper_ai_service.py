@@ -172,20 +172,23 @@ DEFAULT_ONBOARDING_PROMPT_ZH = """你是 Hyper AI，一个友好的交易助手�
 """
 
 
-def get_or_create_profile(db: Session) -> HyperAiProfile:
-    """Get existing profile or create a new one (single-user system)."""
-    profile = db.query(HyperAiProfile).first()
+def get_or_create_profile(db: Session, user_id: Optional[int] = None) -> HyperAiProfile:
+    """Get existing profile or create a new one for a user."""
+    query = db.query(HyperAiProfile)
+    if user_id is not None:
+        query = query.filter(HyperAiProfile.user_id == user_id)
+    profile = query.first()
     if not profile:
-        profile = HyperAiProfile()
+        profile = HyperAiProfile(user_id=user_id)
         db.add(profile)
         db.commit()
         db.refresh(profile)
     return profile
 
 
-def get_llm_config(db: Session) -> Dict[str, Any]:
+def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]:
     """Get LLM configuration from user profile."""
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=user_id)
 
     if not profile.llm_provider:
         return {"configured": False}
@@ -296,12 +299,13 @@ def save_llm_config(
     provider: str,
     api_key: str,
     model: Optional[str] = None,
-    base_url: Optional[str] = None
+    base_url: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> HyperAiProfile:
     """Save LLM configuration to user profile."""
     from utils.encryption import encrypt_private_key
 
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=user_id)
     profile.llm_provider = provider
     profile.llm_model = model
     profile.llm_base_url = base_url
@@ -317,18 +321,26 @@ def save_llm_config(
 def get_or_create_conversation(
     db: Session,
     conversation_id: Optional[int] = None,
-    is_onboarding: bool = False
+    is_onboarding: bool = False,
+    user_id: Optional[int] = None,
 ) -> HyperAiConversation:
     """Get existing conversation or create a new one."""
     if conversation_id:
-        conv = db.query(HyperAiConversation).filter(
+        query = db.query(HyperAiConversation).filter(
             HyperAiConversation.id == conversation_id
-        ).first()
+        )
+        if user_id is not None:
+            query = query.filter(HyperAiConversation.user_id == user_id)
+        conv = query.first()
         if conv:
             return conv
 
     # Create new conversation
-    conv = HyperAiConversation(title="Hyper AI Chat", is_onboarding=is_onboarding)
+    conv = HyperAiConversation(
+        user_id=user_id,
+        title="Hyper AI Chat",
+        is_onboarding=is_onboarding,
+    )
     db.add(conv)
     db.commit()
     db.refresh(conv)
@@ -338,9 +350,18 @@ def get_or_create_conversation(
 def get_conversation_messages(
     db: Session,
     conversation_id: int,
-    limit: int = 50
+    limit: int = 50,
+    user_id: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Get recent messages from a conversation."""
+    if user_id is not None:
+        conv = db.query(HyperAiConversation).filter(
+            HyperAiConversation.id == conversation_id,
+            HyperAiConversation.user_id == user_id,
+        ).first()
+        if not conv:
+            return []
+
     messages = db.query(HyperAiMessage).filter(
         HyperAiMessage.conversation_id == conversation_id
     ).order_by(HyperAiMessage.created_at.desc()).limit(limit).all()
@@ -401,7 +422,8 @@ def build_messages_for_api(
     conversation_id: int,
     user_message: str,
     api_config: Dict[str, Any],
-    include_tools: bool = True
+    include_tools: bool = True,
+    user_id: Optional[int] = None,
 ) -> tuple[List[Dict[str, str]], Optional[List[Dict]], Optional[str]]:
     """
     Build message list for LLM API call with automatic compression.
@@ -418,7 +440,7 @@ def build_messages_for_api(
     messages = []
 
     # Load user profile (used for both skill filtering and personalization)
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=user_id)
 
     # System prompt with Skill metadata injection
     system_prompt = load_system_prompt()
@@ -471,7 +493,7 @@ def build_messages_for_api(
             })
 
     # Inject long-term memories into context
-    memory_context = _build_memory_context(db)
+    memory_context = _build_memory_context(db, user_id=user_id)
     if memory_context:
         messages.append({
             "role": "system",
@@ -479,9 +501,12 @@ def build_messages_for_api(
         })
 
     # Check compression points - load summary instead of old messages
-    conversation = db.query(HyperAiConversation).filter(
+    conversation_query = db.query(HyperAiConversation).filter(
         HyperAiConversation.id == conversation_id
-    ).first()
+    )
+    if user_id is not None:
+        conversation_query = conversation_query.filter(HyperAiConversation.user_id == user_id)
+    conversation = conversation_query.first()
     cp = get_last_compression_point(conversation) if conversation else None
 
     if cp and cp.get("summary"):
@@ -566,14 +591,14 @@ def _build_profile_context(profile: HyperAiProfile) -> str:
     return "\n".join(parts)
 
 
-def _build_memory_context(db: Session) -> str:
+def _build_memory_context(db: Session, user_id: Optional[int] = None) -> str:
     """
     Build long-term memory context for system prompt injection.
     Groups memories by category for readability.
     """
     from services.hyper_ai_memory_service import get_memories, MAX_MEMORIES
 
-    memories = get_memories(db, limit=MAX_MEMORIES)
+    memories = get_memories(db, limit=MAX_MEMORIES, user_id=user_id)
     if not memories:
         return ""
 
@@ -745,7 +770,8 @@ def stream_chat_response(
     db: Session,
     conversation_id: int,
     user_message: str,
-    task_id: Optional[str] = None
+    task_id: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> Generator[str, None, None]:
     """
     Stream chat response from LLM with tool calling support.
@@ -764,7 +790,7 @@ def stream_chat_response(
     and finally yields the result string for the main LLM to continue reasoning.
     """
     # Get LLM config
-    llm_config = get_llm_config(db)
+    llm_config = get_llm_config(db, user_id=user_id)
     if not llm_config.get("configured"):
         yield format_sse_event("error", {
             "message": "LLM not configured. Please complete onboarding first."
@@ -775,7 +801,13 @@ def stream_chat_response(
     save_message(db, conversation_id, "user", user_message)
 
     # Build messages (with automatic compression) and get tools
-    messages, tools, command_skill = build_messages_for_api(db, conversation_id, user_message, llm_config)
+    messages, tools, command_skill = build_messages_for_api(
+        db,
+        conversation_id,
+        user_message,
+        llm_config,
+        user_id=user_id,
+    )
 
     # Emit skill_loaded event if /command mode was used
     if command_skill:
@@ -1116,9 +1148,12 @@ def stream_chat_response(
                 get_last_compression_point
             )
             import json as json_mod
-            profile = db.query(HyperAiProfile).first()
+            profile_query = db.query(HyperAiProfile)
+            if user_id is not None:
+                profile_query = profile_query.filter(HyperAiProfile.user_id == user_id)
+            profile = profile_query.first()
             if profile and profile.llm_model and conv:
-                llm_cfg = get_llm_config(db)
+                llm_cfg = get_llm_config(db, user_id=user_id)
                 af = llm_cfg.get("api_format", "openai")
                 cp = get_last_compression_point(conv)
                 cp_mid = cp.get("message_id", 0) if cp else 0
@@ -1169,7 +1204,8 @@ def start_chat_task(
     db: Session,
     conversation_id: int,
     user_message: str,
-    lang: str = None
+    lang: str = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """Start a chat task in background and return task_id."""
     task_id = generate_task_id("hyper")
@@ -1180,7 +1216,13 @@ def start_chat_task(
         from database.connection import SessionLocal
         task_db = SessionLocal()
         try:
-            yield from stream_chat_response(task_db, conversation_id, user_message, task_id=task_id)
+            yield from stream_chat_response(
+                task_db,
+                conversation_id,
+                user_message,
+                task_id=task_id,
+                user_id=user_id,
+            )
         finally:
             task_db.close()
 
@@ -1192,10 +1234,11 @@ def stream_onboarding_response(
     db: Session,
     conversation_id: int,
     user_message: str,
-    lang: str = "en"
+    lang: str = "en",
+    user_id: Optional[int] = None,
 ) -> Generator[str, None, None]:
     """Stream onboarding chat response - simplified version for profile collection."""
-    llm_config = get_llm_config(db)
+    llm_config = get_llm_config(db, user_id=user_id)
     if not llm_config.get("configured"):
         yield format_sse_event("error", {"message": "LLM not configured"})
         return
@@ -1215,7 +1258,7 @@ def stream_onboarding_response(
 
     # Get conversation history (skip for greeting)
     if not is_greeting:
-        history = get_conversation_messages(db, conversation_id, limit=20)
+        history = get_conversation_messages(db, conversation_id, limit=20, user_id=user_id)
         for msg in history:
             messages.append({"role": msg["role"], "content": msg["content"]})
 
@@ -1262,14 +1305,21 @@ def stream_onboarding_response(
         yield format_sse_event("error", {"message": "API request failed"})
         return
 
-    yield from _process_onboarding_stream_response(db, conversation_id, response, api_format)
+    yield from _process_onboarding_stream_response(
+        db,
+        conversation_id,
+        response,
+        api_format,
+        user_id=user_id,
+    )
 
 
 def start_onboarding_chat_task(
     db: Session,
     conversation_id: int,
     user_message: str,
-    lang: str = None
+    lang: str = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """Start an onboarding chat task in background."""
     task_id = generate_task_id("onboard")
@@ -1283,7 +1333,13 @@ def start_onboarding_chat_task(
         from database.connection import SessionLocal
         task_db = SessionLocal()
         try:
-            yield from stream_onboarding_response(task_db, conversation_id, user_message, effective_lang)
+            yield from stream_onboarding_response(
+                task_db,
+                conversation_id,
+                user_message,
+                effective_lang,
+                user_id=user_id,
+            )
         finally:
             task_db.close()
 
@@ -1371,9 +1427,10 @@ def stream_insight_response(
     context: Dict[str, Any],
     selected_event: Optional[Dict[str, Any]] = None,
     lang: str = "en",
+    user_id: Optional[int] = None,
 ) -> Generator[str, None, None]:
     """Stream a one-shot Insight analysis without conversation persistence."""
-    llm_config = get_llm_config(db)
+    llm_config = get_llm_config(db, user_id=user_id)
     if not llm_config.get("configured"):
         yield format_sse_event("error", {"message": "LLM not configured"})
         return
@@ -1520,6 +1577,7 @@ def start_insight_task(
     context: Dict[str, Any],
     selected_event: Optional[Dict[str, Any]] = None,
     lang: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """Start a one-shot Insight analysis task without chat conversation persistence."""
     task_id = generate_task_id("insight")
@@ -1537,6 +1595,7 @@ def start_insight_task(
                 context=context,
                 selected_event=selected_event,
                 lang=effective_lang,
+                user_id=user_id,
             )
         finally:
             task_db.close()
@@ -1612,9 +1671,13 @@ def _strip_profile_markers(content: str) -> str:
     return cleaned
 
 
-def _save_profile_from_onboarding(db: Session, profile_data: Dict[str, str]) -> None:
+def _save_profile_from_onboarding(
+    db: Session,
+    profile_data: Dict[str, str],
+    user_id: Optional[int] = None,
+) -> None:
     """Save parsed profile data to database."""
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=user_id)
 
     # Save nickname to profile
     nickname = profile_data.get('nickname', '')
@@ -1644,7 +1707,8 @@ def _process_onboarding_stream_response(
     db: Session,
     conversation_id: int,
     response: requests.Response,
-    api_format: str
+    api_format: str,
+    user_id: Optional[int] = None,
 ) -> Generator[str, None, None]:
     """Process streaming response for onboarding, handling profile data extraction."""
     content_parts = []
@@ -1706,7 +1770,7 @@ def _process_onboarding_stream_response(
 
         if profile_data:
             # Save profile to database
-            _save_profile_from_onboarding(db, profile_data)
+            _save_profile_from_onboarding(db, profile_data, user_id=user_id)
             onboarding_complete = True
 
             # Strip markers from content for display
@@ -1740,20 +1804,23 @@ def _process_onboarding_stream_response(
 SUGGESTION_CACHE_HOURS = 6  # Update suggestions every 6 hours
 
 
-def get_suggestions_context(db: Session) -> Dict[str, Any]:
+def get_suggestions_context(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]:
     """
     Gather context for generating suggested questions.
     Returns user profile, recent conversations, and configuration status.
     """
     from database.models import Account, SignalPool, HyperliquidWallet
 
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=user_id)
 
     # Get recent 3 conversations (non-onboarding, non-bot)
-    recent_convs = db.query(HyperAiConversation).filter(
+    recent_query = db.query(HyperAiConversation).filter(
         HyperAiConversation.is_onboarding == False,
         HyperAiConversation.is_bot_conversation == False
-    ).order_by(HyperAiConversation.updated_at.desc()).limit(3).all()
+    )
+    if user_id is not None:
+        recent_query = recent_query.filter(HyperAiConversation.user_id == user_id)
+    recent_convs = recent_query.order_by(HyperAiConversation.updated_at.desc()).limit(3).all()
 
     conversations_context = []
     for conv in recent_convs:
@@ -1849,16 +1916,16 @@ def build_suggestions_prompt(context: Dict[str, Any]) -> str:
     return "\n".join(prompt_parts)
 
 
-def generate_suggested_questions(db: Session) -> List[str]:
+def generate_suggested_questions(db: Session, user_id: Optional[int] = None) -> List[str]:
     """
     Generate suggested questions using the user's configured LLM.
     Returns empty list if LLM not configured or generation fails.
     """
-    config = get_llm_config(db)
+    config = get_llm_config(db, user_id=user_id)
     if not config.get("configured"):
         return []
 
-    context = get_suggestions_context(db)
+    context = get_suggestions_context(db, user_id=user_id)
 
     # No conversations = new user, return empty (frontend will show default questions)
     if not context.get("conversations"):
@@ -1945,20 +2012,23 @@ def generate_suggested_questions(db: Session) -> List[str]:
         return []
 
 
-def get_or_update_suggestions(db: Session) -> Dict[str, Any]:
+def get_or_update_suggestions(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]:
     """
     Get cached suggestions or trigger async update if stale.
     Returns current suggestions (may be stale) and triggers background update.
     """
     from datetime import datetime, timedelta
 
-    profile = get_or_create_profile(db)
+    profile = get_or_create_profile(db, user_id=user_id)
 
     # Check if we have conversations at all
-    conv_count = db.query(HyperAiConversation).filter(
+    conv_query = db.query(HyperAiConversation).filter(
         HyperAiConversation.is_onboarding == False,
         HyperAiConversation.is_bot_conversation == False
-    ).count()
+    )
+    if user_id is not None:
+        conv_query = conv_query.filter(HyperAiConversation.user_id == user_id)
+    conv_count = conv_query.count()
 
     if conv_count == 0:
         return {
@@ -1998,9 +2068,9 @@ def get_or_update_suggestions(db: Session) -> Dict[str, Any]:
             from database.connection import SessionLocal
             task_db = SessionLocal()
             try:
-                questions = generate_suggested_questions(task_db)
+                questions = generate_suggested_questions(task_db, user_id=user_id)
                 if questions:
-                    task_profile = get_or_create_profile(task_db)
+                    task_profile = get_or_create_profile(task_db, user_id=user_id)
                     task_profile.suggested_questions = json.dumps(questions)
                     task_profile.suggested_questions_at = datetime.utcnow()
                     task_db.commit()
