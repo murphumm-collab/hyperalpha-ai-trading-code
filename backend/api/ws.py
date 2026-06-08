@@ -226,6 +226,48 @@ def _ensure_ws_account_owner(db: Session, account_id: int, user_id: int) -> Acco
     return account
 
 
+def _recent_trades_for_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: int,
+    limit: int,
+    environment: Optional[str] = None,
+):
+    query = (
+        db.query(Trade)
+        .join(Account, Trade.account_id == Account.id)
+        .filter(
+            Trade.account_id == account_id,
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    )
+    if environment:
+        query = query.filter(Trade.hyperliquid_environment == environment)
+    return query.order_by(Trade.trade_time.desc()).limit(limit).all()
+
+
+def _recent_ai_decisions_for_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: int,
+    limit: int,
+    environment: Optional[str] = None,
+):
+    query = (
+        db.query(AIDecisionLog)
+        .join(Account, AIDecisionLog.account_id == Account.id)
+        .filter(
+            AIDecisionLog.account_id == account_id,
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    )
+    if environment:
+        query = query.filter(AIDecisionLog.hyperliquid_environment == environment)
+    return query.order_by(AIDecisionLog.decision_time.desc()).limit(limit).all()
+
+
 async def broadcast_asset_curve_update(timeframe: str = "1h"):
     """Broadcast asset curve updates to all connected clients"""
     db = SessionLocal()
@@ -351,11 +393,17 @@ async def _send_snapshot_optimized(db: Session, account_id: int):
     
     positions = list_positions(db, account_id, owner_user_id=account.user_id)
     orders = list_orders(db, account_id, owner_user_id=account.user_id)
-    trades = (
-        db.query(Trade).filter(Trade.account_id == account_id).order_by(Trade.trade_time.desc()).limit(10).all()  # Reduced from 20 to 10
+    trades = _recent_trades_for_account(
+        db,
+        account_id,
+        owner_user_id=account.user_id,
+        limit=10,
     )
-    ai_decisions = (
-        db.query(AIDecisionLog).filter(AIDecisionLog.account_id == account_id).order_by(AIDecisionLog.decision_time.desc()).limit(10).all()  # Reduced from 20 to 10
+    ai_decisions = _recent_ai_decisions_for_account(
+        db,
+        account_id,
+        owner_user_id=account.user_id,
+        limit=10,
     )
     
     # Use cached positions value calculation
@@ -646,22 +694,20 @@ async def _send_hyperliquid_snapshot(db: Session, account_id: int, environment: 
             if o.hyperliquid_environment == environment
         ]
 
-        trades = (
-            db.query(Trade)
-            .filter(Trade.account_id == account_id)
-            .filter(Trade.hyperliquid_environment == environment)
-            .order_by(Trade.trade_time.desc())
-            .limit(20)
-            .all()
+        trades = _recent_trades_for_account(
+            db,
+            account_id,
+            owner_user_id=account.user_id,
+            limit=20,
+            environment=environment,
         )
 
-        ai_decisions = (
-            db.query(AIDecisionLog)
-            .filter(AIDecisionLog.account_id == account_id)
-            .filter(AIDecisionLog.hyperliquid_environment == environment)
-            .order_by(AIDecisionLog.decision_time.desc())
-            .limit(20)
-            .all()
+        ai_decisions = _recent_ai_decisions_for_account(
+            db,
+            account_id,
+            owner_user_id=account.user_id,
+            limit=20,
+            environment=environment,
         )
 
         # Prepare response data
@@ -752,11 +798,17 @@ async def _send_snapshot(db: Session, account_id: int):
         return
     positions = list_positions(db, account_id, owner_user_id=account.user_id)
     orders = list_orders(db, account_id, owner_user_id=account.user_id)
-    trades = (
-        db.query(Trade).filter(Trade.account_id == account_id).order_by(Trade.trade_time.desc()).limit(20).all()
+    trades = _recent_trades_for_account(
+        db,
+        account_id,
+        owner_user_id=account.user_id,
+        limit=20,
     )
-    ai_decisions = (
-        db.query(AIDecisionLog).filter(AIDecisionLog.account_id == account_id).order_by(AIDecisionLog.decision_time.desc()).limit(20).all()
+    ai_decisions = _recent_ai_decisions_for_account(
+        db,
+        account_id,
+        owner_user_id=account.user_id,
+        limit=20,
     )
     positions_value = calc_positions_value(
         db,
