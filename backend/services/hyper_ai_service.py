@@ -1011,8 +1011,9 @@ def stream_chat_response(
                         tool_use_id = tu.get("id", "")
                         if fn_args == "":
                             fn_args = {}
+                        safe_fn_args = mask_tool_args(fn_args)
 
-                        yield format_sse_event("tool_call", {"name": fn_name, "args": fn_args})
+                        yield format_sse_event("tool_call", {"name": fn_name, "args": safe_fn_args})
                         tool_result = yield from _execute_harnessed_tool_call(
                             db=db,
                             assistant_msg=assistant_msg,
@@ -1032,7 +1033,7 @@ def stream_chat_response(
 
                         tool_calls_log.append({
                             "tool": fn_name,
-                            "args": fn_args,
+                            "args": safe_fn_args,
                             # Tool results are user-visible in the frontend stream/log.
                             # Do not include internal URLs, auth headers, API keys, or raw upstream errors here.
                             # Keep full result for save/create tools (needed for entity cards)
@@ -1065,8 +1066,9 @@ def stream_chat_response(
                             fn_args = json.loads(tc["function"]["arguments"])
                         except json.JSONDecodeError:
                             fn_args = {}
+                        safe_fn_args = mask_tool_args(fn_args)
 
-                        yield format_sse_event("tool_call", {"name": fn_name, "args": fn_args})
+                        yield format_sse_event("tool_call", {"name": fn_name, "args": safe_fn_args})
                         tool_result = yield from _execute_harnessed_tool_call(
                             db=db,
                             assistant_msg=assistant_msg,
@@ -1086,7 +1088,7 @@ def stream_chat_response(
 
                         tool_calls_log.append({
                             "tool": fn_name,
-                            "args": fn_args,
+                            "args": safe_fn_args,
                             # Tool results are user-visible in the frontend stream/log.
                             # Do not include internal URLs, auth headers, API keys, or raw upstream errors here.
                             # Keep full result for save/create tools (needed for entity cards)

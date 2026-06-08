@@ -23,6 +23,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped PromptTemplate, SignalDefinition, and SignalPool ownership.
 - User-scoped Hyper Insight wallet-tracking runtime config, token sync, websocket state, and wallet-signal callbacks.
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
+- Hyper AI tool-call streams and persisted tool logs mask sensitive arguments such as API keys, secrets, tokens, private keys, and passwords.
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
 - AI stream task admission has global and per-user running-task limits for single-server DeepSeek/Qwen capacity isolation.
@@ -99,6 +100,7 @@ Local checkpoint: current branch `HEAD`
 | Strategy entity ownership | Done | `add_strategy_entity_user_scope.py`; PromptTemplate, SignalDefinition, SignalPool CRUD scoped by current user |
 | Hyper Insight runtime user scoping | Done | `add_hyper_insight_wallet_runtime_user_scope.py`; token/status/websocket state and wallet pool matching are user-scoped |
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, wallet status, tracked wallet tools, Strategy Radar, `save_program`, `create_ai_trader`, and `web_search` config lookup |
+| AI tool argument masking | Done | User-visible `tool_call` events and persisted `tool_calls_log` store masked sensitive args while tools still receive original args for execution |
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
@@ -169,6 +171,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Prompt/Signal ownership route compile and frontend build after strategy entity `user_id` migration and auth-aware manager requests.
 - Passed: Hyper Insight wallet runtime route/service compile and frontend build after per-user token/status/websocket scoping.
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
+- Passed: Hyper AI tool argument masking syntax compile and smoke test in `uv run`: nested API key/token/secret args are masked, and static search confirms `tool_call` events plus `tool_calls_log` use `safe_fn_args`.
 - Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
 - Passed: AI stream persistence models/migration/service syntax compile.
 - Passed: AI stream admission smoke test in `uv run`: per-user limit rejected a third concurrent task for one user, global limit rejected the next task when global running count was full, and completing a task reopened capacity.
