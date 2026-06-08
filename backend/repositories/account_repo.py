@@ -93,9 +93,13 @@ def update_account(
     base_url: str = None,
     api_key: str = None,
     auto_trading_enabled: Optional[bool] = None,
+    owner_user_id: Optional[int] = None,
 ) -> Optional[Account]:
     """Update account information"""
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+    account_query = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True)
+    if owner_user_id is not None:
+        account_query = account_query.filter(Account.user_id == owner_user_id)
+    account = account_query.first()
     if not account:
         return None
 
@@ -119,10 +123,14 @@ def update_account_cash(
     db: Session,
     account_id: int,
     current_cash: float,
-    frozen_cash: float = None
+    frozen_cash: float = None,
+    owner_user_id: Optional[int] = None,
 ) -> Optional[Account]:
     """Update account cash balance"""
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+    account_query = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True)
+    if owner_user_id is not None:
+        account_query = account_query.filter(Account.user_id == owner_user_id)
+    account = account_query.first()
     if not account:
         return None
     
@@ -135,9 +143,16 @@ def update_account_cash(
     return account
 
 
-def deactivate_account(db: Session, account_id: int) -> Optional[Account]:
+def deactivate_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Optional[Account]:
     """Deactivate an account"""
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+    account_query = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True)
+    if owner_user_id is not None:
+        account_query = account_query.filter(Account.user_id == owner_user_id)
+    account = account_query.first()
     if not account:
         return None
 
@@ -147,9 +162,16 @@ def deactivate_account(db: Session, account_id: int) -> Optional[Account]:
     return account
 
 
-def activate_account(db: Session, account_id: int) -> Optional[Account]:
+def activate_account(
+    db: Session,
+    account_id: int,
+    owner_user_id: Optional[int] = None,
+) -> Optional[Account]:
     """Activate an account"""
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+    account_query = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True)
+    if owner_user_id is not None:
+        account_query = account_query.filter(Account.user_id == owner_user_id)
+    account = account_query.first()
     if not account:
         return None
     

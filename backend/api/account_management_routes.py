@@ -229,6 +229,7 @@ async def update_trading_account(
             base_url=account_data.base_url,
             api_key=account_data.api_key,
             auto_trading_enabled=account_data.auto_trading_enabled,
+            owner_user_id=user_id,
         )
         
         return _build_account_out(updated_account)
@@ -257,7 +258,7 @@ async def delete_trading_account(
         if account.user_id != user_id:
             raise HTTPException(status_code=403, detail="Access denied")
         
-        deactivate_account(db, account_id)
+        deactivate_account(db, account_id, owner_user_id=user_id)
         return {"message": f"Account {account.name} deactivated successfully"}
         
     except HTTPException:
