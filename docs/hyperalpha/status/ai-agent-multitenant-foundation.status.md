@@ -25,6 +25,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
+- AI stream task admission has global and per-user running-task limits for single-server DeepSeek/Qwen capacity isolation.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
 - User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
@@ -88,6 +89,7 @@ Local checkpoint: current branch `HEAD`
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
+| AI stream task admission limits | Done | `AI_STREAM_MAX_RUNNING_GLOBAL` and `AI_STREAM_MAX_RUNNING_PER_USER` cap shared LLM task concurrency before model calls are submitted |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
 | Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
@@ -143,6 +145,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
 - Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
 - Passed: AI stream persistence models/migration/service syntax compile.
+- Passed: AI stream admission smoke test in `uv run`: per-user limit rejected a third concurrent task for one user, global limit rejected the next task when global running count was full, and completing a task reopened capacity.
+- Passed: AI stream admission syntax compile in both system Python and `uv run` backend environment for StreamBuffer plus Hyper AI, Prompt AI, Signal AI, Attribution AI, and Hyper AI service task entry points.
 - Passed: Compression memory owner propagation compile, static call-site search, and whitespace check.
 - Passed: User symbol watchlist route/service/tool compile and static search confirming user-facing GET/PUT and Hyper AI tools pass `user_id`.
 - Passed: Trading command static review confirming account AI prompt symbols are sourced from each account owner's watchlist.
@@ -220,7 +224,7 @@ Local checkpoint: current branch `HEAD`
 ## Known Not-Accepted Items
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
-- Redis/distributed job queue execution is not implemented in this slice; DB persistence covers single-server task/chunk recovery, not multi-instance worker orchestration.
+- Redis/distributed job queue execution is not implemented in this slice; DB persistence and admission limits cover single-server task/chunk recovery and capacity isolation, not multi-instance worker orchestration.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Discord external bot long-connection is not fully multi-tenant yet; this slice binds Discord message handling to the resolved owner user, but the underlying `discord.py` gateway client is still a single global client per process.

@@ -48,6 +48,8 @@ logger = logging.getLogger(__name__)
 BUFFER_EXPIRATION_SECONDS = 15 * 60
 AI_TASK_MAX_WORKERS = int(os.getenv("AI_TASK_MAX_WORKERS", "12"))
 AI_BACKGROUND_MAX_WORKERS = int(os.getenv("AI_BACKGROUND_MAX_WORKERS", "4"))
+AI_STREAM_MAX_RUNNING_GLOBAL = int(os.getenv("AI_STREAM_MAX_RUNNING_GLOBAL", str(AI_TASK_MAX_WORKERS)))
+AI_STREAM_MAX_RUNNING_PER_USER = int(os.getenv("AI_STREAM_MAX_RUNNING_PER_USER", "2"))
 AI_STREAM_PERSISTENCE_ENABLED = os.getenv("AI_STREAM_PERSISTENCE_ENABLED", "true").lower() == "true"
 AI_STREAM_DB_RETENTION_SECONDS = int(os.getenv("AI_STREAM_DB_RETENTION_SECONDS", str(24 * 60 * 60)))
 
@@ -91,6 +93,24 @@ class StreamTask:
     confirmation_event: threading.Event = field(default_factory=threading.Event)
     confirmation_response: Optional[Dict[str, Any]] = field(default=None)
     pending_confirmation_id: Optional[str] = field(default=None)
+
+
+class TaskAdmissionError(RuntimeError):
+    """Raised when the AI stream runtime refuses a new task for capacity reasons."""
+
+    def __init__(self, message: str, scope: str, limit: int, running: int):
+        super().__init__(message)
+        self.scope = scope
+        self.limit = limit
+        self.running = running
+
+    def to_response(self) -> Dict[str, Any]:
+        return {
+            "message": str(self),
+            "scope": self.scope,
+            "limit": self.limit,
+            "running": self.running,
+        }
 
 
 def _json_dumps(data: Any) -> str:
@@ -313,15 +333,50 @@ class StreamBufferManager:
         task_id: str,
         conversation_id: Optional[int] = None,
         user_id: Optional[int] = None,
+        enforce_limits: bool = True,
     ) -> StreamTask:
         """Create a new stream task."""
         with self._tasks_lock:
             if task_id in self._tasks:
                 logger.warning(f"[StreamBuffer] Task {task_id} already exists, overwriting")
+            if enforce_limits:
+                self._assert_task_capacity(user_id)
             task = StreamTask(task_id=task_id, conversation_id=conversation_id, user_id=user_id)
             self._tasks[task_id] = task
             self._persist_task(task)
             return task
+
+    def _running_task_counts(self, user_id: Optional[int] = None) -> tuple[int, int]:
+        global_running = 0
+        user_running = 0
+        for task in self._tasks.values():
+            if task.status != "running":
+                continue
+            global_running += 1
+            if user_id is not None and task.user_id == user_id:
+                user_running += 1
+        return global_running, user_running
+
+    def _assert_task_capacity(self, user_id: Optional[int]) -> None:
+        global_running, user_running = self._running_task_counts(user_id)
+        if AI_STREAM_MAX_RUNNING_GLOBAL > 0 and global_running >= AI_STREAM_MAX_RUNNING_GLOBAL:
+            raise TaskAdmissionError(
+                "AI task capacity is full. Please retry after an existing task finishes.",
+                scope="global",
+                limit=AI_STREAM_MAX_RUNNING_GLOBAL,
+                running=global_running,
+            )
+        if (
+            user_id is not None
+            and AI_STREAM_MAX_RUNNING_PER_USER > 0
+            and user_running >= AI_STREAM_MAX_RUNNING_PER_USER
+        ):
+            raise TaskAdmissionError(
+                "You already have too many AI tasks running. Please wait for one to finish.",
+                scope="user",
+                limit=AI_STREAM_MAX_RUNNING_PER_USER,
+                running=user_running,
+            )
 
     def get_task(self, task_id: str, user_id: Optional[int] = None) -> Optional[StreamTask]:
         """Get a task by ID."""
@@ -579,6 +634,8 @@ def get_ai_runtime_stats() -> Dict[str, int]:
     return {
         "running_tasks": running_tasks,
         "task_max_workers": AI_TASK_MAX_WORKERS,
+        "task_max_running_global": AI_STREAM_MAX_RUNNING_GLOBAL,
+        "task_max_running_per_user": AI_STREAM_MAX_RUNNING_PER_USER,
         "task_threads": task_threads,
         "task_queue": task_queue,
         "background_max_workers": AI_BACKGROUND_MAX_WORKERS,

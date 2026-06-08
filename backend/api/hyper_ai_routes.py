@@ -37,7 +37,7 @@ from services.hyper_ai_service import (
     start_insight_task,
 )
 from services.hyper_ai_llm_providers import get_all_providers, get_provider
-from services.ai_stream_service import get_buffer_manager
+from services.ai_stream_service import TaskAdmissionError, get_buffer_manager
 
 router = APIRouter(prefix="/api/hyper-ai", tags=["Hyper AI"])
 
@@ -398,22 +398,25 @@ def start_chat(
     )
 
     # Start background task based on mode
-    if is_onboarding:
-        task_id = start_onboarding_chat_task(
-            db,
-            conv.id,
-            request.message,
-            request.lang,
-            user_id=current_user.id,
-        )
-    else:
-        task_id = start_chat_task(
-            db,
-            conv.id,
-            request.message,
-            request.lang,
-            user_id=current_user.id,
-        )
+    try:
+        if is_onboarding:
+            task_id = start_onboarding_chat_task(
+                db,
+                conv.id,
+                request.message,
+                request.lang,
+                user_id=current_user.id,
+            )
+        else:
+            task_id = start_chat_task(
+                db,
+                conv.id,
+                request.message,
+                request.lang,
+                user_id=current_user.id,
+            )
+    except TaskAdmissionError as exc:
+        raise HTTPException(status_code=429, detail=exc.to_response()) from exc
 
     return {
         "task_id": task_id,
@@ -453,13 +456,16 @@ def start_insight(
             detail="LLM not configured. Please complete onboarding first."
         )
 
-    task_id = start_insight_task(
-        db=db,
-        context=request.context,
-        selected_event=request.selected_event,
-        lang=request.lang,
-        user_id=current_user.id,
-    )
+    try:
+        task_id = start_insight_task(
+            db=db,
+            context=request.context,
+            selected_event=request.selected_event,
+            lang=request.lang,
+            user_id=current_user.id,
+        )
+    except TaskAdmissionError as exc:
+        raise HTTPException(status_code=429, detail=exc.to_response()) from exc
     return {"task_id": task_id}
 
 

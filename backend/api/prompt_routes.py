@@ -791,7 +791,7 @@ def ai_chat_stream(
 
     Premium feature - requires active subscription.
     """
-    from services.ai_stream_service import get_buffer_manager, generate_task_id, run_ai_task_in_background
+    from services.ai_stream_service import TaskAdmissionError, get_buffer_manager, generate_task_id, run_ai_task_in_background
     from database.connection import SessionLocal
 
     # Get AI Trader account
@@ -809,7 +809,10 @@ def ai_chat_stream(
                 return {"task_id": existing.task_id, "status": "already_running"}
 
         # Create task
-        manager.create_task(task_id, conversation_id=request.conversation_id, user_id=current_user.id)
+        try:
+            manager.create_task(task_id, conversation_id=request.conversation_id, user_id=current_user.id)
+        except TaskAdmissionError as exc:
+            raise HTTPException(status_code=429, detail=exc.to_response()) from exc
 
         # Capture request data for background thread
         account_id = account.id

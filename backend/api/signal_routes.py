@@ -1059,7 +1059,7 @@ async def ai_signal_chat_stream(
     - done: Completion with final result
     - error: Error occurred
     """
-    from services.ai_stream_service import get_buffer_manager, generate_task_id, run_ai_task_in_background
+    from services.ai_stream_service import TaskAdmissionError, get_buffer_manager, generate_task_id, run_ai_task_in_background
     from database.connection import SessionLocal
 
     # Background task mode
@@ -1075,7 +1075,10 @@ async def ai_signal_chat_stream(
             if existing:
                 return {"task_id": existing.task_id, "status": "already_running"}
 
-        manager.create_task(task_id, conversation_id=request.conversation_id, user_id=current_user.id)
+        try:
+            manager.create_task(task_id, conversation_id=request.conversation_id, user_id=current_user.id)
+        except TaskAdmissionError as exc:
+            raise HTTPException(status_code=429, detail=exc.to_response()) from exc
 
         # Capture request data
         account_id = request.account_id
