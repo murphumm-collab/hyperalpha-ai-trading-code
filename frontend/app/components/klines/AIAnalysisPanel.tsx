@@ -10,6 +10,7 @@ import PacmanLoader from '../ui/pacman-loader'
 import WalletSelector from '../hyperliquid/WalletSelector'
 import { Badge } from '../ui/badge'
 import { getHyperliquidPositions } from '@/lib/hyperliquidApi'
+import { authFetch } from '@/lib/authFetch'
 
 interface AITrader {
   id: number
@@ -112,8 +113,7 @@ export default function AIAnalysisPanel({
 
     try {
       setTradersLoading(true)
-      // Use public account list endpoint (no auth cookie required)
-      const response = await fetch('/api/account/list')
+      const response = await authFetch('/api/account/list')
       const data = await response.json()
       const accounts: any[] = Array.isArray(data)
         ? data
@@ -271,7 +271,7 @@ export default function AIAnalysisPanel({
       const timeoutId = setTimeout(() => controller.abort(), 600000) // 10 minutes
 
       try {
-        const response = await fetch('/api/klines/ai-analysis', {
+        const response = await authFetch('/api/klines/ai-analysis', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(requestData),
@@ -298,7 +298,7 @@ export default function AIAnalysisPanel({
             await new Promise(resolve => setTimeout(resolve, 2000))
 
             // Fetch recent analysis history for this symbol (get last 5 to be safe)
-            const historyResponse = await fetch(
+            const historyResponse = await authFetch(
               `/api/klines/ai-analysis/history?symbol=${symbol}&limit=5`
             )
 

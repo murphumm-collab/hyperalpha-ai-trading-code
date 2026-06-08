@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from api.auth_utils import get_current_user_dependency
 from database.connection import SessionLocal
 from database.models import Account, User
 from services.kline_ai_analysis_service import analyze_kline_chart, get_analysis_history
@@ -77,7 +78,8 @@ class AIAnalysisResponse(BaseModel):
 @router.post("/ai-analysis", response_model=AIAnalysisResponse)
 async def create_ai_analysis(
     request: AIAnalysisRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Perform AI analysis on K-line chart data
@@ -99,7 +101,11 @@ async def create_ai_analysis(
 
     try:
         # Get the AI Trader account
-        account = db.query(Account).filter(Account.id == request.account_id, Account.is_deleted != True).first()
+        account = db.query(Account).filter(
+            Account.id == request.account_id,
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).first()
         if not account:
             logger.error(f"[AI Analysis {request_id}] AI Trader not found: account_id={request.account_id}")
             raise HTTPException(status_code=404, detail="AI Trader not found")
@@ -109,10 +115,6 @@ async def create_ai_analysis(
             raise HTTPException(status_code=400, detail="Selected account is not an AI Trader")
 
         logger.info(f"[AI Analysis {request_id}] Using AI Trader: name={account.name}, model={account.model}")
-
-        # Get user (default user for now)
-        user = db.query(User).filter(User.username == "default").first()
-        user_id = user.id if user else 1
 
         # Convert request data to dictionaries
         klines_data = [k.model_dump() for k in request.klines]
@@ -135,7 +137,7 @@ async def create_ai_analysis(
             user_message=request.user_message,
             positions=request.positions or [],
             kline_limit=request.kline_limit,
-            user_id=user_id,
+            user_id=current_user.id,
             selected_flow_indicators=request.selected_flow_indicators or [],
             exchange=request.exchange or "hyperliquid",
         )
@@ -183,7 +185,8 @@ async def create_ai_analysis(
 async def get_ai_analysis_history(
     symbol: Optional[str] = None,
     limit: int = 20,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get K-line AI analysis history
@@ -191,13 +194,9 @@ async def get_ai_analysis_history(
     - **symbol**: Optional filter by symbol
     - **limit**: Maximum number of records to return (default: 20)
     """
-    # Get user (default user for now)
-    user = db.query(User).filter(User.username == "default").first()
-    user_id = user.id if user else 1
-
     history = get_analysis_history(
         db=db,
-        user_id=user_id,
+        user_id=current_user.id,
         symbol=symbol,
         limit=limit,
     )
@@ -208,7 +207,8 @@ async def get_ai_analysis_history(
 @router.get("/ai-analysis/{analysis_id}")
 async def get_ai_analysis_detail(
     analysis_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get a specific K-line AI analysis by ID
@@ -216,7 +216,8 @@ async def get_ai_analysis_detail(
     from database.models import KlineAIAnalysisLog
 
     log = db.query(KlineAIAnalysisLog).filter(
-        KlineAIAnalysisLog.id == analysis_id
+        KlineAIAnalysisLog.id == analysis_id,
+        KlineAIAnalysisLog.user_id == current_user.id,
     ).first()
 
     if not log:
