@@ -172,14 +172,18 @@ DEFAULT_ONBOARDING_PROMPT_ZH = """你是 Hyper AI，一个友好的交易助手�
 """
 
 
+def _require_user_id(user_id: Optional[int], context: str) -> int:
+    if user_id is None:
+        raise ValueError(f"{context} requires authenticated user context")
+    return user_id
+
+
 def get_or_create_profile(db: Session, user_id: Optional[int] = None) -> HyperAiProfile:
     """Get existing profile or create a new one for a user."""
-    query = db.query(HyperAiProfile)
-    if user_id is not None:
-        query = query.filter(HyperAiProfile.user_id == user_id)
-    profile = query.first()
+    resolved_user_id = _require_user_id(user_id, "Hyper AI profile")
+    profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == resolved_user_id).first()
     if not profile:
-        profile = HyperAiProfile(user_id=user_id)
+        profile = HyperAiProfile(user_id=resolved_user_id)
         db.add(profile)
         db.commit()
         db.refresh(profile)
@@ -188,6 +192,10 @@ def get_or_create_profile(db: Session, user_id: Optional[int] = None) -> HyperAi
 
 def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]:
     """Get LLM configuration from user profile."""
+    if user_id is None:
+        logger.warning("Hyper AI LLM config requested without user context")
+        return {"configured": False, "missing_user_context": True}
+
     profile = get_or_create_profile(db, user_id=user_id)
 
     if not profile.llm_provider:
@@ -2036,6 +2044,14 @@ def get_or_update_suggestions(db: Session, user_id: Optional[int] = None) -> Dic
     Returns current suggestions (may be stale) and triggers background update.
     """
     from datetime import datetime, timedelta
+
+    if user_id is None:
+        return {
+            "suggestions": [],
+            "is_new_user": True,
+            "updated_at": None,
+            "missing_user_context": True
+        }
 
     profile = get_or_create_profile(db, user_id=user_id)
 
