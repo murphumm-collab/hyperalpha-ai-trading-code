@@ -62,6 +62,7 @@ Local checkpoint: current branch `HEAD`
 - Admin RBAC guard for system logs, generic system config writes, system data management, and news source management.
 - Admin-only user role-management API and Settings UI for To C operations access control.
 - Admin role changes emit `admin_audit` system logs with actor, target, and old/new role metadata.
+- Admin role changes persist to `admin_audit_logs` for restart-safe operational audit.
 - Current-user role is exposed to the frontend so non-admin users do not see Settings admin controls while backend RBAC remains authoritative.
 - Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus signed Telegram webhook ingress.
 - Development progress and acceptance markers.
@@ -133,6 +134,7 @@ Local checkpoint: current branch `HEAD`
 | Admin RBAC guard | Done | `users.role`, `get_admin_user_dependency`, env/JWT admin role sync, and admin-only system/log/config/news management endpoints |
 | Admin role management | Done | Admin-only `/api/users/admin/users` list/update endpoints plus Settings `Admin Users` tab; local smoke test covers ordinary-user 403, role update, invalid role, and last-admin demotion guard |
 | Admin role audit logging | Done | Role changes write `admin_audit` system logs; local smoke test verifies actor/target metadata, duplicate no-op behavior, category listing, and stats |
+| Persistent admin audit logs | Done | `admin_audit_logs` model/migration plus admin-only list API; local smoke test verifies DB persistence, API serialization, system-log mirror, and same-role no-op behavior |
 | Frontend admin visibility | Done | `UserOut.role`, AuthContext local role hydration, and Settings Admin tab conditional rendering hide admin controls for ordinary users while keeping backend RBAC checks |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
@@ -235,6 +237,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after adding the Settings `Admin Users` tab and role selector.
 - Passed: Admin role audit syntax compile in both system Python and `uv run` backend environment for user routes, system-log routes, and system logger.
 - Passed: Admin role audit smoke test in `uv run`: role update wrote one `admin_audit` warning with actor/target old/new role metadata, same-role update did not duplicate the log, and system-log categories/stats include `admin_audit`.
+- Passed: Persistent admin audit syntax compile in both system Python and `uv run` backend environment for user routes, models, and migration.
+- Passed: Persistent admin audit smoke test in `uv run`: role update wrote one `admin_audit_logs` row, admin-only audit API returned the serialized details, system-log mirror remained present, and same-role update did not duplicate persistence.
 - Passed: User role exposure syntax compile in both system Python and `uv run` backend environment for user schema/routes/auth utilities.
 - Passed: User role exposure smoke test in `uv run`: login, profile, and current-user list responses return the correct per-user role.
 - Passed: Frontend production build after AuthContext local role hydration and conditional Settings Admin tab rendering.

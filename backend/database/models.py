@@ -102,6 +102,22 @@ class UserAuthSession(Base):
     user = relationship("User", back_populates="auth_sessions")
 
 
+class AdminAuditLog(Base):
+    """Persistent audit log for admin security operations."""
+    __tablename__ = "admin_audit_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String(50), nullable=False)
+    actor_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    actor_username = Column(String(50), nullable=True)
+    target_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    target_username = Column(String(50), nullable=True)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    details = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp(), index=True)
+
+
 class Position(Base):
     __tablename__ = "positions"
 

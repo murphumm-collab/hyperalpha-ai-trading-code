@@ -2,13 +2,15 @@
 User authentication API routes
 """
 
-from fastapi import APIRouter, HTTPException, Depends
+import json
+
+from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.orm import Session
 from typing import List
 import logging
 
 from database.connection import SessionLocal
-from database.models import User, UserExchangeConfig, UserSubscription
+from database.models import AdminAuditLog, User, UserExchangeConfig, UserSubscription
 from api.auth_utils import get_admin_user_dependency, get_current_user_dependency, is_admin_user
 from repositories.user_repo import (
     create_user, get_user, get_user_by_username,
@@ -16,7 +18,7 @@ from repositories.user_repo import (
     verify_user_password
 )
 from datetime import datetime
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from schemas.user import (
     UserCreate, UserUpdate, UserOut, UserLogin, UserAuthResponse
 )
@@ -250,6 +252,19 @@ class AdminRoleUpdateRequest(BaseModel):
     role: str
 
 
+class AdminAuditLogOut(BaseModel):
+    id: int
+    action: str
+    actor_user_id: int | None = None
+    actor_username: str | None = None
+    target_user_id: int | None = None
+    target_username: str | None = None
+    old_value: str | None = None
+    new_value: str | None = None
+    details: dict = Field(default_factory=dict)
+    created_at: str | None = None
+
+
 ADMIN_MANAGED_ROLES = {"user", "admin", "operator"}
 
 
@@ -262,6 +277,25 @@ def _admin_user_payload(user: User) -> AdminUserOut:
         is_active=user.is_active == "true",
         created_at=user.created_at.isoformat() if user.created_at else None,
         updated_at=user.updated_at.isoformat() if user.updated_at else None,
+    )
+
+
+def _admin_audit_payload(log: AdminAuditLog) -> AdminAuditLogOut:
+    try:
+        details = json.loads(log.details) if log.details else {}
+    except Exception:
+        details = {"raw": log.details}
+    return AdminAuditLogOut(
+        id=log.id,
+        action=log.action,
+        actor_user_id=log.actor_user_id,
+        actor_username=log.actor_username,
+        target_user_id=log.target_user_id,
+        target_username=log.target_username,
+        old_value=log.old_value,
+        new_value=log.new_value,
+        details=details,
+        created_at=log.created_at.isoformat() if log.created_at else None,
     )
 
 
@@ -290,6 +324,26 @@ async def admin_list_users(
         raise HTTPException(status_code=500, detail=f"Failed to list users: {str(e)}")
 
 
+@router.get("/admin/audit-logs", response_model=List[AdminAuditLogOut])
+async def admin_list_audit_logs(
+    limit: int = Query(100, ge=1, le=500),
+    current_user: User = Depends(get_admin_user_dependency),
+    db: Session = Depends(get_db),
+):
+    """List persistent admin audit logs."""
+    try:
+        logs = (
+            db.query(AdminAuditLog)
+            .order_by(AdminAuditLog.id.desc())
+            .limit(limit)
+            .all()
+        )
+        return [_admin_audit_payload(log) for log in logs]
+    except Exception as e:
+        logger.error(f"Failed to list admin audit logs: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list audit logs: {str(e)}")
+
+
 @router.patch("/admin/users/{user_id}/role", response_model=AdminUserOut)
 async def admin_update_user_role(
     user_id: int,
@@ -314,7 +368,25 @@ async def admin_update_user_role(
     if old_role == new_role:
         return _admin_user_payload(user)
 
+    details = {
+        "actor_user_id": current_user.id,
+        "actor_username": current_user.username,
+        "target_user_id": user.id,
+        "target_username": user.username,
+        "old_role": old_role,
+        "new_role": new_role,
+    }
     user.role = new_role
+    db.add(AdminAuditLog(
+        action="user_role_changed",
+        actor_user_id=current_user.id,
+        actor_username=current_user.username,
+        target_user_id=user.id,
+        target_username=user.username,
+        old_value=old_role,
+        new_value=new_role,
+        details=json.dumps(details),
+    ))
     db.commit()
     db.refresh(user)
     try:
@@ -322,14 +394,7 @@ async def admin_update_user_role(
             "WARNING",
             "admin_audit",
             "User role changed",
-            {
-                "actor_user_id": current_user.id,
-                "actor_username": current_user.username,
-                "target_user_id": user.id,
-                "target_username": user.username,
-                "old_role": old_role,
-                "new_role": new_role,
-            },
+            details,
         )
     except Exception as exc:
         logger.warning("Failed to write admin role audit log: %s", exc)
