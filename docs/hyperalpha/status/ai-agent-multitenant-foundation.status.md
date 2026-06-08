@@ -23,6 +23,7 @@ Local checkpoint: current branch `HEAD`
 - User-scoped PromptTemplate, SignalDefinition, and SignalPool ownership.
 - User-scoped Hyper Insight wallet-tracking runtime config, token sync, websocket state, and wallet-signal callbacks.
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
+- Shared entity deletion services accept owner context and refuse cross-user deletes for traders, prompts, signals, signal pools, programs, and bindings.
 - Hyper AI tool execution, harness calls, sub-agent calls, and chat streams fail closed when authenticated user context is missing.
 - Hyper AI direct tool functions no longer default to user `1`; protected direct calls require explicit user context.
 - Hyper AI external tool config registry requires explicit user context and never reads or writes the first profile by fallback.
@@ -129,6 +130,7 @@ Local checkpoint: current branch `HEAD`
 | AI tool argument masking | Done | User-visible `tool_call` events and persisted `tool_calls_log` store masked sensitive args while tools still receive original args for execution |
 | AI tool frontend display masking | Done | Hyper AI tool detail UI recursively masks sensitive args before rendering, including legacy stored logs |
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
+| Entity deletion service owner guard | Done | Shared delete service functions accept `owner_user_id`; API routes and Hyper AI delete tools pass current user into service-layer deletion |
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
 | AI stream task admission limits | Done | `AI_STREAM_MAX_RUNNING_GLOBAL` and `AI_STREAM_MAX_RUNNING_PER_USER` cap shared LLM task concurrency before model calls are submitted |
@@ -216,6 +218,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Signal AI tool user-context smoke test in `uv run`: missing tool user context was blocked and factor indicator execution passed the current `user_id` into `compute_factor_series`.
 - Passed: Hyper AI tool argument masking syntax compile and smoke test in `uv run`: nested API key/token/secret args are masked, and static search confirms `tool_call` events plus `tool_calls_log` use `safe_fn_args`.
 - Passed: Frontend production build after Hyper AI tool detail rendering masks sensitive nested args before display; static search confirms completed-message tool arg rendering goes through `maskToolArgsForDisplay`.
+- Passed: Entity deletion owner guard smoke test in `uv run`: Alice could not delete Bob's trader, prompt, signal, signal pool, trading program, prompt binding, or program binding at the shared service layer.
 - Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
 - Passed: AI stream persistence models/migration/service syntax compile.
 - Passed: AI stream admission smoke test in `uv run`: per-user limit rejected a third concurrent task for one user, global limit rejected the next task when global running count was full, and completing a task reopened capacity.

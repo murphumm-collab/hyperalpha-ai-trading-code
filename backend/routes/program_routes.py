@@ -1135,7 +1135,7 @@ def delete_program(
     """Delete a trading program with dependency checking."""
     from services.entity_deletion_service import delete_trading_program
     _get_program_for_user(db, program_id, current_user.id)
-    result = delete_trading_program(db, program_id)
+    result = delete_trading_program(db, program_id, owner_user_id=current_user.id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Program not found"))
     return result
@@ -1267,7 +1267,7 @@ def delete_binding(
     """Delete a program binding with active-status checking."""
     from services.entity_deletion_service import delete_program_binding
     _get_program_binding_for_user(db, binding_id, current_user.id)
-    result = delete_program_binding(db, binding_id)
+    result = delete_program_binding(db, binding_id, owner_user_id=current_user.id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Binding not found"))
     return result

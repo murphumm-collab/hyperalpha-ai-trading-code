@@ -3679,7 +3679,7 @@ def execute_delete_trader(db: Session, trader_id: int, user_id: Optional[int] = 
     ).first()
     if not exists:
         return _delete_error("trader", trader_id)
-    return json.dumps(delete_trader(db, trader_id=trader_id), indent=2, ensure_ascii=False)
+    return json.dumps(delete_trader(db, trader_id=trader_id, owner_user_id=user_id), indent=2, ensure_ascii=False)
 
 
 def execute_delete_prompt_template(db: Session, prompt_id: int, user_id: Optional[int] = None) -> str:
@@ -3697,7 +3697,7 @@ def execute_delete_prompt_template(db: Session, prompt_id: int, user_id: Optiona
     ).first()
     if not exists:
         return _delete_error("prompt_template", prompt_id)
-    return json.dumps(delete_prompt_template(db, prompt_id=prompt_id), indent=2, ensure_ascii=False)
+    return json.dumps(delete_prompt_template(db, prompt_id=prompt_id, owner_user_id=user_id), indent=2, ensure_ascii=False)
 
 
 def execute_delete_signal_definition(db: Session, signal_id: int, user_id: Optional[int] = None) -> str:
@@ -3715,7 +3715,7 @@ def execute_delete_signal_definition(db: Session, signal_id: int, user_id: Optio
     ).first()
     if not exists:
         return _delete_error("signal_definition", signal_id)
-    return json.dumps(delete_signal_definition(db, signal_id=signal_id), indent=2, ensure_ascii=False)
+    return json.dumps(delete_signal_definition(db, signal_id=signal_id, owner_user_id=user_id), indent=2, ensure_ascii=False)
 
 
 def execute_delete_signal_pool(db: Session, pool_id: int, user_id: Optional[int] = None) -> str:
@@ -3733,7 +3733,7 @@ def execute_delete_signal_pool(db: Session, pool_id: int, user_id: Optional[int]
     ).first()
     if not exists:
         return _delete_error("signal_pool", pool_id)
-    return json.dumps(delete_signal_pool(db, pool_id=pool_id), indent=2, ensure_ascii=False)
+    return json.dumps(delete_signal_pool(db, pool_id=pool_id, owner_user_id=user_id), indent=2, ensure_ascii=False)
 
 
 def execute_delete_trading_program(db: Session, program_id: int, user_id: Optional[int] = None) -> str:
@@ -3751,7 +3751,7 @@ def execute_delete_trading_program(db: Session, program_id: int, user_id: Option
     ).first()
     if not exists:
         return _delete_error("trading_program", program_id)
-    return json.dumps(delete_trading_program(db, program_id=program_id), indent=2, ensure_ascii=False)
+    return json.dumps(delete_trading_program(db, program_id=program_id, owner_user_id=user_id), indent=2, ensure_ascii=False)
 
 
 def execute_delete_prompt_binding(db: Session, binding_id: int, user_id: Optional[int] = None) -> str:
@@ -3772,7 +3772,7 @@ def execute_delete_prompt_binding(db: Session, binding_id: int, user_id: Optiona
     ).first()
     if not exists:
         return _delete_error("prompt_binding", binding_id)
-    return json.dumps(delete_prompt_binding(db, binding_id=binding_id), indent=2, ensure_ascii=False)
+    return json.dumps(delete_prompt_binding(db, binding_id=binding_id, owner_user_id=user_id), indent=2, ensure_ascii=False)
 
 
 def execute_delete_program_binding(db: Session, binding_id: int, user_id: Optional[int] = None) -> str:
@@ -3793,7 +3793,7 @@ def execute_delete_program_binding(db: Session, binding_id: int, user_id: Option
     ).first()
     if not exists:
         return _delete_error("program_binding", binding_id)
-    return json.dumps(delete_program_binding(db, binding_id=binding_id), indent=2, ensure_ascii=False)
+    return json.dumps(delete_program_binding(db, binding_id=binding_id, owner_user_id=user_id), indent=2, ensure_ascii=False)
 
 
 def execute_hyper_ai_tool(

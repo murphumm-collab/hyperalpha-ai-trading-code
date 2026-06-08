@@ -75,7 +75,7 @@ def check_trader_dependencies(db: Session, trader_id: int) -> List[str]:
     return deps
 
 
-def delete_trader(db: Session, trader_id: int) -> Dict[str, Any]:
+def delete_trader(db: Session, trader_id: int, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     """Soft-delete an AI Trader after dependency check.
 
     Also soft-deletes associated wallet configurations.
@@ -86,6 +86,8 @@ def delete_trader(db: Session, trader_id: int) -> Dict[str, Any]:
         Account.id == trader_id,
         Account.is_deleted != True
     ).first()
+    if account and owner_user_id is not None and account.user_id != owner_user_id:
+        account = None
     if not account:
         return {"success": False, "error": "Trader not found or already deleted"}
 
@@ -122,7 +124,11 @@ def delete_trader(db: Session, trader_id: int) -> Dict[str, Any]:
     }
 
 
-def check_prompt_template_dependencies(db: Session, prompt_id: int) -> List[str]:
+def check_prompt_template_dependencies(
+    db: Session,
+    prompt_id: int,
+    owner_user_id: Optional[int] = None,
+) -> List[str]:
     """Check dependencies that block Prompt Template deletion.
 
     Checks:
@@ -131,19 +137,28 @@ def check_prompt_template_dependencies(db: Session, prompt_id: int) -> List[str]
     from database.models import AccountPromptBinding, Account
     deps = []
 
-    bindings = db.query(AccountPromptBinding).filter(
+    bindings_query = db.query(AccountPromptBinding)
+    if owner_user_id is not None:
+        bindings_query = bindings_query.join(Account, AccountPromptBinding.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    bindings = bindings_query.filter(
         AccountPromptBinding.prompt_template_id == prompt_id,
         AccountPromptBinding.is_deleted != True
     ).all()
     for b in bindings:
-        acc = db.query(Account).filter(Account.id == b.account_id).first()
+        acc_query = db.query(Account).filter(Account.id == b.account_id)
+        if owner_user_id is not None:
+            acc_query = acc_query.filter(Account.user_id == owner_user_id)
+        acc = acc_query.first()
         name = acc.name if acc else f"#{b.account_id}"
         deps.append(f"Bound to AI Trader: {name} (binding #{b.id})")
 
     return deps
 
 
-def delete_prompt_template(db: Session, prompt_id: int) -> Dict[str, Any]:
+def delete_prompt_template(db: Session, prompt_id: int, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     """Soft-delete a Prompt Template after dependency check."""
     from database.models import PromptTemplate
 
@@ -151,13 +166,15 @@ def delete_prompt_template(db: Session, prompt_id: int) -> Dict[str, Any]:
         PromptTemplate.id == prompt_id,
         PromptTemplate.is_deleted == "false"
     ).first()
+    if tpl and owner_user_id is not None and tpl.user_id != owner_user_id:
+        tpl = None
     if not tpl:
         return {"success": False, "error": "Prompt template not found or already deleted"}
 
     if tpl.is_system == "true":
         return {"success": False, "error": "Cannot delete system templates"}
 
-    deps = check_prompt_template_dependencies(db, prompt_id)
+    deps = check_prompt_template_dependencies(db, prompt_id, owner_user_id=owner_user_id)
     if deps:
         return {
             "success": True, "deleted": False,
@@ -174,7 +191,11 @@ def delete_prompt_template(db: Session, prompt_id: int) -> Dict[str, Any]:
     }
 
 
-def check_signal_definition_dependencies(db: Session, signal_id: int) -> List[str]:
+def check_signal_definition_dependencies(
+    db: Session,
+    signal_id: int,
+    owner_user_id: Optional[int] = None,
+) -> List[str]:
     """Check dependencies that block Signal Definition deletion.
 
     Checks:
@@ -185,7 +206,10 @@ def check_signal_definition_dependencies(db: Session, signal_id: int) -> List[st
 
     pools = db.query(SignalPool).filter(
         SignalPool.is_deleted != True
-    ).all()
+    )
+    if owner_user_id is not None:
+        pools = pools.filter(SignalPool.user_id == owner_user_id)
+    pools = pools.all()
     for pool in pools:
         try:
             ids = json.loads(pool.signal_ids) if pool.signal_ids else []
@@ -197,7 +221,7 @@ def check_signal_definition_dependencies(db: Session, signal_id: int) -> List[st
     return deps
 
 
-def delete_signal_definition(db: Session, signal_id: int) -> Dict[str, Any]:
+def delete_signal_definition(db: Session, signal_id: int, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     """Soft-delete a Signal Definition after dependency check."""
     from database.models import SignalDefinition
 
@@ -205,10 +229,12 @@ def delete_signal_definition(db: Session, signal_id: int) -> Dict[str, Any]:
         SignalDefinition.id == signal_id,
         SignalDefinition.is_deleted != True
     ).first()
+    if sig and owner_user_id is not None and sig.user_id != owner_user_id:
+        sig = None
     if not sig:
         return {"success": False, "error": "Signal definition not found or already deleted"}
 
-    deps = check_signal_definition_dependencies(db, signal_id)
+    deps = check_signal_definition_dependencies(db, signal_id, owner_user_id=owner_user_id)
     if deps:
         return {
             "success": True, "deleted": False,
@@ -225,7 +251,11 @@ def delete_signal_definition(db: Session, signal_id: int) -> Dict[str, Any]:
     }
 
 
-def check_signal_pool_dependencies(db: Session, pool_id: int) -> List[str]:
+def check_signal_pool_dependencies(
+    db: Session,
+    pool_id: int,
+    owner_user_id: Optional[int] = None,
+) -> List[str]:
     """Check dependencies that block Signal Pool deletion.
 
     Checks:
@@ -240,19 +270,34 @@ def check_signal_pool_dependencies(db: Session, pool_id: int) -> List[str]:
     deps = []
 
     # Check AI Strategy configs
-    configs = db.query(AccountStrategyConfig).all()
+    configs_query = db.query(AccountStrategyConfig)
+    if owner_user_id is not None:
+        configs_query = configs_query.join(Account, AccountStrategyConfig.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    configs = configs_query.all()
     for cfg in configs:
         try:
             ids = json.loads(cfg.signal_pool_ids) if cfg.signal_pool_ids else []
         except (json.JSONDecodeError, TypeError):
             ids = []
         if pool_id in ids:
-            acc = db.query(Account).filter(Account.id == cfg.account_id).first()
+            acc_query = db.query(Account).filter(Account.id == cfg.account_id)
+            if owner_user_id is not None:
+                acc_query = acc_query.filter(Account.user_id == owner_user_id)
+            acc = acc_query.first()
             name = acc.name if acc else f"#{cfg.account_id}"
             deps.append(f"Used by AI Strategy of Trader: {name}")
 
     # Check Program Bindings
-    bindings = db.query(AccountProgramBinding).filter(
+    bindings_query = db.query(AccountProgramBinding)
+    if owner_user_id is not None:
+        bindings_query = bindings_query.join(Account, AccountProgramBinding.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    bindings = bindings_query.filter(
         AccountProgramBinding.is_deleted != True
     ).all()
     for b in bindings:
@@ -265,7 +310,17 @@ def check_signal_pool_dependencies(db: Session, pool_id: int) -> List[str]:
 
     # Check TraderTriggerConfig (legacy)
     triggers = db.query(TraderTriggerConfig).all()
+    owner_account_ids = None
+    if owner_user_id is not None:
+        owner_account_ids = {
+            str(row[0]) for row in db.query(Account.id).filter(
+                Account.user_id == owner_user_id,
+                Account.is_deleted != True,
+            ).all()
+        }
     for t in triggers:
+        if owner_account_ids is not None and str(t.trader_id) not in owner_account_ids:
+            continue
         try:
             ids = json.loads(t.signal_pool_ids) if t.signal_pool_ids else []
         except (json.JSONDecodeError, TypeError):
@@ -276,7 +331,7 @@ def check_signal_pool_dependencies(db: Session, pool_id: int) -> List[str]:
     return deps
 
 
-def delete_signal_pool(db: Session, pool_id: int) -> Dict[str, Any]:
+def delete_signal_pool(db: Session, pool_id: int, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     """Soft-delete a Signal Pool after dependency check."""
     from database.models import SignalPool
 
@@ -284,10 +339,12 @@ def delete_signal_pool(db: Session, pool_id: int) -> Dict[str, Any]:
         SignalPool.id == pool_id,
         SignalPool.is_deleted != True
     ).first()
+    if pool and owner_user_id is not None and pool.user_id != owner_user_id:
+        pool = None
     if not pool:
         return {"success": False, "error": "Signal pool not found or already deleted"}
 
-    deps = check_signal_pool_dependencies(db, pool_id)
+    deps = check_signal_pool_dependencies(db, pool_id, owner_user_id=owner_user_id)
     if deps:
         return {
             "success": True, "deleted": False,
@@ -305,7 +362,11 @@ def delete_signal_pool(db: Session, pool_id: int) -> Dict[str, Any]:
     }
 
 
-def check_trading_program_dependencies(db: Session, program_id: int) -> List[str]:
+def check_trading_program_dependencies(
+    db: Session,
+    program_id: int,
+    owner_user_id: Optional[int] = None,
+) -> List[str]:
     """Check dependencies that block Trading Program deletion.
 
     Checks:
@@ -314,12 +375,21 @@ def check_trading_program_dependencies(db: Session, program_id: int) -> List[str
     from database.models import AccountProgramBinding, Account
     deps = []
 
-    bindings = db.query(AccountProgramBinding).filter(
+    bindings_query = db.query(AccountProgramBinding)
+    if owner_user_id is not None:
+        bindings_query = bindings_query.join(Account, AccountProgramBinding.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    bindings = bindings_query.filter(
         AccountProgramBinding.program_id == program_id,
         AccountProgramBinding.is_deleted != True
     ).all()
     for b in bindings:
-        acc = db.query(Account).filter(Account.id == b.account_id).first()
+        acc_query = db.query(Account).filter(Account.id == b.account_id)
+        if owner_user_id is not None:
+            acc_query = acc_query.filter(Account.user_id == owner_user_id)
+        acc = acc_query.first()
         name = acc.name if acc else f"#{b.account_id}"
         status = "active" if b.is_active else "inactive"
         deps.append(f"Bound to Trader: {name} (binding #{b.id}, {status})")
@@ -327,7 +397,7 @@ def check_trading_program_dependencies(db: Session, program_id: int) -> List[str
     return deps
 
 
-def delete_trading_program(db: Session, program_id: int) -> Dict[str, Any]:
+def delete_trading_program(db: Session, program_id: int, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     """Soft-delete a Trading Program after dependency check."""
     from database.models import TradingProgram
 
@@ -335,10 +405,12 @@ def delete_trading_program(db: Session, program_id: int) -> Dict[str, Any]:
         TradingProgram.id == program_id,
         TradingProgram.is_deleted != True
     ).first()
+    if prog and owner_user_id is not None and prog.user_id != owner_user_id:
+        prog = None
     if not prog:
         return {"success": False, "error": "Trading program not found or already deleted"}
 
-    deps = check_trading_program_dependencies(db, program_id)
+    deps = check_trading_program_dependencies(db, program_id, owner_user_id=owner_user_id)
     if deps:
         return {
             "success": True, "deleted": False,
@@ -355,11 +427,17 @@ def delete_trading_program(db: Session, program_id: int) -> Dict[str, Any]:
     }
 
 
-def delete_prompt_binding(db: Session, binding_id: int) -> Dict[str, Any]:
+def delete_prompt_binding(db: Session, binding_id: int, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     """Soft-delete a Prompt Binding (unbind prompt from trader)."""
-    from database.models import AccountPromptBinding
+    from database.models import Account, AccountPromptBinding
 
-    binding = db.query(AccountPromptBinding).filter(
+    binding_query = db.query(AccountPromptBinding)
+    if owner_user_id is not None:
+        binding_query = binding_query.join(Account, AccountPromptBinding.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    binding = binding_query.filter(
         AccountPromptBinding.id == binding_id,
         AccountPromptBinding.is_deleted != True
     ).first()
@@ -379,14 +457,20 @@ def delete_prompt_binding(db: Session, binding_id: int) -> Dict[str, Any]:
     }
 
 
-def delete_program_binding(db: Session, binding_id: int) -> Dict[str, Any]:
+def delete_program_binding(db: Session, binding_id: int, owner_user_id: Optional[int] = None) -> Dict[str, Any]:
     """Soft-delete a Program Binding after checking active status.
 
     Blocks deletion if binding is_active=True (running strategy).
     """
-    from database.models import AccountProgramBinding
+    from database.models import Account, AccountProgramBinding
 
-    binding = db.query(AccountProgramBinding).filter(
+    binding_query = db.query(AccountProgramBinding)
+    if owner_user_id is not None:
+        binding_query = binding_query.join(Account, AccountProgramBinding.account_id == Account.id).filter(
+            Account.user_id == owner_user_id,
+            Account.is_deleted != True,
+        )
+    binding = binding_query.filter(
         AccountProgramBinding.id == binding_id,
         AccountProgramBinding.is_deleted != True
     ).first()

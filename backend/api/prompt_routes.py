@@ -150,7 +150,7 @@ def delete_prompt_template_endpoint(
     from services.entity_deletion_service import delete_prompt_template
     if not prompt_repo.get_template_by_id_for_user(db, template_id, current_user.id):
         raise HTTPException(status_code=404, detail="Template not found")
-    result = delete_prompt_template(db, template_id)
+    result = delete_prompt_template(db, template_id, owner_user_id=current_user.id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Template not found"))
     return result
@@ -251,7 +251,7 @@ def delete_prompt_binding_endpoint(
     ).first()
     if not binding:
         raise HTTPException(status_code=404, detail="Binding not found")
-    result = delete_prompt_binding(db, binding_id)
+    result = delete_prompt_binding(db, binding_id, owner_user_id=current_user.id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Binding not found"))
     return result

@@ -318,7 +318,7 @@ def delete_signal(
     """), {"id": signal_id, "user_id": current_user.id}).fetchone()
     if not exists:
         raise HTTPException(status_code=404, detail="Signal not found")
-    result = delete_signal_definition(db, signal_id)
+    result = delete_signal_definition(db, signal_id, owner_user_id=current_user.id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Signal not found"))
     return result
@@ -508,7 +508,7 @@ def delete_pool(
     """), {"id": pool_id, "user_id": current_user.id}).fetchone()
     if not exists:
         raise HTTPException(status_code=404, detail="Pool not found")
-    result = delete_signal_pool(db, pool_id)
+    result = delete_signal_pool(db, pool_id, owner_user_id=current_user.id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Pool not found"))
     _schedule_wallet_runtime_refresh(current_user.id)

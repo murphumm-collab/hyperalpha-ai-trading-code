@@ -657,7 +657,7 @@ def delete_account(
 ):
     """Soft-delete an AI Trader with dependency checking."""
     _ensure_account_owner(db, account_id, current_user.id)
-    result = delete_trader(db, account_id)
+    result = delete_trader(db, account_id, owner_user_id=current_user.id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Trader not found"))
     return result
