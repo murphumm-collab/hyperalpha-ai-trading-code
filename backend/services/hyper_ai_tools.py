@@ -3414,8 +3414,136 @@ def execute_search_strategy_radar(
         logger.error("[search_strategy_radar] Error: %s", exc)
         return json.dumps({
             "ok": False,
-            "error": "Failed to fetch Strategy Radar candidates right now.",
-        }, ensure_ascii=False)
+        "error": "Failed to fetch Strategy Radar candidates right now.",
+    }, ensure_ascii=False)
+
+
+def _delete_error(entity_type: str, entity_id: Any, message: str = "Not found or not owned by current user") -> str:
+    return json.dumps({
+        "success": False,
+        "deleted": False,
+        "entity_type": entity_type,
+        "entity_id": entity_id,
+        "error": message,
+    }, ensure_ascii=False)
+
+
+def execute_delete_trader(db: Session, trader_id: int, user_id: int = 1) -> str:
+    from database.models import Account
+    from services.entity_deletion_service import delete_trader
+
+    if trader_id is None:
+        return _delete_error("trader", trader_id, "trader_id is required")
+    exists = db.query(Account.id).filter(
+        Account.id == trader_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not exists:
+        return _delete_error("trader", trader_id)
+    return json.dumps(delete_trader(db, trader_id=trader_id), indent=2, ensure_ascii=False)
+
+
+def execute_delete_prompt_template(db: Session, prompt_id: int, user_id: int = 1) -> str:
+    from database.models import PromptTemplate
+    from services.entity_deletion_service import delete_prompt_template
+
+    if prompt_id is None:
+        return _delete_error("prompt_template", prompt_id, "prompt_id is required")
+    exists = db.query(PromptTemplate.id).filter(
+        PromptTemplate.id == prompt_id,
+        PromptTemplate.user_id == user_id,
+        PromptTemplate.is_deleted == "false",
+    ).first()
+    if not exists:
+        return _delete_error("prompt_template", prompt_id)
+    return json.dumps(delete_prompt_template(db, prompt_id=prompt_id), indent=2, ensure_ascii=False)
+
+
+def execute_delete_signal_definition(db: Session, signal_id: int, user_id: int = 1) -> str:
+    from database.models import SignalDefinition
+    from services.entity_deletion_service import delete_signal_definition
+
+    if signal_id is None:
+        return _delete_error("signal_definition", signal_id, "signal_id is required")
+    exists = db.query(SignalDefinition.id).filter(
+        SignalDefinition.id == signal_id,
+        SignalDefinition.user_id == user_id,
+        SignalDefinition.is_deleted != True,
+    ).first()
+    if not exists:
+        return _delete_error("signal_definition", signal_id)
+    return json.dumps(delete_signal_definition(db, signal_id=signal_id), indent=2, ensure_ascii=False)
+
+
+def execute_delete_signal_pool(db: Session, pool_id: int, user_id: int = 1) -> str:
+    from database.models import SignalPool
+    from services.entity_deletion_service import delete_signal_pool
+
+    if pool_id is None:
+        return _delete_error("signal_pool", pool_id, "pool_id is required")
+    exists = db.query(SignalPool.id).filter(
+        SignalPool.id == pool_id,
+        SignalPool.user_id == user_id,
+        SignalPool.is_deleted != True,
+    ).first()
+    if not exists:
+        return _delete_error("signal_pool", pool_id)
+    return json.dumps(delete_signal_pool(db, pool_id=pool_id), indent=2, ensure_ascii=False)
+
+
+def execute_delete_trading_program(db: Session, program_id: int, user_id: int = 1) -> str:
+    from database.models import TradingProgram
+    from services.entity_deletion_service import delete_trading_program
+
+    if program_id is None:
+        return _delete_error("trading_program", program_id, "program_id is required")
+    exists = db.query(TradingProgram.id).filter(
+        TradingProgram.id == program_id,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
+    ).first()
+    if not exists:
+        return _delete_error("trading_program", program_id)
+    return json.dumps(delete_trading_program(db, program_id=program_id), indent=2, ensure_ascii=False)
+
+
+def execute_delete_prompt_binding(db: Session, binding_id: int, user_id: int = 1) -> str:
+    from database.models import Account, AccountPromptBinding
+    from services.entity_deletion_service import delete_prompt_binding
+
+    if binding_id is None:
+        return _delete_error("prompt_binding", binding_id, "binding_id is required")
+    exists = db.query(AccountPromptBinding.id).join(
+        Account,
+        AccountPromptBinding.account_id == Account.id,
+    ).filter(
+        AccountPromptBinding.id == binding_id,
+        Account.user_id == user_id,
+        AccountPromptBinding.is_deleted != True,
+    ).first()
+    if not exists:
+        return _delete_error("prompt_binding", binding_id)
+    return json.dumps(delete_prompt_binding(db, binding_id=binding_id), indent=2, ensure_ascii=False)
+
+
+def execute_delete_program_binding(db: Session, binding_id: int, user_id: int = 1) -> str:
+    from database.models import Account, AccountProgramBinding
+    from services.entity_deletion_service import delete_program_binding
+
+    if binding_id is None:
+        return _delete_error("program_binding", binding_id, "binding_id is required")
+    exists = db.query(AccountProgramBinding.id).join(
+        Account,
+        AccountProgramBinding.account_id == Account.id,
+    ).filter(
+        AccountProgramBinding.id == binding_id,
+        Account.user_id == user_id,
+        AccountProgramBinding.is_deleted != True,
+    ).first()
+    if not exists:
+        return _delete_error("program_binding", binding_id)
+    return json.dumps(delete_program_binding(db, binding_id=binding_id), indent=2, ensure_ascii=False)
 
 
 def execute_hyper_ai_tool(
@@ -3728,32 +3856,25 @@ def execute_hyper_ai_tool(
 
         # --- Delete tools ---
         elif tool_name == "delete_trader":
-            from services.entity_deletion_service import delete_trader
-            return json.dumps(delete_trader(db, trader_id=arguments.get("trader_id")), indent=2)
+            return execute_delete_trader(db, trader_id=arguments.get("trader_id"), user_id=user_id)
 
         elif tool_name == "delete_prompt_template":
-            from services.entity_deletion_service import delete_prompt_template
-            return json.dumps(delete_prompt_template(db, prompt_id=arguments.get("prompt_id")), indent=2)
+            return execute_delete_prompt_template(db, prompt_id=arguments.get("prompt_id"), user_id=user_id)
 
         elif tool_name == "delete_signal_definition":
-            from services.entity_deletion_service import delete_signal_definition
-            return json.dumps(delete_signal_definition(db, signal_id=arguments.get("signal_id")), indent=2)
+            return execute_delete_signal_definition(db, signal_id=arguments.get("signal_id"), user_id=user_id)
 
         elif tool_name == "delete_signal_pool":
-            from services.entity_deletion_service import delete_signal_pool
-            return json.dumps(delete_signal_pool(db, pool_id=arguments.get("pool_id")), indent=2)
+            return execute_delete_signal_pool(db, pool_id=arguments.get("pool_id"), user_id=user_id)
 
         elif tool_name == "delete_trading_program":
-            from services.entity_deletion_service import delete_trading_program
-            return json.dumps(delete_trading_program(db, program_id=arguments.get("program_id")), indent=2)
+            return execute_delete_trading_program(db, program_id=arguments.get("program_id"), user_id=user_id)
 
         elif tool_name == "delete_prompt_binding":
-            from services.entity_deletion_service import delete_prompt_binding
-            return json.dumps(delete_prompt_binding(db, binding_id=arguments.get("binding_id")), indent=2)
+            return execute_delete_prompt_binding(db, binding_id=arguments.get("binding_id"), user_id=user_id)
 
         elif tool_name == "delete_program_binding":
-            from services.entity_deletion_service import delete_program_binding
-            return json.dumps(delete_program_binding(db, binding_id=arguments.get("binding_id")), indent=2)
+            return execute_delete_program_binding(db, binding_id=arguments.get("binding_id"), user_id=user_id)
 
         # Sub-agent tools are handled directly in hyper_ai_service.py main loop
         # via _execute_tool_with_progress() which uses yield from for progress events.
