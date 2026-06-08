@@ -31,6 +31,7 @@ import AiSignalChatModal from './AiSignalChatModal'
 import MarketRegimeConfig from './MarketRegimeConfig'
 import PacmanLoader from '../ui/pacman-loader'
 import { useCollectionDays } from '@/lib/useCollectionDays'
+import { authFetch } from '@/lib/authFetch'
 
 // Exchange SVG logos
 const HyperliquidLogo = ({ className = '' }: { className?: string }) => (
@@ -241,13 +242,13 @@ function sortByCreatedAtDesc<T extends { created_at?: string | null }>(items: T[
 const API_BASE = '/api/signals'
 
 async function fetchSignals(): Promise<{ signals: SignalDefinition[]; pools: SignalPool[] }> {
-  const res = await fetch(API_BASE)
+  const res = await authFetch(API_BASE)
   if (!res.ok) throw new Error('Failed to fetch signals')
   return res.json()
 }
 
 async function createSignal(data: Partial<SignalDefinition>): Promise<SignalDefinition> {
-  const res = await fetch(`${API_BASE}/definitions`, {
+  const res = await authFetch(`${API_BASE}/definitions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -257,7 +258,7 @@ async function createSignal(data: Partial<SignalDefinition>): Promise<SignalDefi
 }
 
 async function updateSignal(id: number, data: Partial<SignalDefinition>): Promise<SignalDefinition> {
-  const res = await fetch(`${API_BASE}/definitions/${id}`, {
+  const res = await authFetch(`${API_BASE}/definitions/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -267,12 +268,12 @@ async function updateSignal(id: number, data: Partial<SignalDefinition>): Promis
 }
 
 async function deleteSignal(id: number): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_BASE}/definitions/${id}`, { method: 'DELETE' })
+  const res = await authFetch(`${API_BASE}/definitions/${id}`, { method: 'DELETE' })
   return res.json()
 }
 
 async function createPool(data: Partial<SignalPool>): Promise<SignalPool> {
-  const res = await fetch(`${API_BASE}/pools`, {
+  const res = await authFetch(`${API_BASE}/pools`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -282,7 +283,7 @@ async function createPool(data: Partial<SignalPool>): Promise<SignalPool> {
 }
 
 async function updatePool(id: number, data: Partial<SignalPool>): Promise<SignalPool> {
-  const res = await fetch(`${API_BASE}/pools/${id}`, {
+  const res = await authFetch(`${API_BASE}/pools/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -292,7 +293,7 @@ async function updatePool(id: number, data: Partial<SignalPool>): Promise<Signal
 }
 
 async function deletePool(id: number): Promise<Record<string, unknown>> {
-  const res = await fetch(`${API_BASE}/pools/${id}`, { method: 'DELETE' })
+  const res = await authFetch(`${API_BASE}/pools/${id}`, { method: 'DELETE' })
   return res.json()
 }
 
@@ -305,7 +306,7 @@ async function createPoolFromConfig(config: {
   signals: Array<{ metric: string; operator: string; threshold: number; time_window?: string }>
   exchange?: string
 }): Promise<{ success: boolean; pool: SignalPool; signals: SignalDefinition[] }> {
-  const res = await fetch(`${API_BASE}/create-pool-from-config`, {
+  const res = await authFetch(`${API_BASE}/create-pool-from-config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -327,19 +328,19 @@ async function fetchTriggerLogs(options: {
   const params = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (poolId) params.set('pool_id', String(poolId))
   if (symbol) params.set('symbol', symbol)
-  const res = await fetch(`${API_BASE}/logs?${params}`)
+  const res = await authFetch(`${API_BASE}/logs?${params}`)
   if (!res.ok) throw new Error('Failed to fetch logs')
   return res.json()
 }
 
 async function fetchWalletTrackingStatus(): Promise<WalletTrackingRuntimeStatus> {
-  const res = await fetch(`${API_BASE}/wallet-tracking/status`)
+  const res = await authFetch(`${API_BASE}/wallet-tracking/status`)
   if (!res.ok) throw new Error('Failed to fetch wallet tracking status')
   return res.json()
 }
 
 async function updateWalletTrackingRuntime(data: { enabled: boolean; access_token?: string }): Promise<WalletTrackingRuntimeStatus> {
-  const res = await fetch(`${API_BASE}/wallet-tracking/runtime`, {
+  const res = await authFetch(`${API_BASE}/wallet-tracking/runtime`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -350,7 +351,7 @@ async function updateWalletTrackingRuntime(data: { enabled: boolean; access_toke
 
 async function fetchPoolBacktest(poolId: number, symbol: string): Promise<any> {
   const params = new URLSearchParams({ symbol })
-  const res = await fetch(`${API_BASE}/pool-backtest/${poolId}?${params}`)
+  const res = await authFetch(`${API_BASE}/pool-backtest/${poolId}?${params}`)
   if (!res.ok) throw new Error('Failed to fetch pool backtest')
   return res.json()
 }
@@ -638,7 +639,7 @@ export default function SignalManager() {
   const loadAccounts = async () => {
     try {
       setAccountsLoading(true)
-      const res = await fetch('/api/account/list')
+      const res = await authFetch('/api/account/list')
       if (res.ok) {
         const data = await res.json()
         // API returns array directly, not {accounts: [...]}
@@ -1026,7 +1027,7 @@ export default function SignalManager() {
       const klineMaxTs = Math.max(...klines.map((k: any) => k.timestamp)) * 1000
 
       // Step 2: Fetch triggers from backtest API with time range
-      const triggerRes = await fetch(
+      const triggerRes = await authFetch(
         `/api/signals/backtest/${signal.id}?symbol=${symbol}&kline_min_ts=${klineMinTs}&kline_max_ts=${klineMaxTs}`
       )
       if (!triggerRes.ok) throw new Error('Failed to fetch trigger data')
@@ -1089,7 +1090,7 @@ export default function SignalManager() {
       const klineMaxTs = Math.max(...klines.map((k: any) => k.timestamp)) * 1000
 
       // Step 2: Fetch pool backtest
-      const triggerRes = await fetch(
+      const triggerRes = await authFetch(
         `/api/signals/pool-backtest/${pool.id}?symbol=${symbol}&kline_min_ts=${klineMinTs}&kline_max_ts=${klineMaxTs}`
       )
       if (!triggerRes.ok) throw new Error('Failed to fetch pool backtest')
@@ -1204,7 +1205,7 @@ export default function SignalManager() {
       const klineMaxTs = Math.max(...klines.map((k: any) => k.timestamp)) * 1000
 
       // Use temp backtest API for preview
-      const triggerRes = await fetch('/api/signals/backtest-preview', {
+      const triggerRes = await authFetch('/api/signals/backtest-preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1266,7 +1267,7 @@ export default function SignalManager() {
       // Fetch triggers based on whether it's a pool or signal preview
       let triggerData
       if (previewPool) {
-        const triggerRes = await fetch(
+        const triggerRes = await authFetch(
           `/api/signals/pool-backtest/${previewPool.id}?symbol=${previewSymbol}&kline_min_ts=${klineMinTs}&kline_max_ts=${klineMaxTs}`
         )
         if (!triggerRes.ok) throw new Error('Failed to fetch pool backtest')
@@ -1274,7 +1275,7 @@ export default function SignalManager() {
       } else if (previewSignal) {
         if (previewSignal.id === 0) {
           // Temp signal (AI preview)
-          const triggerRes = await fetch('/api/signals/backtest-preview', {
+          const triggerRes = await authFetch('/api/signals/backtest-preview', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -1289,7 +1290,7 @@ export default function SignalManager() {
           triggerData = await triggerRes.json()
         } else {
           // Saved signal (backtest_signal gets exchange from DB)
-          const triggerRes = await fetch(
+          const triggerRes = await authFetch(
             `/api/signals/backtest/${previewSignal.id}?symbol=${previewSymbol}&kline_min_ts=${klineMinTs}&kline_max_ts=${klineMaxTs}`
           )
           if (!triggerRes.ok) throw new Error('Failed to fetch trigger data')

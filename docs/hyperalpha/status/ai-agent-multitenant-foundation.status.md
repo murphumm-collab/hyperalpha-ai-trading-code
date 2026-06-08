@@ -16,7 +16,8 @@ Local commit: current branch `HEAD`
 - User-scoped Prompt AI, Program AI, and Attribution AI chat/history entry points.
 - User-scoped Program CRUD, bindings, preview-run, executions, and backtest result reads.
 - User-scoped Kline AI analysis creation, history, and detail reads.
-- Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, and Kline AI frontend requests.
+- User-scoped PromptTemplate, SignalDefinition, and SignalPool ownership.
+- Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
 - Development progress and acceptance markers.
 - No live order execution changes.
 
@@ -35,13 +36,14 @@ Local commit: current branch `HEAD`
 | Program AI route filtering | Done | Chat/history endpoints use current user; Program CRUD/bindings/backtest reads are scoped |
 | Attribution AI route filtering | Done | Chat/history endpoints use current user; `accountId` is ownership-checked |
 | Kline AI route filtering | Done | Analysis creation validates account owner; history/detail use current user |
+| Strategy entity ownership | Done | `add_strategy_entity_user_scope.py`; PromptTemplate, SignalDefinition, SignalPool CRUD scoped by current user |
 | AI tool user propagation | Done | Hyper AI tool execution passes `user_id` into subagents, `save_program`, `create_ai_trader`, and `web_search` config lookup |
-| Frontend token propagation | Done | `authFetch` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, and polling |
+| Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
 | Remote push | Blocked | Terminal GitHub HTTPS credentials unavailable |
-| Acceptance | Partial | Multi-user AI foundation checks passed; production auth, Kline AI, job queue, and live order execution remain unaccepted |
+| Acceptance | Partial | Multi-user AI foundation checks passed; production auth, job queue, and live order execution remain unaccepted |
 
 ## Verification Log
 
@@ -50,6 +52,7 @@ Local commit: current branch `HEAD`
 - Passed: Static search found no remaining `user_id=1`, bare `get_llm_config(db)`, or default-user AI entry in the scoped AI files except removed legacy helper before cleanup.
 - Passed: Static search found no remaining bare `fetch(` in Program Trader, Program Backtest, or Program AI chat components.
 - Passed: Kline AI route compile and frontend build after Kline auth/scoping changes.
+- Passed: Prompt/Signal ownership route compile and frontend build after strategy entity `user_id` migration and auth-aware manager requests.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
@@ -57,5 +60,5 @@ Local commit: current branch `HEAD`
 
 - Production-grade Casdoor/JWKS token signature verification is not implemented in this slice.
 - Redis/job-queue backed AI task persistence is not implemented in this slice.
-- Prompt templates and signal pools do not yet have first-class `user_id` ownership columns, so template/pool entity isolation still needs a schema follow-up.
+- Hyper Insight wallet-tracking runtime/token storage is still global and needs a per-user design before production To C rollout.
 - AI strategy execution and order routing are intentionally unchanged.

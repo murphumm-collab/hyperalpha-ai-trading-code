@@ -10,7 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import text
 
+from api.auth_utils import get_current_user_dependency
 from database.connection import SessionLocal
+from database.models import User
 
 logger = logging.getLogger(__name__)
 from schemas.signal import (
@@ -112,12 +114,18 @@ class WalletTrackingTokenRequest(BaseModel):
 
 @router.get("", response_model=SignalListResponse)
 @router.get("/", response_model=SignalListResponse)
-def list_signals(db: Session = Depends(get_db)) -> SignalListResponse:
+def list_signals(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+) -> SignalListResponse:
     """List all signal definitions and pools"""
     signals_result = db.execute(text("""
         SELECT id, signal_name, description, trigger_condition, enabled, created_at, updated_at, exchange
-        FROM signal_definitions WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id
-    """))
+        FROM signal_definitions
+        WHERE (is_deleted IS NULL OR is_deleted = false)
+          AND user_id = :user_id
+        ORDER BY id
+    """), {"user_id": current_user.id})
     signals = []
     for row in signals_result:
         # Parse trigger_condition from JSON string if needed
@@ -131,8 +139,11 @@ def list_signals(db: Session = Depends(get_db)) -> SignalListResponse:
 
     pools_result = db.execute(text("""
         SELECT id, pool_name, signal_ids, symbols, enabled, created_at, logic, exchange, source_type, source_config
-        FROM signal_pools WHERE (is_deleted IS NULL OR is_deleted = false) ORDER BY id
-    """))
+        FROM signal_pools
+        WHERE (is_deleted IS NULL OR is_deleted = false)
+          AND user_id = :user_id
+        ORDER BY id
+    """), {"user_id": current_user.id})
     pools = []
     for row in pools_result:
         pools.append(_build_pool_response(row))
@@ -170,14 +181,19 @@ async def clear_wallet_tracking_token():
 
 
 @router.post("/definitions", response_model=SignalDefinitionResponse)
-def create_signal(payload: SignalDefinitionCreate, db: Session = Depends(get_db)):
+def create_signal(
+    payload: SignalDefinitionCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Create a new signal definition"""
     import json
     result = db.execute(text("""
-        INSERT INTO signal_definitions (signal_name, description, trigger_condition, enabled, exchange)
-        VALUES (:name, :desc, :condition, :enabled, :exchange)
+        INSERT INTO signal_definitions (user_id, signal_name, description, trigger_condition, enabled, exchange)
+        VALUES (:user_id, :name, :desc, :condition, :enabled, :exchange)
         RETURNING id, signal_name, description, trigger_condition, enabled, created_at, updated_at, exchange
     """), {
+        "user_id": current_user.id,
         "name": payload.signal_name,
         "desc": payload.description,
         "condition": json.dumps(payload.trigger_condition),
@@ -197,13 +213,20 @@ def create_signal(payload: SignalDefinitionCreate, db: Session = Depends(get_db)
 
 
 @router.get("/definitions/{signal_id}", response_model=SignalDefinitionResponse)
-def get_signal(signal_id: int, db: Session = Depends(get_db)):
+def get_signal(
+    signal_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Get a signal definition by ID"""
     import json
     result = db.execute(text("""
         SELECT id, signal_name, description, trigger_condition, enabled, created_at, updated_at, exchange
-        FROM signal_definitions WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
-    """), {"id": signal_id})
+        FROM signal_definitions
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
+    """), {"id": signal_id, "user_id": current_user.id})
     row = result.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Signal not found")
@@ -218,12 +241,17 @@ def get_signal(signal_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/definitions/{signal_id}", response_model=SignalDefinitionResponse)
-def update_signal(signal_id: int, payload: SignalDefinitionUpdate, db: Session = Depends(get_db)):
+def update_signal(
+    signal_id: int,
+    payload: SignalDefinitionUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Update a signal definition"""
     import json
     # Build dynamic update query
     updates = []
-    params = {"id": signal_id}
+    params = {"id": signal_id, "user_id": current_user.id}
     if payload.signal_name is not None:
         updates.append("signal_name = :name")
         params["name"] = payload.signal_name
@@ -244,7 +272,11 @@ def update_signal(signal_id: int, payload: SignalDefinitionUpdate, db: Session =
         raise HTTPException(status_code=400, detail="No fields to update")
 
     updates.append("updated_at = CURRENT_TIMESTAMP")
-    query = f"UPDATE signal_definitions SET {', '.join(updates)} WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false) RETURNING id, signal_name, description, trigger_condition, enabled, created_at, updated_at, exchange"
+    query = f"""UPDATE signal_definitions SET {', '.join(updates)}
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
+        RETURNING id, signal_name, description, trigger_condition, enabled, created_at, updated_at, exchange"""
     result = db.execute(text(query), params)
     db.commit()
     row = result.fetchone()
@@ -261,9 +293,21 @@ def update_signal(signal_id: int, payload: SignalDefinitionUpdate, db: Session =
 
 
 @router.delete("/definitions/{signal_id}")
-def delete_signal(signal_id: int, db: Session = Depends(get_db)):
+def delete_signal(
+    signal_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Soft-delete a signal definition with dependency checking."""
     from services.entity_deletion_service import delete_signal_definition
+    exists = db.execute(text("""
+        SELECT id FROM signal_definitions
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
+    """), {"id": signal_id, "user_id": current_user.id}).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Signal not found")
     result = delete_signal_definition(db, signal_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Signal not found"))
@@ -273,7 +317,11 @@ def delete_signal(signal_id: int, db: Session = Depends(get_db)):
 # ============ Signal Pools ============
 
 @router.post("/pools", response_model=SignalPoolResponse)
-def create_pool(payload: SignalPoolCreate, db: Session = Depends(get_db)):
+def create_pool(
+    payload: SignalPoolCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Create a new signal pool"""
     source_type = _normalize_source_type(payload.source_type)
     source_config = _normalize_source_config(source_type, payload.source_config)
@@ -281,9 +329,15 @@ def create_pool(payload: SignalPoolCreate, db: Session = Depends(get_db)):
     # Validate that all signals belong to the same exchange as the pool
     if source_type == MARKET_SIGNAL_SOURCE and payload.signal_ids:
         result = db.execute(text("""
-            SELECT id, exchange FROM signal_definitions WHERE id = ANY(:ids) AND (is_deleted IS NULL OR is_deleted = false)
-        """), {"ids": payload.signal_ids})
-        for row in result.fetchall():
+            SELECT id, exchange FROM signal_definitions
+            WHERE id = ANY(:ids)
+              AND user_id = :user_id
+              AND (is_deleted IS NULL OR is_deleted = false)
+        """), {"ids": payload.signal_ids, "user_id": current_user.id})
+        rows = result.fetchall()
+        if len(rows) != len(set(payload.signal_ids)):
+            raise HTTPException(status_code=404, detail="One or more signals not found")
+        for row in rows:
             signal_exchange = row[1] or "hyperliquid"
             if signal_exchange != payload.exchange:
                 raise HTTPException(
@@ -292,10 +346,11 @@ def create_pool(payload: SignalPoolCreate, db: Session = Depends(get_db)):
                 )
 
     result = db.execute(text("""
-        INSERT INTO signal_pools (pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, source_config)
-        VALUES (:name, :signal_ids, :symbols, :enabled, :logic, :exchange, :source_type, :source_config)
+        INSERT INTO signal_pools (user_id, pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, source_config)
+        VALUES (:user_id, :name, :signal_ids, :symbols, :enabled, :logic, :exchange, :source_type, :source_config)
         RETURNING id, pool_name, signal_ids, symbols, enabled, created_at, logic, exchange, source_type, source_config
     """), {
+        "user_id": current_user.id,
         "name": payload.pool_name,
         "signal_ids": json.dumps(payload.signal_ids if source_type == MARKET_SIGNAL_SOURCE else []),
         "symbols": json.dumps(payload.symbols if source_type == MARKET_SIGNAL_SOURCE else []),
@@ -313,12 +368,19 @@ def create_pool(payload: SignalPoolCreate, db: Session = Depends(get_db)):
 
 
 @router.get("/pools/{pool_id}", response_model=SignalPoolResponse)
-def get_pool(pool_id: int, db: Session = Depends(get_db)):
+def get_pool(
+    pool_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Get a signal pool by ID"""
     result = db.execute(text("""
         SELECT id, pool_name, signal_ids, symbols, enabled, created_at, logic, exchange, source_type, source_config
-        FROM signal_pools WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
-    """), {"id": pool_id})
+        FROM signal_pools
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
+    """), {"id": pool_id, "user_id": current_user.id})
     row = result.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Pool not found")
@@ -326,12 +388,20 @@ def get_pool(pool_id: int, db: Session = Depends(get_db)):
 
 
 @router.put("/pools/{pool_id}", response_model=SignalPoolResponse)
-def update_pool(pool_id: int, payload: SignalPoolUpdate, db: Session = Depends(get_db)):
+def update_pool(
+    pool_id: int,
+    payload: SignalPoolUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Update a signal pool"""
     current = db.execute(text("""
         SELECT exchange, source_type, source_config
-        FROM signal_pools WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
-    """), {"id": pool_id}).fetchone()
+        FROM signal_pools
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
+    """), {"id": pool_id, "user_id": current_user.id}).fetchone()
     if not current:
         raise HTTPException(status_code=404, detail="Pool not found")
 
@@ -346,9 +416,15 @@ def update_pool(pool_id: int, payload: SignalPoolUpdate, db: Session = Depends(g
     signal_ids_to_check = payload.signal_ids
     if target_source_type == MARKET_SIGNAL_SOURCE and signal_ids_to_check and target_exchange:
         result = db.execute(text("""
-            SELECT id, exchange FROM signal_definitions WHERE id = ANY(:ids) AND (is_deleted IS NULL OR is_deleted = false)
-        """), {"ids": signal_ids_to_check})
-        for row in result.fetchall():
+            SELECT id, exchange FROM signal_definitions
+            WHERE id = ANY(:ids)
+              AND user_id = :user_id
+              AND (is_deleted IS NULL OR is_deleted = false)
+        """), {"ids": signal_ids_to_check, "user_id": current_user.id})
+        rows = result.fetchall()
+        if len(rows) != len(set(signal_ids_to_check)):
+            raise HTTPException(status_code=404, detail="One or more signals not found")
+        for row in rows:
             signal_exchange = row[1] or "hyperliquid"
             if signal_exchange != target_exchange:
                 raise HTTPException(
@@ -357,7 +433,7 @@ def update_pool(pool_id: int, payload: SignalPoolUpdate, db: Session = Depends(g
                 )
 
     updates = []
-    params = {"id": pool_id}
+    params = {"id": pool_id, "user_id": current_user.id}
     if payload.pool_name is not None:
         updates.append("pool_name = :name")
         params["name"] = payload.pool_name
@@ -392,7 +468,9 @@ def update_pool(pool_id: int, payload: SignalPoolUpdate, db: Session = Depends(g
         raise HTTPException(status_code=400, detail="No fields to update")
 
     query = f"""UPDATE signal_pools SET {', '.join(updates)}
-        WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
         RETURNING id, pool_name, signal_ids, symbols, enabled, created_at, logic, exchange, source_type, source_config"""
     result = db.execute(text(query), params)
     db.commit()
@@ -405,9 +483,21 @@ def update_pool(pool_id: int, payload: SignalPoolUpdate, db: Session = Depends(g
 
 
 @router.delete("/pools/{pool_id}")
-def delete_pool(pool_id: int, db: Session = Depends(get_db)):
+def delete_pool(
+    pool_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """Soft-delete a signal pool with dependency checking."""
     from services.entity_deletion_service import delete_signal_pool
+    exists = db.execute(text("""
+        SELECT id FROM signal_pools
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
+    """), {"id": pool_id, "user_id": current_user.id}).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Pool not found")
     result = delete_signal_pool(db, pool_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Pool not found"))
@@ -445,7 +535,8 @@ def backtest_signal(
     symbol: str = Query(..., description="Trading symbol (e.g., BTC)"),
     kline_min_ts: int = Query(None, description="Min K-line timestamp in ms (for filtering triggers)"),
     kline_max_ts: int = Query(None, description="Max K-line timestamp in ms (for filtering triggers)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Backtest a signal against historical data.
@@ -454,8 +545,18 @@ def backtest_signal(
     from services.signal_backtest_service import signal_backtest_service
 
     try:
+        exists = db.execute(text("""
+            SELECT id FROM signal_definitions
+            WHERE id = :id
+              AND user_id = :user_id
+              AND (is_deleted IS NULL OR is_deleted = false)
+        """), {"id": signal_id, "user_id": current_user.id}).fetchone()
+        if not exists:
+            raise HTTPException(status_code=404, detail="Signal not found")
         result = signal_backtest_service.backtest_signal(db, signal_id, symbol, kline_min_ts, kline_max_ts)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             f"[Backtest API] EXCEPTION: signal_id={signal_id}, symbol={symbol}, "
@@ -483,7 +584,8 @@ class TempBacktestRequest(BaseModel):
 @router.post("/backtest-preview")
 def backtest_preview(
     request: TempBacktestRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Backtest a signal configuration without saving to database.
@@ -501,6 +603,8 @@ def backtest_preview(
             exchange=request.exchange
         )
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             f"[Backtest API] EXCEPTION in preview: symbol={request.symbol}, "
@@ -516,7 +620,8 @@ def backtest_pool(
     symbol: str = Query(..., description="Trading symbol (e.g., BTC)"),
     kline_min_ts: int = Query(None, description="Min K-line timestamp in ms"),
     kline_max_ts: int = Query(None, description="Max K-line timestamp in ms"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Backtest a signal pool against historical data.
@@ -527,14 +632,18 @@ def backtest_pool(
     try:
         pool_meta = db.execute(text("""
             SELECT source_type FROM signal_pools
-            WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
-        """), {"id": pool_id}).fetchone()
+            WHERE id = :id
+              AND user_id = :user_id
+              AND (is_deleted IS NULL OR is_deleted = false)
+        """), {"id": pool_id, "user_id": current_user.id}).fetchone()
         if not pool_meta:
             raise HTTPException(status_code=404, detail="Pool not found")
         if (pool_meta[0] or MARKET_SIGNAL_SOURCE) != MARKET_SIGNAL_SOURCE:
             raise HTTPException(status_code=400, detail="Wallet tracking pools do not support backtest")
         result = signal_backtest_service.backtest_pool(db, pool_id, symbol, kline_min_ts, kline_max_ts)
         return result
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(
             f"[Backtest API] EXCEPTION in pool: pool_id={pool_id}, symbol={symbol}, "
@@ -553,27 +662,31 @@ def get_trigger_logs(
     symbol: Optional[str] = Query(None),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get signal trigger logs with optional filters and pagination"""
-    conditions = []
-    params = {"limit": limit, "offset": offset}
+    conditions = ["(sd.user_id = :user_id OR sp.user_id = :user_id)"]
+    params = {"limit": limit, "offset": offset, "user_id": current_user.id}
 
     if pool_id is not None:
-        conditions.append("pool_id = :pool_id")
+        conditions.append("l.pool_id = :pool_id")
         params["pool_id"] = pool_id
     if signal_id is not None:
-        conditions.append("signal_id = :signal_id")
+        conditions.append("l.signal_id = :signal_id")
         params["signal_id"] = signal_id
     if symbol is not None:
-        conditions.append("symbol = :symbol")
+        conditions.append("l.symbol = :symbol")
         params["symbol"] = symbol
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     query = f"""
-        SELECT id, signal_id, pool_id, symbol, trigger_value, triggered_at, market_regime
-        FROM signal_trigger_logs {where_clause}
-        ORDER BY triggered_at DESC LIMIT :limit OFFSET :offset
+        SELECT l.id, l.signal_id, l.pool_id, l.symbol, l.trigger_value, l.triggered_at, l.market_regime
+        FROM signal_trigger_logs l
+        LEFT JOIN signal_definitions sd ON l.signal_id = sd.id
+        LEFT JOIN signal_pools sp ON l.pool_id = sp.id
+        {where_clause}
+        ORDER BY l.triggered_at DESC LIMIT :limit OFFSET :offset
     """
     import json
     result = db.execute(text(query), params)
@@ -600,7 +713,13 @@ def get_trigger_logs(
         ))
 
     # Get total count
-    count_query = f"SELECT COUNT(*) FROM signal_trigger_logs {where_clause}"
+    count_query = f"""
+        SELECT COUNT(*)
+        FROM signal_trigger_logs l
+        LEFT JOIN signal_definitions sd ON l.signal_id = sd.id
+        LEFT JOIN signal_pools sp ON l.pool_id = sp.id
+        {where_clause}
+    """
     count_params = {k: v for k, v in params.items() if k not in ("limit", "offset")}
     total = db.execute(text(count_query), count_params).scalar()
 
@@ -613,7 +732,8 @@ def get_trigger_logs(
 def test_signal(
     signal_id: int,
     symbol: str = Query(..., description="Symbol to test against"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Test a signal against current market data.
@@ -626,8 +746,11 @@ def test_signal(
     # Get signal definition
     result = db.execute(text("""
         SELECT id, signal_name, description, trigger_condition, enabled
-        FROM signal_definitions WHERE id = :id AND (is_deleted IS NULL OR is_deleted = false)
-    """), {"id": signal_id})
+        FROM signal_definitions
+        WHERE id = :id
+          AND user_id = :user_id
+          AND (is_deleted IS NULL OR is_deleted = false)
+    """), {"id": signal_id, "user_id": current_user.id})
     row = result.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Signal not found")
@@ -726,10 +849,6 @@ from services.ai_signal_generation_service import (
     get_signal_conversation_history,
     get_signal_conversation_messages
 )
-from database.models import User
-from api.auth_utils import get_current_user_dependency
-
-
 class AiSignalChatRequest(BaseModel):
     """Request to send a message to AI signal generation chat"""
     account_id: int = Field(..., alias="accountId")
@@ -1008,13 +1127,16 @@ class SignalPoolConfigRequest(BaseModel):
 @router.post("/create-pool-from-config")
 def create_pool_from_config(
     request: SignalPoolConfigRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+    user_id_override: Optional[int] = None,
 ):
     """
     Create a signal pool from AI-generated configuration.
     Creates individual signals and combines them into a pool.
     """
     import json
+    owner_user_id = user_id_override if user_id_override is not None else current_user.id
 
     if not request.signals:
         raise HTTPException(status_code=400, detail="No signals provided")
@@ -1070,10 +1192,11 @@ def create_pool_from_config(
 
             # Create signal with exchange
             result = db.execute(text("""
-                INSERT INTO signal_definitions (signal_name, description, trigger_condition, enabled, exchange)
-                VALUES (:name, :desc, :condition, :enabled, :exchange)
+                INSERT INTO signal_definitions (user_id, signal_name, description, trigger_condition, enabled, exchange)
+                VALUES (:user_id, :name, :desc, :condition, :enabled, :exchange)
                 RETURNING id, signal_name, description, trigger_condition, enabled, created_at, exchange
             """), {
+                "user_id": owner_user_id,
                 "name": sig_name,
                 "desc": sig.get("description") or f"Part of {request.name}",
                 "condition": json.dumps(trigger_condition),
@@ -1091,10 +1214,11 @@ def create_pool_from_config(
 
         # Create the pool with exchange
         pool_result = db.execute(text("""
-            INSERT INTO signal_pools (pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, source_config)
-            VALUES (:name, :signal_ids, :symbols, :enabled, :logic, :exchange, :source_type, :source_config)
+            INSERT INTO signal_pools (user_id, pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, source_config)
+            VALUES (:user_id, :name, :signal_ids, :symbols, :enabled, :logic, :exchange, :source_type, :source_config)
             RETURNING id, pool_name, signal_ids, symbols, enabled, created_at, logic, exchange, source_type, source_config
         """), {
+            "user_id": owner_user_id,
             "name": request.name,
             "signal_ids": json.dumps(created_signal_ids),
             "symbols": json.dumps([request.symbol]),

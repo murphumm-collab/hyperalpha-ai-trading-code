@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from database.connection import SessionLocal
 from api.auth_utils import get_current_user_dependency
 from repositories import prompt_repo
-from database.models import PromptTemplate, Account
+from database.models import PromptTemplate, Account, AccountPromptBinding, User
 from schemas.prompt import (
     PromptListResponse,
     PromptTemplateUpdateRequest,
@@ -35,9 +35,12 @@ def get_db():
 # Support both /api/prompts and /api/prompts/
 @router.get("", response_model=PromptListResponse, response_model_exclude_none=True)
 @router.get("/", response_model=PromptListResponse, response_model_exclude_none=True)
-def list_prompt_templates(db: Session = Depends(get_db)) -> PromptListResponse:
-    templates = prompt_repo.get_all_templates(db)
-    bindings = prompt_repo.list_bindings(db)
+def list_prompt_templates(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+) -> PromptListResponse:
+    templates = prompt_repo.get_all_templates(db, user_id=current_user.id)
+    bindings = prompt_repo.list_bindings(db, user_id=current_user.id)
 
     template_responses = [
         PromptTemplateResponse.from_orm(template)
@@ -68,6 +71,7 @@ def update_prompt_template(
     key: str,
     payload: PromptTemplateUpdateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> PromptTemplateResponse:
     try:
         template = prompt_repo.update_template(
@@ -76,6 +80,7 @@ def update_prompt_template(
             template_text=payload.template_text,
             description=payload.description,
             updated_by=payload.updated_by,
+            user_id=current_user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -91,6 +96,7 @@ def update_prompt_template(
 def create_prompt_template(
     payload: PromptTemplateCreateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> PromptTemplateResponse:
     """Create a new user-defined prompt template"""
     try:
@@ -100,6 +106,7 @@ def create_prompt_template(
             description=payload.description,
             template_text=payload.template_text,
             created_by=payload.created_by,
+            user_id=current_user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -116,6 +123,7 @@ def copy_prompt_template(
     template_id: int,
     payload: PromptTemplateCopyRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> PromptTemplateResponse:
     """Copy an existing template to create a new one"""
     try:
@@ -124,6 +132,7 @@ def copy_prompt_template(
             template_id=template_id,
             new_name=payload.new_name,
             created_by=payload.created_by,
+            user_id=current_user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -132,9 +141,15 @@ def copy_prompt_template(
 
 
 @router.delete("/{template_id}")
-def delete_prompt_template_endpoint(template_id: int, db: Session = Depends(get_db)) -> dict:
+def delete_prompt_template_endpoint(
+    template_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+) -> dict:
     """Soft delete a prompt template with dependency checking."""
     from services.entity_deletion_service import delete_prompt_template
+    if not prompt_repo.get_template_by_id_for_user(db, template_id, current_user.id):
+        raise HTTPException(status_code=404, detail="Template not found")
     result = delete_prompt_template(db, template_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Template not found"))
@@ -150,6 +165,7 @@ def update_prompt_template_name(
     template_id: int,
     payload: PromptTemplateNameUpdateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> PromptTemplateResponse:
     """Update template name and description"""
     try:
@@ -159,6 +175,7 @@ def update_prompt_template_name(
             name=payload.name,
             description=payload.description,
             updated_by=payload.updated_by,
+            user_id=current_user.id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -174,17 +191,22 @@ def update_prompt_template_name(
 def upsert_prompt_binding(
     payload: PromptBindingUpsertRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> PromptBindingResponse:
     if not payload.account_id:
         raise HTTPException(status_code=400, detail="accountId is required")
     if not payload.prompt_template_id:
         raise HTTPException(status_code=400, detail="promptTemplateId is required")
 
-    account = db.get(Account, payload.account_id)
+    account = db.query(Account).filter(
+        Account.id == payload.account_id,
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
+    ).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
 
-    template = db.get(PromptTemplate, payload.prompt_template_id)
+    template = prompt_repo.get_template_by_id_for_user(db, payload.prompt_template_id, current_user.id)
     if not template:
         raise HTTPException(status_code=404, detail="Prompt template not found")
 
@@ -212,9 +234,23 @@ def upsert_prompt_binding(
 
 
 @router.delete("/bindings/{binding_id}")
-def delete_prompt_binding_endpoint(binding_id: int, db: Session = Depends(get_db)) -> dict:
+def delete_prompt_binding_endpoint(
+    binding_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+) -> dict:
     """Soft delete a prompt binding."""
     from services.entity_deletion_service import delete_prompt_binding
+    binding = db.query(AccountPromptBinding).join(
+        Account, AccountPromptBinding.account_id == Account.id
+    ).filter(
+        AccountPromptBinding.id == binding_id,
+        AccountPromptBinding.is_deleted != True,
+        Account.user_id == current_user.id,
+        Account.is_deleted != True,
+    ).first()
+    if not binding:
+        raise HTTPException(status_code=404, detail="Binding not found")
     result = delete_prompt_binding(db, binding_id)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error", "Binding not found"))
@@ -225,6 +261,7 @@ def delete_prompt_binding_endpoint(binding_id: int, db: Session = Depends(get_db
 def preview_prompt(
     payload: dict,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ) -> dict:
     """
     Preview filled prompt for selected accounts and symbols.
@@ -297,7 +334,7 @@ def preview_prompt(
     # Get template text: use provided templateText or query from database
     if not template_text:
         # Fallback: query from database using promptTemplateKey
-        template = prompt_repo.get_template_by_key(db, prompt_key)
+        template = prompt_repo.get_template_by_key(db, prompt_key, user_id=current_user.id)
         if not template:
             raise HTTPException(status_code=404, detail=f"Prompt template '{prompt_key}' not found")
         template_text = template.template_text
@@ -319,7 +356,11 @@ def preview_prompt(
     previews = []
 
     for account_id in account_ids:
-        account = db.get(Account, account_id)
+        account = db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).first()
         if not account:
             logger.warning(f"Account {account_id} not found, skipping")
             continue

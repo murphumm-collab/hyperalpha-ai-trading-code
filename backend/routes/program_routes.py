@@ -257,6 +257,19 @@ def _get_program_binding_for_user(db: Session, binding_id: int, user_id: int) ->
     return binding
 
 
+def _ensure_signal_pools_for_user(db: Session, pool_ids: Optional[List[int]], user_id: int) -> None:
+    if not pool_ids:
+        return
+    unique_ids = list({int(pid) for pid in pool_ids})
+    count = db.query(SignalPool).filter(
+        SignalPool.id.in_(unique_ids),
+        SignalPool.user_id == user_id,
+        SignalPool.is_deleted != True,
+    ).count()
+    if count != len(unique_ids):
+        raise HTTPException(status_code=404, detail="One or more signal pools not found")
+
+
 def _get_backtest_for_user(db: Session, backtest_id: int, user_id: int) -> BacktestResult:
     backtest = db.query(BacktestResult).filter(
         BacktestResult.id == backtest_id,
@@ -355,7 +368,11 @@ def _binding_to_response(binding: AccountProgramBinding, db: Session) -> Binding
     # Query signal pool names (include disabled pools for display)
     pool_names = []
     if pool_ids:
-        pools = db.query(SignalPool).filter(SignalPool.id.in_(pool_ids), SignalPool.is_deleted != True).all()
+        user_id = binding.account.user_id if binding.account else None
+        query = db.query(SignalPool).filter(SignalPool.id.in_(pool_ids), SignalPool.is_deleted != True)
+        if user_id is not None:
+            query = query.filter(SignalPool.user_id == user_id)
+        pools = query.all()
         pool_map = {p.id: p.pool_name for p in pools}
         pool_names = [pool_map.get(pid, f"Pool #{pid}") for pid in pool_ids]
 
@@ -729,9 +746,13 @@ def get_program_dev_guide(lang: str = "en") -> dict:
 
 
 @router.get("/signal-pools/", response_model=List[SignalPoolInfo])
-def list_signal_pools(db: Session = Depends(get_db)):
+def list_signal_pools(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """List available signal pools."""
     pools = db.query(SignalPool).filter(
+        SignalPool.user_id == current_user.id,
         SignalPool.enabled == True,
         SignalPool.is_deleted != True,
     ).all()
@@ -1167,6 +1188,7 @@ def create_binding(
     """Create a new binding between an AI Trader and a Program."""
     _ensure_program_account_access(db, account_id, current_user.id)
     _get_program_for_user(db, data.program_id, current_user.id)
+    _ensure_signal_pools_for_user(db, data.signal_pool_ids, current_user.id)
 
     # Check for duplicate binding
     existing = db.query(AccountProgramBinding).filter(
@@ -1203,6 +1225,8 @@ def update_binding(
 ):
     """Update a program binding's trigger configuration."""
     binding = _get_program_binding_for_user(db, binding_id, current_user.id)
+    if data.signal_pool_ids is not None:
+        _ensure_signal_pools_for_user(db, data.signal_pool_ids, current_user.id)
 
     if data.signal_pool_ids is not None:
         binding.signal_pool_ids = json.dumps(data.signal_pool_ids)
@@ -1333,7 +1357,11 @@ def preview_run_binding(
         try:
             pool_ids = json.loads(binding.signal_pool_ids)
             if pool_ids:
-                pool = db.query(SignalPool).filter(SignalPool.id == pool_ids[0], SignalPool.is_deleted != True).first()
+                pool = db.query(SignalPool).filter(
+                    SignalPool.id == pool_ids[0],
+                    SignalPool.user_id == current_user.id,
+                    SignalPool.is_deleted != True,
+                ).first()
                 if pool and pool.symbols:
                     symbols = pool.symbols
                     if isinstance(symbols, str):
@@ -1686,7 +1714,10 @@ def list_executions(
         # Get signal pool name if applicable
         signal_pool_name = None
         if log.signal_pool_id:
-            pool = db.query(SignalPool).filter(SignalPool.id == log.signal_pool_id).first()
+            pool = db.query(SignalPool).filter(
+                SignalPool.id == log.signal_pool_id,
+                SignalPool.user_id == current_user.id,
+            ).first()
             signal_pool_name = pool.pool_name if pool else None
 
         result.append(ExecutionLogResponse(
@@ -1946,7 +1977,11 @@ async def run_backtest(
         signal_pool_ids = pool_ids
 
         for pool_id in pool_ids:
-            pool = db.query(SignalPool).filter(SignalPool.id == pool_id, SignalPool.is_deleted != True).first()
+            pool = db.query(SignalPool).filter(
+                SignalPool.id == pool_id,
+                SignalPool.user_id == current_user.id,
+                SignalPool.is_deleted != True,
+            ).first()
             if pool:
                 if pool.symbols:
                     # symbols is a list field

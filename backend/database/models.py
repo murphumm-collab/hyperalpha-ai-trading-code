@@ -379,6 +379,7 @@ class PromptTemplate(Base):
     __tablename__ = "prompt_templates"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     key = Column(String(100), nullable=False, index=True)  # Removed unique constraint to allow copies
     name = Column(String(200), nullable=False)
     description = Column(String(500), nullable=True)
@@ -1026,6 +1027,7 @@ class SignalDefinition(Base):
     __tablename__ = "signal_definitions"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     signal_name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     trigger_condition = Column(Text, nullable=False)  # JSONB stored as text
@@ -1046,6 +1048,7 @@ class SignalPool(Base):
     __tablename__ = "signal_pools"
 
     id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     pool_name = Column(String(100), nullable=False)
     signal_ids = Column(Text, nullable=False, default="[]")  # JSONB stored as text
     symbols = Column(Text, nullable=False, default="[]")  # JSONB stored as text

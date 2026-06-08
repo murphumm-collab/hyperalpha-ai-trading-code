@@ -4,22 +4,50 @@ from typing import List, Optional, Tuple
 from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, or_
 
 from database.models import PromptTemplate, AccountPromptBinding, Account
 
 
-def get_all_templates(db: Session, include_deleted: bool = False) -> List[PromptTemplate]:
+def _visible_template_clause(user_id: Optional[int]):
+    if user_id is None:
+        return None
+    return or_(PromptTemplate.is_system == "true", PromptTemplate.user_id == user_id)
+
+
+def get_all_templates(
+    db: Session,
+    include_deleted: bool = False,
+    user_id: Optional[int] = None,
+) -> List[PromptTemplate]:
     """Get all prompt templates, excluding deleted ones by default"""
     statement = select(PromptTemplate)
     if not include_deleted:
         statement = statement.where(PromptTemplate.is_deleted == "false")
+    visible_clause = _visible_template_clause(user_id)
+    if visible_clause is not None:
+        statement = statement.where(visible_clause)
     statement = statement.order_by(PromptTemplate.created_at.desc())
     return list(db.execute(statement).scalars().all())
 
 
-def get_template_by_key(db: Session, key: str) -> Optional[PromptTemplate]:
+def get_template_by_key(
+    db: Session,
+    key: str,
+    user_id: Optional[int] = None,
+) -> Optional[PromptTemplate]:
     statement = select(PromptTemplate).where(PromptTemplate.key == key)
+    visible_clause = _visible_template_clause(user_id)
+    if visible_clause is not None:
+        statement = statement.where(visible_clause)
+        statement = statement.order_by(PromptTemplate.user_id.is_(None).asc())
+    return db.execute(statement.limit(1)).scalars().first()
+
+
+def get_template_by_id_for_user(db: Session, template_id: int, user_id: int) -> Optional[PromptTemplate]:
+    statement = select(PromptTemplate).where(PromptTemplate.id == template_id)
+    statement = statement.where(_visible_template_clause(user_id))
+    statement = statement.where(PromptTemplate.is_deleted == "false")
     return db.execute(statement).scalar_one_or_none()
 
 
@@ -54,10 +82,13 @@ def update_template(
     template_text: str,
     description: Optional[str] = None,
     updated_by: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> PromptTemplate:
-    template = get_template_by_key(db, key)
+    template = get_template_by_key(db, key, user_id=user_id)
     if not template:
         raise ValueError(f"Prompt template with key '{key}' not found")
+    if template.is_system == "true":
+        raise ValueError("System templates are read-only")
     template.template_text = template_text
     if description is not None:
         template.description = description
@@ -80,7 +111,10 @@ def restore_template(db: Session, *, key: str, updated_by: Optional[str] = None)
     return template
 
 
-def list_bindings(db: Session) -> List[Tuple[AccountPromptBinding, Account, PromptTemplate]]:
+def list_bindings(
+    db: Session,
+    user_id: Optional[int] = None,
+) -> List[Tuple[AccountPromptBinding, Account, PromptTemplate]]:
     statement = (
         select(AccountPromptBinding, Account, PromptTemplate)
         .join(Account, AccountPromptBinding.account_id == Account.id)
@@ -89,6 +123,9 @@ def list_bindings(db: Session) -> List[Tuple[AccountPromptBinding, Account, Prom
         .where(AccountPromptBinding.is_deleted != True)
         .order_by(Account.name.asc())
     )
+    if user_id is not None:
+        statement = statement.where(Account.user_id == user_id)
+        statement = statement.where(_visible_template_clause(user_id))
     return list(db.execute(statement).all())
 
 
@@ -174,9 +211,14 @@ def copy_template(
     template_id: int,
     new_name: Optional[str] = None,
     created_by: str = "ui",
+    user_id: Optional[int] = None,
 ) -> PromptTemplate:
     """Copy an existing template to create a new user template"""
-    source = db.get(PromptTemplate, template_id)
+    source = (
+        get_template_by_id_for_user(db, template_id, user_id)
+        if user_id is not None
+        else db.get(PromptTemplate, template_id)
+    )
     if not source:
         raise ValueError(f"Prompt template with id '{template_id}' not found")
 
@@ -191,6 +233,7 @@ def copy_template(
         description=source.description,
         template_text=source.template_text,
         system_template_text=source.template_text,  # Use current text as system template
+        user_id=user_id,
         is_system="false",
         is_deleted="false",
         created_by=created_by,
@@ -210,6 +253,7 @@ def create_user_template(
     description: Optional[str] = None,
     template_text: str = "",
     created_by: str = "ui",
+    user_id: Optional[int] = None,
 ) -> PromptTemplate:
     """Create a new user template from scratch"""
     # Generate unique key based on name
@@ -227,6 +271,7 @@ def create_user_template(
         description=description,
         template_text=template_text,
         system_template_text=template_text,
+        user_id=user_id,
         is_system="false",
         is_deleted="false",
         created_by=created_by,
@@ -274,11 +319,18 @@ def update_template_name(
     name: str,
     description: Optional[str] = None,
     updated_by: Optional[str] = None,
+    user_id: Optional[int] = None,
 ) -> PromptTemplate:
     """Update template name and description"""
-    template = db.get(PromptTemplate, template_id)
+    template = (
+        get_template_by_id_for_user(db, template_id, user_id)
+        if user_id is not None
+        else db.get(PromptTemplate, template_id)
+    )
     if not template:
         raise ValueError(f"Prompt template with id '{template_id}' not found")
+    if template.is_system == "true":
+        raise ValueError("System templates are read-only")
 
     template.name = name
     if description is not None:

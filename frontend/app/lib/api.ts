@@ -14,13 +14,19 @@ export async function apiRequest(
   options: RequestInit = {}
 ): Promise<Response> {
   const url = `${API_BASE_URL}${endpoint}`
+  const token = Cookies.get('arena_token')
+  const headers = new Headers(options.headers)
+  if (!headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
   
   const defaultOptions: RequestInit = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
     ...options,
+    credentials: options.credentials ?? 'include',
+    headers,
   }
   
   const response = await fetch(url, defaultOptions)
