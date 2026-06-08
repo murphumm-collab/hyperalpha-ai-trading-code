@@ -2711,7 +2711,8 @@ def execute_update_prompt_binding(db: Session, trader_id: int, prompt_id: int, u
 
 def execute_save_memory(
     db: Session, category: str, content: str,
-    importance: float = 0.5, api_config: Optional[Dict[str, Any]] = None
+    importance: float = 0.5, api_config: Optional[Dict[str, Any]] = None,
+    user_id: Optional[int] = None,
 ) -> str:
     """Save a memory with LLM-powered dedup (same logic as compression).
 
@@ -2724,6 +2725,13 @@ def execute_save_memory(
     )
 
     try:
+        if user_id is None:
+            return json.dumps({
+                "status": "blocked",
+                "message": "Saving memory requires authenticated user context.",
+                "executed": False
+            }, ensure_ascii=False)
+
         if category not in MEMORY_CATEGORIES:
             return json.dumps({"error": f"Invalid category. Must be one of: {MEMORY_CATEGORIES}"})
 
@@ -2736,11 +2744,11 @@ def execute_save_memory(
         new_memory = [{"category": category, "content": content, "importance": importance}]
 
         if api_config and api_config.get("api_key"):
-            count = batch_dedup_memories(db, new_memory, api_config, source="ai_tool")
+            count = batch_dedup_memories(db, new_memory, api_config, source="ai_tool", user_id=user_id)
             action = "deduped" if count > 0 else "skipped (redundant)"
         else:
-            add_memory(db, category, content, source="ai_tool", importance=importance)
-            enforce_memory_limit(db)
+            add_memory(db, category, content, source="ai_tool", importance=importance, user_id=user_id)
+            enforce_memory_limit(db, user_id=user_id)
             action = "added"
 
         return json.dumps({
@@ -3812,7 +3820,8 @@ def execute_hyper_ai_tool(
                 category=arguments.get("category", "context"),
                 content=arguments.get("content", ""),
                 importance=arguments.get("importance", 0.5),
-                api_config=api_config
+                api_config=api_config,
+                user_id=user_id,
             )
 
         # --- Factor tools ---

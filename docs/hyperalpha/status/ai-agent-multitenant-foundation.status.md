@@ -26,6 +26,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI tool execution, harness calls, sub-agent calls, and chat streams fail closed when authenticated user context is missing.
 - Hyper AI profile and LLM config reads require explicit user context and no longer fall back to the first stored profile.
 - Hyper AI conversation helper reads, message writes, and LLM context construction validate conversation ownership.
+- Hyper AI memory helper reads, saves, updates, deletes, and `save_memory` tool writes require explicit user context.
 - Hyper AI tool-call streams and persisted tool logs mask sensitive arguments such as API keys, secrets, tokens, private keys, and passwords.
 - Hyper AI frontend tool detail rendering masks sensitive arguments from legacy or malformed stored tool logs.
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
@@ -110,6 +111,7 @@ Local checkpoint: current branch `HEAD`
 | AI tool missing-user fail-closed | Done | Hyper AI dispatcher, harness, sub-agent dispatcher, and stream entry reject missing user context instead of falling back to user `1` |
 | Hyper AI profile no implicit fallback | Done | `get_or_create_profile(None)` fails closed; `get_llm_config(None)` returns unconfigured with `missing_user_context` instead of reading the first profile |
 | Hyper AI conversation helper ownership | Done | Conversation creation/read helpers require user context; message writes and LLM context building reject conversations not owned by that user |
+| Hyper AI memory helper ownership | Done | Memory read/add/update/delete/limit helpers require user context; `save_memory` tool passes current `user_id` and blocks missing context |
 | AI tool argument masking | Done | User-visible `tool_call` events and persisted `tool_calls_log` store masked sensitive args while tools still receive original args for execution |
 | AI tool frontend display masking | Done | Hyper AI tool detail UI recursively masks sensitive args before rendering, including legacy stored logs |
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
@@ -189,6 +191,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyper AI missing-user-context smoke test in `uv run`: dispatcher, harness, sub-agent dispatcher, and stream entry returned blocked/error before touching DB/LLM/exchange work; static search found no remaining `user_id or 1` in the Hyper AI tool execution chain.
 - Passed: Hyper AI profile user-context smoke test in `uv run`: no-user LLM config did not read the first stored profile, `get_or_create_profile(None)` failed closed, explicit user 2 read only user 2 profile config, and no-user suggestions returned an empty missing-context result.
 - Passed: Hyper AI conversation ownership smoke test in `uv run`: Bob could not read Alice's messages, write into Alice's conversation, or build an LLM prompt from Alice's history; Bob's own conversation still read/wrote normally.
+- Passed: Hyper AI memory ownership smoke test in `uv run`: missing user context was blocked, Alice could not update/delete Bob's memory, and the Hyper AI `save_memory` tool stored new memory under the current owner.
 - Passed: Hyper AI tool argument masking syntax compile and smoke test in `uv run`: nested API key/token/secret args are masked, and static search confirms `tool_call` events plus `tool_calls_log` use `safe_fn_args`.
 - Passed: Frontend production build after Hyper AI tool detail rendering masks sensitive nested args before display; static search confirms completed-message tool arg rendering goes through `maskToolArgsForDisplay`.
 - Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
