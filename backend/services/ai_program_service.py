@@ -1787,7 +1787,7 @@ def generate_program_with_ai_stream(
     user_message: str = "",
     conversation_id: Optional[int] = None,
     program_id: Optional[int] = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
     llm_config: Optional[Dict[str, Any]] = None
 ) -> Generator[str, None, None]:
     """
@@ -1803,6 +1803,10 @@ def generate_program_with_ai_stream(
                 f"conversation_id={conversation_id}, program_id={program_id}")
 
     try:
+        if user_id is None:
+            yield format_sse_event("error", {"content": "Authenticated user context is required."})
+            return
+
         # Get LLM config: either from llm_config param or from account_id
         if llm_config:
             # Use provided llm_config (e.g., from Hyper AI sub-agent call)
@@ -1818,6 +1822,7 @@ def generate_program_with_ai_stream(
             account = db.query(Account).filter(
                 Account.id == account_id,
                 Account.account_type == "AI",
+                Account.user_id == user_id,
                 Account.is_deleted != True
             ).first()
 

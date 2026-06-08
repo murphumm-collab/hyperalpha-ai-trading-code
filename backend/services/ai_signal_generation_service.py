@@ -305,7 +305,7 @@ def generate_signal_with_ai(
     account_id: int,
     user_message: str,
     conversation_id: Optional[int] = None,
-    user_id: int = 1
+    user_id: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Generate signal configuration using AI.
@@ -313,6 +313,9 @@ def generate_signal_with_ai(
     """
     start_time = time.time()
     request_id = f"signal_gen_{int(start_time)}"
+
+    if user_id is None:
+        return {"success": False, "error": "Authenticated user context is required."}
 
     logger.info(f"[AI Signal Gen {request_id}] Starting: account_id={account_id}, "
                 f"conversation_id={conversation_id}, user_message_length={len(user_message)}")
@@ -322,6 +325,7 @@ def generate_signal_with_ai(
         account = db.query(Account).filter(
             Account.id == account_id,
             Account.account_type == "AI",
+            Account.user_id == user_id,
             Account.is_deleted != True
         ).first()
 
@@ -1698,7 +1702,7 @@ def generate_signal_with_ai_stream(
     account_id: Optional[int] = None,
     user_message: str = "",
     conversation_id: Optional[int] = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
     llm_config: Optional[Dict[str, Any]] = None
 ):
     """
@@ -1721,6 +1725,10 @@ def generate_signal_with_ai_stream(
     yield _sse_event("status", {"message": "Initializing AI signal generation..."})
 
     try:
+        if user_id is None:
+            yield _sse_event("error", {"message": "Authenticated user context is required."})
+            return
+
         # Get LLM config: either from llm_config param or from account_id
         if llm_config:
             # Use provided llm_config (e.g., from Hyper AI sub-agent call)
@@ -1737,6 +1745,7 @@ def generate_signal_with_ai_stream(
             account = db.query(Account).filter(
                 Account.id == account_id,
                 Account.account_type == "AI",
+                Account.user_id == user_id,
                 Account.is_deleted != True
             ).first()
 

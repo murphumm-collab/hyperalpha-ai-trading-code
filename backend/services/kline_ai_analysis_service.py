@@ -371,7 +371,7 @@ def analyze_kline_chart(
     user_message: Optional[str] = None,
     positions: List[Dict[str, Any]] = None,
     kline_limit: Optional[int] = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
     selected_flow_indicators: List[str] = None,
     exchange: str = "hyperliquid",
 ) -> Optional[Dict[str, Any]]:
@@ -396,6 +396,11 @@ def analyze_kline_chart(
     logger.info(f"[K-line Analysis] Starting analysis: symbol={symbol}, period={period}, "
                f"account={account.name}, model={account.model}, klines={len(klines)}, "
                f"user_message={'Yes' if user_message else 'No'}")
+
+    if user_id is None:
+        return {"error": "Authenticated user context is required."}
+    if getattr(account, "user_id", None) != user_id:
+        return {"error": "AI Trader account not found"}
 
     if not account.api_key or account.api_key in ["", "default-key-please-update-in-settings", "default"]:
         logger.info(f"[K-line Analysis] Account {account.name} has no valid API key")

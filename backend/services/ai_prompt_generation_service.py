@@ -639,7 +639,7 @@ def generate_prompt_with_ai_stream(
     account: Optional[Account] = None,
     user_message: str = "",
     conversation_id: Optional[int] = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
     prompt_id: Optional[int] = None,
     llm_config: Optional[Dict[str, Any]] = None,
 ) -> Generator[str, None, None]:
@@ -658,6 +658,13 @@ def generate_prompt_with_ai_stream(
     """
     start_time = time.time()
     request_id = f"prompt_gen_{int(start_time)}"
+
+    if user_id is None:
+        yield format_sse_event("error", {"content": "Authenticated user context is required."})
+        return
+    if account and getattr(account, "user_id", None) != user_id:
+        yield format_sse_event("error", {"content": "AI account not found"})
+        return
 
     # Get LLM config: either from llm_config param or from account object
     if llm_config:
@@ -1111,7 +1118,7 @@ def generate_prompt_with_ai(
     account: Account,
     user_message: str,
     conversation_id: Optional[int] = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
     prompt_id: Optional[int] = None,
 ) -> Dict:
     """
@@ -1124,6 +1131,8 @@ def generate_prompt_with_ai(
     }
 
     try:
+        if user_id is None:
+            return {"success": False, "error": "Authenticated user context is required."}
         for event in generate_prompt_with_ai_stream(db, account, user_message, conversation_id, user_id, prompt_id):
             if event.startswith("data: "):
                 data = json.loads(event[6:].strip())

@@ -764,7 +764,7 @@ def generate_attribution_analysis_stream(
     account_id: Optional[int] = None,
     user_message: str = "",
     conversation_id: Optional[int] = None,
-    user_id: int = 1,
+    user_id: Optional[int] = None,
     llm_config: Optional[Dict[str, Any]] = None
 ) -> Generator[str, None, None]:
     """Generate attribution analysis with SSE streaming"""
@@ -774,6 +774,10 @@ def generate_attribution_analysis_stream(
     logger.info(f"[AI Attribution {request_id}] Starting: account_id={account_id}")
 
     try:
+        if user_id is None:
+            yield f"event: error\ndata: {json.dumps({'message': 'Authenticated user context is required.'})}\n\n"
+            return
+
         # Get LLM config: either from llm_config param or from account_id
         if llm_config:
             # Use provided llm_config (e.g., from Hyper AI sub-agent call)
@@ -788,7 +792,9 @@ def generate_attribution_analysis_stream(
             # Original logic: get from AI account
             account = db.query(Account).filter(
                 Account.id == account_id,
-                Account.account_type == "AI"
+                Account.account_type == "AI",
+                Account.user_id == user_id,
+                Account.is_deleted != True,
             ).first()
 
             if not account:
@@ -1094,8 +1100,10 @@ def generate_attribution_analysis_stream(
         yield f"event: error\ndata: {json.dumps({'message': str(e)})}\n\n"
 
 
-def get_attribution_conversations(db: Session, user_id: int = 1, limit: int = 20) -> List[Dict]:
+def get_attribution_conversations(db: Session, user_id: Optional[int] = None, limit: int = 20) -> List[Dict]:
     """Get list of attribution analysis conversations"""
+    if user_id is None:
+        return []
     conversations = db.query(AiAttributionConversation).filter(
         AiAttributionConversation.user_id == user_id
     ).order_by(AiAttributionConversation.updated_at.desc()).limit(limit).all()
@@ -1108,8 +1116,10 @@ def get_attribution_conversations(db: Session, user_id: int = 1, limit: int = 20
     } for c in conversations]
 
 
-def get_attribution_messages(db: Session, conversation_id: int, user_id: int = 1) -> List[Dict]:
+def get_attribution_messages(db: Session, conversation_id: int, user_id: Optional[int] = None) -> List[Dict]:
     """Get messages for a specific conversation"""
+    if user_id is None:
+        return []
     conversation = db.query(AiAttributionConversation).filter(
         AiAttributionConversation.id == conversation_id,
         AiAttributionConversation.user_id == user_id
