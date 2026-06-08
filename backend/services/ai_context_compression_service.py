@@ -717,7 +717,8 @@ def compress_messages(
     api_config: Dict[str, Any],
     keep_system: bool = True,
     db: Optional[Session] = None,
-    extract_memories: bool = True
+    extract_memories: bool = True,
+    user_id: Optional[int] = None,
 ) -> CompressionResult:
     """
     Compress conversation messages if needed.
@@ -728,6 +729,7 @@ def compress_messages(
         keep_system: Whether to preserve system messages
         db: Database session (required for memory extraction)
         extract_memories: Whether to extract memories during compression
+        user_id: Owner of memories extracted from compressed context
 
     Returns:
         CompressionResult with compressed messages and metadata
@@ -791,20 +793,25 @@ def compress_messages(
             # Copy api_config to avoid thread-safety issues
             api_config_copy = dict(api_config)
 
-            def _extract_memories_bg(conv_text_bg, api_cfg_bg):
+            def _extract_memories_bg(conv_text_bg, api_cfg_bg, user_id_bg):
                 """Background thread for memory extraction + batch dedup."""
                 from database.connection import SessionLocal
                 bg_db = SessionLocal()
                 try:
                     from services.hyper_ai_memory_service import process_compression_memories
-                    count = process_compression_memories(bg_db, conv_text_bg, api_cfg_bg)
+                    count = process_compression_memories(
+                        bg_db,
+                        conv_text_bg,
+                        api_cfg_bg,
+                        user_id=user_id_bg,
+                    )
                     logger.warning(f"[Compression] Background memory extraction done: {count} memories")
                 except Exception as e:
                     logger.warning(f"[Compression] Background memory extraction failed: {type(e).__name__}: {e}")
                 finally:
                     bg_db.close()
 
-            submit_ai_background_task(_extract_memories_bg, conv_text, api_config_copy)
+            submit_ai_background_task(_extract_memories_bg, conv_text, api_config_copy, user_id)
         except Exception as e:
             logger.warning(f"[Compression] Failed to start memory extraction thread: {e}")
 

@@ -1934,7 +1934,7 @@ You are creating a new program. Start fresh and design the strategy based on use
         messages.append({"role": "user", "content": user_message})
 
         # Apply compression if needed (api_config already set above)
-        result = compress_messages(messages, api_config, db=db)
+        result = compress_messages(messages, api_config, db=db, user_id=user_id)
         messages = result["messages"]
 
         # Update compression_points if compression occurred

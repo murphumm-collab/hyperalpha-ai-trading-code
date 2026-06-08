@@ -875,7 +875,7 @@ def generate_attribution_analysis_stream(
         messages.append({"role": "user", "content": user_message})
 
         # Apply compression if needed (api_config already set above)
-        comp_result = compress_messages(messages, api_config, db=db)
+        comp_result = compress_messages(messages, api_config, db=db, user_id=user_id)
         messages = comp_result["messages"]
 
         # Update compression_points if compression occurred

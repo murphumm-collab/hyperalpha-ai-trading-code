@@ -556,7 +556,7 @@ def build_messages_for_api(
         messages.append(user_msg)  # put user msg back at the end
 
     # Apply compression if needed
-    result = compress_messages(messages, api_config, db=db)
+    result = compress_messages(messages, api_config, db=db, user_id=user_id)
     messages = result["messages"]
 
     # Update compression_points if compression occurred
