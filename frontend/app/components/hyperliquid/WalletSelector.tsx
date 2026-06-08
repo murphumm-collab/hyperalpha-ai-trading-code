@@ -8,6 +8,7 @@ import { useState, useEffect } from 'react'
 import { AlertTriangle } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { useTranslation } from 'react-i18next'
+import { authFetch } from '@/lib/authFetch'
 
 export type ExchangeType = 'hyperliquid' | 'binance'
 
@@ -55,7 +56,7 @@ export default function WalletSelector({
         ? '/api/hyperliquid/wallets/all'
         : '/api/binance/wallets/all'
 
-      const response = await fetch(endpoint)
+      const response = await authFetch(endpoint)
       if (!response.ok) {
         throw new Error('Failed to load wallets')
       }

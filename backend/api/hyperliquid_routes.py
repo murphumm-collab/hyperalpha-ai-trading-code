@@ -39,6 +39,8 @@ from services.hyperliquid_cache import (
     get_cached_positions,
 )
 from utils.runtime_diagnostics import get_current_thread_count, log_hot_path_delta
+from api.auth_utils import get_current_user_dependency
+from database.models import Account, User
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,25 @@ router = APIRouter(prefix="/api/hyperliquid", tags=["hyperliquid"])
 
 def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _ensure_account_owner(db: Session, account_id: int, user_id: int) -> Account:
+    account = db.query(Account).filter(
+        Account.id == account_id,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).first()
+    if not account:
+        raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+    return account
+
+
+def _current_user_account_ids(db: Session, user_id: int) -> List[int]:
+    rows = db.query(Account.id).filter(
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+    ).all()
+    return [int(row[0]) for row in rows]
 
 
 # Request/Response Models
@@ -129,7 +150,8 @@ class HyperliquidSymbolSelectionRequest(BaseModel):
 def setup_account(
     account_id: int,
     request: HyperliquidSetupRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Setup Hyperliquid trading for an account
@@ -144,6 +166,7 @@ def setup_account(
     Ensure HYPERLIQUID_ENCRYPTION_KEY is set in environment.
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         result = setup_hyperliquid_account(
             db=db,
             account_id=account_id,
@@ -164,7 +187,8 @@ def setup_account(
 def switch_environment(
     account_id: int,
     request: EnvironmentSwitchRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Switch account between testnet and mainnet
@@ -178,6 +202,7 @@ def switch_environment(
     the implications before switching environments.
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         result = switch_hyperliquid_environment(
             db=db,
             account_id=account_id,
@@ -195,7 +220,8 @@ def switch_environment(
 @router.get("/accounts/{account_id}/config")
 def get_config(
     account_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get Hyperliquid configuration for an account
@@ -207,6 +233,7 @@ def get_config(
     - Whether testnet/mainnet credentials are configured
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         config = get_account_hyperliquid_config(db, account_id)
         return config
     except ValueError as e:
@@ -221,7 +248,8 @@ def get_balance(
     account_id: int,
     force_refresh: bool = False,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get Hyperliquid account balance.
@@ -239,6 +267,7 @@ def get_balance(
     start_threads = get_current_thread_count()
     start_time = time.monotonic()
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_global_trading_mode
@@ -284,7 +313,8 @@ def get_positions(
     account_id: int,
     force_refresh: bool = False,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get all open positions for an account.
@@ -299,6 +329,7 @@ def get_positions(
                     If not specified, uses global trading mode
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_global_trading_mode
@@ -337,7 +368,8 @@ def get_positions(
 def place_manual_order(
     account_id: int,
     request: ManualOrderRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Manually place a Hyperliquid order
@@ -354,6 +386,7 @@ def place_manual_order(
         request: Order request with optional environment override
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         client = get_hyperliquid_client(db, account_id, override_environment=request.environment)
 
         # Validate leverage against wallet limits (uses unified leverage getter)
@@ -401,7 +434,8 @@ def place_manual_order(
 @router.post("/accounts/{account_id}/disable")
 def disable_trading(
     account_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Disable Hyperliquid trading for an account
@@ -410,6 +444,7 @@ def disable_trading(
     Credentials remain encrypted in database for potential re-enable.
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         result = disable_hyperliquid_trading(db, account_id)
         return result
     except ValueError as e:
@@ -422,7 +457,8 @@ def disable_trading(
 @router.post("/accounts/{account_id}/enable")
 def enable_trading(
     account_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Re-enable Hyperliquid trading for an account
@@ -430,6 +466,7 @@ def enable_trading(
     Requires account to have environment and credentials already configured.
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         result = enable_hyperliquid_trading(db, account_id)
         return result
     except ValueError as e:
@@ -442,7 +479,8 @@ def enable_trading(
 @router.get("/accounts/{account_id}/test-connection")
 def test_connection(
     account_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Test Hyperliquid API connection
@@ -456,6 +494,7 @@ def test_connection(
     Use this to verify setup before enabling automated trading.
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         client = get_hyperliquid_client(db, account_id)
         result = client.test_connection(db)
         return result
@@ -474,7 +513,8 @@ def test_connection(
 def get_account_snapshots(
     account_id: int,
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of snapshots to return"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get historical account snapshots for Hyperliquid account
@@ -488,14 +528,11 @@ def get_account_snapshots(
     Returns:
     - Array of snapshot objects with timestamp, equity, balance, and margin data
     """
-    from database.models import Account
     from database.snapshot_connection import SnapshotSessionLocal
     from database.snapshot_models import HyperliquidAccountSnapshot
 
     # Verify account exists and has Hyperliquid environment configured
-    account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-    if not account:
-        raise HTTPException(status_code=404, detail="Account not found")
+    account = _ensure_account_owner(db, account_id, current_user.id)
 
     if not account.hyperliquid_environment:
         raise HTTPException(
@@ -580,6 +617,7 @@ def get_action_summary(
     window_minutes: int = 1440,
     account_id: Optional[int] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Summarize Hyperliquid exchange actions recorded by the backend.
@@ -589,6 +627,14 @@ def get_action_summary(
     - account_id: Optional filter for a single account
     """
     try:
+        owned_account_ids = _current_user_account_ids(db, current_user.id)
+        if account_id is not None:
+            if account_id not in owned_account_ids:
+                raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+            account_filter_ids = [account_id]
+        else:
+            account_filter_ids = owned_account_ids
+
         cutoff = datetime.utcnow() - timedelta(minutes=window_minutes)
         query = db.query(
             HyperliquidExchangeAction.action_type.label("action_type"),
@@ -598,9 +644,7 @@ def get_action_summary(
             ).label("errors"),
             func.max(HyperliquidExchangeAction.created_at).label("last_ts"),
         ).filter(HyperliquidExchangeAction.created_at >= cutoff)
-
-        if account_id is not None:
-            query = query.filter(HyperliquidExchangeAction.account_id == account_id)
+        query = query.filter(HyperliquidExchangeAction.account_id.in_(account_filter_ids))
 
         rows = query.group_by(HyperliquidExchangeAction.action_type).all()
         total_actions = sum(row.count for row in rows)
@@ -623,6 +667,8 @@ def get_action_summary(
             ],
         }
         return summary
+    except HTTPException:
+        raise
     except Exception as err:
         logger.error(f"Failed to summarize Hyperliquid actions: {err}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to summarize Hyperliquid actions")
@@ -632,7 +678,8 @@ def get_action_summary(
 def get_account_rate_limit(
     account_id: int,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get API request rate limit status for Hyperliquid account
@@ -659,6 +706,7 @@ def get_account_rate_limit(
         HTTPException: If account not found or Hyperliquid not enabled
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_global_trading_mode
@@ -696,7 +744,8 @@ def get_account_rate_limit(
 def get_account_trading_stats(
     account_id: int,
     environment: Optional[str] = None,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get trading statistics for Hyperliquid account
@@ -717,6 +766,7 @@ def get_account_trading_stats(
         HTTPException: If account not found or Hyperliquid not enabled
     """
     try:
+        _ensure_account_owner(db, account_id, current_user.id)
         # Determine environment to use
         if environment is None:
             from services.hyperliquid_environment import get_global_trading_mode
@@ -802,21 +852,19 @@ class WalletConfigResponse(BaseModel):
 @router.get("/accounts/{account_id}/wallet")
 def get_account_wallet(
     account_id: int,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Get wallet configurations for an AI Trader account (both testnet and mainnet)
 
     Returns both testnet and mainnet wallet configurations with balance information.
     """
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
     from services.hyperliquid_environment import get_global_trading_mode
 
     try:
-        # Check if account exists
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         # Get all wallets for this account (testnet and mainnet)
         wallets = db.query(HyperliquidWallet).filter(
@@ -885,7 +933,8 @@ def get_account_wallet(
 def configure_account_wallet(
     account_id: int,
     request: WalletConfigRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Configure or update wallet for an AI Trader account
@@ -893,7 +942,7 @@ def configure_account_wallet(
     Creates a new wallet record or updates existing one for the specified environment.
     The private key will be encrypted before storage.
     """
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
     from utils.encryption import encrypt_private_key
     from eth_account import Account as EthAccount
 
@@ -902,10 +951,7 @@ def configure_account_wallet(
         if request.environment not in ['testnet', 'mainnet']:
             raise HTTPException(status_code=400, detail="Environment must be 'testnet' or 'mainnet'")
 
-        # Check if account exists
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         # Validate and parse private key
         private_key = request.private_key.strip()
@@ -1089,7 +1135,8 @@ def configure_account_wallet(
 def delete_account_wallet(
     account_id: int,
     environment: str = Query(..., pattern="^(testnet|mainnet)$", description="Environment to delete (testnet or mainnet)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Delete wallet configuration for a specific environment
@@ -1100,13 +1147,10 @@ def delete_account_wallet(
     Query Parameters:
     - environment: Which wallet to delete ('testnet' or 'mainnet')
     """
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
 
     try:
-        # Check if account exists
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         # Find wallet for specified environment
         wallet = db.query(HyperliquidWallet).filter(
@@ -1153,7 +1197,8 @@ class TestWalletRequest(BaseModel):
 def test_wallet_connection(
     account_id: int,
     body: TestWalletRequest = TestWalletRequest(),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Test wallet connection to Hyperliquid
@@ -1161,12 +1206,8 @@ def test_wallet_connection(
     Validates that the wallet can connect to the exchange and fetch account state.
     Uses the provided environment, or falls back to global trading_mode.
     """
-    from database.models import Account
-
     try:
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         env = body.environment
         if env and env not in ("testnet", "mainnet"):
@@ -1310,7 +1351,10 @@ def set_trading_mode(
 
 
 @router.get("/wallets/all")
-def get_all_wallets(db: Session = Depends(get_db)):
+def get_all_wallets(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Get all Hyperliquid wallets (both testnet and mainnet) across all AI Trader accounts
 
@@ -1320,13 +1364,15 @@ def get_all_wallets(db: Session = Depends(get_db)):
     Returns:
         List of wallet objects with account information, sorted by account name and environment
     """
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
 
     try:
         wallets = db.query(HyperliquidWallet, Account).join(
             Account, HyperliquidWallet.account_id == Account.id
         ).filter(
-            Account.is_active == "true"
+            Account.user_id == current_user.id,
+            Account.is_active == "true",
+            Account.is_deleted != True,
         ).order_by(
             Account.name.asc(),
             HyperliquidWallet.environment.asc()
@@ -1411,7 +1457,8 @@ def _find_agent_in_extra_agents(extra_agents: list, agent_address: str) -> Optio
 def upgrade_wallet_to_agent(
     account_id: int,
     request: AgentWalletUpgradeRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Upgrade an existing private_key wallet to agent_key mode.
@@ -1419,14 +1466,12 @@ def upgrade_wallet_to_agent(
     Uses the stored master private key to call approve_agent on-chain,
     then replaces the stored key with the agent key.
     """
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
     from utils.encryption import encrypt_private_key, decrypt_private_key
     from eth_account import Account as EthAccount
 
     try:
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         wallet = db.query(HyperliquidWallet).filter(
             HyperliquidWallet.account_id == account_id,
@@ -1512,7 +1557,8 @@ def upgrade_wallet_to_agent(
 def configure_agent_wallet(
     account_id: int,
     request: AgentWalletConfigRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """
     Bind an agent wallet created via Hyperliquid API page.
@@ -1520,14 +1566,12 @@ def configure_agent_wallet(
     The user creates the agent wallet on Hyperliquid's website and provides
     the agent private key + master wallet address here.
     """
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
     from utils.encryption import encrypt_private_key
     from eth_account import Account as EthAccount
 
     try:
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
         # Validate and normalize agent private key
         agent_key = request.agent_private_key.strip()
@@ -1642,15 +1686,14 @@ def configure_agent_wallet(
 def get_agent_wallet_status(
     account_id: int,
     environment: str = Query(..., pattern="^(testnet|mainnet)$"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
 ):
     """Get live agent wallet status including expiration info"""
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
 
     try:
-        account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
-        if not account:
-            raise HTTPException(status_code=404, detail=f"Account {account_id} not found")
+        _ensure_account_owner(db, account_id, current_user.id)
 
         wallet = db.query(HyperliquidWallet).filter(
             HyperliquidWallet.account_id == account_id,
@@ -1710,17 +1753,21 @@ def get_agent_wallet_status(
 
 
 @router.get("/wallet-upgrade-check")
-def check_wallet_upgrade_needed(db: Session = Depends(get_db)):
+def check_wallet_upgrade_needed(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Check which wallets still use legacy private_key mode and should be upgraded.
     Returns list of wallets that need upgrade (for showing upgrade modal).
     """
-    from database.models import HyperliquidWallet, Account
+    from database.models import HyperliquidWallet
 
     try:
         wallets = db.query(HyperliquidWallet, Account).join(
             Account, HyperliquidWallet.account_id == Account.id
         ).filter(
+            Account.user_id == current_user.id,
             HyperliquidWallet.is_active == "true",
             Account.is_deleted != True,
         ).all()

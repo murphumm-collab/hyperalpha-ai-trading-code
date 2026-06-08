@@ -21,6 +21,7 @@ Local commit: current branch `HEAD`
 - Hyper AI destructive tools validate current-user ownership before calling shared delete services.
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - Context compression memory extraction stores long-term memories under the current user.
+- Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
 - Development progress and acceptance markers.
 - No live order execution changes.
@@ -46,6 +47,7 @@ Local commit: current branch `HEAD`
 | AI delete tool ownership guard | Done | Trader, prompt, signal, pool, program, and binding delete tools validate current-user ownership before deletion |
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
+| Hyperliquid API ownership guard | Done | Account-level Hyperliquid config, balance, positions, manual order, wallet, agent wallet, actions summary, and upgrade-check APIs validate current user |
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
@@ -65,6 +67,7 @@ Local commit: current branch `HEAD`
 - Passed: Hyper AI delete tool ownership guard compile and whitespace check.
 - Passed: AI stream owner scoping route/service compile, whitespace check, and frontend production build.
 - Passed: Compression memory owner propagation compile, static call-site search, and whitespace check.
+- Passed: Hyperliquid owner guard route compile, whitespace check, and frontend production build after wallet selector auth update.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
 
@@ -73,4 +76,5 @@ Local commit: current branch `HEAD`
 - Production-grade Casdoor/JWKS token signature verification is not implemented in this slice.
 - Redis/job-queue backed AI task persistence is not implemented in this slice.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
+- Hyperliquid global trading mode and global symbol watchlist are still shared settings and need user-level design before production To C rollout.
 - AI strategy execution and order routing are intentionally unchanged.
