@@ -53,6 +53,7 @@ Local checkpoint: current branch `HEAD`
 - Required-auth guard for system data management endpoints and news source management endpoints.
 - Required-auth guard for Market Regime configuration and Signal analysis/runtime-state tool endpoints.
 - Required-auth guard for resource-heavy Factor compute/evaluate/validate endpoints.
+- Required-auth guard for Hyperliquid builder authorization status checks.
 - Development progress and acceptance markers.
 - REST manual order-placement APIs are not changed in this slice; WebSocket order placement now validates the connection user's account ownership.
 
@@ -112,6 +113,7 @@ Local checkpoint: current branch `HEAD`
 | System/news management auth | Done | Storage stats, data coverage, retention, backfill, news source config/test/stats endpoints require real session/JWT; Settings data-management requests use auth-aware fetch |
 | Signal/regime tool auth | Done | Market Regime config list/update plus Signal metric analysis/state/reset endpoints require real session/JWT |
 | Factor resource auth | Done | Factor compute estimate/trigger/progress plus expression evaluate/validate endpoints require real session/JWT |
+| Builder check auth | Done | Hyperliquid builder authorization status endpoint requires real session/JWT before proxying external authorization checks |
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
@@ -194,6 +196,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Market Regime/Signal route syntax compile in both system Python and `uv run` backend environment.
 - Passed: Factor resource required-auth static check: compute estimate/trigger/progress and expression evaluate/validate handlers all depend on `get_authenticated_user_dependency`.
 - Passed: Factor route syntax compile in both system Python and `uv run` backend environment.
+- Passed: Builder authorization required-auth static check and account route syntax compile in both system Python and `uv run` backend environment.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

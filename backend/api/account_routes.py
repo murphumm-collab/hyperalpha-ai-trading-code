@@ -11,7 +11,7 @@ from decimal import Decimal
 import logging
 import time
 
-from api.auth_utils import get_current_user_dependency
+from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from database.connection import SessionLocal
 from database.models import Account, Position, Trade, CryptoPrice, AccountAssetSnapshot, HyperliquidWallet, AccountPromptBinding, User
 from services.asset_curve_calculator import invalidate_asset_curve_cache
@@ -1221,6 +1221,7 @@ def trigger_ai_trade(
 @router.get("/hyperliquid/check-builder-authorization")
 def check_builder_authorization(
     wallet_address: str,
+    current_user: User = Depends(get_authenticated_user_dependency),
     db: Session = Depends(get_db)
 ):
     """
