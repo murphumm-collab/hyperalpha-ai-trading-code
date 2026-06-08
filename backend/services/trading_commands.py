@@ -215,18 +215,32 @@ def _select_side(db: Session, account: Account, symbol: str, max_value: float) -
     return side, quantity
 
 
-def place_ai_driven_crypto_order(max_ratio: float = 0.2, account_ids: Optional[Iterable[int]] = None, account_id: Optional[int] = None, symbol: Optional[str] = None, samples: Optional[List] = None) -> None:
+def place_ai_driven_crypto_order(
+    max_ratio: float = 0.2,
+    account_ids: Optional[Iterable[int]] = None,
+    account_id: Optional[int] = None,
+    symbol: Optional[str] = None,
+    samples: Optional[List] = None,
+    request_user_id: Optional[int] = None,
+) -> None:
     """Place crypto order based on AI model decision.
 
     Args:
         max_ratio: maximum portion of portfolio to allocate per trade.
         account_ids: optional iterable of account IDs to process (defaults to all active accounts).
+        request_user_id: optional authenticated user for manual/single-account triggers.
     """
     db = SessionLocal()
     try:
         # Handle single account strategy trigger
         if account_id is not None:
-            account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+            account_query = db.query(Account).filter(
+                Account.id == account_id,
+                Account.is_deleted != True,
+            )
+            if request_user_id is not None:
+                account_query = account_query.filter(Account.user_id == request_user_id)
+            account = account_query.first()
             if not account or account.is_active != "true" or account.auto_trading_enabled != "true":
                 logger.debug(f"Account {account_id} not found, inactive, or auto trading disabled, skipping AI trading")
                 return
@@ -240,6 +254,8 @@ def place_ai_driven_crypto_order(max_ratio: float = 0.2, account_ids: Optional[I
             if account_ids is not None:
                 id_set = {int(acc_id) for acc_id in account_ids}
                 accounts = [acc for acc in accounts if acc.id in id_set]
+                if request_user_id is not None:
+                    accounts = [acc for acc in accounts if acc.user_id == request_user_id]
                 if not accounts:
                     logger.debug("No matching accounts for provided IDs: %s", account_ids)
                     return
@@ -356,6 +372,7 @@ def place_ai_driven_hyperliquid_order(
     account_id: Optional[int] = None,
     bypass_auto_trading: bool = False,
     trigger_context: Optional[Dict[str, Any]] = None,
+    request_user_id: Optional[int] = None,
 ) -> None:
     """Place Hyperliquid perpetual contract order based on AI decision.
 
@@ -369,6 +386,7 @@ def place_ai_driven_hyperliquid_order(
         account_ids: Optional iterable of account IDs to process
         account_id: Optional single account ID to process
         trigger_context: Optional context about what triggered this decision (signal or scheduled)
+        request_user_id: optional authenticated user for manual/single-account triggers.
     """
 
     try:
@@ -385,7 +403,13 @@ def place_ai_driven_hyperliquid_order(
     try:
         # Handle single account strategy trigger (manual trigger)
         if account_id is not None:
-            account = db.query(Account).filter(Account.id == account_id, Account.is_deleted != True).first()
+            account_query = db.query(Account).filter(
+                Account.id == account_id,
+                Account.is_deleted != True,
+            )
+            if request_user_id is not None:
+                account_query = account_query.filter(Account.user_id == request_user_id)
+            account = account_query.first()
             if not account or account.is_active != "true":
                 logger.debug(f"Account {account_id} not found or inactive")
                 return
@@ -413,6 +437,8 @@ def place_ai_driven_hyperliquid_order(
             if account_ids is not None:
                 id_set = {int(acc_id) for acc_id in account_ids}
                 accounts = [acc for acc in accounts if acc.id in id_set]
+                if request_user_id is not None:
+                    accounts = [acc for acc in accounts if acc.user_id == request_user_id]
                 if not accounts:
                     logger.debug(f"No matching Hyperliquid accounts for provided IDs: {account_ids}")
                     return

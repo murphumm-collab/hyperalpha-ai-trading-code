@@ -89,6 +89,7 @@ Local checkpoint: current branch `HEAD`
 - Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus signed Telegram webhook ingress.
 - Development progress and acceptance markers.
 - REST manual order placement resolves the order owner from authenticated request context or a verified body session token; WebSocket order placement validates the connection user's account ownership.
+- Manual AI trade trigger API passes the current user into trading command services; single-account execution filters by request owner while background global scheduling remains unchanged.
 
 ## Progress Markers
 
@@ -158,6 +159,7 @@ Local checkpoint: current branch `HEAD`
 | Discord gateway isolation | Done | Discord Gateway clients, loops, message handlers, status, disconnect, startup restore, and progress messages are keyed by owner user |
 | Legacy order route isolation | Done | `/api/orders/*` resolves current user, validates order/account ownership, scopes pending/list/detail/cancel/execute/process/health, and no longer trusts URL/body `user_id` for access |
 | REST order creation ownership | Done | `/api/orders/create` accepts body `user_id` only as a consistency check against the authenticated user or verified body `session_token`; default fallback cannot set another user's first trading password |
+| Manual AI trade trigger service ownership | Done | `trigger-ai-trade` passes `request_user_id`; crypto and Hyperliquid single-account execution stop before price/order work when the requested account is not owned by that user |
 | Trader data import/export isolation | Done | Trader export/import preview/execute validate target `account_id` belongs to current user before reading or writing decision/trade data |
 | Hyperliquid action log isolation | Done | `/api/hyperliquid/actions` joins `accounts` and filters entries/stats to the current user's accounts |
 | Sampling preference isolation | Done | `/api/config/global-sampling` stores current-user preferences; effective global pool config uses max depth and min interval across user preferences |
@@ -272,6 +274,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Legacy order route isolation smoke test in `uv run`: Bob could not read Alice's order, pending orders and health counts were current-user scoped.
 - Passed: Legacy order route re-smoke after create-order compatibility adjustment for body `session_token`/password auth.
 - Passed: REST order creation ownership smoke test in `uv run`: default fallback could not create for Alice or set Alice's first trading password, verified body `session_token` created only for the token owner, mismatched token/user pairs were rejected, and same-user password flow still worked.
+- Passed: Trading command request-owner smoke test in `uv run`: Alice-triggered crypto and Hyperliquid single-account execution for Bob's account stopped before price/symbol/order execution, while request-less scheduler semantics remain available.
 - Passed: Order route/model syntax compile in both system Python and `uv run` backend environment.
 - Passed: Trader data owner isolation smoke test in `uv run`: Alice could preview import into her trader; Bob received 404 for Alice's trader.
 - Passed: Trader data route syntax compile in both system Python and `uv run` backend environment.

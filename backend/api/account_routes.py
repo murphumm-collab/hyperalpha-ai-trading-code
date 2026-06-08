@@ -1183,6 +1183,7 @@ def trigger_ai_trade(
                 place_ai_driven_hyperliquid_order(
                     account_id=account_id,
                     bypass_auto_trading=True,
+                    request_user_id=current_user.id,
                 )
                 print(f"[DEBUG] place_ai_driven_hyperliquid_order completed for account {account_id}")
             except Exception as hyperliquid_err:
@@ -1193,7 +1194,8 @@ def trigger_ai_trade(
                 max_ratio=0.2,
                 account_id=account_id,
                 symbol=symbol,
-                samples=samples
+                samples=samples,
+                request_user_id=current_user.id,
             )
 
         # Check for new trades
