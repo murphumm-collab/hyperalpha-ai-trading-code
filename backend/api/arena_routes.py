@@ -1535,7 +1535,10 @@ def check_pnl_sync_status(
 
 
 @router.post("/update-pnl")
-def update_pnl_data(db: Session = Depends(get_db)):
+def update_pnl_data(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
     """
     Update realized PnL and fee data for all trades by fetching from exchange APIs.
 
@@ -1565,12 +1568,22 @@ def update_pnl_data(db: Session = Depends(get_db)):
         "binance": {},
         "errors": [],
     }
+    owned_account_ids = set(_current_user_account_ids(db, current_user.id))
+    if not owned_account_ids:
+        return result
 
     snapshot_db = SnapshotSessionLocal()
 
     try:
         # ========== Process Hyperliquid wallets ==========
-        hl_wallets = db.query(HyperliquidWallet).all()
+        hl_wallets = db.query(HyperliquidWallet).join(
+            Account,
+            HyperliquidWallet.account_id == Account.id,
+        ).filter(
+            HyperliquidWallet.account_id.in_(owned_account_ids),
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).all()
         if hl_wallets:
             hl_wallet_configs = {}
             fetched_historical_addresses = set()
@@ -1653,12 +1666,26 @@ def update_pnl_data(db: Session = Depends(get_db)):
 
             for environment, fills in all_hl_fills_by_env.items():
                 env_result = _process_fills_for_environment(
-                    db, snapshot_db, environment, fills, hl_wallet_configs, exchange="hyperliquid"
+                    db,
+                    snapshot_db,
+                    environment,
+                    fills,
+                    hl_wallet_configs,
+                    exchange="hyperliquid",
+                    owned_account_ids=owned_account_ids,
                 )
                 result["hyperliquid"][environment] = env_result
 
         # ========== Process Binance wallets ==========
-        bn_wallets = db.query(BinanceWallet).filter(BinanceWallet.is_active == "true").all()
+        bn_wallets = db.query(BinanceWallet).join(
+            Account,
+            BinanceWallet.account_id == Account.id,
+        ).filter(
+            BinanceWallet.account_id.in_(owned_account_ids),
+            BinanceWallet.is_active == "true",
+            Account.user_id == current_user.id,
+            Account.is_deleted != True,
+        ).all()
         if bn_wallets:
             from services.binance_trading_client import BinanceTradingClient
             from utils.encryption import decrypt_private_key
@@ -1685,7 +1712,13 @@ def update_pnl_data(db: Session = Depends(get_db)):
 
             for environment, fills in all_bn_fills_by_env.items():
                 env_result = _process_fills_for_environment(
-                    db, snapshot_db, environment, fills, bn_wallet_configs, exchange="binance"
+                    db,
+                    snapshot_db,
+                    environment,
+                    fills,
+                    bn_wallet_configs,
+                    exchange="binance",
+                    owned_account_ids=owned_account_ids,
                 )
                 result["binance"][environment] = env_result
 
@@ -1712,6 +1745,7 @@ def _process_fills_for_environment(
     fills: List[dict],
     wallet_configs: dict,
     exchange: str = "hyperliquid",
+    owned_account_ids: Optional[set[int]] = None,
 ) -> dict:
     """
     Process fills for a specific environment and update database records.
@@ -1740,6 +1774,8 @@ def _process_fills_for_environment(
     }
 
     if not fills:
+        return result
+    if not owned_account_ids:
         return result
 
     # Aggregate fills by order ID
@@ -1774,7 +1810,8 @@ def _process_fills_for_environment(
 
     # Update HyperliquidTrade records
     trades = snapshot_db.query(HyperliquidTrade).filter(
-        HyperliquidTrade.environment == environment
+        HyperliquidTrade.environment == environment,
+        HyperliquidTrade.account_id.in_(owned_account_ids),
     ).all()
 
     for trade in trades:
@@ -1811,6 +1848,7 @@ def _process_fills_for_environment(
     # Update AIDecisionLog records
     # Match by hyperliquid_order_id, tp_order_id, sl_order_id and accumulate PnL
     decisions = db.query(AIDecisionLog).filter(
+        AIDecisionLog.account_id.in_(owned_account_ids),
         AIDecisionLog.operation.in_(["buy", "sell", "close"]),
         AIDecisionLog.executed == "true",
         AIDecisionLog.hyperliquid_environment == environment,
@@ -1835,6 +1873,7 @@ def _process_fills_for_environment(
     # Also build order_id -> program_log mapping for Program Trader orders
     from database.models import ProgramExecutionLog
     program_logs = db.query(ProgramExecutionLog).filter(
+        ProgramExecutionLog.account_id.in_(owned_account_ids),
         ProgramExecutionLog.success == True,
         ProgramExecutionLog.decision_action.in_(["buy", "sell", "close"]),
     ).all()
