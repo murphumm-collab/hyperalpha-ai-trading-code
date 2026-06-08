@@ -552,12 +552,21 @@ def place_ai_driven_hyperliquid_order(
                 continue
 
             from services.hyperliquid_environment import get_account_trading_environment, get_leverage_settings
-            environment = get_account_trading_environment(db, account.id)
+            environment = get_account_trading_environment(
+                db,
+                account.id,
+                owner_user_id=account.user_id,
+            )
             logger.info(f"Processing Hyperliquid trading for account: {account.name} (environment: {environment})")
 
             # Get Hyperliquid client (will check wallet configuration)
             try:
-                client = get_hyperliquid_client(db, account.id, override_environment=environment)
+                client = get_hyperliquid_client(
+                    db,
+                    account.id,
+                    override_environment=environment,
+                    owner_user_id=account.user_id,
+                )
             except ValueError as wallet_err:
                 logger.info(
                     f"AI Trader '{account.name}' (ID: {account.id}) skipped - "
@@ -717,7 +726,12 @@ def place_ai_driven_hyperliquid_order(
                     continue
 
                 # Get leverage settings from HyperliquidWallet (or Account fallback)
-                leverage_settings = get_leverage_settings(db, account.id, environment)
+                leverage_settings = get_leverage_settings(
+                    db,
+                    account.id,
+                    environment,
+                    owner_user_id=account.user_id,
+                )
                 max_leverage = leverage_settings["max_leverage"]
                 default_leverage = leverage_settings["default_leverage"]
 
@@ -1462,7 +1476,11 @@ def place_ai_driven_binance_order(
                 continue
 
             from services.hyperliquid_environment import get_account_trading_environment
-            environment = get_account_trading_environment(db, account.id)
+            environment = get_account_trading_environment(
+                db,
+                account.id,
+                owner_user_id=account.user_id,
+            )
             if not environment:
                 logger.info(f"AI Trader '{account.name}' skipped - No trading environment configured")
                 continue

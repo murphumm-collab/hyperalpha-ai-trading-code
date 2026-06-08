@@ -777,7 +777,12 @@ def _build_prompt_context(
             else:
                 from services.hyperliquid_environment import get_leverage_settings
 
-                leverage_settings = get_leverage_settings(db, account.id, environment)
+                leverage_settings = get_leverage_settings(
+                    db,
+                    account.id,
+                    environment,
+                    owner_user_id=account.user_id,
+                )
                 max_leverage = leverage_settings["max_leverage"]
                 default_leverage = leverage_settings["default_leverage"]
         except Exception as e:
@@ -954,7 +959,12 @@ def _build_prompt_context(
                     from services.hyperliquid_environment import get_hyperliquid_client
 
                     try:
-                        client = get_hyperliquid_client(db_session, account.id, override_environment=environment)
+                        client = get_hyperliquid_client(
+                            db_session,
+                            account.id,
+                            override_environment=environment,
+                            owner_user_id=account.user_id,
+                        )
                         recent_trades = client.get_recent_closed_trades(db_session, limit=5)
                         open_orders = client.get_open_orders(db_session)
                     except ValueError:
@@ -1984,7 +1994,11 @@ def call_ai_for_decision(
         return None
 
     from services.hyperliquid_environment import get_account_trading_environment
-    account_environment = get_account_trading_environment(db, account.id)
+    account_environment = get_account_trading_environment(
+        db,
+        account.id,
+        owner_user_id=account.user_id,
+    )
 
     try:
         news_summary = fetch_latest_news()
@@ -2579,7 +2593,11 @@ def save_ai_decision(
                     prev_portion = symbol_value / total_balance
 
         from services.hyperliquid_environment import get_account_trading_environment
-        hyperliquid_environment = get_account_trading_environment(db, account.id)
+        hyperliquid_environment = get_account_trading_environment(
+            db,
+            account.id,
+            owner_user_id=account.user_id,
+        )
 
         # Create decision log entry
         decision_log = AIDecisionLog(
