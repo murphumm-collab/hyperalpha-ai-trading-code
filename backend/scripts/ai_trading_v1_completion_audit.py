@@ -17,14 +17,17 @@ caller also passes --allow-live-ready-from-evidence.
 from __future__ import annotations
 
 import argparse
+import ipaddress
 import json
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 
 EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION = "hyperalpha.ai_trading.external_acceptance.v1"
+SAFE_ARTIFACT_REF_SCHEMES = {"https", "ops", "lark", "notion"}
 SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
@@ -274,6 +277,35 @@ def _secret_pattern_hits(value: Any) -> list[str]:
     return hits
 
 
+def _artifact_ref_blockers(ref: Any) -> list[str]:
+    if not isinstance(ref, str) or not ref.strip():
+        return ["external_evidence_artifact_ref_must_be_non_empty_string"]
+    if _secret_pattern_hits(ref):
+        return ["external_evidence_artifact_ref_secret_pattern_detected"]
+
+    parsed = urlparse(ref)
+    blockers: list[str] = []
+    if parsed.scheme not in SAFE_ARTIFACT_REF_SCHEMES:
+        blockers.append("external_evidence_artifact_ref_scheme_not_allowed")
+    if parsed.username or parsed.password:
+        blockers.append("external_evidence_artifact_ref_credentials_embedded")
+    if parsed.scheme in {"http", "https"}:
+        host = parsed.hostname or ""
+        if not host:
+            blockers.append("external_evidence_artifact_ref_host_missing")
+        else:
+            host_lower = host.lower()
+            if host_lower in {"localhost", "127.0.0.1", "0.0.0.0", "::1"} or host_lower.endswith(".local"):
+                blockers.append("external_evidence_artifact_ref_local_host")
+            try:
+                ip = ipaddress.ip_address(host_lower)
+            except ValueError:
+                ip = None
+            if ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved):
+                blockers.append("external_evidence_artifact_ref_private_or_reserved_ip")
+    return blockers
+
+
 def _validate_external_evidence_item(item_id: str, item: Any) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {
@@ -301,7 +333,10 @@ def _validate_external_evidence_item(item_id: str, item: Any) -> dict[str, Any]:
     elif not isinstance(artifact_refs, list):
         blockers.append("external_evidence_artifact_refs_must_be_list")
     elif not artifact_refs:
-        warnings.append("external_evidence_artifact_refs_empty")
+        blockers.append("external_evidence_artifact_refs_empty")
+    else:
+        for ref in artifact_refs:
+            blockers.extend(_artifact_ref_blockers(ref))
     if item.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
 

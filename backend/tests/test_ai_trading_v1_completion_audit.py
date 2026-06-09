@@ -115,7 +115,14 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
     )
 
 
-def _write_production_evidence(path: Path, *, include_secret: bool = False, missing_item: str | None = None) -> None:
+def _write_production_evidence(
+    path: Path,
+    *,
+    include_secret: bool = False,
+    missing_item: str | None = None,
+    artifact_ref_override: str | None = None,
+    empty_artifact_refs: bool = False,
+) -> None:
     items = {}
     for requirement in completion_audit.EXTERNAL_REQUIREMENTS:
         if requirement.id == missing_item:
@@ -125,7 +132,11 @@ def _write_production_evidence(path: Path, *, include_secret: bool = False, miss
             "validated_at": "2026-06-10T12:00:00Z",
             "validated_by": "ops-admin",
             "evidence_summary": f"{requirement.id} accepted with sanitized operational evidence.",
-            "artifact_refs": [f"ops://ai-trading/{requirement.id}/acceptance"],
+            "artifact_refs": (
+                []
+                if empty_artifact_refs
+                else [artifact_ref_override or f"ops://ai-trading/{requirement.id}/acceptance"]
+            ),
             "secret_values_returned": False,
         }
     payload = {
@@ -240,3 +251,53 @@ def test_completion_audit_rejects_incomplete_or_secret_bearing_production_eviden
     assert "external_evidence_secret_pattern_detected" in secret_report["production_evidence"]["blockers"]
     secret_item = next(item for item in secret_report["production_evidence"]["items"] if item["id"] == "real_order_backend_handoff")
     assert "external_evidence_secret_pattern_detected" in secret_item["blockers"]
+
+
+def test_completion_audit_rejects_unsafe_artifact_refs(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    empty_ref_path = tmp_path / "empty-artifact-ref-evidence.json"
+    local_ref_path = tmp_path / "local-artifact-ref-evidence.json"
+    credentials_ref_path = tmp_path / "credentials-artifact-ref-evidence.json"
+    _write_production_evidence(empty_ref_path, empty_artifact_refs=True)
+    _write_production_evidence(local_ref_path, artifact_ref_override="http://127.0.0.1:8802/internal-proof")
+    _write_production_evidence(credentials_ref_path, artifact_ref_override="https://user:password@example.com/proof")
+
+    empty_ref_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=empty_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+    local_ref_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=local_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+    credentials_ref_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=credentials_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert empty_ref_report["ready_for_live_orders"] is False
+    empty_ref_item = next(
+        item
+        for item in empty_ref_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_artifact_refs_empty" in empty_ref_item["blockers"]
+    assert local_ref_report["ready_for_live_orders"] is False
+    assert "external_evidence_item_blocked:real_order_backend_handoff" in local_ref_report["production_evidence"]["blockers"]
+    local_ref_item = next(
+        item
+        for item in local_ref_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_artifact_ref_scheme_not_allowed" in local_ref_item["blockers"]
+    assert "external_evidence_artifact_ref_local_host" in local_ref_item["blockers"]
+    assert credentials_ref_report["ready_for_live_orders"] is False
+    credentials_item = next(
+        item
+        for item in credentials_ref_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_artifact_ref_credentials_embedded" in credentials_item["blockers"]
