@@ -51,6 +51,7 @@ import {
   FileJson,
   Save,
   ShieldCheck,
+  History,
   Search as SearchIcon
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
@@ -191,6 +192,17 @@ interface AiTradingSignalEventRecord {
   }
   created_at?: string | null
   signal?: Record<string, unknown>
+}
+
+interface AiTradingSignalHandoffAttemptRecord {
+  id: number
+  signal_event_id: number
+  result: string
+  gateway_ready?: boolean
+  blockers?: string[]
+  eligibility?: Record<string, unknown>
+  error_message?: string | null
+  created_at?: string | null
 }
 
 interface AiTradingRuntimeStatus {
@@ -751,6 +763,7 @@ export default function HyperAiPage() {
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
+  const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
   const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
@@ -1164,6 +1177,32 @@ export default function HyperAiPage() {
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to submit signal handoff')
     } finally {
       setSignalHandoffLoadingId(null)
+    }
+  }
+
+  const handleInspectSignalHandoffAttempts = async (eventId: number) => {
+    setSignalHandoffAttemptsLoadingId(eventId)
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}/handoff-attempts?limit=10`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const detail = data.detail
+        throw new Error(typeof detail === 'string' ? detail : 'Failed to load handoff attempts')
+      }
+      const attempts = Array.isArray(data.attempts)
+        ? data.attempts as AiTradingSignalHandoffAttemptRecord[]
+        : []
+      const prompt = currentLang === 'zh'
+        ? `请审计 AI Trading Signal Event #${eventId} 的 handoff attempts：确认是否有 blocked/failed/submitted 历史、blockers 是否合理、是否有重复提交风险，以及是否仍保持 signal-only / no-secret 边界。不要直接下单。\n\n\`\`\`json\n${JSON.stringify({ signal_event_id: eventId, attempts }, null, 2)}\n\`\`\``
+        : `Audit the handoff attempts for AI Trading Signal Event #${eventId}. Check blocked/failed/submitted history, whether blockers are reasonable, duplicate-submission risk, and whether the signal-only/no-secret boundary still holds. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify({ signal_event_id: eventId, attempts }, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to load AI trading signal handoff attempts:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load handoff attempts')
+    } finally {
+      setSignalHandoffAttemptsLoadingId(null)
     }
   }
 
@@ -2062,6 +2101,19 @@ export default function HyperAiPage() {
                             title={t('hyperAi.aiTradingInspectSignal', 'Inspect signal')}
                           >
                             <SearchIcon className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectSignalHandoffAttempts(event.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={signalHandoffAttemptsLoadingId !== null}
+                            title={t('hyperAi.aiTradingInspectHandoffAttempts', 'Inspect handoff attempts')}
+                          >
+                            {signalHandoffAttemptsLoadingId === event.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <History className="h-3.5 w-3.5" />
+                            )}
                           </button>
                           <button
                             type="button"

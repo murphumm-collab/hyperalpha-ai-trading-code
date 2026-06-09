@@ -102,6 +102,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading signal-event API responses include non-secret `handoff_eligibility` blockers so the frontend and backend share the same handoff preflight decision.
 - AI Trading runtime status summarizes review-candidate handoff readiness counts so operators can see ready versus blocked signal events without reading secrets.
 - AI Trading signal handoff attempts are persisted as non-secret per-user audit records for blocked, failed, and submitted handoff attempts.
+- Hyper AI AI Trading panel can load signal handoff attempt history into chat for audit review without triggering execution.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -261,6 +262,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading handoff preflight | Done | Signal event list/detail/submit share non-secret `handoff_eligibility` blockers for gateway readiness, event state, and signal-only boundaries |
 | AI Trading handoff runtime summary | Done | Runtime status includes review-candidate handoff readiness counts and blocker counts; Hyper AI panel shows total signals versus ready candidates |
 | AI Trading handoff attempt audit | Done | `ai_trading_signal_handoff_attempts` stores blocked/failed/submitted handoff attempts without gateway URL/token or trading credentials |
+| AI Trading handoff attempt UI | Done | Recent signal events expose a read-only handoff history button that loads non-secret attempts into chat for audit review |
 | AI Trading API regression test | Done | `backend/tests/test_ai_trading_routes.py` covers strategy draft/save/approve, signal event creation, disabled/enabled handoff, and runtime counts with SQLite |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
@@ -552,6 +554,9 @@ Local checkpoint: current branch `HEAD`
 - Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading`, waited beyond the splash fallback, and confirmed the Hyper AI / AI Trading shell rendered; live runtime ready-count rendering still needs local backend/Postgres.
 - Passed: Python syntax compile for AI Trading handoff attempt model, migration, service, and route additions.
 - Passed: AI Trading route regression test after adding handoff attempt audit assertions for disabled blocked attempts and enabled submitted attempts, including no gateway token/URL leakage in attempt responses.
+- Passed: Frontend production build after adding the read-only handoff-attempt history control to recent signal events.
+- Passed: AI Trading route regression test after the handoff-attempt frontend integration.
+- Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading`, waited beyond the splash fallback, and confirmed the Hyper AI / AI Trading shell rendered; handoff history click acceptance still needs local backend/Postgres and persisted signal events.
 - Passed: Hyper AI memory trading-category compile in both system Python and `uv run` backend environment for memory service and tool schema.
 - Passed: Hyper AI memory trading-category smoke test in `uv run` with SQLite: `strategy_memory`, `risk_memory`, `performance_memory`, and `execution_memory` are accepted categories and user-scoped reads return the expected entries.
 - Passed: AI Trading route regression test: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed cleanly, covering draft/save/approve, signal event audit, disabled gateway 409, monkeypatched enabled handoff, and runtime counts.
