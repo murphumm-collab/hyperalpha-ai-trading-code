@@ -1015,6 +1015,83 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
     assert "secret-model-key" not in model_prompt
 
 
+def test_ai_trading_saved_spec_model_adjustment_redacts_sensitive_agent_session_context(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    approved_spec, _ = _create_approved_signal_event(
+        client,
+        symbol="BTC",
+        agent_session_id="session:saved-sensitive-btc",
+        agent_session_name="Saved Sensitive BTC Session",
+        agent_context_summary="authorization=Bearer secret-saved-session-token private_key=secret-private-key",
+    )
+    spec_id = approved_spec["id"]
+    assert approved_spec["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+
+    calls = []
+
+    def fake_llm_config(db, user_id=None):
+        return {
+            "configured": True,
+            "provider": "qwen",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen-plus",
+            "api_key": "secret-model-key",
+            "api_format": "openai",
+        }
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps({
+                                "instruction": "Keep BTC long, lower max loss to 0.5%, and require a tighter stop loss.",
+                                "rationale": "Saved session context must stay redacted.",
+                                "risk_notes": ["Re-run backtest before signal handoff."],
+                            })
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "get_llm_config", fake_llm_config)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    response = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/model-adjust",
+        json={"instruction": "Use Qwen to reduce saved strategy risk", "source": "pytest_saved_sensitive"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    agent_context = payload["model_context"]["agent_session_context"]
+    assert agent_context["agent_session_id"] == "session:saved-sensitive-btc"
+    assert agent_context["agent_session_name"] == "Saved Sensitive BTC Session"
+    assert agent_context["context_summary"] == "[redacted_sensitive_context]"
+    assert agent_context["ai_order_placement"] == "disallowed"
+    adjusted = payload["spec_record"]["spec"]
+    assert adjusted["metadata"]["model_adjustment"]["agent_session_context"] == agent_context
+
+    serialized_payload = json.dumps(payload, ensure_ascii=False)
+    assert "secret-saved-session-token" not in serialized_payload
+    assert "secret-private-key" not in serialized_payload
+    assert "secret-model-key" not in serialized_payload
+
+    assert calls
+    model_prompt = json.dumps(calls[0]["json"], ensure_ascii=False)
+    assert "[redacted_sensitive_context]" in model_prompt
+    assert "secret-saved-session-token" not in model_prompt
+    assert "secret-private-key" not in model_prompt
+    assert "secret-model-key" not in model_prompt
+
+
 def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)
