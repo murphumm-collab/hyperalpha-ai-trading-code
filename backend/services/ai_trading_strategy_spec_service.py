@@ -754,6 +754,11 @@ def create_signal_event_record(
         signal_json=_json_dumps(signal),
     )
     db.add(event)
+    db.flush()
+
+    signal["signal_event_id"] = event.id
+    signal["idempotency_key"] = f"signal_event:{event.id}"
+    event.signal_json = _json_dumps(signal)
     db.commit()
     db.refresh(event)
     return event
@@ -891,6 +896,7 @@ def reject_signal_event_record(
 
 def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
     signal = _json_loads(event.signal_json, {})
+    idempotency_key = signal.get("idempotency_key") if isinstance(signal, dict) else None
     return {
         "type": "AI_TRADING_SIGNAL_CANDIDATE",
         "version": "hyperalpha.ai_trading.gateway_message.v1",
@@ -899,7 +905,7 @@ def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str
         "user_id": event.user_id,
         "symbol": event.symbol,
         "action": event.action,
-        "idempotency_key": f"signal_event:{event.id}",
+        "idempotency_key": idempotency_key or f"signal_event:{event.id}",
         "signal": signal,
     }
 

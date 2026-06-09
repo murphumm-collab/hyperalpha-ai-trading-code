@@ -39,6 +39,7 @@
 - 新增 `ai_trading_signal_handoff_attempts`：每次 handoff 尝试如果 blocked、failed 或 submitted 都会写非敏感审计记录，包含 blockers、eligibility、gateway_ready、result，但不包含 gateway URL/token 或交易凭据；`GET /api/ai-trading/signal-events/{id}/handoff-attempts` 可按当前用户读取。
 - Hyper AI AI Trading recent signals 行现在有只读 handoff history 按钮，会读取 `/handoff-attempts` 并把 attempts JSON 回填聊天框给 agent 做审计复核，不会触发执行。
 - 新增 signal event reject 流程：`POST /api/ai-trading/signal-events/{id}/reject` 只允许拒绝 `review_candidate`，会把 signal JSON 标为 `rejected_by_user`、`eligible_for_backend_handoff=false`、`handoff_status=rejected`；Hyper AI recent signals 行有拒绝按钮，拒绝后回填聊天框供 agent 复核。
+- 持久化 signal event 时会把 signal JSON 的 `idempotency_key` 改成事件级 `signal_event:{id}`，并写入 `signal_event_id`；gateway payload 顶层 idempotency key 复用同一个值，避免同一 strategy spec 生成多个候选信号时共享 preview key。
 
 ## 3. AI Stream / Worker 现状
 
@@ -112,6 +113,7 @@
 - Python syntax compile 已通过，AI Trading service/routes 在 signal reject 后正常。
 - `backend/tests/test_ai_trading_routes.py` 已覆盖 signal event reject、rejected 后不能 handoff、runtime rejected 计数。
 - Frontend production build 已通过，recent signal reject 按钮编译成功。
+- `backend/tests/test_ai_trading_routes.py` 已覆盖同一 strategy spec 的多个 persisted signal events 使用不同 event-scoped idempotency key，gateway payload 和 signal JSON key 一致。
 
 ## 6. 未验收 / 阻塞
 

@@ -92,6 +92,8 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert event["status"] == "review_candidate"
     assert event["signal"]["execution_boundary"]["not_an_order"] is True
     assert event["signal"]["execution_boundary"]["ai_may_place_orders"] is False
+    assert event["signal"]["signal_event_id"] == event["id"]
+    assert event["signal"]["idempotency_key"] == f"signal_event:{event['id']}"
     assert event["handoff_eligibility"]["eligible"] is False
     assert "gateway_disabled" in event["handoff_eligibility"]["blockers"]
 
@@ -122,6 +124,8 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     )
     assert reject_event_response.status_code == 200
     reject_event = reject_event_response.json()["signal_event"]
+    assert reject_event["signal"]["idempotency_key"] == f"signal_event:{reject_event['id']}"
+    assert reject_event["signal"]["idempotency_key"] != event["signal"]["idempotency_key"]
     rejected = client.post(
         f"/api/ai-trading/signal-events/{reject_event['id']}/reject",
         json={"reason": "pytest rejected before handoff"},
@@ -180,6 +184,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
 
     assert calls
     assert calls[0]["json"]["type"] == "AI_TRADING_SIGNAL_CANDIDATE"
+    assert calls[0]["json"]["idempotency_key"] == submitted_event["signal"]["idempotency_key"]
     assert calls[0]["headers"]["Authorization"] == "Bearer test-token"
 
     final_runtime = client.get("/api/ai-trading/runtime").json()
