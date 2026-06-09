@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Model-Adjust Session Context Complete / Remote Push Deferred
+Status: Local V1 Archived-Session Action Gate Complete / Remote Push Deferred
 
 Local checkpoint: current branch `HEAD`
 
@@ -150,6 +150,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading exposes `/api/ai-trading/agent-sessions` and `/api/ai-trading/agent-sessions/{agent_session_id}/context` as current-user, non-secret session list/context packet endpoints for frontend and model-context reuse.
 - AI Trading agent sessions are now first-class current-user records with create/update/archive APIs; archived sessions stay in the audit trail, are hidden from active runtime/session lists by default, and cannot accept new strategy specs.
 - Archived AI Trading agent sessions now block saved strategy spec natural-language adjustment and DeepSeek/Qwen model-adjust before any model config read, preventing inactive sessions from being continued accidentally.
+- Archived AI Trading agent sessions now also block saved-spec approval, backtest attach/latest/preflight, signal preview/event creation, and signal handoff; signal-event eligibility/audit attempts expose the non-secret `agent_session_archived` blocker while historical reads remain available.
 - AI Trading agent sessions can deterministically compress their current context packet into a persisted non-secret summary without model calls, handoff, or order submission.
 - Hyper AI AI Trading panel can edit the selected session name/context summary, create a new session, archive the selected session, and keep saved drafts attached to the selected session.
 - Hyper AI AI Trading panel can load the selected session context packet into chat review, compress/save the selected session context summary, list archived sessions, and filter visible specs/signals to the selected session for session-scoped audit review.
@@ -388,6 +389,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading current agent-session selector | Done | Hyper AI AI Trading has an Agent session selector; saved drafts inherit the selected session, while New agent session lets the backend create a new session id |
 | AI Trading first-class agent sessions | Done | `ai_trading_agent_sessions` stores current-user session records with active/archived status; create/update/archive endpoints preserve audit records and block new specs in archived sessions |
 | AI Trading archived-session adjustment gate | Done | Saved strategy specs in archived agent sessions reject natural-language and DeepSeek/Qwen model-adjust before model config reads, while historical detail/audit records remain readable |
+| AI Trading archived-session action gate | Done | Archived agent sessions block approval, backtest attach/latest/preflight, signal preview/event creation, and confirmed signal handoff; event eligibility and handoff attempts expose `agent_session_archived` |
 | AI Trading agent-session management UI | Done | Hyper AI AI Trading exposes session name/context fields plus save/archive icon controls; route regression covers metadata propagation to specs, signals, and handoff attempts |
 | AI Trading agent-session history UI | Done | Hyper AI AI Trading lists archived sessions, fetches a selected session context packet into chat, and filters specs/signals to the selected session using existing current-user query guards |
 | AI Trading agent-session context compression | Done | `/api/ai-trading/agent-sessions/{id}/compress-context` builds a deterministic non-secret summary from context packet counts/latest records/blockers, persists it to session/spec metadata, and rejects cross-user compression |
@@ -466,7 +468,7 @@ Local checkpoint: current branch `HEAD`
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
-| Remote push | Blocked | Terminal GitHub HTTPS credentials unavailable |
+| Remote push | Deferred | GitHub upload intentionally skipped per user request |
 | Acceptance | Partial | Multi-user AI foundation, Redis distributed admission leases, cross-instance AI confirmation mailbox, and automated hard-risk checks passed; live Casdoor env acceptance, distributed worker queue routing, and real exchange execution remain unaccepted |
 
 ## Verification Log
@@ -890,10 +892,14 @@ Local checkpoint: current branch `HEAD`
 - Passed: V1 API-level smoke after model-adjust session context: `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` returned `success=true`; runtime still reports `model_adjustment.ready=false` with blocker `model_profile_not_configured` because this local profile is intentionally not configured.
 - Passed: aggregate AI Trading V1 local acceptance runner after model-adjust session context: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 58 AI Trading regressions, API-level smoke, live model-adjust default blocker, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#27`, signal event `#25`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, `agent_sessions.total=12`, and `model_adjustment.ready=false`.
 - Passed: LaunchAgent runtime mirror was resynced after the archived-session adjustment gate with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true` for frontend `5174`, backend `8802`, mock gateway `5621`, Docker, and Postgres `5432`; after the latest local acceptance run, runtime totals are strategy specs `27`, signal events `25`, and agent sessions `12`.
+- Passed: AI Trading archived-session action gate checks: `cd backend && uv run python -m py_compile services/ai_trading_strategy_spec_service.py api/ai_trading_routes.py tests/test_ai_trading_routes.py` passed; `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 35 passing tests, covering archived sessions blocking approval, backtest summary/result/latest/preflight, signal preview/event creation, and confirmed handoff with `agent_session_archived` eligibility/audit blocker.
+- Passed: aggregate AI Trading regression after the archived-session action gate: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 58 passing tests with 3 existing UTC deprecation warnings.
+- Passed: aggregate AI Trading V1 local acceptance runner after the archived-session action gate: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 58 AI Trading regressions, API-level smoke, live model-adjust default blocker, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#29`, signal event `#27`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, `agent_sessions.total=14`, and `model_adjustment.ready=false`.
+- Passed: LaunchAgent runtime mirror was resynced after the archived-session action gate with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true` for frontend `5174`, backend `8802`, mock gateway `5621`, Docker, and Postgres `5432`; runtime totals are strategy specs `29`, signal events `27`, and agent sessions `14`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
-- Deferred: GitHub upload is intentionally skipped per user request; previous `git push -u origin codex/ai-agent-multitenant-foundation` attempts failed with `could not read Username for 'https://github.com': Device not configured`.
+- Deferred: GitHub upload is intentionally skipped per user request; no GitHub push was attempted in this slice.
 
 ## Known Not-Accepted Items
 

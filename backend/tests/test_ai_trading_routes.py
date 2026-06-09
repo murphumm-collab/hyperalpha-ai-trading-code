@@ -2676,6 +2676,7 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     attempts = alice.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
     assert attempts.status_code == 200
     assert attempts.json()["attempts"][0]["agent_session"]["name"] == "Renamed BTC Agent"
+    attempt_count_before_archive = len(attempts.json()["attempts"])
 
     compressed = alice.post("/api/ai-trading/agent-sessions/session:managed-btc/compress-context")
     assert compressed.status_code == 200
@@ -2711,12 +2712,88 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert archived_sessions.status_code == 200
     assert archived_sessions.json()["agent_sessions"][0]["id"] == "session:managed-btc"
 
+    approve_archived_session_spec = alice.post(f"/api/ai-trading/strategy-specs/{saved_record['id']}/approve")
+    assert approve_archived_session_spec.status_code == 400
+    assert "archived" in approve_archived_session_spec.json()["detail"]
+
+    backtest_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/backtest-summary",
+        json={
+            "backtest_id": "bt_after_archive",
+            "status": "passed",
+            "accepted_for_handoff": True,
+            "metrics": {
+                "total_return": 0.08,
+                "max_drawdown": -0.02,
+                "sharpe": 1.2,
+                "trade_count": 20,
+            },
+            "source": "pytest_archived",
+        },
+    )
+    assert backtest_archived_session_spec.status_code == 400
+    assert "archived" in backtest_archived_session_spec.json()["detail"]
+
+    backtest_result_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/backtest-result",
+        json={"backtest_result_id": 999999, "accepted_for_handoff": True},
+    )
+    assert backtest_result_archived_session_spec.status_code == 400
+    assert "archived" in backtest_result_archived_session_spec.json()["detail"]
+
+    latest_backtest_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/backtest-result/latest",
+        json={},
+    )
+    assert latest_backtest_archived_session_spec.status_code == 400
+    assert "archived" in latest_backtest_archived_session_spec.json()["detail"]
+
+    preflight_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/backtest-preflight",
+        json={},
+    )
+    assert preflight_archived_session_spec.status_code == 400
+    assert "archived" in preflight_archived_session_spec.json()["detail"]
+
     adjust_archived_session_spec = alice.post(
         f"/api/ai-trading/strategy-specs/{saved_record['id']}/adjust",
         json={"instruction": "Continue this archived session as a 1h short setup", "source": "pytest_archived"},
     )
     assert adjust_archived_session_spec.status_code == 400
     assert "archived" in adjust_archived_session_spec.json()["detail"]
+
+    signal_preview_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/signal-preview",
+        json={"market_context": {"mark_price": 100000, "source": "pytest_archived"}},
+    )
+    assert signal_preview_archived_session_spec.status_code == 400
+    assert "archived" in signal_preview_archived_session_spec.json()["detail"]
+
+    signal_event_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest_archived"}},
+    )
+    assert signal_event_archived_session_spec.status_code == 400
+    assert "archived" in signal_event_archived_session_spec.json()["detail"]
+
+    archived_event_detail = alice.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert archived_event_detail.status_code == 200
+    assert (
+        "agent_session_archived"
+        in archived_event_detail.json()["signal_event"]["handoff_eligibility"]["blockers"]
+    )
+    assert archived_event_detail.json()["signal_event"]["handoff_eligibility"]["can_retry"] is False
+
+    archived_handoff = alice.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest_archived"},
+    )
+    assert archived_handoff.status_code == 400
+    assert "archived" in archived_handoff.json()["detail"]
+    archived_attempts = alice.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert archived_attempts.status_code == 200
+    assert len(archived_attempts.json()["attempts"]) == attempt_count_before_archive + 1
+    assert "agent_session_archived" in archived_attempts.json()["attempts"][0]["blockers"]
 
     def fail_if_model_config_is_read(db, user_id=None):
         raise AssertionError("model config should not be read for an archived agent session")

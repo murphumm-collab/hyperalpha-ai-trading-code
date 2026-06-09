@@ -670,7 +670,9 @@ def attach_strategy_backtest_summary_endpoint(
             summary=_model_dump(request),
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),
@@ -695,7 +697,9 @@ def attach_strategy_backtest_result_endpoint(
             notes=request.notes,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),
@@ -747,7 +751,9 @@ def strategy_backtest_preflight_endpoint(
             fee_rate=request.fee_rate,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": preflight.get("ready", False),
         "preflight": preflight,
@@ -812,6 +818,7 @@ def strategy_signal_preview_endpoint(
             record,
             user_id=current_user.id,
             market_context=request.market_context,
+            db=db,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -844,7 +851,12 @@ def create_strategy_signal_event_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "signal_event": serialize_signal_event_record(event, include_signal=True),
+        "signal_event": serialize_signal_event_record(
+            event,
+            include_signal=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -873,7 +885,12 @@ def list_signal_events_endpoint(
     )
     return {
         "signal_events": [
-            serialize_signal_event_record(event, include_signal=False)
+            serialize_signal_event_record(
+                event,
+                include_signal=False,
+                db=db,
+                user_id=current_user.id,
+            )
             for event in events
         ]
     }
@@ -890,7 +907,12 @@ def get_signal_event_endpoint(
     if not event:
         raise HTTPException(status_code=404, detail="Signal event not found")
     return {
-        "signal_event": serialize_signal_event_record(event, include_signal=True),
+        "signal_event": serialize_signal_event_record(
+            event,
+            include_signal=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -940,7 +962,12 @@ def reject_signal_event_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "signal_event": serialize_signal_event_record(event, include_signal=True),
+        "signal_event": serialize_signal_event_record(
+            event,
+            include_signal=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -969,5 +996,10 @@ def submit_signal_event_handoff_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "signal_event": serialize_signal_event_record(event, include_signal=True),
+        "signal_event": serialize_signal_event_record(
+            event,
+            include_signal=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }

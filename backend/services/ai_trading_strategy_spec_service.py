@@ -913,6 +913,8 @@ def serialize_signal_event_record(
     record: AiTradingSignalEventRecord,
     *,
     include_signal: bool = False,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     payload = {
         "id": record.id,
@@ -927,7 +929,11 @@ def serialize_signal_event_record(
         "submitted_at": _record_timestamp(record.submitted_at),
         "created_at": _record_timestamp(record.created_at),
         "updated_at": _record_timestamp(record.updated_at),
-        "handoff_eligibility": build_signal_event_handoff_eligibility(record),
+        "handoff_eligibility": build_signal_event_handoff_eligibility(
+            record,
+            db=db,
+            user_id=user_id,
+        ),
     }
     if include_signal:
         payload["signal"] = _redact_sensitive_payload(_json_loads(record.signal_json, {}))
@@ -1746,6 +1752,7 @@ def attach_strategy_backtest_summary(
     record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
     if not record or record.status == ARCHIVED_STATUS:
         raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
 
     spec = _json_loads(record.spec_json, {})
     spec["owner_user_id"] = user_id
@@ -2247,6 +2254,7 @@ def build_strategy_backtest_preflight(
     record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
     if not record or record.status == ARCHIVED_STATUS:
         raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
 
     spec = _json_loads(record.spec_json, {})
     symbol = _normalize_symbol(spec.get("symbol") or record.symbol)
@@ -2341,6 +2349,11 @@ def attach_strategy_backtest_result(
     notes: Optional[str] = None,
 ) -> AiTradingStrategySpecRecord:
     """Attach an owned Program BacktestResult as non-executable AI Trading evidence."""
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
+
     backtest = _get_owned_program_backtest_result(
         db,
         user_id=user_id,
@@ -2373,6 +2386,7 @@ def attach_latest_matching_strategy_backtest_result(
     record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
     if not record or record.status == ARCHIVED_STATUS:
         raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
 
     spec = _json_loads(record.spec_json, {})
     symbol = _normalize_symbol(spec.get("symbol") or record.symbol)
@@ -2448,6 +2462,7 @@ def approve_strategy_spec_record(
     record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
     if not record or record.status == ARCHIVED_STATUS:
         raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
 
     spec = _json_loads(record.spec_json, {})
     validation = validate_strategy_spec(spec, user_id=user_id)
@@ -2575,10 +2590,13 @@ def build_signal_preview_from_strategy_spec_record(
     *,
     user_id: int,
     market_context: Optional[Dict[str, Any]] = None,
+    db: Optional[Session] = None,
 ) -> Dict[str, Any]:
     """Build a non-executable signal candidate from an approved strategy spec."""
     if int(record.user_id) != int(user_id):
         raise ValueError("Strategy spec not found")
+    if db is not None:
+        _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
     if record.status != "approved":
         raise ValueError("Strategy spec must be approved before signal preview")
 
@@ -2685,10 +2703,12 @@ def create_signal_event_record(
     record = get_strategy_spec_record(db, user_id=user_id, record_id=strategy_spec_id)
     if not record:
         raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
     signal = build_signal_preview_from_strategy_spec_record(
         record,
         user_id=user_id,
         market_context=market_context,
+        db=db,
     )
     event = AiTradingSignalEventRecord(
         user_id=user_id,
@@ -2853,7 +2873,12 @@ def _minimal_strategy_spec_context(record: AiTradingStrategySpecRecord) -> Dict[
     })
 
 
-def _minimal_signal_event_context(record: AiTradingSignalEventRecord) -> Dict[str, Any]:
+def _minimal_signal_event_context(
+    record: AiTradingSignalEventRecord,
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     signal = _json_loads(record.signal_json, {})
     if not isinstance(signal, dict):
         signal = {}
@@ -2865,7 +2890,11 @@ def _minimal_signal_event_context(record: AiTradingSignalEventRecord) -> Dict[st
         "status": record.status,
         "handoff_status": record.handoff_status,
         "validation": signal.get("validation") if isinstance(signal.get("validation"), dict) else {},
-        "handoff_eligibility": build_signal_event_handoff_eligibility(record),
+        "handoff_eligibility": build_signal_event_handoff_eligibility(
+            record,
+            db=db,
+            user_id=user_id,
+        ),
         "created_at": _record_timestamp(record.created_at),
         "updated_at": _record_timestamp(record.updated_at),
     })
@@ -3071,7 +3100,7 @@ def build_ai_trading_agent_session_context(
             for record in strategy_records
         ],
         "signal_events": [
-            _minimal_signal_event_context(record)
+            _minimal_signal_event_context(record, db=db, user_id=user_id)
             for record in signal_records
         ],
     }
@@ -3297,7 +3326,12 @@ def _gateway_error_message(exc: BaseException) -> str:
     return f"Signal gateway handoff failed: {audit.get('error_type') or 'Exception'}{status_suffix}"
 
 
-def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
+def build_signal_event_handoff_eligibility(
+    event: AiTradingSignalEventRecord,
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
     """Return a non-secret preflight result for a signal event handoff."""
     blockers: List[str] = []
     gateway_config_blockers = _signal_gateway_runtime_config_blockers()
@@ -3308,6 +3342,15 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         blockers.append("event_status_not_review_candidate")
     if event.handoff_status == "submitted":
         blockers.append("handoff_already_submitted")
+    if db is not None and event.agent_session_id:
+        session_user_id = int(user_id if user_id is not None else event.user_id)
+        session_record = _get_agent_session_record(
+            db,
+            user_id=session_user_id,
+            agent_session_id=event.agent_session_id,
+        )
+        if session_record and session_record.status == AGENT_SESSION_ARCHIVED_STATUS:
+            blockers.append("agent_session_archived")
     if not SIGNAL_GATEWAY_ENABLED:
         blockers.append("gateway_disabled")
     if not SIGNAL_GATEWAY_URL:
@@ -3365,13 +3408,14 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         blockers.append("signal_missing_order_backend_only_boundary")
 
     deduped_blockers = list(dict.fromkeys(blockers))
+    retryable_lifecycle = event.status == "review_candidate" and event.handoff_status in {"not_submitted", "failed"}
     return {
         "eligible": not deduped_blockers,
         "blockers": deduped_blockers,
         "gateway_ready": gateway_ready,
         "signal_age_seconds": signal_age_seconds,
         "max_handoff_age_seconds": int(SIGNAL_MAX_HANDOFF_AGE_SECONDS) if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0 else None,
-        "can_retry": event.status == "review_candidate" and event.handoff_status in {"not_submitted", "failed"},
+        "can_retry": retryable_lifecycle and "agent_session_archived" not in deduped_blockers,
         "default_handoff_status": "available" if gateway_ready else "disabled",
     }
 
@@ -3390,7 +3434,7 @@ def submit_signal_event_to_gateway(
         raise ValueError("Signal event not found")
     if not confirmed_by_user:
         raise ValueError("Signal handoff requires explicit user confirmation")
-    eligibility = build_signal_event_handoff_eligibility(event)
+    eligibility = build_signal_event_handoff_eligibility(event, db=db, user_id=user_id)
     confirmation_audit = {
         "confirmed": True,
         "source": _clean_text(confirmation_source, 100) or "unspecified",
@@ -3479,6 +3523,9 @@ def submit_signal_event_to_gateway(
 
 def _summarize_handoff_eligibility(
     events: List[AiTradingSignalEventRecord],
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     summary = {
         "review_candidates": len(events),
@@ -3487,7 +3534,7 @@ def _summarize_handoff_eligibility(
         "by_blocker": {},
     }
     for event in events:
-        eligibility = build_signal_event_handoff_eligibility(event)
+        eligibility = build_signal_event_handoff_eligibility(event, db=db, user_id=user_id)
         if eligibility.get("eligible"):
             summary["eligible"] += 1
             continue
@@ -3648,6 +3695,10 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
         "signal_events": {
             "total": sum(event_counts.values()),
             "by_status": event_counts,
-            "handoff_eligibility": _summarize_handoff_eligibility(review_candidate_events),
+            "handoff_eligibility": _summarize_handoff_eligibility(
+                review_candidate_events,
+                db=db,
+                user_id=user_id,
+            ),
         },
     }
