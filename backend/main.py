@@ -82,6 +82,7 @@ last_build_time = 0
 THREAD_WARNING_THRESHOLDS = (200, 400, 800, 1200)
 AI_QUEUE_WARNING_THRESHOLDS = (8, 16, 32)
 RUNTIME_MONITOR_INTERVAL_SECONDS = int(os.getenv("RUNTIME_MONITOR_INTERVAL_SECONDS", "300"))
+LOCAL_DEV_LIGHT_MODE = os.getenv("HYPERALPHA_LOCAL_DEV_LIGHT_MODE", "false").lower() == "true"
 
 
 def _get_current_thread_count() -> int:
@@ -560,10 +561,13 @@ def on_startup():
         print(f"⚠ Failed to clean up backfill tasks: {e}")
 
     # Initialize all services (scheduler, market data tasks, auto trading, etc.)
-    print("About to initialize services...")
-    from services.startup import initialize_services
-    initialize_services()
-    print("Services initialization completed")
+    if LOCAL_DEV_LIGHT_MODE:
+        print("[startup] Local dev light mode enabled; skipping background market collectors")
+    else:
+        print("About to initialize services...")
+        from services.startup import initialize_services
+        initialize_services()
+        print("Services initialization completed")
 
     # Warmup numba JIT compilation for pandas_ta indicators
     # This prevents timeout on first indicator calculation

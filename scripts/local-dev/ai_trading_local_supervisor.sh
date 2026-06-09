@@ -120,6 +120,7 @@ start_backend() {
     cd "$BACKEND_DIR"
     DATABASE_URL="postgresql://alpha_user:alpha_pass@127.0.0.1:5432/alpha_arena" \
     SNAPSHOT_DATABASE_URL="postgresql://alpha_user:alpha_pass@127.0.0.1:5432/alpha_snapshots" \
+    HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true \
     AI_TRADING_SIGNAL_GATEWAY_ENABLED=true \
     AI_TRADING_SIGNAL_GATEWAY_URL="http://127.0.0.1:5621/api/ai-trading/signals" \
     AI_TRADING_SIGNAL_GATEWAY_TOKEN="local-mock-token" \

@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local Checkpoint Complete / Remote Push Deferred
+Status: Local V1 Browser Acceptance Complete / Remote Push Deferred
 
 Local checkpoint: current branch `HEAD`
 
@@ -71,6 +71,9 @@ Local checkpoint: current branch `HEAD`
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
 - Hyper AI exposes a Hyperliquid AI Trading focus strip using the user's watchlist, then AI Trading Crypto/HIP-3 market-universe presets, then available-symbol fallback to prefill safe strategy prompts.
 - Hyper AI AI Trading market selector separates AI Trading market-universe symbols into All, Crypto, and HIP-3 groups so To C users can see both high-volume crypto and HIP-3 stock/index symbols such as `xyz:NVDA`, `xyz:AAPL`, and `xyz:TSLA`.
+- Hyper AI AI Trading critical user actions now use a bounded timeout/recovery wrapper so draft/save/approve/adjust/backtest/signal/handoff/reject requests cannot leave buttons permanently stuck after network or dev-server interruptions.
+- Hyper AI AI Trading current strategy card now has inline Backtest ID and Metrics JSON controls for attaching external/backtest-service evidence without browser-native prompts; recent spec rows keep the prompt shortcut for compatibility.
+- Local LaunchAgent backend now supports `HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true`, skipping heavy background market/news/account collectors for stable local AI Trading/browser acceptance while preserving normal production startup behavior by default.
 - User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
@@ -204,6 +207,8 @@ Local checkpoint: current branch `HEAD`
 - V1 acceptance checklist is saved in `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` to prevent open-ended development and define the exact local/test acceptance gate.
 - V1 API-level acceptance runner is saved in `backend/scripts/ai_trading_v1_acceptance_smoke.py`; it uses TestClient, temporary SQLite, a mocked Qwen adjustment response, and a mocked order-backend handoff to prove the strategy/backtest/signal/reject/handoff flow without live Postgres/browser state.
 - V1 local environment readiness checker is saved in `backend/scripts/ai_trading_v1_env_check.py`; it reports frontend/backend/Postgres/Docker/mock-gateway readiness and machine-readable blockers before browser acceptance.
+- Final local Browser acceptance completed on 2026-06-09: BTC strategy draft, natural-language adjustment, save, approval, inline backtest evidence, handoff-ready signal preview, rejection, submitted mock handoff visibility, and handoff-attempt audit were verified through `/app/ai-trading`.
+- Final local live mock handoff completed on 2026-06-09 against the LaunchAgent stack: spec `#6`, signal event `#4`, `handoff_status=submitted`, latest attempt `submitted`, `gateway_ready=true`.
 - AI Trading strategy/spec/signal/gateway flow now has a pytest regression covering draft, save, approval, signal-event audit, disabled gateway, enabled handoff, and runtime counts.
 - REST manual order placement resolves the order owner from authenticated request context or a verified body session token; WebSocket order placement validates the connection user's account ownership.
 - Manual AI trade trigger API passes the current user into trading command services; single-account execution filters by request owner while background global scheduling remains unchanged.

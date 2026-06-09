@@ -1,6 +1,6 @@
 # HyperAlpha AI Trading 开发压缩记忆
 
-版本：v0.2  
+版本：v0.3
 日期：2026-06-09  
 分支：`codex/ai-agent-multitenant-foundation`
 
@@ -69,6 +69,9 @@
 - AI Trading FastAPI route 回归现在覆盖 Alice/Bob 两个用户共享同一数据库时的隔离：Bob 不能 list/read/approve/archive/preview/create/reject/handoff Alice 的 strategy spec、signal event 或 handoff attempt。
 - 新增 `/api/ai-trading/market-universe`：返回 Hyperliquid Crypto Top 20/50 和 HIP-3 Top 20/50 presets，包含 dex、`coin`/`exchange_symbol`、category、24h volume、OI、max leverage、only-isolated、source/errors 等非敏感市场元数据。
 - Hyper AI AI Trading 标的加载逻辑现在优先使用用户 watchlist；没有 watchlist 时使用 AI Trading market universe 的 crypto + HIP-3 presets；最后才 fallback 到 available symbols。Market universe UI 现在有 All / Crypto / HIP-3 分段，能直接看到 BTC/ETH/HYPE 以及 `xyz:NVDA`、`xyz:AAPL`、`xyz:TSLA` 等 HIP-3 标的。
+- Hyper AI AI Trading 的关键用户动作现在通过 `authFetchAiTradingAction` 增加 45 秒超时恢复，覆盖 draft/save/approve/adjust/model-adjust/backtest evidence/signal event/handoff/reject/handoff-attempts，避免本地热更新或网络抖动后按钮一直 loading。
+- Hyper AI AI Trading 当前策略卡片新增内联 Backtest ID 与 Metrics JSON 输入；当前卡片的 attach summary 读取内联值，recent spec 行仍保留 prompt 快捷入口。这样 To C 页面和浏览器验收都不再依赖原生 prompt。
+- 本地 LaunchAgent 后端启动时设置 `HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true`，默认只影响本地常驻验收栈：跳过行情流、新闻采集、账户快照等重后台任务，避免后端端口开放但 API 不响应；生产/普通后端默认不开启。
 - Strategy spec 和 signal candidate 现在保留 HIP-3 market identity：`market.dex`、`market.exchange_symbol`（如 `xyz:NVDA`）、`market.display_symbol`、category；内部 `symbol` 仍可保持 `NVDA` 用于既有记录索引。
 - Strategy spec 和 signal candidate 现在记录非敏感 `ai_model` 上下文：`provider`、`model`、`source`、是否为 V1 DeepSeek/Qwen provider；校验会 warning 缺失/非 V1 provider，并 reject `api_key`、`token`、`secret` 等字段进入 `ai_model`。
 - Hyper AI AI Trading strategy draft 请求现在携带当前 profile 的 `llm_provider/llm_model`，来源标记为 `hyper_ai_profile`；不携带 base URL、API key 或 token。
@@ -238,6 +241,13 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 user-confirmation handoff boundary 后通过，22 条 AI Trading route 回归全绿；覆盖 detail/runtime/handoff/attempt 都会拦截 `requires_user_confirmation=false` 的持久化候选信号。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 user-confirmation handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI user-confirmation blocker label 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py -q` 已在 2026-06-09 最终浏览器验收前后通过，29 条回归全绿。
+- `cd frontend && npm run build` 已在 2026-06-09 内联 backtest evidence UI 后通过；剩余仍是既有 browserslist/baseline/chunk-size 警告。
+- `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` 已在最终代码返回 `success=true`，覆盖 draft -> model-adjust -> save -> attach backtest -> approve -> reject signal -> confirmed mock handoff -> runtime。
+- `cd backend && uv run python scripts/ai_trading_v1_env_check.py` 已在最终 LaunchAgent runtime 返回 `ready=true`，backend `8802`、frontend `5174`、mock gateway `5621`、Postgres `5432` 均可用。
+- In-app Browser 已完成最终本地 AI Trading UI 验收：BTC draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；UI 记录为 spec `#5`、signal `#3 rejected`。
+- 本地 live API 已完成最终正向 mock handoff：spec `#6`、signal event `#4`、`handoff_status=submitted`、latest handoff attempt `submitted`、`gateway_ready=true`。
+- In-app Browser 已确认 Recent signals 可见 `BTC · buy / #2 submitted` 和 `BTC · hold / #1/#3 rejected`，并能读取 handoff attempts，attempt response 只包含脱敏 gateway response summary。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI signal identity blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。

@@ -340,7 +340,37 @@ const AI_TRADING_BACKTEST_DEFAULTS = {
   fee_rate: 0.035,
 }
 
+const AI_TRADING_ACTION_TIMEOUT_MS = 45_000
+const AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE = '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":1}'
+
 const AI_TRADING_BACKTEST_ROUTE_RE = /^\/(?:app\/)?ai-trading\/backtests\/(\d+)\/?$/
+
+async function authFetchAiTradingAction(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+  timeoutMs = AI_TRADING_ACTION_TIMEOUT_MS
+): Promise<Response> {
+  if (typeof AbortController === 'undefined' || typeof window === 'undefined') {
+    return authFetch(input, init)
+  }
+
+  const controller = new AbortController()
+  const timeoutId = window.setTimeout(() => controller.abort(), timeoutMs)
+
+  try {
+    return await authFetch(input, {
+      ...init,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if ((error as { name?: string })?.name === 'AbortError') {
+      throw new Error('AI Trading action timed out. Please retry.')
+    }
+    throw error
+  } finally {
+    window.clearTimeout(timeoutId)
+  }
+}
 
 function parseAiTradingBacktestRouteSpecId(): number | null {
   if (typeof window === 'undefined') {
@@ -915,6 +945,8 @@ export default function HyperAiPage() {
   const [strategyAdjusting, setStrategyAdjusting] = useState(false)
   const [strategyModelAdjusting, setStrategyModelAdjusting] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
+  const [strategyBacktestSummaryId, setStrategyBacktestSummaryId] = useState('')
+  const [strategyBacktestSummaryMetricsText, setStrategyBacktestSummaryMetricsText] = useState(AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
   const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | 'evidence' | null>(null)
   const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
@@ -1218,7 +1250,7 @@ export default function HyperAiPage() {
       setStrategyBacktestEvidencePageLoading(true)
       setStrategyBacktestEvidencePageError(null)
       try {
-        const res = await authFetch(`/api/ai-trading/strategy-specs/${strategyBacktestEvidencePageSpecId}/backtest-evidence?trigger_limit=50`)
+        const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${strategyBacktestEvidencePageSpecId}/backtest-evidence?trigger_limit=50`)
         const data = await res.json().catch(() => ({}))
         if (!res.ok) {
           throw new Error(data.detail || 'Failed to load backtest evidence')
@@ -1441,7 +1473,7 @@ export default function HyperAiPage() {
       const strategyText = currentLang === 'zh'
         ? `为 ${symbol} 设计一版 15m 到 1h 的 Hyperliquid 趋势/突破策略，必须包含止损、止盈、最大亏损、杠杆限制；如果条件不完整则输出 HOLD。`
         : `Design a 15m to 1h Hyperliquid trend/breakout strategy for ${symbol}. Include stop-loss, take-profit, max loss, and leverage constraints; return HOLD if conditions are incomplete.`
-      const res = await authFetch('/api/ai-trading/strategy-spec/draft', {
+      const res = await authFetchAiTradingAction('/api/ai-trading/strategy-spec/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1486,7 +1518,7 @@ export default function HyperAiPage() {
     setStrategyDraftSaving(true)
     setStrategyDraftError(null)
     try {
-      const res = await authFetch('/api/ai-trading/strategy-specs', {
+      const res = await authFetchAiTradingAction('/api/ai-trading/strategy-specs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1527,7 +1559,7 @@ export default function HyperAiPage() {
       if (!record) {
         return
       }
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${record.id}/approve`, {
+      const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${record.id}/approve`, {
         method: 'POST',
       })
       const data = await res.json().catch(() => ({}))
@@ -1562,7 +1594,7 @@ export default function HyperAiPage() {
     setStrategyDraftError(null)
     try {
       const isPersisted = Boolean(strategyDraftRecord?.id)
-      const res = await authFetch(
+      const res = await authFetchAiTradingAction(
         isPersisted
           ? `/api/ai-trading/strategy-specs/${strategyDraftRecord?.id}/adjust`
           : '/api/ai-trading/strategy-spec/adjust',
@@ -1618,7 +1650,7 @@ export default function HyperAiPage() {
     setStrategyDraftError(null)
     try {
       const isPersisted = Boolean(strategyDraftRecord?.id)
-      const res = await authFetch(
+      const res = await authFetchAiTradingAction(
         isPersisted
           ? `/api/ai-trading/strategy-specs/${strategyDraftRecord?.id}/model-adjust`
           : '/api/ai-trading/strategy-spec/model-adjust',
@@ -1676,17 +1708,26 @@ export default function HyperAiPage() {
       targetRecordId = record.id
     }
 
-    const backtestId = window.prompt(
-      t('hyperAi.aiTradingBacktestIdPrompt', 'Backtest ID from the external/backtest service')
-    )
+    const useInlineSummary = !recordId
+    const backtestId = useInlineSummary
+      ? strategyBacktestSummaryId.trim()
+      : window.prompt(t('hyperAi.aiTradingBacktestIdPrompt', 'Backtest ID from the external/backtest service'))?.trim()
     if (!backtestId) {
+      if (useInlineSummary) {
+        setStrategyDraftError(t('hyperAi.aiTradingBacktestIdRequired', 'Enter a backtest ID before attaching evidence'))
+      }
       return
     }
-    const metricsText = window.prompt(
-      t('hyperAi.aiTradingBacktestMetricsPrompt', 'Metrics JSON'),
-      '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":1}'
-    )
+    const metricsText = useInlineSummary
+      ? strategyBacktestSummaryMetricsText.trim()
+      : window.prompt(
+          t('hyperAi.aiTradingBacktestMetricsPrompt', 'Metrics JSON'),
+          AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE
+        )?.trim()
     if (!metricsText) {
+      if (useInlineSummary) {
+        setStrategyDraftError(t('hyperAi.aiTradingBacktestMetricsRequired', 'Enter metrics JSON before attaching evidence'))
+      }
       return
     }
 
@@ -1705,7 +1746,7 @@ export default function HyperAiPage() {
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('summary')
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-summary`, {
+      const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-summary`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1724,6 +1765,9 @@ export default function HyperAiPage() {
       setStrategyDraftRecord(record)
       if (record.spec) {
         setStrategyDraft(record.spec)
+      }
+      if (useInlineSummary) {
+        setStrategyBacktestSummaryId('')
       }
       const prompt = currentLang === 'zh'
         ? `请复核 AI Trading Strategy Spec #${record.id} 的回测摘要：确认 backtest id、metrics、是否足以允许后续 signal handoff；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
@@ -1770,7 +1814,7 @@ export default function HyperAiPage() {
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('program')
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result`, {
+      const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1817,7 +1861,7 @@ export default function HyperAiPage() {
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('latest')
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result/latest`, {
+      const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result/latest`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ accepted_for_handoff: true }),
@@ -1848,7 +1892,7 @@ export default function HyperAiPage() {
   }
 
   const requestStrategyBacktestPreflight = async (recordId: number): Promise<AiTradingBacktestPreflight> => {
-    const res = await authFetch(`/api/ai-trading/strategy-specs/${recordId}/backtest-preflight`, {
+    const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${recordId}/backtest-preflight`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(AI_TRADING_BACKTEST_DEFAULTS),
@@ -2009,7 +2053,7 @@ export default function HyperAiPage() {
       }
 
       setStrategyBacktestRunStatus({ specId: targetRecordId, phase: 'attaching', backtestId })
-      const attachRes = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result`, {
+      const attachRes = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2058,7 +2102,7 @@ export default function HyperAiPage() {
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('evidence')
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-evidence?trigger_limit=25`)
+      const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-evidence?trigger_limit=25`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         throw new Error(data.detail || 'Failed to load backtest evidence')
@@ -2093,7 +2137,7 @@ export default function HyperAiPage() {
     setStrategySignalPreviewLoading(true)
     setStrategyDraftError(null)
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${strategyDraftRecord.id}/signal-events`, {
+      const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${strategyDraftRecord.id}/signal-events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ market_context: {} }),
@@ -2121,7 +2165,7 @@ export default function HyperAiPage() {
   const handleInspectStrategySpecRecord = async (recordId: number) => {
     setStrategyDraftError(null)
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${recordId}`)
+      const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${recordId}`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         throw new Error(data.detail || 'Failed to load strategy spec')
@@ -2146,7 +2190,7 @@ export default function HyperAiPage() {
   const handleInspectSignalEventRecord = async (eventId: number) => {
     setStrategyDraftError(null)
     try {
-      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}`)
+      const res = await authFetchAiTradingAction(`/api/ai-trading/signal-events/${eventId}`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         throw new Error(data.detail || 'Failed to load signal event')
@@ -2178,7 +2222,7 @@ export default function HyperAiPage() {
     setSignalHandoffLoadingId(eventId)
     setStrategyDraftError(null)
     try {
-      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}/handoff`, {
+      const res = await authFetchAiTradingAction(`/api/ai-trading/signal-events/${eventId}/handoff`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2210,7 +2254,7 @@ export default function HyperAiPage() {
     setSignalHandoffAttemptsLoadingId(eventId)
     setStrategyDraftError(null)
     try {
-      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}/handoff-attempts?limit=10`)
+      const res = await authFetchAiTradingAction(`/api/ai-trading/signal-events/${eventId}/handoff-attempts?limit=10`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         const detail = data.detail
@@ -2239,7 +2283,7 @@ export default function HyperAiPage() {
       const reason = currentLang === 'zh'
         ? 'User rejected this signal candidate from the Hyper AI panel before handoff.'
         : 'User rejected this signal candidate from the Hyper AI panel before handoff.'
-      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}/reject`, {
+      const res = await authFetchAiTradingAction(`/api/ai-trading/signal-events/${eventId}/reject`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ reason }),
@@ -3417,6 +3461,25 @@ export default function HyperAiPage() {
                     )}
                   </button>
                 </div>
+                <div className="mt-2 grid gap-1.5 border-t pt-2">
+                  <Input
+                    data-testid="ai-trading-backtest-summary-id"
+                    value={strategyBacktestSummaryId}
+                    onChange={(event) => setStrategyBacktestSummaryId(event.target.value)}
+                    placeholder={t('hyperAi.aiTradingBacktestIdPrompt', 'Backtest ID from the external/backtest service')}
+                    className="h-8 text-xs"
+                    disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving}
+                  />
+                  <textarea
+                    data-testid="ai-trading-backtest-summary-metrics"
+                    value={strategyBacktestSummaryMetricsText}
+                    onChange={(event) => setStrategyBacktestSummaryMetricsText(event.target.value)}
+                    placeholder={t('hyperAi.aiTradingBacktestMetricsPrompt', 'Metrics JSON')}
+                    className="min-h-[56px] resize-none rounded-md border bg-background px-2 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                    disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving}
+                    rows={2}
+                  />
+                </div>
                 <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
                   <span className="min-w-0 truncate text-muted-foreground">
                     {strategyDraftRecord
@@ -3452,7 +3515,7 @@ export default function HyperAiPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => handleAttachBacktestSummary(strategyDraftRecord?.id)}
+                      onClick={() => handleAttachBacktestSummary()}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                       disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}

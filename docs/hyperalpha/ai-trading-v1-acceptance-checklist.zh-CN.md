@@ -35,11 +35,16 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
 - In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
 - In-app Browser 已验证 `xyz:NVDA` safe prompt fill 和 strategy draft：UI 显示 `NVDA · 15m`、`ready_for_review`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
+- In-app Browser 已在最终代码验证 BTC 当前卡片完整安全流：draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；证据记录为 spec `#5`、signal `#3 rejected`。
+- In-app Browser 已验证 Recent signals 展示正向 mock handoff 结果：`BTC · buy`、`#2 submitted`，并可读取 handoff attempts，attempt `submitted`、`gateway_ready=true`、gateway response summary 已脱敏。
+- 本地 live API 已在最终代码验证正向 mock gateway handoff：spec `#6`、signal event `#4`、`handoff_status=submitted`、latest attempt `submitted`、`gateway_ready=true`。
+- Hyper AI AI Trading 当前策略卡片已改为内联 Backtest ID / Metrics JSON 输入，避免依赖浏览器原生 prompt；recent spec 行仍保留 prompt 兼容入口。
+- Hyper AI AI Trading 用户动作请求已加 45s 超时恢复，避免一次网络/热更新抖动让 draft/save/approve/adjust/backtest/signal/handoff/reject 按钮永久 loading。
+- LaunchAgent 本地后端已加入 `HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true`，本地常驻服务跳过行情/新闻/账户快照等重后台采集，保留 AI Trading API、mock gateway 和前端验收稳定性。
 - LaunchAgent `com.hyperalpha.ai-trading-local` 已固化成本地 runtime mirror 启动方式：安装脚本同步 runtime 副本到 Application Support，launchd 已在本机会话内恢复 frontend `5174`、backend `8802`、mock gateway `5621`，env checker 返回 `ready=true`。
 
 ## 当前未验收
 
-- 完整浏览器点击流还未跑完：adjust -> save -> approve -> attach/run backtest evidence -> create/reject signal -> confirmed mock handoff。
 - 实际 macOS 整机重启后的自动恢复还未物理验收；当前已完成 LaunchAgent 会话内自恢复验收。后续代码变更需要重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime 副本。
 - 真实 DeepSeek/Qwen API key live model-adjust 未验收；当前为 mocked Qwen regression。
 - 真实 HyperAlpha 订单后端 URL/token live handoff 未验收；当前为 disabled-by-default 和 mock gateway contract 验收。
