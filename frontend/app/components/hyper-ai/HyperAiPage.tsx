@@ -40,6 +40,7 @@ import {
   MessageSquare,
   ChevronDown,
   ChevronRight,
+  ArrowLeft,
   PanelLeftClose,
   PanelLeftOpen,
   Loader2,
@@ -60,6 +61,8 @@ import {
   History,
   BarChart3,
   Link2,
+  ExternalLink,
+  RefreshCw,
   Search as SearchIcon
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
@@ -322,6 +325,37 @@ const AI_TRADING_BACKTEST_DEFAULTS = {
   initial_balance: 10000,
   slippage_percent: 0.05,
   fee_rate: 0.035,
+}
+
+const AI_TRADING_BACKTEST_ROUTE_RE = /^\/(?:app\/)?ai-trading\/backtests\/(\d+)\/?$/
+
+function parseAiTradingBacktestRouteSpecId(): number | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const pathMatch = window.location.pathname.match(AI_TRADING_BACKTEST_ROUTE_RE)
+  const rawId = pathMatch?.[1]
+  if (rawId) {
+    const parsed = Number(rawId)
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+  }
+
+  const hash = window.location.hash.slice(1)
+  const hashParamIndex = hash.indexOf('?')
+  if (hashParamIndex === -1) {
+    return null
+  }
+
+  const pageName = hash.slice(0, hashParamIndex)
+  if (!['ai-trading', 'hyper-ai'].includes(pageName)) {
+    return null
+  }
+
+  const params = new URLSearchParams(hash.slice(hashParamIndex + 1))
+  const hashId = params.get('backtestSpecId') || params.get('backtest_spec_id')
+  const parsed = Number(hashId)
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 }
 
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
@@ -864,6 +898,10 @@ export default function HyperAiPage() {
   const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
   const [strategyBacktestEvidenceDetail, setStrategyBacktestEvidenceDetail] = useState<AiTradingBacktestEvidenceDetail | null>(null)
   const [strategyBacktestEvidenceDialogOpen, setStrategyBacktestEvidenceDialogOpen] = useState(false)
+  const [strategyBacktestEvidencePageSpecId, setStrategyBacktestEvidencePageSpecId] = useState<number | null>(() => parseAiTradingBacktestRouteSpecId())
+  const [strategyBacktestEvidencePageLoading, setStrategyBacktestEvidencePageLoading] = useState(false)
+  const [strategyBacktestEvidencePageError, setStrategyBacktestEvidencePageError] = useState<string | null>(null)
+  const [strategyBacktestEvidencePageReloadKey, setStrategyBacktestEvidencePageReloadKey] = useState(0)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -1070,6 +1108,76 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 200)
     }
   }, [])
+
+  useEffect(() => {
+    const syncBacktestRoute = () => {
+      setStrategyBacktestEvidencePageSpecId(parseAiTradingBacktestRouteSpecId())
+    }
+    window.addEventListener('popstate', syncBacktestRoute)
+    window.addEventListener('hashchange', syncBacktestRoute)
+    return () => {
+      window.removeEventListener('popstate', syncBacktestRoute)
+      window.removeEventListener('hashchange', syncBacktestRoute)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!strategyBacktestEvidencePageSpecId) {
+      setStrategyBacktestEvidencePageLoading(false)
+      setStrategyBacktestEvidencePageError(null)
+      return
+    }
+
+    let cancelled = false
+    const loadBacktestEvidencePage = async () => {
+      setStrategyBacktestEvidencePageLoading(true)
+      setStrategyBacktestEvidencePageError(null)
+      try {
+        const res = await authFetch(`/api/ai-trading/strategy-specs/${strategyBacktestEvidencePageSpecId}/backtest-evidence?trigger_limit=50`)
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(data.detail || 'Failed to load backtest evidence')
+        }
+        if (cancelled) {
+          return
+        }
+        const evidence = data.evidence || {}
+        setStrategyBacktestEvidenceDetail(evidence as AiTradingBacktestEvidenceDetail)
+      } catch (e) {
+        if (cancelled) {
+          return
+        }
+        console.error('Failed to load AI trading backtest evidence page:', e)
+        setStrategyBacktestEvidencePageError(e instanceof Error ? e.message : 'Failed to load backtest evidence')
+      } finally {
+        if (!cancelled) {
+          setStrategyBacktestEvidencePageLoading(false)
+        }
+      }
+    }
+
+    loadBacktestEvidencePage()
+    return () => {
+      cancelled = true
+    }
+  }, [strategyBacktestEvidencePageSpecId, strategyBacktestEvidencePageReloadKey])
+
+  const handleBacktestEvidencePageBack = () => {
+    window.history.pushState({}, '', '/app/ai-trading')
+    setStrategyBacktestEvidencePageSpecId(null)
+    setStrategyBacktestEvidencePageError(null)
+    setStrategyBacktestEvidenceDialogOpen(false)
+  }
+
+  const handleOpenBacktestEvidencePage = (recordId?: number) => {
+    const targetRecordId = recordId || strategyBacktestEvidenceDetail?.strategy_spec_id
+    if (!targetRecordId) {
+      return
+    }
+    window.history.pushState({}, '', `/app/ai-trading/backtests/${targetRecordId}`)
+    setStrategyBacktestEvidencePageSpecId(targetRecordId)
+    setStrategyBacktestEvidenceDialogOpen(false)
+  }
 
   const fetchBotConfig = async () => {
     try {
@@ -2357,6 +2465,272 @@ export default function HyperAiPage() {
     }
   }
 
+  const pageEvidence = strategyBacktestEvidenceDetail?.strategy_spec_id === strategyBacktestEvidencePageSpecId
+    ? strategyBacktestEvidenceDetail
+    : null
+  const pageActionCounts = Object.entries(pageEvidence?.trigger_summary?.action_counts || {})
+    .sort((a, b) => b[1] - a[1])
+
+  if (strategyBacktestEvidencePageSpecId) {
+    return (
+      <div className="flex h-full flex-col bg-background">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={handleBacktestEvidencePageBack}
+              title={t('hyperAi.aiTradingBackToAgent', 'Back to AI Trading')}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <BarChart3 className="h-4 w-4 shrink-0 text-primary" />
+                <h2 className="truncate text-base font-semibold">
+                  {t('hyperAi.aiTradingBacktestResult', 'Backtest result')}
+                </h2>
+                <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  Spec #{strategyBacktestEvidencePageSpecId}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {pageEvidence?.backtest_result?.id
+                  ? `Program Backtest #${pageEvidence.backtest_result.id}`
+                  : t('common.loading', 'Loading...')}
+                {pageEvidence?.strategy_symbol ? ` · ${pageEvidence.strategy_symbol}` : ''}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {pageEvidence && (
+              <span className={`rounded px-2 py-1 text-xs ${
+                pageEvidence.handoff_ready
+                  ? 'bg-green-500/10 text-green-600'
+                  : 'bg-yellow-500/10 text-yellow-600'
+              }`}>
+                {pageEvidence.handoff_ready
+                  ? t('hyperAi.aiTradingStatusReady', 'Ready')
+                  : t('hyperAi.aiTradingStatusBlocked', 'Blocked')}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => setStrategyBacktestEvidencePageReloadKey(value => value + 1)}
+              disabled={strategyBacktestEvidencePageLoading}
+              title={t('common.refresh', 'Refresh')}
+            >
+              {strategyBacktestEvidencePageLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {strategyBacktestEvidencePageError && (
+            <div className="mx-auto mb-4 max-w-6xl rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600">
+              {strategyBacktestEvidencePageError}
+            </div>
+          )}
+
+          {strategyBacktestEvidencePageLoading && !pageEvidence ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t('common.loading', 'Loading...')}
+            </div>
+          ) : pageEvidence ? (
+            <div className="mx-auto max-w-6xl space-y-4">
+              <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingStatus', 'Status')}</div>
+                  <div className={`mt-1 text-lg font-semibold ${
+                    pageEvidence.handoff_ready ? 'text-green-600' : 'text-yellow-600'
+                  }`}>
+                    {pageEvidence.handoff_ready
+                      ? t('hyperAi.aiTradingStatusReady', 'Ready')
+                      : t('hyperAi.aiTradingStatusBlocked', 'Blocked')}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {pageEvidence.backtest_result?.status || '-'}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingReturn', 'Return')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {formatEvidenceValue(pageEvidence.backtest_result?.metrics?.['total_return'], '%')}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {formatEvidenceValue(pageEvidence.backtest_result?.metrics?.['net_pnl'])} PnL
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingDrawdown', 'Drawdown')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {formatEvidenceValue(pageEvidence.backtest_result?.metrics?.['max_drawdown'], '%')}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {formatEvidenceValue(pageEvidence.backtest_result?.metrics?.['profit_factor'])} PF
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingTrades', 'Trades')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {formatEvidenceValue(pageEvidence.backtest_result?.metrics?.['trade_count'])}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {formatEvidenceValue(pageEvidence.backtest_result?.metrics?.['win_rate'], '%')} win
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingSymbol', 'Symbol')}</div>
+                  <div className="mt-1 truncate text-lg font-semibold">
+                    {(pageEvidence.backtest_result?.symbols || []).join(', ') || pageEvidence.strategy_symbol || '-'}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {pageEvidence.backtest_result?.exchange || '-'}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingTriggers', 'Triggers')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {pageEvidence.trigger_summary?.total ?? 0}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {(pageEvidence.trigger_summary?.markers || []).length} markers
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[1.45fr_0.8fr]">
+                <div className="rounded-md border bg-muted/10 p-4">
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <div className="text-sm font-medium">{t('hyperAi.aiTradingEquityCurve', 'Equity curve')}</div>
+                    <div className="truncate text-xs text-muted-foreground">
+                      {pageEvidence.backtest_result?.period
+                        ? JSON.stringify(pageEvidence.backtest_result.period)
+                        : '-'}
+                    </div>
+                  </div>
+                  <div className="h-72 rounded bg-background/70 p-3">
+                    {evidenceEquityPath(pageEvidence) ? (
+                      <svg viewBox="0 0 320 120" className="h-full w-full" preserveAspectRatio="none">
+                        <path d={evidenceEquityPath(pageEvidence)} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />
+                        {evidenceEquitySeries(pageEvidence).map((point, index, series) => {
+                          const minEquity = Math.min(...series.map(item => item.equity))
+                          const maxEquity = Math.max(...series.map(item => item.equity))
+                          const span = maxEquity - minEquity || 1
+                          const x = series.length === 1 ? 160 : 10 + (index / (series.length - 1)) * 300
+                          const y = 110 - ((point.equity - minEquity) / span) * 100
+                          return <circle key={`${point.timestamp}-${index}`} cx={x} cy={y} r="2.5" className="fill-primary" />
+                        })}
+                      </svg>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        {t('hyperAi.aiTradingNoEquityCurve', 'No equity curve sample')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-md border bg-muted/10 p-4">
+                  <div className="mb-3 text-sm font-medium">{t('hyperAi.aiTradingActionDistribution', 'Action distribution')}</div>
+                  <div className="space-y-3">
+                    {pageActionCounts.map(([action, count]) => {
+                      const maxCount = Math.max(...pageActionCounts.map(([, value]) => value), 1)
+                      return (
+                        <div key={action}>
+                          <div className="mb-1 flex items-center justify-between gap-2 text-xs">
+                            <span className="truncate">{action}</span>
+                            <span className="text-muted-foreground">{count}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded bg-muted">
+                            <div className="h-full bg-primary" style={{ width: `${Math.max(8, (count / maxCount) * 100)}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {pageActionCounts.length === 0 && (
+                      <div className="text-sm text-muted-foreground">
+                        {t('hyperAi.aiTradingNoTriggers', 'No triggers')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-[0.8fr_1.45fr]">
+                <div className="rounded-md border bg-muted/10 p-4">
+                  <div className="mb-3 text-sm font-medium">{t('hyperAi.aiTradingQualityIssues', 'Quality issues')}</div>
+                  {pageEvidence.quality_issues && pageEvidence.quality_issues.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5 text-xs text-yellow-700 dark:text-yellow-300">
+                      {pageEvidence.quality_issues.map(issue => (
+                        <span key={issue} className="rounded border border-yellow-500/30 bg-yellow-500/10 px-2 py-1">
+                          {issue}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">-</div>
+                  )}
+                </div>
+
+                <div className="rounded-md border">
+                  <div className="flex items-center justify-between border-b px-3 py-2">
+                    <div className="text-sm font-medium">{t('hyperAi.aiTradingTriggerReview', 'Trigger review')}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {evidenceTriggerRows(pageEvidence).length}/{pageEvidence.trigger_summary?.total || 0}
+                    </div>
+                  </div>
+                  <div className="max-h-[480px] overflow-y-auto">
+                    <table className="w-full text-xs">
+                      <thead className="sticky top-0 bg-background text-muted-foreground">
+                        <tr className="border-b">
+                          <th className="px-3 py-2 text-left font-medium">#</th>
+                          <th className="px-3 py-2 text-left font-medium">{t('hyperAi.aiTradingAction', 'Action')}</th>
+                          <th className="px-3 py-2 text-left font-medium">{t('hyperAi.aiTradingSymbol', 'Symbol')}</th>
+                          <th className="px-3 py-2 text-right font-medium">{t('hyperAi.aiTradingEquity', 'Equity')}</th>
+                          <th className="px-3 py-2 text-left font-medium">{t('hyperAi.aiTradingReason', 'Reason')}</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {evidenceTriggerRows(pageEvidence).map((trigger, index) => (
+                          <tr key={`${trigger.id || index}`} className="border-b last:border-0">
+                            <td className="px-3 py-2 text-muted-foreground">{String(trigger.trigger_index ?? index)}</td>
+                            <td className="px-3 py-2">{String(trigger.decision_action || '-')}</td>
+                            <td className="px-3 py-2">{String(trigger.symbol || pageEvidence.strategy_symbol || '-')}</td>
+                            <td className="px-3 py-2 text-right">{formatEvidenceValue(trigger.equity_after)}</td>
+                            <td className="max-w-[420px] truncate px-3 py-2 text-muted-foreground">{String(trigger.decision_reason || '-')}</td>
+                          </tr>
+                        ))}
+                        {evidenceTriggerRows(pageEvidence).length === 0 && (
+                          <tr>
+                            <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                              {t('hyperAi.aiTradingNoTriggers', 'No triggers')}
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t('hyperAi.aiTradingNoBacktestEvidence', 'No backtest evidence loaded')}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full">
       {/* Left: Conversation List */}
@@ -2874,6 +3248,14 @@ export default function HyperAiPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => handleOpenBacktestEvidencePage(strategyBacktestEvidenceDetail.strategy_spec_id)}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      title={t('hyperAi.aiTradingOpenBacktestEvidencePage', 'Open evidence page')}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setStrategyBacktestEvidenceDetail(null)
                         setStrategyBacktestEvidenceDialogOpen(false)
@@ -3370,13 +3752,28 @@ export default function HyperAiPage() {
       <Dialog open={strategyBacktestEvidenceDialogOpen} onOpenChange={setStrategyBacktestEvidenceDialogOpen}>
         <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader className="border-b pb-3">
-            <DialogTitle className="flex items-center gap-2 text-base">
-              <BarChart3 className="h-4 w-4 text-primary" />
-              {t('hyperAi.aiTradingBacktestEvidence', 'Backtest evidence')}
-              {strategyBacktestEvidenceDetail?.backtest_result?.id
-                ? ` #${strategyBacktestEvidenceDetail.backtest_result.id}`
-                : ''}
-            </DialogTitle>
+            <div className="flex items-center justify-between gap-3">
+              <DialogTitle className="flex min-w-0 items-center gap-2 text-base">
+                <BarChart3 className="h-4 w-4 shrink-0 text-primary" />
+                <span className="truncate">
+                  {t('hyperAi.aiTradingBacktestEvidence', 'Backtest evidence')}
+                  {strategyBacktestEvidenceDetail?.backtest_result?.id
+                    ? ` #${strategyBacktestEvidenceDetail.backtest_result.id}`
+                    : ''}
+                </span>
+              </DialogTitle>
+              {strategyBacktestEvidenceDetail?.strategy_spec_id && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 shrink-0"
+                  onClick={() => handleOpenBacktestEvidencePage(strategyBacktestEvidenceDetail.strategy_spec_id)}
+                  title={t('hyperAi.aiTradingOpenBacktestEvidencePage', 'Open evidence page')}
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              )}
+            </div>
           </DialogHeader>
           {strategyBacktestEvidenceDetail ? (
             <div className="min-h-0 flex-1 overflow-y-auto">

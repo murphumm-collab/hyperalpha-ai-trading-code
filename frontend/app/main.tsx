@@ -119,7 +119,13 @@ const PATH_PAGE_ALIASES: Record<string, string> = {
   '/app/ai-trading': 'hyper-ai',
 }
 
+const AI_TRADING_BACKTEST_PATH_RE = /^\/(?:app\/)?ai-trading\/backtests\/\d+\/?$/
+
 const resolvePageName = (page: string) => PAGE_ALIASES[page] || page
+const resolvePathPageName = (pathname: string) => (
+  PATH_PAGE_ALIASES[pathname] ||
+  (AI_TRADING_BACKTEST_PATH_RE.test(pathname) ? 'hyper-ai' : undefined)
+)
 
 function App() {
   const { tradingMode } = useTradingMode()
@@ -193,7 +199,7 @@ function App() {
   useEffect(() => {
     const hash = window.location.hash.slice(1)
     const pathname = window.location.pathname
-    const pathPage = PATH_PAGE_ALIASES[pathname]
+    const pathPage = resolvePathPageName(pathname)
 
     // Handle OAuth callback
     if (pathname === '/callback') {
