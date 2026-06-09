@@ -185,7 +185,7 @@ Local checkpoint: current branch `HEAD`
 | AI stream remote running hydration | Done | Running tasks found in DB stay running only when a Redis lease is active; remote pollers refresh DB chunks while stale running rows become interrupted |
 | AI stream distributed confirmations | Done | `ai_stream_confirmations` stores high-risk tool checkpoint responses; waiters use local `Event` plus DB polling so cross-instance confirmations can unblock the running task |
 | AI stream conversation duplicate guard | Done | `get_pending_task_for_conversation` checks persisted running tasks and active Redis leases so same-user same-conversation starts can return `already_running` across backend instances |
-| AI stream runtime env templates | Done | Root and backend `.env.example` include worker, runner id, local admission, persistence, Redis URL, lease TTL, key prefix, and fail-open settings |
+| AI stream runtime env templates | Done | Root and backend `.env.example` include worker, runner id, local admission, persistence, Redis URL, lease TTL, key prefix, fail-open, and ranked-symbol cache settings |
 | AI stream task ID entropy | Done | `generate_task_id()` keeps the readable prefix/timestamp and adds UUID entropy to prevent same-thread same-millisecond collisions |
 | AI runtime admin visibility | Done | Admin-only `/api/ai-stream/admin/runtime` plus Settings AI Runtime section expose shared capacity, queue depth, and per-user task occupancy without message/tool payloads |
 | AI runtime distributed-admission visibility | Done | Admin runtime stats and Settings AI Runtime display show distributed admission enablement, availability, Redis leases, and lease TTL without exposing Redis URL |
