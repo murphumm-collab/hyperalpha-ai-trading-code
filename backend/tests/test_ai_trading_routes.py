@@ -435,6 +435,66 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
 
 
+def test_ai_trading_runtime_summarizes_strategy_backtest_evidence(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+
+    def save_spec(name):
+        draft = alice.post(
+            "/api/ai-trading/strategy-spec/draft",
+            json={
+                "symbol": "BTC",
+                "strategy_text": (
+                    "15m long breakout with stop-loss below invalidation "
+                    "and take-profit at range high"
+                ),
+                "max_loss_pct": 1,
+                "max_leverage": 3,
+            },
+        )
+        assert draft.status_code == 200
+        saved = alice.post(
+            "/api/ai-trading/strategy-specs",
+            json={"spec": draft.json()["spec"], "name": name, "source": "pytest"},
+        )
+        assert saved.status_code == 200
+        return saved.json()["spec_record"]
+
+    missing = save_spec("BTC missing backtest")
+    weak = save_spec("BTC weak backtest")
+    passing = save_spec("BTC passing backtest")
+
+    weak_response = alice.post(
+        f"/api/ai-trading/strategy-specs/{weak['id']}/backtest-summary",
+        json={
+            "backtest_id": "bt_weak_runtime",
+            "status": "passed",
+            "accepted_for_handoff": True,
+            "metrics": {},
+            "source": "pytest",
+        },
+    )
+    assert weak_response.status_code == 200
+    _attach_passing_backtest(alice, passing["id"])
+
+    runtime = alice.get("/api/ai-trading/runtime")
+    assert runtime.status_code == 200
+    evidence_summary = runtime.json()["strategy_specs"]["backtest_evidence"]
+    assert evidence_summary["total"] == 3
+    assert evidence_summary["ready"] == 1
+    assert evidence_summary["blocked"] == 2
+    assert evidence_summary["missing"] == 1
+    assert evidence_summary["by_blocker"]["strategy_backtest_required_before_handoff"] == 2
+    assert evidence_summary["by_blocker"]["strategy_backtest_trade_count_required"] == 1
+    assert evidence_summary["by_blocker"]["strategy_backtest_max_drawdown_required"] == 1
+    assert evidence_summary["by_blocker"]["strategy_backtest_performance_metric_required"] == 1
+
+    bob_runtime = bob.get("/api/ai-trading/runtime")
+    assert bob_runtime.status_code == 200
+    assert bob_runtime.json()["strategy_specs"]["backtest_evidence"]["total"] == 0
+
+
 def test_ai_trading_signal_handoff_requires_accepted_backtest_summary(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
 

@@ -307,6 +307,13 @@ interface AiTradingRuntimeStatus {
   strategy_specs?: {
     total?: number
     by_status?: Record<string, number>
+    backtest_evidence?: {
+      total?: number
+      ready?: number
+      blocked?: number
+      missing?: number
+      by_blocker?: Record<string, number>
+    }
   }
   signal_events?: {
     total?: number
@@ -2976,6 +2983,12 @@ export default function HyperAiPage() {
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSpecs', 'Specs')}</div>
                   <div className="truncate font-medium text-foreground">
                     {aiTradingRuntime.strategy_specs?.total ?? 0}
+                    <span className="text-muted-foreground">
+                      {' / '}
+                      {aiTradingRuntime.strategy_specs?.backtest_evidence?.ready ?? 0}
+                      {' '}
+                      {t('hyperAi.aiTradingBacktestReady', 'backtest ready')}
+                    </span>
                   </div>
                 </div>
                 <div className="min-w-0">

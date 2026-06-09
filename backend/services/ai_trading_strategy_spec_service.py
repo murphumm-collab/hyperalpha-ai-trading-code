@@ -1977,6 +1977,33 @@ def _summarize_handoff_eligibility(
     return summary
 
 
+def _summarize_strategy_backtest_evidence(
+    records: List[AiTradingStrategySpecRecord],
+) -> Dict[str, Any]:
+    summary = {
+        "total": len(records),
+        "ready": 0,
+        "blocked": 0,
+        "missing": 0,
+        "by_blocker": {},
+    }
+    for record in records:
+        spec = _json_loads(record.spec_json, {})
+        backtest = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else {}
+        blockers = _backtest_handoff_blockers(backtest)
+        if not blockers:
+            summary["ready"] += 1
+            continue
+
+        summary["blocked"] += 1
+        backtest_id = _clean_text(backtest.get("backtest_id") or backtest.get("run_id"), 120)
+        if not backtest_id:
+            summary["missing"] += 1
+        for blocker in blockers:
+            summary["by_blocker"][blocker] = summary["by_blocker"].get(blocker, 0) + 1
+    return summary
+
+
 def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any]:
     """Return non-sensitive AI Trading runtime status for the current user."""
     spec_rows = db.query(
@@ -1995,6 +2022,9 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
         AiTradingSignalEventRecord.user_id == user_id,
         AiTradingSignalEventRecord.status == "review_candidate",
     ).all()
+    spec_records = db.query(AiTradingStrategySpecRecord).filter(
+        AiTradingStrategySpecRecord.user_id == user_id,
+    ).all()
 
     spec_counts = {str(status): int(count) for status, count in spec_rows}
     event_counts = {str(status): int(count) for status, count in event_rows}
@@ -2009,6 +2039,7 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
         "strategy_specs": {
             "total": sum(spec_counts.values()),
             "by_status": spec_counts,
+            "backtest_evidence": _summarize_strategy_backtest_evidence(spec_records),
         },
         "signal_events": {
             "total": sum(event_counts.values()),

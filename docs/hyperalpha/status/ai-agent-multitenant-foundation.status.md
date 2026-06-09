@@ -121,6 +121,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel exposes a gated signal-event handoff control that stays disabled until the backend reports an enabled/configured gateway and only targets unsubmitted `review_candidate` events.
 - AI Trading signal-event API responses include non-secret `handoff_eligibility` blockers so the frontend and backend share the same handoff preflight decision.
 - AI Trading runtime status summarizes review-candidate handoff readiness counts so operators can see ready versus blocked signal events without reading secrets.
+- AI Trading runtime status summarizes strategy-spec backtest evidence readiness counts so operators can see ready, blocked, missing, and blocker categories without reading full specs.
 - AI Trading signal handoff attempts are persisted as non-secret per-user audit records for blocked, failed, and submitted handoff attempts.
 - Hyper AI AI Trading panel can load signal handoff attempt history into chat for audit review without triggering execution.
 - AI Trading signal events can be explicitly rejected by the user before handoff; rejection updates the persisted signal review state and makes the event ineligible for backend handoff.
@@ -306,6 +307,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading signal handoff UI | Done | Recent signal events expose a disabled-by-default, gateway-gated handoff button for unsubmitted `review_candidate` events |
 | AI Trading handoff preflight | Done | Signal event list/detail/submit share non-secret `handoff_eligibility` blockers for gateway readiness, event state, and signal-only boundaries |
 | AI Trading handoff runtime summary | Done | Runtime status includes review-candidate handoff readiness counts and blocker counts; Hyper AI panel shows total signals versus ready candidates |
+| AI Trading strategy backtest runtime summary | Done | Runtime status includes strategy-spec backtest evidence ready/blocked/missing counts and blocker counts; Hyper AI panel shows total specs versus backtest-ready specs |
 | AI Trading handoff attempt audit | Done | `ai_trading_signal_handoff_attempts` stores blocked/failed/submitted handoff attempts without gateway URL/token or trading credentials |
 | AI Trading handoff attempt UI | Done | Recent signal events expose a read-only handoff history button that loads non-secret attempts into chat for audit review |
 | AI Trading signal rejection | Done | Review candidate signal events can be rejected before handoff; rejected events store review reason, become ineligible, and are visible in runtime status |
@@ -664,6 +666,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after adding the AI Trading full-page attached-backtest result route.
 - Passed: AI Trading route regression re-run after the full-page backtest result route: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 13 passing tests.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading/backtests/1` returned 200; authenticated click-through/live evidence acceptance remains pending.
+- Passed: AI Trading route regression after strategy backtest runtime summary: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 14 passing tests, covering missing, weak, passing, and cross-user-empty evidence readiness counts.
+- Passed: Frontend production build after showing total specs versus backtest-ready specs in the AI Trading runtime panel.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
