@@ -561,12 +561,21 @@ def _clean_agent_context_summary(value: Any) -> Optional[str]:
     return summary
 
 
-def _record_agent_session_payload(record: Any) -> Dict[str, Any]:
-    return {
+def _record_agent_session_payload(
+    record: Any,
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    payload = {
         "id": getattr(record, "agent_session_id", None),
         "name": getattr(record, "agent_session_name", None),
         "context_summary": getattr(record, "agent_context_summary", None),
     }
+    status = _record_agent_session_status(record, db=db, user_id=user_id)
+    if status:
+        payload["status"] = status
+    return payload
 
 
 def serialize_ai_trading_agent_session_record(
@@ -595,6 +604,28 @@ def _get_agent_session_record(
         AiTradingAgentSessionRecord.user_id == user_id,
         AiTradingAgentSessionRecord.agent_session_id == resolved_agent_session_id,
     ).first()
+
+
+def _record_agent_session_status(
+    record: Any,
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Optional[str]:
+    if db is None or user_id is None:
+        return None
+    try:
+        agent_session_id = _clean_agent_session_id(getattr(record, "agent_session_id", None))
+    except ValueError:
+        return None
+    if not agent_session_id:
+        return None
+    session_record = _get_agent_session_record(
+        db,
+        user_id=int(user_id),
+        agent_session_id=agent_session_id,
+    )
+    return session_record.status if session_record else None
 
 
 def _ensure_agent_session_record(
@@ -890,6 +921,8 @@ def serialize_strategy_spec_record(
     record: AiTradingStrategySpecRecord,
     *,
     include_spec: bool = False,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     payload = {
         "id": record.id,
@@ -898,7 +931,7 @@ def serialize_strategy_spec_record(
         "symbol": record.symbol,
         "status": record.status,
         "source": record.source,
-        "agent_session": _record_agent_session_payload(record),
+        "agent_session": _record_agent_session_payload(record, db=db, user_id=user_id),
         "validation": _json_loads(record.validation_json, {}),
         "approved_at": _record_timestamp(record.approved_at),
         "created_at": _record_timestamp(record.created_at),
@@ -924,7 +957,7 @@ def serialize_signal_event_record(
         "action": record.action,
         "status": record.status,
         "handoff_status": record.handoff_status,
-        "agent_session": _record_agent_session_payload(record),
+        "agent_session": _record_agent_session_payload(record, db=db, user_id=user_id),
         "error_message": record.error_message,
         "submitted_at": _record_timestamp(record.submitted_at),
         "created_at": _record_timestamp(record.created_at),
@@ -946,6 +979,9 @@ def serialize_signal_preview_payload(signal_preview: Dict[str, Any]) -> Dict[str
 
 def serialize_signal_handoff_attempt_record(
     record: AiTradingSignalHandoffAttemptRecord,
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     return {
         "id": record.id,
@@ -954,7 +990,7 @@ def serialize_signal_handoff_attempt_record(
         "strategy_spec_id": record.strategy_spec_id,
         "symbol": record.symbol,
         "action": record.action,
-        "agent_session": _record_agent_session_payload(record),
+        "agent_session": _record_agent_session_payload(record, db=db, user_id=user_id),
         "result": record.result,
         "gateway_ready": bool(record.gateway_ready),
         "blockers": _redact_sensitive_payload(_json_loads(record.blockers_json, [])),

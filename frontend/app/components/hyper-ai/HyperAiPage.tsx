@@ -195,6 +195,7 @@ interface AiTradingStrategySpecRecord {
     id?: string | null
     name?: string | null
     context_summary?: string | null
+    status?: string | null
   }
   spec?: AiTradingStrategySpec
   validation?: {
@@ -215,6 +216,7 @@ interface AiTradingSignalEventRecord {
   agent_session?: {
     id?: string | null
     name?: string | null
+    status?: string | null
   }
   handoff_eligibility?: {
     eligible?: boolean
@@ -237,6 +239,7 @@ interface AiTradingSignalHandoffAttemptRecord {
   agent_session?: {
     id?: string | null
     name?: string | null
+    status?: string | null
   }
   blockers?: string[]
   eligibility?: Record<string, unknown>
@@ -1122,7 +1125,13 @@ export default function HyperAiPage() {
     session => session.id === selectedAiTradingAgentSessionId
   )
   const selectedAiTradingAgentSessionArchived = selectedAiTradingAgentSession?.status === 'archived'
-  const isAiTradingAgentSessionArchived = (agentSessionId?: string | null): boolean => {
+  const isAiTradingAgentSessionArchived = (
+    agentSessionId?: string | null,
+    agentSessionStatus?: string | null
+  ): boolean => {
+    if (agentSessionStatus === 'archived') {
+      return true
+    }
     const cleanAgentSessionId = String(agentSessionId || '').trim()
     if (!cleanAgentSessionId) {
       return false
@@ -1131,7 +1140,10 @@ export default function HyperAiPage() {
   }
   const isStrategyRecordActionBlockedByArchivedSession = (
     record?: AiTradingStrategySpecRecord | null
-  ): boolean => Boolean(record?.agent_session?.id && isAiTradingAgentSessionArchived(record.agent_session.id))
+  ): boolean => Boolean(
+    record?.agent_session?.id &&
+    isAiTradingAgentSessionArchived(record.agent_session.id, record.agent_session.status)
+  )
   const aiTradingStrategyRecordById = useMemo(() => {
     const records = [...recentStrategySpecs]
     if (strategyDraftRecord) {

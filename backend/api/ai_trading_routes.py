@@ -532,7 +532,12 @@ def list_strategy_specs_endpoint(
     )
     return {
         "specs": [
-            serialize_strategy_spec_record(record, include_spec=False)
+            serialize_strategy_spec_record(
+                record,
+                include_spec=False,
+                db=db,
+                user_id=current_user.id,
+            )
             for record in records
         ]
     }
@@ -560,7 +565,12 @@ def save_strategy_spec_endpoint(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -575,7 +585,12 @@ def get_strategy_spec_endpoint(
     if not record:
         raise HTTPException(status_code=404, detail="Strategy spec not found")
     return {
-        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -602,7 +617,12 @@ def adjust_strategy_spec_record_endpoint(
 
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -629,7 +649,12 @@ def model_adjust_strategy_spec_record_endpoint(
 
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(result["record"], include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            result["record"],
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
         "model_context": result.get("model_context", {}),
         "model_suggestion": result.get("model_suggestion", {}),
     }
@@ -650,7 +675,12 @@ def approve_strategy_spec_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -675,7 +705,12 @@ def attach_strategy_backtest_summary_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -702,7 +737,12 @@ def attach_strategy_backtest_result_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -728,7 +768,12 @@ def attach_latest_strategy_backtest_result_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=True,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -798,7 +843,12 @@ def archive_strategy_spec_endpoint(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
         "success": True,
-        "spec_record": serialize_strategy_spec_record(record, include_spec=False),
+        "spec_record": serialize_strategy_spec_record(
+            record,
+            include_spec=False,
+            db=db,
+            user_id=current_user.id,
+        ),
     }
 
 
@@ -935,7 +985,11 @@ def list_signal_event_handoff_attempts_endpoint(
     )
     return {
         "attempts": [
-            serialize_signal_handoff_attempt_record(attempt)
+            serialize_signal_handoff_attempt_record(
+                attempt,
+                db=db,
+                user_id=current_user.id,
+            )
             for attempt in attempts
         ]
     }

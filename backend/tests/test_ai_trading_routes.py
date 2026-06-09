@@ -2640,6 +2640,7 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert saved.status_code == 200
     saved_record = saved.json()["spec_record"]
     assert saved_record["agent_session"]["name"] == "Managed BTC Agent"
+    assert saved_record["agent_session"]["status"] == "active"
 
     saved_record = _attach_passing_backtest(alice, saved_record["id"])
     approved = alice.post(f"/api/ai-trading/strategy-specs/{saved_record['id']}/approve")
@@ -2650,6 +2651,7 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     )
     assert event_response.status_code == 200
     event = event_response.json()["signal_event"]
+    assert event["agent_session"]["status"] == "active"
 
     disabled_handoff = alice.post(
         f"/api/ai-trading/signal-events/{event['id']}/handoff",
@@ -2670,12 +2672,15 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     detail = alice.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
     assert detail.status_code == 200
     assert detail.json()["spec_record"]["agent_session"]["name"] == "Renamed BTC Agent"
+    assert detail.json()["spec_record"]["agent_session"]["status"] == "active"
     signal_detail = alice.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert signal_detail.status_code == 200
     assert signal_detail.json()["signal_event"]["agent_session"]["name"] == "Renamed BTC Agent"
+    assert signal_detail.json()["signal_event"]["agent_session"]["status"] == "active"
     attempts = alice.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
     assert attempts.status_code == 200
     assert attempts.json()["attempts"][0]["agent_session"]["name"] == "Renamed BTC Agent"
+    assert attempts.json()["attempts"][0]["agent_session"]["status"] == "active"
     attempt_count_before_archive = len(attempts.json()["attempts"])
 
     compressed = alice.post("/api/ai-trading/agent-sessions/session:managed-btc/compress-context")
@@ -2694,6 +2699,7 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     detail_after_compress = alice.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
     assert detail_after_compress.status_code == 200
     assert detail_after_compress.json()["spec_record"]["agent_session"]["context_summary"] == context_summary
+    assert detail_after_compress.json()["spec_record"]["agent_session"]["status"] == "active"
 
     assert bob.patch(
         "/api/ai-trading/agent-sessions/session:managed-btc",
@@ -2711,6 +2717,10 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     archived_sessions = alice.get("/api/ai-trading/agent-sessions?status=archived")
     assert archived_sessions.status_code == 200
     assert archived_sessions.json()["agent_sessions"][0]["id"] == "session:managed-btc"
+
+    detail_after_archive = alice.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
+    assert detail_after_archive.status_code == 200
+    assert detail_after_archive.json()["spec_record"]["agent_session"]["status"] == "archived"
 
     approve_archived_session_spec = alice.post(f"/api/ai-trading/strategy-specs/{saved_record['id']}/approve")
     assert approve_archived_session_spec.status_code == 400
@@ -2778,6 +2788,7 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
 
     archived_event_detail = alice.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert archived_event_detail.status_code == 200
+    assert archived_event_detail.json()["signal_event"]["agent_session"]["status"] == "archived"
     assert (
         "agent_session_archived"
         in archived_event_detail.json()["signal_event"]["handoff_eligibility"]["blockers"]
@@ -2793,6 +2804,7 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     archived_attempts = alice.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
     assert archived_attempts.status_code == 200
     assert len(archived_attempts.json()["attempts"]) == attempt_count_before_archive + 1
+    assert archived_attempts.json()["attempts"][0]["agent_session"]["status"] == "archived"
     assert "agent_session_archived" in archived_attempts.json()["attempts"][0]["blockers"]
 
     def fail_if_model_config_is_read(db, user_id=None):
