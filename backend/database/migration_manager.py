@@ -76,6 +76,7 @@ MIGRATIONS = [
     "add_ai_stream_persistence.py",
     "add_ai_stream_confirmations.py",
     "add_ai_stream_runner_heartbeat.py",
+    "add_ai_stream_dispatch_jobs.py",
     "add_soft_delete_fields.py",
     "create_bot_integration_tables.py",
     "add_bot_config_user_scope.py",

@@ -41,8 +41,15 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Generator, List, Optional
 from datetime import datetime, timedelta
 
+from sqlalchemy import func
+
 from database.connection import SessionLocal
-from database.models import AiStreamChunkRecord, AiStreamConfirmationRecord, AiStreamTaskRecord
+from database.models import (
+    AiStreamChunkRecord,
+    AiStreamConfirmationRecord,
+    AiStreamDispatchJobRecord,
+    AiStreamTaskRecord,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +82,10 @@ AI_STREAM_RUNNER_ID = (
     os.getenv("AI_STREAM_RUNNER_ID", "").strip()
     or f"{socket.gethostname()}:{os.getpid()}"
 )[:120]
+AI_STREAM_DISTRIBUTED_WORKER_ENABLED = (
+    os.getenv("AI_STREAM_DISTRIBUTED_WORKER_ENABLED", "false").lower() == "true"
+)
+AI_STREAM_DISPATCH_MAX_ATTEMPTS = int(os.getenv("AI_STREAM_DISPATCH_MAX_ATTEMPTS", "1"))
 
 _ai_task_executor = ThreadPoolExecutor(
     max_workers=AI_TASK_MAX_WORKERS,
@@ -409,6 +420,17 @@ def _json_loads_dict(value: Optional[str]) -> Dict[str, Any]:
         return parsed if isinstance(parsed, dict) else {}
     except Exception:
         return {}
+
+
+@dataclass
+class AiStreamDispatchJob:
+    """Serializable AI stream worker job claimed from the persistent queue."""
+    task_id: str
+    task_type: str
+    payload: Dict[str, Any]
+    user_id: Optional[int] = None
+    conversation_id: Optional[int] = None
+    attempts: int = 0
 
 
 class StreamBufferManager:
@@ -1166,6 +1188,160 @@ class StreamBufferManager:
                 entry["oldest_persisted_running_age_seconds"] = age_seconds
         return snapshot
 
+    def enqueue_dispatch_job(
+        self,
+        task_id: str,
+        task_type: str,
+        payload: Dict[str, Any],
+        user_id: Optional[int] = None,
+        conversation_id: Optional[int] = None,
+        max_attempts: Optional[int] = None,
+    ) -> bool:
+        """Persist a serializable AI stream job for a distributed worker."""
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return False
+
+        db = SessionLocal()
+        try:
+            existing = db.query(AiStreamDispatchJobRecord).filter(
+                AiStreamDispatchJobRecord.task_id == task_id
+            ).first()
+            if existing:
+                return existing.status in {"pending", "claimed", "running"}
+
+            db.add(AiStreamDispatchJobRecord(
+                task_id=task_id,
+                task_type=task_type,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                status="pending",
+                payload=_json_dumps(payload or {}),
+                attempts=0,
+                max_attempts=max_attempts or AI_STREAM_DISPATCH_MAX_ATTEMPTS,
+                created_at_epoch=time.time(),
+            ))
+            db.commit()
+            return True
+        except Exception as exc:
+            db.rollback()
+            logger.warning("[StreamBuffer] Failed to enqueue dispatch job %s: %s", task_id, exc)
+            return False
+        finally:
+            db.close()
+
+    def claim_dispatch_job(
+        self,
+        supported_task_types: Optional[set[str]] = None,
+    ) -> Optional[AiStreamDispatchJob]:
+        """Claim one pending serializable AI stream job for this runner."""
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return None
+
+        db = SessionLocal()
+        try:
+            query = db.query(AiStreamDispatchJobRecord).filter(
+                AiStreamDispatchJobRecord.status == "pending",
+                AiStreamDispatchJobRecord.attempts < AiStreamDispatchJobRecord.max_attempts,
+            )
+            if supported_task_types:
+                query = query.filter(AiStreamDispatchJobRecord.task_type.in_(supported_task_types))
+
+            record = query.order_by(
+                AiStreamDispatchJobRecord.created_at_epoch.asc()
+            ).with_for_update(skip_locked=True).first()
+            if not record:
+                return None
+
+            record.status = "claimed"
+            record.runner_id = AI_STREAM_RUNNER_ID
+            record.attempts = int(record.attempts or 0) + 1
+            record.claimed_at_epoch = time.time()
+            db.commit()
+            return AiStreamDispatchJob(
+                task_id=record.task_id,
+                task_type=record.task_type,
+                payload=_json_loads_dict(record.payload),
+                user_id=record.user_id,
+                conversation_id=record.conversation_id,
+                attempts=record.attempts,
+            )
+        except Exception as exc:
+            db.rollback()
+            logger.warning("[StreamBuffer] Failed to claim dispatch job: %s", exc)
+            return None
+        finally:
+            db.close()
+
+    def mark_dispatch_job_running(self, task_id: str) -> None:
+        self._update_dispatch_job_status(task_id, "running")
+
+    def complete_dispatch_job(self, task_id: str) -> None:
+        self._update_dispatch_job_status(task_id, "completed", completed=True)
+
+    def fail_dispatch_job(self, task_id: str, error_message: str) -> None:
+        self._update_dispatch_job_status(task_id, "failed", error_message=error_message, completed=True)
+
+    def _update_dispatch_job_status(
+        self,
+        task_id: str,
+        status: str,
+        error_message: Optional[str] = None,
+        completed: bool = False,
+    ) -> None:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return
+
+        db = SessionLocal()
+        try:
+            record = db.query(AiStreamDispatchJobRecord).filter(
+                AiStreamDispatchJobRecord.task_id == task_id
+            ).first()
+            if not record:
+                return
+            record.status = status
+            record.runner_id = AI_STREAM_RUNNER_ID
+            record.error_message = error_message
+            if completed:
+                record.completed_at_epoch = time.time()
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning("[StreamBuffer] Failed to update dispatch job %s: %s", task_id, exc)
+        finally:
+            db.close()
+
+    def get_dispatch_queue_stats(self) -> Dict[str, Any]:
+        """Return dispatch queue counts for admin runtime visibility."""
+        stats: Dict[str, Any] = {
+            "enabled": AI_STREAM_DISTRIBUTED_WORKER_ENABLED,
+            "pending": 0,
+            "claimed": 0,
+            "running": 0,
+            "completed": 0,
+            "failed": 0,
+            "total": 0,
+        }
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return stats
+
+        db = SessionLocal()
+        try:
+            rows = db.query(
+                AiStreamDispatchJobRecord.status,
+                func.count(AiStreamDispatchJobRecord.id),
+            ).group_by(AiStreamDispatchJobRecord.status).all()
+            for status, count in rows:
+                key = status if status in stats else "total"
+                if key != "total":
+                    stats[key] = int(count or 0)
+                stats["total"] += int(count or 0)
+        except Exception as exc:
+            stats["last_error"] = str(exc)
+            logger.warning("[StreamBuffer] Failed to collect dispatch queue stats: %s", exc)
+        finally:
+            db.close()
+        return stats
+
 
 # Global singleton instance
 _buffer_manager: Optional[StreamBufferManager] = None
@@ -1364,6 +1540,7 @@ def get_ai_runtime_stats() -> Dict[str, Any]:
         "background_max_workers": AI_BACKGROUND_MAX_WORKERS,
         "background_threads": background_threads,
         "background_queue": background_queue,
+        "dispatch_queue": manager.get_dispatch_queue_stats(),
         "distributed_admission": (
             manager._admission_controller.stats()
             if manager._admission_controller

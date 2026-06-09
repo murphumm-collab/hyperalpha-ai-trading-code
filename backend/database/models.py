@@ -315,6 +315,32 @@ class AiStreamConfirmationRecord(Base):
     )
 
 
+class AiStreamDispatchJobRecord(Base):
+    """Persistent queue row for serializable AI stream worker jobs."""
+    __tablename__ = "ai_stream_dispatch_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(120), nullable=False, unique=True, index=True)
+    task_type = Column(String(80), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    conversation_id = Column(Integer, nullable=True, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    payload = Column(Text, nullable=False)
+    runner_id = Column(String(120), nullable=True, index=True)
+    attempts = Column(Integer, nullable=False, default=0)
+    max_attempts = Column(Integer, nullable=False, default=1)
+    error_message = Column(Text, nullable=True)
+    created_at_epoch = Column(Float, nullable=False)
+    claimed_at_epoch = Column(Float, nullable=True)
+    completed_at_epoch = Column(Float, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+
+
 class HyperInsightWalletRuntimeConfig(Base):
     """Per-user Hyper Insight wallet tracking runtime configuration."""
     __tablename__ = "hyper_insight_wallet_runtime_configs"

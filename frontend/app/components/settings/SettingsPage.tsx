@@ -112,6 +112,16 @@ interface AiRuntimeStats {
     fail_open?: boolean
     last_error?: string | null
   }
+  dispatch_queue?: {
+    enabled: boolean
+    pending: number
+    claimed: number
+    running: number
+    completed: number
+    failed: number
+    total: number
+    last_error?: string | null
+  }
   users: AiRuntimeUserStats[]
 }
 
@@ -1660,6 +1670,44 @@ export default function SettingsPage() {
                           </div>
                         )}
                       </div>
+
+                      {aiRuntimeStats.dispatch_queue && (
+                        <div className="grid gap-3 rounded-md border p-3 text-sm sm:grid-cols-2 md:grid-cols-6 md:items-center">
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t('settings.dispatchQueue', 'Dispatch Queue')}</div>
+                            <div className="font-medium">
+                              {aiRuntimeStats.dispatch_queue.enabled
+                                ? t('settings.enabled', 'Enabled')
+                                : t('settings.disabled', 'Disabled')}
+                            </div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t('settings.pending', 'Pending')}</div>
+                            <div className="font-medium">{aiRuntimeStats.dispatch_queue.pending}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t('settings.claimed', 'Claimed')}</div>
+                            <div className="font-medium">{aiRuntimeStats.dispatch_queue.claimed}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t('settings.runningTasks', 'Running')}</div>
+                            <div className="font-medium">{aiRuntimeStats.dispatch_queue.running}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t('settings.completed', 'Completed')}</div>
+                            <div className="font-medium">{aiRuntimeStats.dispatch_queue.completed}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t('settings.failed', 'Failed')}</div>
+                            <div className="font-medium">{aiRuntimeStats.dispatch_queue.failed}</div>
+                          </div>
+                          {aiRuntimeStats.dispatch_queue.last_error && (
+                            <div className="min-w-0 text-xs text-red-500 md:col-span-6">
+                              {aiRuntimeStats.dispatch_queue.last_error}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                       {aiRuntimeStats.users.length === 0 ? (
                         <div className="text-sm text-muted-foreground">
