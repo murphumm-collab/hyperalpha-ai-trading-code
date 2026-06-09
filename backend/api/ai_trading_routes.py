@@ -18,6 +18,7 @@ from services.ai_trading_strategy_spec_service import (
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_signal_preview_from_strategy_spec_record,
+    build_strategy_backtest_preflight,
     create_signal_event_record,
     draft_strategy_spec,
     get_ai_trading_runtime_status,
@@ -93,6 +94,13 @@ class StrategyBacktestResultRequest(BaseModel):
 class StrategyLatestBacktestResultRequest(BaseModel):
     accepted_for_handoff: bool = True
     notes: Optional[str] = Field(default=None, max_length=1000)
+
+
+class StrategyBacktestPreflightRequest(BaseModel):
+    days: int = Field(default=30, ge=1, le=365)
+    initial_balance: float = Field(default=10000.0, gt=0)
+    slippage_percent: float = Field(default=0.05, ge=0, le=5)
+    fee_rate: float = Field(default=0.035, ge=0, le=5)
 
 
 class SignalEventRejectRequest(BaseModel):
@@ -339,6 +347,32 @@ def attach_latest_strategy_backtest_result_endpoint(
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/backtest-preflight")
+def strategy_backtest_preflight_endpoint(
+    spec_id: int,
+    request: StrategyBacktestPreflightRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Build a non-executing Program Backtest request preflight for a strategy spec."""
+    try:
+        preflight = build_strategy_backtest_preflight(
+            db,
+            user_id=current_user.id,
+            record_id=spec_id,
+            days=request.days,
+            initial_balance=request.initial_balance,
+            slippage_percent=request.slippage_percent,
+            fee_rate=request.fee_rate,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "success": preflight.get("ready", False),
+        "preflight": preflight,
     }
 
 

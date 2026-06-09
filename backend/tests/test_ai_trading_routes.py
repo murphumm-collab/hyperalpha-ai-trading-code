@@ -685,6 +685,118 @@ def test_ai_trading_can_attach_latest_matching_program_backtest_result(tmp_path)
     assert "No handoff-ready Program BacktestResult" in missing.json()["detail"]
 
 
+def test_ai_trading_backtest_preflight_recommends_owned_symbol_binding(tmp_path):
+    client = _build_client(tmp_path)
+    _create_program_backtest_result(client, symbols=["BTC"])
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+        },
+    )
+    assert draft.status_code == 200
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": "BTC preflight spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    spec_id = saved.json()["spec_record"]["id"]
+
+    response = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/backtest-preflight",
+        json={"days": 14, "initial_balance": 25000, "slippage_percent": 0.05, "fee_rate": 0.035},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["success"] is True
+    preflight = payload["preflight"]
+    assert preflight["ready"] is True
+    assert preflight["strategy_symbol"] == "BTC"
+    assert preflight["program_backtest_endpoint"] == "/api/programs/backtest"
+    assert preflight["program_backtest_streaming"] is True
+    assert preflight["default_request"]["binding_id"] == preflight["recommended_binding"]["binding_id"]
+    assert preflight["default_request"]["initial_balance"] == 25000
+    assert preflight["assumptions"]["does_not_execute"] is True
+    assert preflight["assumptions"]["requires_user_confirmation"] is True
+    assert preflight["recommended_binding"]["eligible"] is True
+    assert preflight["recommended_binding"]["symbols"] == ["BTC"]
+    assert "not-returned" not in str(preflight)
+    assert "def run" not in str(preflight)
+
+    sol_draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "SOL",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+        },
+    )
+    sol_saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": sol_draft.json()["spec"], "name": "SOL preflight spec", "source": "pytest"},
+    )
+    sol_response = client.post(
+        f"/api/ai-trading/strategy-specs/{sol_saved.json()['spec_record']['id']}/backtest-preflight",
+        json={"days": 14},
+    )
+    assert sol_response.status_code == 200
+    sol_preflight = sol_response.json()["preflight"]
+    assert sol_preflight["ready"] is False
+    assert sol_preflight["default_request"] is None
+    assert "no_eligible_symbol_matching_program_binding" in sol_preflight["blockers"]
+    assert "binding_symbol_mismatch" in sol_preflight["candidate_bindings"][0]["blockers"]
+
+
+def test_ai_trading_backtest_preflight_is_user_scoped(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+    _create_program_backtest_result(alice, username="alice", symbols=["BTC"])
+
+    bob_draft = bob.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    bob_saved = bob.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": bob_draft.json()["spec"], "name": "Bob preflight spec", "source": "pytest"},
+    )
+    response = bob.post(
+        f"/api/ai-trading/strategy-specs/{bob_saved.json()['spec_record']['id']}/backtest-preflight",
+        json={"days": 30},
+    )
+    assert response.status_code == 200
+    preflight = response.json()["preflight"]
+    assert preflight["ready"] is False
+    assert preflight["candidate_bindings"] == []
+    assert "no_program_bindings" in preflight["blockers"]
+
+
 def test_ai_trading_program_backtest_result_attachment_is_user_scoped(tmp_path):
     clients = _build_clients(tmp_path, usernames=("alice", "bob"))
     alice = clients["alice"]

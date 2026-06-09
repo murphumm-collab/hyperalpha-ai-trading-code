@@ -56,6 +56,8 @@
 - Hyper AI AI Trading panel 现在会列出最近 completed Program Backtests，用户可以点 link 图标把某条 handoff-ready evidence 绑定到当前 strategy spec；如果当前草案未保存，会先保存再绑定。
 - 新增 `/api/ai-trading/strategy-specs/{id}/backtest-result/latest`，用于自动绑定当前用户最新的同标的、handoff-ready Program BacktestResult；不会使用别的 symbol，也会跳过 trade_count=0 等弱 metrics evidence。
 - Hyper AI AI Trading strategy 卡片和 recent spec 行现在有 history 图标 action，可自动绑定最新同标的 Program Backtest evidence，不需要手输 ID。
+- 新增 `/api/ai-trading/strategy-specs/{id}/backtest-preflight`：只读检查当前用户 Hyperliquid Program binding、SignalPool、strategy symbol 和 scheduled trigger，返回 blockers 或推荐的 `/api/programs/backtest` 默认请求；这一步不执行 SSE 回测、不下单、不暴露 Program code/API key。
+- Hyper AI AI Trading strategy 卡片和 recent spec 行现在有 play 图标 action，可保存草案后生成 Program Backtest preflight，并把推荐 binding、default request、blockers 回填到聊天框给 agent/用户复核。
 
 ## 3. AI Stream / Worker 现状
 
@@ -147,6 +149,10 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
 - `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI latest matching Program Backtest evidence action 后。
 - `curl -I --max-time 3 http://127.0.0.1:5174/app/ai-trading` 返回 200；当前 Node REPL 无法解析 `playwright` 包，因此本轮没有做点击级浏览器自动化。
+- `backend/tests/test_ai_trading_routes.py` 已新增 Program Backtest preflight 回归：当前用户 owned/symbol-matching binding 会生成 default `/api/programs/backtest` request；symbol mismatch 和 no binding 会返回 blockers；Bob 看不到 Alice binding；响应不泄露 Program code/API key。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 12 条 AI Trading route 回归全绿。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
+- `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI Program Backtest preflight play action 后。
 
 ## 6. 未验收 / 阻塞
 
@@ -156,7 +162,7 @@
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前只做 disabled-by-default 和 mock gateway 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
-- 完整 AI Trading Hyperliquid 一键 backtest engine 和 rich backtest result UI 仍未实现；当前已实现 manual/external summary gate 和 existing Program BacktestResult evidence bridge。
+- 完整 AI Trading Hyperliquid 一键 backtest engine 和 rich backtest result UI 仍未实现；当前已实现 manual/external summary gate、existing Program BacktestResult evidence bridge、以及不执行的 Program Backtest preflight request。
 - strategy spec / signal preview / signal event / recent records inspect / signal-event handoff 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols、持久化记录与 gateway readiness；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。
 
 ## 7. 当前提交锚点

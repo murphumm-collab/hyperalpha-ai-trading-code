@@ -801,7 +801,7 @@ export default function HyperAiPage() {
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
-  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | null>(null)
+  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | null>(null)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -1400,6 +1400,51 @@ export default function HyperAiPage() {
     } catch (e) {
       console.error('Failed to attach latest AI trading Program Backtest result:', e)
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach latest Program Backtest result')
+    } finally {
+      setStrategyBacktestLoadingId(null)
+      setStrategyBacktestLoadingSource(null)
+    }
+  }
+
+  const handleStrategyBacktestPreflight = async (recordId?: number) => {
+    setStrategyDraftError(null)
+    let targetRecordId = recordId
+    if (!targetRecordId) {
+      const record = strategyDraftRecord || (await persistStrategyDraft())
+      if (!record) {
+        setStrategyDraftError('Save or draft a strategy spec before building a backtest preflight')
+        return
+      }
+      targetRecordId = record.id
+    }
+
+    setStrategyBacktestLoadingId(targetRecordId)
+    setStrategyBacktestLoadingSource('preflight')
+    try {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-preflight`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          days: 30,
+          initial_balance: 10000,
+          slippage_percent: 0.05,
+          fee_rate: 0.035,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to build backtest preflight')
+      }
+      const preflight = data.preflight || {}
+      const prompt = currentLang === 'zh'
+        ? `请复核 AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest preflight：确认 recommended binding 是否属于当前用户、symbol 是否匹配、default_request 是否可以作为下一步回测请求；这一步不执行回测、不下单。\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
+        : `Review the Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId}. Confirm the recommended binding belongs to the current user, the symbol matches, and the default_request is suitable for the next backtest step. This does not run a backtest or place an order.\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to build AI trading backtest preflight:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to build backtest preflight')
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -2435,6 +2480,19 @@ export default function HyperAiPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => handleStrategyBacktestPreflight(strategyDraftRecord?.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      title={t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
+                    >
+                      {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'preflight' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleStrategySignalPreview}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                       disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyDraftRecord?.status !== 'approved'}
@@ -2553,6 +2611,19 @@ export default function HyperAiPage() {
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <History className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleStrategyBacktestPreflight(record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={strategyBacktestLoadingId !== null}
+                            title={t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
+                          >
+                            {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'preflight' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Play className="h-3.5 w-3.5" />
                             )}
                           </button>
                         </div>

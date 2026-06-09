@@ -31,6 +31,7 @@ from database.models import (
     AiTradingSignalHandoffAttemptRecord,
     AiTradingStrategySpecRecord,
     BacktestResult,
+    SignalPool,
     TradingProgram,
 )
 from services.exchanges.symbol_mapper import SymbolMapper
@@ -928,6 +929,102 @@ def _program_backtest_symbols(config: Any) -> List[str]:
     ]
 
 
+def _json_int_list(value: Any) -> List[int]:
+    parsed = _json_loads(value, []) if isinstance(value, str) else (value or [])
+    if not isinstance(parsed, list):
+        return []
+    ids: List[int] = []
+    for item in parsed:
+        try:
+            ids.append(int(item))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+def _signal_pool_symbols(pool: SignalPool) -> List[str]:
+    parsed = _json_loads(pool.symbols, []) if isinstance(pool.symbols, str) else (pool.symbols or [])
+    if isinstance(parsed, str):
+        parsed = [parsed]
+    if not isinstance(parsed, list):
+        return []
+    return [
+        _normalize_symbol(symbol)
+        for symbol in parsed
+        if _normalize_symbol(symbol)
+    ]
+
+
+def _serialize_backtest_binding_candidate(
+    db: Session,
+    *,
+    binding: AccountProgramBinding,
+    account: Account,
+    program: TradingProgram,
+    user_id: int,
+    symbol: Optional[str] = None,
+) -> Dict[str, Any]:
+    pool_ids = _json_int_list(binding.signal_pool_ids)
+    pools: List[SignalPool] = []
+    if pool_ids:
+        pools = db.query(SignalPool).filter(
+            SignalPool.id.in_(pool_ids),
+            SignalPool.user_id == user_id,
+            SignalPool.is_deleted != True,
+        ).all()
+    pool_by_id = {pool.id: pool for pool in pools}
+    missing_pool_ids = [pool_id for pool_id in pool_ids if pool_id not in pool_by_id]
+
+    symbols: List[str] = []
+    pool_names: List[str] = []
+    pool_source_types: List[str] = []
+    for pool_id in pool_ids:
+        pool = pool_by_id.get(pool_id)
+        if not pool:
+            continue
+        pool_names.append(pool.pool_name)
+        pool_source_types.append(pool.source_type or "market_signals")
+        symbols.extend(_signal_pool_symbols(pool))
+
+    if not symbols and binding.scheduled_trigger_enabled:
+        symbols = ["BTC"]
+    symbols = list(dict.fromkeys(symbols))
+
+    normalized_symbol = _normalize_symbol(symbol) if symbol else ""
+    blockers: List[str] = []
+    if binding.exchange != "hyperliquid":
+        blockers.append("binding_exchange_must_be_hyperliquid")
+    if not binding.is_active:
+        blockers.append("binding_inactive")
+    if missing_pool_ids:
+        blockers.append("signal_pool_missing_or_not_owned")
+    if pool_source_types and any(source != "market_signals" for source in pool_source_types):
+        blockers.append("signal_pool_source_not_backtestable")
+    if not binding.scheduled_trigger_enabled and not pool_ids:
+        blockers.append("binding_has_no_backtest_trigger")
+    if normalized_symbol and normalized_symbol not in symbols:
+        blockers.append("binding_symbol_mismatch")
+
+    return {
+        "binding_id": binding.id,
+        "account_id": account.id,
+        "account_name": account.name,
+        "program_id": program.id,
+        "program_name": program.name,
+        "exchange": binding.exchange or "hyperliquid",
+        "is_active": bool(binding.is_active),
+        "scheduled_trigger_enabled": bool(binding.scheduled_trigger_enabled),
+        "trigger_interval": binding.trigger_interval,
+        "signal_pool_ids": pool_ids,
+        "signal_pool_names": pool_names,
+        "signal_pool_source_types": list(dict.fromkeys(pool_source_types)),
+        "symbols": symbols,
+        "matches_strategy_symbol": bool(normalized_symbol and normalized_symbol in symbols),
+        "eligible": not blockers,
+        "blockers": list(dict.fromkeys(blockers)),
+    }
+
+
 def serialize_program_backtest_result_candidate(
     backtest: BacktestResult,
     *,
@@ -1017,6 +1114,104 @@ def list_program_backtest_result_candidates(
             )
         )
     return candidates[:row_limit]
+
+
+def build_strategy_backtest_preflight(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+    days: int = 30,
+    initial_balance: float = 10000.0,
+    slippage_percent: float = 0.05,
+    fee_rate: float = 0.035,
+) -> Dict[str, Any]:
+    """Build a non-executing Program Backtest preflight for an AI Trading strategy spec."""
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+
+    spec = _json_loads(record.spec_json, {})
+    symbol = _normalize_symbol(spec.get("symbol") or record.symbol)
+    if not symbol:
+        raise ValueError("Strategy spec symbol is required before backtest preflight")
+
+    rows = db.query(
+        AccountProgramBinding,
+        Account,
+        TradingProgram,
+    ).join(
+        Account,
+        AccountProgramBinding.account_id == Account.id,
+    ).join(
+        TradingProgram,
+        AccountProgramBinding.program_id == TradingProgram.id,
+    ).filter(
+        AccountProgramBinding.is_deleted != True,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
+    ).order_by(
+        AccountProgramBinding.updated_at.desc(),
+        AccountProgramBinding.created_at.desc(),
+        AccountProgramBinding.id.desc(),
+    ).limit(100).all()
+
+    candidates = [
+        _serialize_backtest_binding_candidate(
+            db,
+            binding=binding,
+            account=account,
+            program=program,
+            user_id=user_id,
+            symbol=symbol,
+        )
+        for binding, account, program in rows
+    ]
+    recommended = next((candidate for candidate in candidates if candidate.get("eligible")), None)
+
+    clamped_days = max(1, min(int(days or 30), 365))
+    now = datetime.now(timezone.utc)
+    end_time_ms = int(now.timestamp() * 1000)
+    start_time_ms = int((now.timestamp() - clamped_days * 24 * 60 * 60) * 1000)
+    default_request = None
+    if recommended:
+        default_request = {
+            "binding_id": recommended["binding_id"],
+            "start_time_ms": start_time_ms,
+            "end_time_ms": end_time_ms,
+            "initial_balance": float(initial_balance or 10000.0),
+            "slippage_percent": float(slippage_percent),
+            "fee_rate": float(fee_rate),
+        }
+
+    blockers: List[str] = []
+    if not candidates:
+        blockers.append("no_program_bindings")
+    elif not recommended:
+        blockers.append("no_eligible_symbol_matching_program_binding")
+
+    return {
+        "strategy_spec_id": record.id,
+        "strategy_symbol": symbol,
+        "ready": bool(recommended),
+        "blockers": blockers,
+        "recommended_binding": recommended,
+        "candidate_bindings": candidates[:10],
+        "program_backtest_endpoint": "/api/programs/backtest",
+        "program_backtest_method": "POST",
+        "program_backtest_streaming": True,
+        "default_request": default_request,
+        "assumptions": {
+            "days": clamped_days,
+            "initial_balance": float(initial_balance or 10000.0),
+            "slippage_percent": float(slippage_percent),
+            "fee_rate": float(fee_rate),
+            "does_not_execute": True,
+            "requires_user_confirmation": True,
+        },
+    }
 
 
 def attach_strategy_backtest_result(
