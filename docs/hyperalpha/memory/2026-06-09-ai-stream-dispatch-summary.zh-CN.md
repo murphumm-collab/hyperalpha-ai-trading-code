@@ -279,6 +279,7 @@
 - `docker compose up -d postgres` 后续已成功：`hyper-arena-postgres` healthy，`alpha_arena` 和 `alpha_snapshots` 都可连接；mock gateway `5621` 和 backend `8802` 已启动，`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
 - 新增本地自启动脚本：`scripts/local-dev/ai_trading_local_supervisor.sh`、`install_launch_agent.sh`、`uninstall_launch_agent.sh` 和 LaunchAgent plist。安装时会把当前项目同步到 `/Users/mo/Library/Application Support/HyperAlpha/runtime/hyperalpha-ai-trading`，修正 runtime `.venv` editable `.pth`，再由 `com.hyperalpha.ai-trading-local` 从 runtime 副本启动 frontend `5174`、backend `8802`、mock gateway `5621`，避免 macOS Documents 对后台执行的限制。
 - LaunchAgent runtime mirror 已通过本机自恢复验收：停止原本地服务后重装，launchd 从 runtime 副本恢复 frontend/backend/mock gateway；`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。实际整机重启没有在本会话物理执行；后续代码变更需要重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime 副本。
+- 本轮新增 live-stack 验收脚本后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；backend 冷启动期间第一次 readiness 显示 `backend_ai_trading_runtime_unreachable`，约 10 秒后复查 `cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
 - LaunchAgent runtime mirror 启动后，In-app Browser 再次打开 `/app/ai-trading` 并跳过 onboarding，确认 Gateway `available / 15m max`、All/Crypto/HIP-3 分段和 `xyz:NVDA`/`xyz:AAPL`/`xyz:TSLA` 仍可见。
 
 ## 6. 未验收 / 阻塞
