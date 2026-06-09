@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+import os
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from api.auth_utils import get_current_user_dependency
+from api.auth_utils import get_admin_user_dependency, get_current_user_dependency
 from database.connection import get_db
 from database.models import User
 from services.ai_trading_market_universe_service import get_ai_trading_market_universe
+from services.ai_trading_production_readiness_service import build_report as build_production_readiness_report
 from services.ai_trading_strategy_spec_service import (
     SignalGatewayDisabledError,
     attach_latest_matching_strategy_backtest_result,
@@ -178,6 +180,18 @@ def ai_trading_runtime_endpoint(
 ):
     """Return current-user AI Trading runtime status without secrets."""
     return get_ai_trading_runtime_status(db, user_id=current_user.id)
+
+
+@router.get("/admin/production-readiness")
+def ai_trading_production_readiness_endpoint(
+    current_user: User = Depends(get_admin_user_dependency),
+):
+    """Return admin-only, no-network AI Trading production readiness without secrets."""
+    return {
+        "success": True,
+        "requested_by_user_id": current_user.id,
+        "readiness": build_production_readiness_report(dict(os.environ)),
+    }
 
 
 @router.get("/backtest-results")

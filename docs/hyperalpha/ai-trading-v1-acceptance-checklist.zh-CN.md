@@ -22,21 +22,24 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - 订单后端 handoff：默认 disabled；启用后也必须要求用户确认、未过期、信号身份一致、action/symbol 一致、回测合格、payload 契约稳定。
 - 脱敏：API response、gateway payload、handoff attempt、strategy spec、backtest evidence 都不能泄露 API key、token、secret、private key、authorization。
 - 前端：`/app/ai-trading` 页面必须支持完整操作流，按钮状态必须以后端 preflight 为准。
+- 运营 readiness：管理员必须能通过只读、无网络、无提交的 production readiness 报告看到 Auth/JWKS、订单后端 handoff、AI stream、硬风控和模型 key policy 的上线 blocker，普通用户不能访问。
 - 文档：status、memory、gateway contract、V1 checklist 必须保持最新。
 - Git：只在 `codex/ai-agent-multitenant-foundation` 分支本地提交；GitHub 上传按当前用户要求暂不处理。
 
 ## 当前已验证
 
-- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：一键本地 V1 验收通过，覆盖 backend compile、46 条 AI Trading 回归、API-level smoke、默认生产 handoff gate 阻断、默认生产总 readiness gate 阻断、frontend build、runtime readiness、live local mock handoff；最新证据为 spec `#14`、signal event `#12`、runtime `target_kind=local_mock`。
-- `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：46 条 AI Trading/env checker/live-stack runner/production readiness/mock gateway/production handoff gate 回归通过。
+- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：一键本地 V1 验收通过，覆盖 backend compile、49 条 AI Trading 回归、API-level smoke、默认生产 handoff gate 阻断、默认生产总 readiness gate 阻断、frontend build、runtime readiness、live local mock handoff；最新证据为 spec `#15`、signal event `#13`、runtime `target_kind=local_mock`。
+- `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：49 条 AI Trading/env checker/live-stack runner/production readiness/admin readiness API/mock gateway/production handoff gate 回归通过。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`：通过。
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py`：通过，覆盖 draft -> model-adjust -> save -> attach backtest -> approve -> reject signal -> confirmed mock handoff -> runtime。
 - `cd backend && uv run python scripts/ai_trading_v1_env_check.py`：在 Docker/Postgres/mock gateway/backend/frontend 启动后返回 `ready=true`，并结构化输出/校验 runtime gateway `target_kind=local_mock` 和空 `runtime_config_blockers`。
-- `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff`：通过，覆盖本地 LaunchAgent/live Postgres 栈 draft -> save -> attach backtest -> approve -> eligible signal -> confirmed mock handoff -> attempt audit -> runtime；最新证据为 spec `#14`、signal event `#12`、gateway response `mock_accepted`。脚本默认拒绝无确认 handoff，只允许本地 URL，并要求 runtime gateway `target_kind=local_mock`。
+- `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff`：通过，覆盖本地 LaunchAgent/live Postgres 栈 draft -> save -> attach backtest -> approve -> eligible signal -> confirmed mock handoff -> attempt audit -> runtime；最新证据为 spec `#15`、signal event `#13`、gateway response `mock_accepted`。脚本默认拒绝无确认 handoff，只允许本地 URL，并要求 runtime gateway `target_kind=local_mock`。
 - `cd backend && uv run python scripts/ai_trading_production_handoff_check.py --strict`：当前默认配置应拒绝生产 handoff；真实订单后端验收前必须通过该生产前检查，且不能使用 localhost/mock/placeholder URL。
 - `cd backend && uv run python scripts/ai_trading_v1_production_readiness_check.py --strict`：当前默认配置应拒绝生产 readiness；真实上线前必须同时通过 Auth/JWKS、真实订单后端 handoff、AI stream 容量隔离、硬风控 TP/SL/notional/杠杆配置，并且不输出 token/API key 原文。
+- `/api/ai-trading/admin/production-readiness`：本地运行时匿名请求返回 401，临时 admin bearer 返回脱敏 readiness；当前本地 mock 配置下 `production_ready=false`，13 个 blockers 覆盖真实 Auth/JWKS、生产 handoff URL、硬风控 TP/SL/notional 等未配置项，且 `token_value_returned=false`。
 - 后端运行时 handoff eligibility 也会拒绝未设置 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的外部订单后端 URL；本地 mock gateway 不要求生产审批。
 - `cd frontend && npm run build`：通过，剩余为既有 browserslist/baseline/chunk-size warning。
+- In-app Browser 可以打开 `http://127.0.0.1:5174/#settings`；本地 auth config disabled 时 admin tab 按设计隐藏，普通本地浏览器不能看到 admin readiness 面板。管理员登录态下的 visual check 留到真实 Auth/JWKS 配置后验收。
 - In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、`Gateway available / 15m max / Local mock`、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
 - In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
 - In-app Browser 已验证 `xyz:NVDA` safe prompt fill 和 strategy draft：UI 显示 `NVDA · 15m`、`ready_for_review`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
@@ -54,6 +57,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - 真实 DeepSeek/Qwen API key live model-adjust 未验收；当前为 mocked Qwen regression。
 - 真实 HyperAlpha 订单后端 URL/token live handoff 未验收；当前为 disabled-by-default 和 mock gateway contract 验收。
 - 生产 handoff readiness gate 和生产总 readiness gate 已实现，但真实 HTTPS 订单后端 URL/token、真实 Auth/JWKS、硬风控生产值和 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的 live 验收未做。
+- Settings Admin production readiness 面板代码和 build 已完成；真实登录态/真实 Auth 配置下的可视化验收未做。本地 auth disabled 时 admin tab 隐藏是预期状态。
 - 真实交易所执行不属于 V1 本地验收完成条件，必须另开生产实盘验收。
 
 ## V1 通过标准

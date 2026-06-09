@@ -126,6 +126,21 @@ interface AiRuntimeStats {
   users: AiRuntimeUserStats[]
 }
 
+interface AiTradingProductionComponent {
+  ready: boolean
+  blockers?: string[]
+  warnings?: string[]
+  checks?: Record<string, unknown>
+}
+
+interface AiTradingProductionReadiness {
+  production_ready: boolean
+  blockers: string[]
+  warnings: string[]
+  checks: Record<string, AiTradingProductionComponent>
+  next_actions: string[]
+}
+
 export default function SettingsPage() {
   const { t, i18n } = useTranslation()
   const { user: authUser, setUser: setAuthUser } = useAuth()
@@ -215,6 +230,9 @@ export default function SettingsPage() {
   const [aiRuntimeStats, setAiRuntimeStats] = useState<AiRuntimeStats | null>(null)
   const [aiRuntimeLoading, setAiRuntimeLoading] = useState(false)
   const [aiRuntimeError, setAiRuntimeError] = useState<string | null>(null)
+  const [aiTradingReadiness, setAiTradingReadiness] = useState<AiTradingProductionReadiness | null>(null)
+  const [aiTradingReadinessLoading, setAiTradingReadinessLoading] = useState(false)
+  const [aiTradingReadinessError, setAiTradingReadinessError] = useState<string | null>(null)
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -366,13 +384,31 @@ export default function SettingsPage() {
     }
   }, [])
 
+  const fetchAiTradingReadiness = useCallback(async () => {
+    setAiTradingReadinessLoading(true)
+    setAiTradingReadinessError(null)
+    try {
+      const res = await authFetch('/api/ai-trading/admin/production-readiness')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to load AI Trading readiness')
+      }
+      setAiTradingReadiness(data.readiness || null)
+    } catch (err) {
+      setAiTradingReadinessError(err instanceof Error ? err.message : 'Failed to load AI Trading readiness')
+    } finally {
+      setAiTradingReadinessLoading(false)
+    }
+  }, [])
+
   const fetchAdminData = useCallback(async () => {
     await Promise.all([
       fetchAdminUsers(),
       fetchAdminAuditLogs(),
       fetchAiRuntimeStats(),
+      fetchAiTradingReadiness(),
     ])
-  }, [fetchAdminAuditLogs, fetchAdminUsers, fetchAiRuntimeStats])
+  }, [fetchAdminAuditLogs, fetchAdminUsers, fetchAiRuntimeStats, fetchAiTradingReadiness])
 
   useEffect(() => {
     if (
@@ -381,9 +417,11 @@ export default function SettingsPage() {
       && adminUsers.length === 0
       && adminAuditLogs.length === 0
       && !aiRuntimeStats
+      && !aiTradingReadiness
       && !adminUsersLoading
       && !adminAuditLoading
       && !aiRuntimeLoading
+      && !aiTradingReadinessLoading
     ) {
       fetchAdminData()
     }
@@ -393,6 +431,8 @@ export default function SettingsPage() {
     adminAuditLogs.length,
     adminUsers.length,
     adminUsersLoading,
+    aiTradingReadiness,
+    aiTradingReadinessLoading,
     aiRuntimeLoading,
     aiRuntimeStats,
     canManageUsers,
@@ -630,6 +670,23 @@ export default function SettingsPage() {
     return 'outline'
   }
 
+  const getReadinessBadgeVariant = (ready: boolean): 'default' | 'destructive' => {
+    return ready ? 'default' : 'destructive'
+  }
+
+  const formatReadinessComponentName = (component: string) => {
+    const labels: Record<string, string> = {
+      auth: t('settings.aiTradingReadinessAuth', 'Auth'),
+      signal_handoff: t('settings.aiTradingReadinessSignalHandoff', 'Signal Handoff'),
+      ai_stream: t('settings.aiTradingReadinessAiStream', 'AI Stream'),
+      hard_risk: t('settings.aiTradingReadinessHardRisk', 'Hard Risk'),
+      model_policy: t('settings.aiTradingReadinessModelPolicy', 'Model Policy'),
+    }
+    return labels[component] || component.replace(/_/g, ' ')
+  }
+
+  const formatReadinessCode = (code: string) => code.replace(/_/g, ' ')
+
   const handleToggleNewsSource = (index: number, enabled: boolean) => {
     setNewsError(null)
     setNewsSuccess(null)
@@ -811,6 +868,7 @@ export default function SettingsPage() {
 
   const aiEffectiveRunningTasks = aiRuntimeStats?.effective_running_tasks ?? aiRuntimeStats?.running_tasks ?? 0
   const aiRemoteRunningTasks = aiRuntimeStats?.remote_running_tasks ?? 0
+  const aiTradingReadinessComponents = Object.entries(aiTradingReadiness?.checks || {})
 
   return (
     <div className="p-6 h-[calc(100vh-64px)] flex flex-col overflow-hidden">
@@ -1535,10 +1593,10 @@ export default function SettingsPage() {
                     size="sm"
                     variant="outline"
                     onClick={fetchAdminData}
-                    disabled={adminUsersLoading || adminAuditLoading || aiRuntimeLoading}
+                    disabled={adminUsersLoading || adminAuditLoading || aiRuntimeLoading || aiTradingReadinessLoading}
                     className="w-full gap-2 md:w-auto"
                   >
-                    <RefreshCw className={`h-4 w-4 ${adminUsersLoading || adminAuditLoading || aiRuntimeLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw className={`h-4 w-4 ${adminUsersLoading || adminAuditLoading || aiRuntimeLoading || aiTradingReadinessLoading ? 'animate-spin' : ''}`} />
                     {t('common.refresh', 'Refresh')}
                   </Button>
                 </div>
@@ -1769,6 +1827,120 @@ export default function SettingsPage() {
                   ) : (
                     <div className="text-sm text-muted-foreground">
                       {t('settings.noAiRuntimeStats', 'No runtime stats loaded')}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-sm font-medium">
+                        {t('settings.aiTradingReadiness', 'AI Trading Production Readiness')}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.aiTradingReadinessDesc', 'No-network production gate for Auth, handoff, stream capacity, hard risk, and model policy')}
+                      </div>
+                    </div>
+                    {aiTradingReadiness && (
+                      <Badge variant={getReadinessBadgeVariant(aiTradingReadiness.production_ready)}>
+                        {aiTradingReadiness.production_ready
+                          ? t('settings.ready', 'Ready')
+                          : t('settings.blocked', 'Blocked')}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {aiTradingReadinessError && <div className="text-sm text-red-500">{aiTradingReadinessError}</div>}
+
+                  {aiTradingReadinessLoading && !aiTradingReadiness ? (
+                    <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
+                  ) : aiTradingReadiness ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-4 sm:grid-cols-3">
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.readinessBlockers', 'Blockers')}</div>
+                          <div className="text-xl font-semibold">{aiTradingReadiness.blockers.length}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.readinessWarnings', 'Warnings')}</div>
+                          <div className="text-xl font-semibold">{aiTradingReadiness.warnings.length}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.readinessComponents', 'Components')}</div>
+                          <div className="text-xl font-semibold">
+                            {aiTradingReadinessComponents.filter(([, report]) => report.ready).length}/{aiTradingReadinessComponents.length}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                        {aiTradingReadinessComponents.map(([component, report]) => {
+                          const blockers = report.blockers || []
+                          const warnings = report.warnings || []
+                          return (
+                            <div key={component} className="min-w-0 rounded-md border p-3 text-sm">
+                              <div className="mb-2 flex items-center justify-between gap-2">
+                                <div className="truncate font-medium">{formatReadinessComponentName(component)}</div>
+                                <Badge variant={getReadinessBadgeVariant(report.ready)}>
+                                  {report.ready ? t('settings.ready', 'Ready') : t('settings.blocked', 'Blocked')}
+                                </Badge>
+                              </div>
+                              <div className="text-xs text-muted-foreground">
+                                {t('settings.readinessBlockerCount', '{{count}} blockers', { count: blockers.length })}
+                              </div>
+                              {blockers.length > 0 && (
+                                <div className="mt-2 space-y-1">
+                                  {blockers.slice(0, 3).map((blocker) => (
+                                    <div key={blocker} className="truncate text-xs text-red-500" title={blocker}>
+                                      {formatReadinessCode(blocker)}
+                                    </div>
+                                  ))}
+                                  {blockers.length > 3 && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {t('settings.readinessMoreBlockers', '+{{count}} more', { count: blockers.length - 3 })}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {warnings.length > 0 && (
+                                <div className="mt-2 text-xs text-amber-600">
+                                  {t('settings.readinessWarningCount', '{{count}} warnings', { count: warnings.length })}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {aiTradingReadiness.blockers.length > 0 && (
+                        <div className="rounded-md border p-3">
+                          <div className="mb-2 text-sm font-medium">{t('settings.readinessTopBlockers', 'Top Blockers')}</div>
+                          <div className="space-y-1">
+                            {aiTradingReadiness.blockers.slice(0, 8).map((blocker) => (
+                              <div key={blocker} className="truncate text-xs text-red-500" title={blocker}>
+                                {formatReadinessCode(blocker)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {aiTradingReadiness.next_actions.length > 0 && (
+                        <div className="rounded-md border p-3">
+                          <div className="mb-2 text-sm font-medium">{t('settings.readinessNextActions', 'Next Actions')}</div>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {aiTradingReadiness.next_actions.map((action) => (
+                              <div key={action} className="text-xs text-muted-foreground">
+                                {action}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      {t('settings.noAiTradingReadiness', 'No AI Trading readiness report loaded')}
                     </div>
                   )}
                 </div>
