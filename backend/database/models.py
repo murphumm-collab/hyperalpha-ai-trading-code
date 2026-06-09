@@ -270,6 +270,29 @@ class AiTradingStrategySpecRecord(Base):
     user = relationship("User")
 
 
+class AiTradingSignalEventRecord(Base):
+    """Per-user AI Trading signal candidate audit record."""
+    __tablename__ = "ai_trading_signal_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    strategy_spec_id = Column(Integer, ForeignKey("ai_trading_strategy_specs.id"), nullable=False, index=True)
+    symbol = Column(String(64), nullable=False, index=True)
+    action = Column(String(20), nullable=False, default="hold", index=True)
+    status = Column(String(30), nullable=False, default="review_candidate", index=True)
+    handoff_status = Column(String(30), nullable=False, default="not_submitted")
+    signal_json = Column(Text, nullable=False)
+    error_message = Column(Text, nullable=True)
+    submitted_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+    strategy_spec = relationship("AiTradingStrategySpecRecord")
+
+
 class AiStreamTaskRecord(Base):
     """Persistent metadata for background AI stream tasks."""
     __tablename__ = "ai_stream_tasks"

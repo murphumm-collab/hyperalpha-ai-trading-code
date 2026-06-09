@@ -26,6 +26,8 @@
 - Hyper AI 策略草案摘要已提供保存和审批按钮，仍只操作 review 状态。
 - 已审批 strategy spec 可生成 `hyperalpha.ai_trading.signal_candidate.v1` 信号预览；该 preview 明确 `not_an_order=true`、`ai_may_place_orders=false`，只供聊天审核和后端 handoff 前检查。
 - Hyper AI 已审批草案摘要可把 signal preview 回填到聊天框，不会提交执行网关。
+- `ai_trading_signal_events` 已持久化当前用户的信号候选审计记录，默认 `status=review_candidate`、`handoff_status=not_submitted`。
+- Hyper AI signal preview 按钮现在会先创建 signal event，再把候选 JSON 回填聊天框。
 
 ## 3. AI Stream / Worker 现状
 
@@ -72,6 +74,8 @@
 - Frontend production build 已通过，Hyper AI strategy spec 保存/审批控件编译成功。
 - AI Trading signal preview route smoke：未审批 spec 返回 400；审批后生成 not-an-order signal candidate，保留 mark price 等 market context。
 - Frontend production build 已通过，Hyper AI signal preview 控件编译成功。
+- AI Trading signal event route smoke：未审批 spec 不能创建 event，审批后可创建/list/detail 当前用户 review candidate，signal JSON 保持 not-an-order。
+- Frontend production build 已通过，Hyper AI signal preview 控件已改为 auditable signal-event endpoint。
 
 ## 6. 未验收 / 阻塞
 
@@ -80,7 +84,7 @@
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
-- strategy spec / signal preview 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols；当前只做了页面 shell、service、persistence 和 FastAPI route 烟测。
+- strategy spec / signal preview / signal event 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols；当前只做了页面 shell、service、persistence 和 FastAPI route 烟测。
 
 ## 7. 当前提交锚点
 

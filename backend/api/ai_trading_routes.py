@@ -13,11 +13,15 @@ from services.ai_trading_strategy_spec_service import (
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_signal_preview_from_strategy_spec_record,
+    create_signal_event_record,
     draft_strategy_spec,
+    get_signal_event_record,
     get_strategy_spec_record,
     get_strategy_spec_schema,
+    list_signal_event_records,
     list_strategy_spec_records,
     save_strategy_spec_record,
+    serialize_signal_event_record,
     serialize_strategy_spec_record,
     validate_strategy_spec,
 )
@@ -219,4 +223,68 @@ def strategy_signal_preview_endpoint(
     return {
         "success": True,
         "signal_preview": signal_preview,
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/signal-events")
+def create_strategy_signal_event_endpoint(
+    spec_id: int,
+    request: StrategySignalPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Create a review-only signal candidate audit event from an approved spec."""
+    try:
+        event = create_signal_event_record(
+            db,
+            user_id=current_user.id,
+            strategy_spec_id=spec_id,
+            market_context=request.market_context,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "signal_event": serialize_signal_event_record(event, include_signal=True),
+    }
+
+
+@router.get("/signal-events")
+def list_signal_events_endpoint(
+    strategy_spec_id: Optional[int] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """List current-user AI Trading signal candidate events."""
+    events = list_signal_event_records(
+        db,
+        user_id=current_user.id,
+        strategy_spec_id=strategy_spec_id,
+        status=status,
+        limit=limit,
+    )
+    return {
+        "signal_events": [
+            serialize_signal_event_record(event, include_signal=False)
+            for event in events
+        ]
+    }
+
+
+@router.get("/signal-events/{event_id}")
+def get_signal_event_endpoint(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Get a current-user AI Trading signal candidate event."""
+    event = get_signal_event_record(db, user_id=current_user.id, event_id=event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Signal event not found")
+    return {
+        "signal_event": serialize_signal_event_record(event, include_signal=True),
     }

@@ -962,7 +962,7 @@ export default function HyperAiPage() {
     setStrategySignalPreviewLoading(true)
     setStrategyDraftError(null)
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${strategyDraftRecord.id}/signal-preview`, {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${strategyDraftRecord.id}/signal-events`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ market_context: {} }),
@@ -971,10 +971,11 @@ export default function HyperAiPage() {
       if (!res.ok) {
         throw new Error(data.detail || 'Failed to build signal preview')
       }
-      const signalPreview = data.signal_preview
+      const signalEvent = data.signal_event
+      const signalPreview = signalEvent?.signal || signalEvent
       const reviewPrompt = currentLang === 'zh'
-        ? `请审核下面这份 AI Trading Signal Preview：确认它是否仍然只是 signal candidate、是否满足 approved strategy spec 的风控边界、是否还缺少给订单后端的字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
-        : `Review this AI Trading Signal Preview. Confirm that it is still only a signal candidate, whether it satisfies the approved strategy spec risk boundary, and which fields are still missing before backend handoff. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
+        ? `请审核下面这份 AI Trading Signal Event #${signalEvent?.id || '-'}：确认它是否仍然只是 signal candidate、是否满足 approved strategy spec 的风控边界、是否还缺少给订单后端的字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
+        : `Review AI Trading Signal Event #${signalEvent?.id || '-'}. Confirm that it is still only a signal candidate, whether it satisfies the approved strategy spec risk boundary, and which fields are still missing before backend handoff. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {

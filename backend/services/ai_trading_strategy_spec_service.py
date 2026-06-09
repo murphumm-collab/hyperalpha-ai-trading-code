@@ -21,7 +21,7 @@ from config.settings import (
     AI_HARD_REQUIRE_STOP_LOSS,
     AI_HARD_REQUIRE_TAKE_PROFIT,
 )
-from database.models import AiTradingStrategySpecRecord
+from database.models import AiTradingSignalEventRecord, AiTradingStrategySpecRecord
 from services.exchanges.symbol_mapper import SymbolMapper
 
 
@@ -235,6 +235,29 @@ def serialize_strategy_spec_record(
     }
     if include_spec:
         payload["spec"] = _json_loads(record.spec_json, {})
+    return payload
+
+
+def serialize_signal_event_record(
+    record: AiTradingSignalEventRecord,
+    *,
+    include_signal: bool = False,
+) -> Dict[str, Any]:
+    payload = {
+        "id": record.id,
+        "user_id": record.user_id,
+        "strategy_spec_id": record.strategy_spec_id,
+        "symbol": record.symbol,
+        "action": record.action,
+        "status": record.status,
+        "handoff_status": record.handoff_status,
+        "error_message": record.error_message,
+        "submitted_at": _record_timestamp(record.submitted_at),
+        "created_at": _record_timestamp(record.created_at),
+        "updated_at": _record_timestamp(record.updated_at),
+    }
+    if include_signal:
+        payload["signal"] = _json_loads(record.signal_json, {})
     return payload
 
 
@@ -668,3 +691,69 @@ def build_signal_preview_from_strategy_spec_record(
         ]
 
     return signal
+
+
+def create_signal_event_record(
+    db: Session,
+    *,
+    user_id: int,
+    strategy_spec_id: int,
+    market_context: Optional[Dict[str, Any]] = None,
+) -> AiTradingSignalEventRecord:
+    """Create a review-only signal candidate audit event from an approved spec."""
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=strategy_spec_id)
+    if not record:
+        raise ValueError("Strategy spec not found")
+    signal = build_signal_preview_from_strategy_spec_record(
+        record,
+        user_id=user_id,
+        market_context=market_context,
+    )
+    event = AiTradingSignalEventRecord(
+        user_id=user_id,
+        strategy_spec_id=record.id,
+        symbol=signal.get("symbol") or record.symbol,
+        action=signal.get("action") or "hold",
+        status="review_candidate",
+        handoff_status=signal.get("execution_boundary", {}).get("handoff_status") or "not_submitted",
+        signal_json=_json_dumps(signal),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+def list_signal_event_records(
+    db: Session,
+    *,
+    user_id: int,
+    strategy_spec_id: Optional[int] = None,
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> List[AiTradingSignalEventRecord]:
+    query = db.query(AiTradingSignalEventRecord).filter(
+        AiTradingSignalEventRecord.user_id == user_id,
+    )
+    if strategy_spec_id is not None:
+        query = query.filter(AiTradingSignalEventRecord.strategy_spec_id == strategy_spec_id)
+    if status:
+        query = query.filter(AiTradingSignalEventRecord.status == status)
+    return (
+        query
+        .order_by(AiTradingSignalEventRecord.created_at.desc(), AiTradingSignalEventRecord.id.desc())
+        .limit(max(1, min(int(limit or 50), 100)))
+        .all()
+    )
+
+
+def get_signal_event_record(
+    db: Session,
+    *,
+    user_id: int,
+    event_id: int,
+) -> Optional[AiTradingSignalEventRecord]:
+    return db.query(AiTradingSignalEventRecord).filter(
+        AiTradingSignalEventRecord.id == event_id,
+        AiTradingSignalEventRecord.user_id == user_id,
+    ).first()
