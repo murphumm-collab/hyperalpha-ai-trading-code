@@ -2595,7 +2595,7 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     assert bob.get("/api/ai-trading/signal-events?agent_session_id=session:btc-breakout").json()["signal_events"] == []
 
 
-def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp_path):
+def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp_path, monkeypatch):
     clients = _build_clients(tmp_path, usernames=("alice", "bob"))
     alice = clients["alice"]
     bob = clients["bob"]
@@ -2710,6 +2710,24 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     archived_sessions = alice.get("/api/ai-trading/agent-sessions?status=archived")
     assert archived_sessions.status_code == 200
     assert archived_sessions.json()["agent_sessions"][0]["id"] == "session:managed-btc"
+
+    adjust_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/adjust",
+        json={"instruction": "Continue this archived session as a 1h short setup", "source": "pytest_archived"},
+    )
+    assert adjust_archived_session_spec.status_code == 400
+    assert "archived" in adjust_archived_session_spec.json()["detail"]
+
+    def fail_if_model_config_is_read(db, user_id=None):
+        raise AssertionError("model config should not be read for an archived agent session")
+
+    monkeypatch.setattr(strategy_service, "get_llm_config", fail_if_model_config_is_read)
+    model_adjust_archived_session_spec = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/model-adjust",
+        json={"instruction": "Ask Qwen to continue this archived session", "source": "pytest_archived"},
+    )
+    assert model_adjust_archived_session_spec.status_code == 400
+    assert "archived" in model_adjust_archived_session_spec.json()["detail"]
 
     save_to_archived = alice.post(
         "/api/ai-trading/strategy-specs",

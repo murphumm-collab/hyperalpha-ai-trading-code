@@ -636,6 +636,23 @@ def _ensure_agent_session_record(
     return record
 
 
+def _assert_strategy_record_agent_session_active(
+    db: Session,
+    *,
+    user_id: int,
+    record: AiTradingStrategySpecRecord,
+) -> None:
+    if not record.agent_session_id:
+        return
+    session_record = _get_agent_session_record(
+        db,
+        user_id=user_id,
+        agent_session_id=record.agent_session_id,
+    )
+    if session_record and session_record.status == AGENT_SESSION_ARCHIVED_STATUS:
+        raise ValueError("AI Trading agent session is archived")
+
+
 def create_ai_trading_agent_session(
     db: Session,
     *,
@@ -2482,6 +2499,7 @@ def adjust_strategy_spec_record(
     record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
     if not record or record.status == ARCHIVED_STATUS:
         raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
 
     current_spec = _json_loads(record.spec_json, {})
     adjusted_spec = adjust_strategy_spec(
@@ -2518,6 +2536,7 @@ def adjust_strategy_spec_record_with_model(
     record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
     if not record or record.status == ARCHIVED_STATUS:
         raise ValueError("Strategy spec not found")
+    _assert_strategy_record_agent_session_active(db, user_id=user_id, record=record)
 
     current_spec = _json_loads(record.spec_json, {})
     result = adjust_strategy_spec_with_model(
