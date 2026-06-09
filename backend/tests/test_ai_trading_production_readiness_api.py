@@ -321,11 +321,26 @@ def test_admin_readiness_reports_agent_session_context_budget_without_summary_le
     assert agent_context["checks"]["over_budget_count"] == 1
     assert agent_context["checks"]["redacted_context_summary_count"] == 1
     assert agent_context["checks"]["sensitive_context_summary_count"] == 1
-    assert agent_context["checks"]["latest_over_budget"] == {
-        "id": agent_context["checks"]["latest_over_budget"]["id"],
+    latest_over_budget = agent_context["checks"]["latest_over_budget"]
+    assert isinstance(latest_over_budget["id"], int)
+    assert {key: value for key, value in latest_over_budget.items() if key != "id"} == {
         "agent_session_id": "session:over-budget",
         "status": "active",
         "context_summary_chars": 2001,
+    }
+    latest_redacted_context = agent_context["checks"]["latest_redacted_context"]
+    assert isinstance(latest_redacted_context["id"], int)
+    assert {key: value for key, value in latest_redacted_context.items() if key != "id"} == {
+        "agent_session_id": "session:redacted-context",
+        "status": "active",
+        "context_summary_chars": len("[redacted_sensitive_context]"),
+    }
+    latest_sensitive_context = agent_context["checks"]["latest_sensitive_context"]
+    assert isinstance(latest_sensitive_context["id"], int)
+    assert {key: value for key, value in latest_sensitive_context.items() if key != "id"} == {
+        "agent_session_id": "session:sensitive-context",
+        "status": "active",
+        "context_summary_chars": len("api_key=secret-session-key should not be returned"),
     }
     assert agent_context["checks"]["secret_values_returned"] is False
     next_actions = readiness["next_actions"]

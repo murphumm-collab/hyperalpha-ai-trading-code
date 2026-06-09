@@ -331,6 +331,8 @@ def build_agent_session_context_audit_report(db: Any) -> Dict[str, Any]:
     over_budget = 0
     max_chars = 0
     latest_over_budget = None
+    latest_redacted_context = None
+    latest_sensitive_context = None
     near_budget_threshold = int(AGENT_CONTEXT_SUMMARY_MAX_CHARS * 0.9)
 
     for record in records:
@@ -347,8 +349,24 @@ def build_agent_session_context_audit_report(db: Any) -> Dict[str, Any]:
             with_summary += 1
         if summary == "[redacted_sensitive_context]":
             redacted += 1
+            candidate = {
+                "id": record.id,
+                "agent_session_id": record.agent_session_id,
+                "status": status,
+                "context_summary_chars": summary_chars,
+            }
+            if latest_redacted_context is None or record.id > latest_redacted_context["id"]:
+                latest_redacted_context = candidate
         elif summary and SENSITIVE_AI_TRADING_KEY_PATTERN.search(summary):
             sensitive += 1
+            candidate = {
+                "id": record.id,
+                "agent_session_id": record.agent_session_id,
+                "status": status,
+                "context_summary_chars": summary_chars,
+            }
+            if latest_sensitive_context is None or record.id > latest_sensitive_context["id"]:
+                latest_sensitive_context = candidate
         if summary_chars >= near_budget_threshold and summary_chars <= AGENT_CONTEXT_SUMMARY_MAX_CHARS:
             near_budget += 1
         if summary_chars > AGENT_CONTEXT_SUMMARY_MAX_CHARS:
@@ -391,6 +409,8 @@ def build_agent_session_context_audit_report(db: Any) -> Dict[str, Any]:
             "redacted_context_summary_count": redacted,
             "sensitive_context_summary_count": sensitive,
             "latest_over_budget": latest_over_budget,
+            "latest_redacted_context": latest_redacted_context,
+            "latest_sensitive_context": latest_sensitive_context,
             "secret_values_returned": False,
         },
     }
