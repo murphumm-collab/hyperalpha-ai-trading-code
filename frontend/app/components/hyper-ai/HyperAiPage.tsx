@@ -195,6 +195,8 @@ interface AiTradingStrategySpecRecord {
     id?: string | null
     name?: string | null
     context_summary?: string | null
+    context_summary_chars?: number | null
+    summary_max_chars?: number | null
     status?: string | null
   }
   spec?: AiTradingStrategySpec
@@ -216,6 +218,9 @@ interface AiTradingSignalEventRecord {
   agent_session?: {
     id?: string | null
     name?: string | null
+    context_summary?: string | null
+    context_summary_chars?: number | null
+    summary_max_chars?: number | null
     status?: string | null
   }
   handoff_eligibility?: {
@@ -239,6 +244,9 @@ interface AiTradingSignalHandoffAttemptRecord {
   agent_session?: {
     id?: string | null
     name?: string | null
+    context_summary?: string | null
+    context_summary_chars?: number | null
+    summary_max_chars?: number | null
     status?: string | null
   }
   blockers?: string[]
@@ -387,6 +395,8 @@ interface AiTradingAgentSessionRecord {
   id: string
   name?: string | null
   context_summary?: string | null
+  context_summary_chars?: number | null
+  summary_max_chars?: number | null
   status?: string | null
   strategy_spec_count?: number
   signal_event_count?: number
@@ -403,6 +413,8 @@ interface AiTradingAgentSessionContext {
     id?: string
     name?: string | null
     context_summary?: string | null
+    context_summary_chars?: number | null
+    summary_max_chars?: number | null
     status?: string | null
   }
   compression?: Record<string, unknown>
@@ -532,6 +544,34 @@ function textValue(value: unknown, fallback = '-'): string {
     return fallback
   }
   return String(value)
+}
+
+type AiTradingContextBudgetSource = {
+  context_summary?: string | null
+  context_summary_chars?: number | null
+  summary_max_chars?: number | null
+}
+
+function numberOrNull(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value
+  }
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function formatAiTradingContextBudget(
+  source?: AiTradingContextBudgetSource | null,
+  draftSummary?: string
+): string {
+  const chars = draftSummary !== undefined
+    ? draftSummary.length
+    : numberOrNull(source?.context_summary_chars) ?? String(source?.context_summary || '').length
+  const maxChars = numberOrNull(source?.summary_max_chars) ?? 2000
+  return `${chars} / ${maxChars}`
 }
 
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
@@ -3485,6 +3525,14 @@ export default function HyperAiPage() {
       max: textValue(agentSessionDetailCompression.attempt_max_limit),
     },
   ]
+  const agentSessionDetailContextBudget = formatAiTradingContextBudget(
+    agentSessionDetail,
+    undefined
+  )
+  const selectedAiTradingAgentSessionContextBudget = formatAiTradingContextBudget(
+    selectedAiTradingAgentSession,
+    agentSessionSummaryDraft
+  )
 
   if (agentSessionDetailPageId) {
     return (
@@ -3642,10 +3690,10 @@ export default function HyperAiPage() {
                   ))}
                   <div className="rounded border bg-background/70 px-3 py-2 text-xs">
                     <div className="text-muted-foreground">
-                      {t('hyperAi.aiTradingSummaryMaxChars', 'Summary max chars')}
+                      {t('hyperAi.aiTradingSummaryChars', 'Summary chars')}
                     </div>
                     <div className="mt-1 font-medium">
-                      {textValue(agentSessionDetailCompression.summary_max_chars)}
+                      {agentSessionDetailContextBudget}
                     </div>
                     <div className="mt-0.5 text-[10px] text-muted-foreground">
                       {t('hyperAi.aiTradingRedactedNoCredentials', 'redacted, no credentials')}
@@ -4483,6 +4531,12 @@ export default function HyperAiPage() {
                   )}
                 </button>
               </div>
+              <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                <span>{t('hyperAi.aiTradingAgentSessionSummary', 'Context summary')}</span>
+                <span className="shrink-0 font-medium">
+                  {t('hyperAi.aiTradingContextBudgetShort', 'Context')} {selectedAiTradingAgentSessionContextBudget}
+                </span>
+              </div>
               <Input
                 value={agentSessionSummaryDraft}
                 onChange={(e) => setAgentSessionSummaryDraft(e.target.value)}
@@ -5090,6 +5144,8 @@ export default function HyperAiPage() {
                             </div>
                             <div className="truncate text-[11px] text-muted-foreground">
                               {(session.symbols || []).slice(0, 4).join(', ') || t('hyperAi.aiTradingNoSymbols', 'No symbols')}
+                              {' · '}
+                              {t('hyperAi.aiTradingContextBudgetTiny', 'ctx')} {formatAiTradingContextBudget(session)}
                             </div>
                           </button>
                           <button
@@ -5138,6 +5194,8 @@ export default function HyperAiPage() {
                                     {t('hyperAi.aiTradingSignalsShort', 'signals')}
                                     {' · '}
                                     {(session.symbols || []).slice(0, 3).join(', ') || t('hyperAi.aiTradingNoSymbols', 'No symbols')}
+                                    {' · '}
+                                    {t('hyperAi.aiTradingContextBudgetTiny', 'ctx')} {formatAiTradingContextBudget(session)}
                                   </div>
                                 </button>
                                 <button

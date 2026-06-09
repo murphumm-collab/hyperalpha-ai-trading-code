@@ -565,20 +565,35 @@ def _clean_agent_context_summary(value: Any) -> Optional[str]:
     return summary
 
 
+def _agent_context_summary_budget_fields(summary: Any) -> Dict[str, int]:
+    resolved_summary = str(summary or "")
+    return {
+        "context_summary_chars": len(resolved_summary),
+        "summary_max_chars": AGENT_CONTEXT_SUMMARY_MAX_CHARS,
+    }
+
+
 def _record_agent_session_payload(
     record: Any,
     *,
     db: Optional[Session] = None,
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
+    session_record = _record_agent_session_record(record, db=db, user_id=user_id)
+    context_summary = getattr(record, "agent_context_summary", None)
+    if not context_summary and session_record is not None:
+        context_summary = session_record.context_summary
+    name = getattr(record, "agent_session_name", None)
+    if session_record is not None:
+        name = session_record.name or name
     payload = {
         "id": getattr(record, "agent_session_id", None),
-        "name": getattr(record, "agent_session_name", None),
-        "context_summary": getattr(record, "agent_context_summary", None),
+        "name": name,
+        "context_summary": context_summary,
+        **_agent_context_summary_budget_fields(context_summary),
     }
-    status = _record_agent_session_status(record, db=db, user_id=user_id)
-    if status:
-        payload["status"] = status
+    if session_record is not None:
+        payload["status"] = session_record.status
     return payload
 
 
@@ -589,6 +604,7 @@ def serialize_ai_trading_agent_session_record(
         "id": record.agent_session_id,
         "name": record.name,
         "context_summary": record.context_summary,
+        **_agent_context_summary_budget_fields(record.context_summary),
         "status": record.status,
         "created_at": _record_timestamp(record.created_at),
         "updated_at": _record_timestamp(record.updated_at),
@@ -610,12 +626,12 @@ def _get_agent_session_record(
     ).first()
 
 
-def _record_agent_session_status(
+def _record_agent_session_record(
     record: Any,
     *,
     db: Optional[Session] = None,
     user_id: Optional[int] = None,
-) -> Optional[str]:
+) -> Optional[AiTradingAgentSessionRecord]:
     if db is None or user_id is None:
         return None
     try:
@@ -624,11 +640,20 @@ def _record_agent_session_status(
         return None
     if not agent_session_id:
         return None
-    session_record = _get_agent_session_record(
+    return _get_agent_session_record(
         db,
         user_id=int(user_id),
         agent_session_id=agent_session_id,
     )
+
+
+def _record_agent_session_status(
+    record: Any,
+    *,
+    db: Optional[Session] = None,
+    user_id: Optional[int] = None,
+) -> Optional[str]:
+    session_record = _record_agent_session_record(record, db=db, user_id=user_id)
     return session_record.status if session_record else None
 
 
@@ -942,6 +967,7 @@ def compress_ai_trading_agent_session_context(
     context["agent_session"] = {
         **context.get("agent_session", {}),
         "context_summary": summary,
+        **_agent_context_summary_budget_fields(summary),
         "status": record.status,
     }
     return {
@@ -3162,6 +3188,8 @@ def list_ai_trading_agent_sessions(
         key=lambda item: _agent_session_sort_key(item.get("updated_at")),
         reverse=True,
     )
+    for session in sessions:
+        session.update(_agent_context_summary_budget_fields(session.get("context_summary")))
     return sessions[:max_limit]
 
 
@@ -3206,10 +3234,12 @@ def build_ai_trading_agent_session_context(
         raise ValueError("AI Trading agent session not found")
 
     if session_record:
+        session_context_summary = session_record.context_summary
         session_payload = {
             "id": session_record.agent_session_id,
             "name": session_record.name,
-            "context_summary": session_record.context_summary,
+            "context_summary": session_context_summary,
+            **_agent_context_summary_budget_fields(session_context_summary),
             "status": session_record.status,
         }
     else:
@@ -3226,6 +3256,7 @@ def build_ai_trading_agent_session_context(
             "id": resolved_agent_session_id,
             "name": session_payload.get("name") or resolved_agent_session_id,
             "context_summary": context_summary,
+            **_agent_context_summary_budget_fields(context_summary),
             "status": session_payload.get("status") or AGENT_SESSION_ACTIVE_STATUS,
         },
         "compression": {

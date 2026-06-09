@@ -2628,12 +2628,13 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     alice = clients["alice"]
     bob = clients["bob"]
 
+    btc_context_summary = "User prefers BTC 15m breakout with strict risk caps."
     btc_spec, btc_event = _create_approved_signal_event(
         alice,
         symbol="BTC",
         agent_session_id="session:btc-breakout",
         agent_session_name="BTC Breakout Agent",
-        agent_context_summary="User prefers BTC 15m breakout with strict risk caps.",
+        agent_context_summary=btc_context_summary,
     )
     eth_spec, _ = _create_approved_signal_event(
         alice,
@@ -2656,16 +2657,24 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     assert btc_session["by_signal_status"]["review_candidate"] == 1
     assert btc_session["symbols"] == ["BTC"]
     assert "strict risk caps" in btc_session["context_summary"]
+    assert btc_session["context_summary_chars"] == len(btc_context_summary)
+    assert btc_session["summary_max_chars"] == 2000
 
     filtered_specs = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:btc-breakout")
     assert filtered_specs.status_code == 200
     assert [row["id"] for row in filtered_specs.json()["specs"]] == [btc_spec["id"]]
-    assert filtered_specs.json()["specs"][0]["agent_session"]["id"] == "session:btc-breakout"
+    filtered_spec_session = filtered_specs.json()["specs"][0]["agent_session"]
+    assert filtered_spec_session["id"] == "session:btc-breakout"
+    assert filtered_spec_session["context_summary_chars"] == len(btc_context_summary)
+    assert filtered_spec_session["summary_max_chars"] == 2000
 
     filtered_events = alice.get("/api/ai-trading/signal-events?agent_session_id=session:btc-breakout")
     assert filtered_events.status_code == 200
     assert [row["id"] for row in filtered_events.json()["signal_events"]] == [btc_event["id"]]
-    assert filtered_events.json()["signal_events"][0]["agent_session"]["id"] == "session:btc-breakout"
+    filtered_event_session = filtered_events.json()["signal_events"][0]["agent_session"]
+    assert filtered_event_session["id"] == "session:btc-breakout"
+    assert filtered_event_session["context_summary_chars"] == len(btc_context_summary)
+    assert filtered_event_session["summary_max_chars"] == 2000
 
     detail = alice.get(f"/api/ai-trading/signal-events/{btc_event['id']}")
     assert detail.status_code == 200
@@ -2678,12 +2687,17 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     assert blocked_handoff.status_code == 409
     attempts = alice.get(f"/api/ai-trading/signal-events/{btc_event['id']}/handoff-attempts")
     assert attempts.status_code == 200
-    assert attempts.json()["attempts"][0]["agent_session"]["id"] == "session:btc-breakout"
+    attempt_session = attempts.json()["attempts"][0]["agent_session"]
+    assert attempt_session["id"] == "session:btc-breakout"
+    assert attempt_session["context_summary_chars"] == len(btc_context_summary)
+    assert attempt_session["summary_max_chars"] == 2000
 
     context = alice.get("/api/ai-trading/agent-sessions/session:btc-breakout/context")
     assert context.status_code == 200
     context_payload = context.json()["context"]
     assert context_payload["agent_session"]["id"] == "session:btc-breakout"
+    assert context_payload["agent_session"]["context_summary_chars"] == len(btc_context_summary)
+    assert context_payload["agent_session"]["summary_max_chars"] == 2000
     assert context_payload["compression"]["secret_policy"] == "redacted_no_credentials"
     assert context_payload["compression"]["attempt_limit"] == 1
     assert context_payload["compression"]["strategy_requested_limit"] == 5
@@ -2731,22 +2745,29 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     clients = _build_clients(tmp_path, usernames=("alice", "bob"))
     alice = clients["alice"]
     bob = clients["bob"]
+    managed_context_summary = "BTC managed session with risk caps."
+    renamed_context_summary = "Renamed context summary."
 
     created = alice.post(
         "/api/ai-trading/agent-sessions",
         json={
             "agent_session_id": "session:managed-btc",
             "name": "Managed BTC Agent",
-            "context_summary": "BTC managed session without secrets.",
+            "context_summary": managed_context_summary,
         },
     )
     assert created.status_code == 200
     created_session = created.json()["agent_session"]
     assert created_session["id"] == "session:managed-btc"
     assert created_session["status"] == "active"
+    assert created_session["context_summary"] == managed_context_summary
+    assert created_session["context_summary_chars"] == len(managed_context_summary)
+    assert created_session["summary_max_chars"] == 2000
 
     empty_context = alice.get("/api/ai-trading/agent-sessions/session:managed-btc/context")
     assert empty_context.status_code == 200
+    assert empty_context.json()["context"]["agent_session"]["context_summary_chars"] == len(managed_context_summary)
+    assert empty_context.json()["context"]["agent_session"]["summary_max_chars"] == 2000
     assert empty_context.json()["context"]["strategy_specs"] == []
     assert empty_context.json()["context"]["signal_events"] == []
     assert empty_context.json()["context"]["handoff_attempts"] == []
@@ -2774,6 +2795,8 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     saved_record = saved.json()["spec_record"]
     assert saved_record["agent_session"]["name"] == "Managed BTC Agent"
     assert saved_record["agent_session"]["status"] == "active"
+    assert saved_record["agent_session"]["context_summary_chars"] == len(managed_context_summary)
+    assert saved_record["agent_session"]["summary_max_chars"] == 2000
 
     saved_record = _attach_passing_backtest(alice, saved_record["id"])
     approved = alice.post(f"/api/ai-trading/strategy-specs/{saved_record['id']}/approve")
@@ -2796,16 +2819,20 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
         "/api/ai-trading/agent-sessions/session:managed-btc",
         json={
             "name": "Renamed BTC Agent",
-            "context_summary": "Renamed context summary.",
+            "context_summary": renamed_context_summary,
         },
     )
     assert updated.status_code == 200
     assert updated.json()["agent_session"]["name"] == "Renamed BTC Agent"
+    assert updated.json()["agent_session"]["context_summary_chars"] == len(renamed_context_summary)
+    assert updated.json()["agent_session"]["summary_max_chars"] == 2000
 
     detail = alice.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
     assert detail.status_code == 200
     assert detail.json()["spec_record"]["agent_session"]["name"] == "Renamed BTC Agent"
     assert detail.json()["spec_record"]["agent_session"]["status"] == "active"
+    assert detail.json()["spec_record"]["agent_session"]["context_summary_chars"] == len(renamed_context_summary)
+    assert detail.json()["spec_record"]["agent_session"]["summary_max_chars"] == 2000
     signal_detail = alice.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert signal_detail.status_code == 200
     assert signal_detail.json()["signal_event"]["agent_session"]["name"] == "Renamed BTC Agent"
@@ -2835,7 +2862,11 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert compressed_payload["context"]["compression"]["attempt_max_limit"] == 100
     assert "api_key" not in json.dumps(compressed_payload).lower()
     assert compressed_payload["agent_session"]["context_summary"] == context_summary
+    assert compressed_payload["agent_session"]["context_summary_chars"] == len(context_summary)
+    assert compressed_payload["agent_session"]["summary_max_chars"] == 2000
     assert compressed_payload["context"]["agent_session"]["context_summary"] == context_summary
+    assert compressed_payload["context"]["agent_session"]["context_summary_chars"] == len(context_summary)
+    assert compressed_payload["context"]["agent_session"]["summary_max_chars"] == 2000
     assert compressed_payload["context"]["handoff_attempts"][0]["result"] == "blocked"
     assert compressed_payload["context"]["handoff_attempts"][0]["signal_event_id"] == event["id"]
 
@@ -2843,6 +2874,8 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert detail_after_compress.status_code == 200
     assert detail_after_compress.json()["spec_record"]["agent_session"]["context_summary"] == context_summary
     assert detail_after_compress.json()["spec_record"]["agent_session"]["status"] == "active"
+    assert detail_after_compress.json()["spec_record"]["agent_session"]["context_summary_chars"] == len(context_summary)
+    assert detail_after_compress.json()["spec_record"]["agent_session"]["summary_max_chars"] == 2000
 
     assert bob.patch(
         "/api/ai-trading/agent-sessions/session:managed-btc",
