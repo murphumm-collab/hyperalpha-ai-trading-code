@@ -80,6 +80,10 @@ BACKTEST_PERFORMANCE_METRICS = (
     "win_rate",
     "profit_factor",
 )
+SENSITIVE_AI_TRADING_KEY_PATTERN = re.compile(
+    r"(api[_-]?key|secret|token|private[_-]?key|password|authorization|bearer)",
+    re.IGNORECASE,
+)
 HIP3_INDEX_SYMBOLS = {
     "SP500",
     "SPX",
@@ -417,6 +421,20 @@ def _json_loads(value: Optional[str], fallback: Any) -> Any:
         return fallback
 
 
+def _redact_sensitive_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: Dict[str, Any] = {}
+        for key, child in value.items():
+            if SENSITIVE_AI_TRADING_KEY_PATTERN.search(str(key)):
+                redacted[key] = "***"
+            else:
+                redacted[key] = _redact_sensitive_payload(child)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_sensitive_payload(item) for item in value]
+    return value
+
+
 def _record_timestamp(value: Any) -> Optional[str]:
     if not value:
         return None
@@ -502,7 +520,7 @@ def serialize_signal_event_record(
         "handoff_eligibility": build_signal_event_handoff_eligibility(record),
     }
     if include_signal:
-        payload["signal"] = _json_loads(record.signal_json, {})
+        payload["signal"] = _redact_sensitive_payload(_json_loads(record.signal_json, {}))
     return payload
 
 
@@ -1848,6 +1866,7 @@ def _build_signal_gateway_payload(
 ) -> Dict[str, Any]:
     signal = _json_loads(event.signal_json, {})
     idempotency_key = signal.get("idempotency_key") if isinstance(signal, dict) else None
+    signal = _redact_sensitive_payload(signal)
     return {
         "type": "AI_TRADING_SIGNAL_CANDIDATE",
         "version": "hyperalpha.ai_trading.gateway_message.v1",

@@ -584,6 +584,66 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
     assert "secret-response-body" not in str(attempt)
 
 
+def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+
+    session_factory = client._ai_trading_session_factory
+    session = session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        signal = json.loads(row.signal_json)
+        signal["api_key"] = "secret-key"
+        signal["market_context"]["access_token"] = "secret-token"
+        signal["risk"]["nested"] = {"private_key": "secret-private-key"}
+        row.signal_json = json.dumps(signal)
+        session.commit()
+    finally:
+        session.close()
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    serialized_signal = detail.json()["signal_event"]["signal"]
+    assert serialized_signal["api_key"] == "***"
+    assert serialized_signal["market_context"]["access_token"] == "***"
+    assert serialized_signal["risk"]["nested"]["private_key"] == "***"
+    assert "secret-key" not in str(serialized_signal)
+    assert "secret-token" not in str(serialized_signal)
+    assert "secret-private-key" not in str(serialized_signal)
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 202
+
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert handoff.status_code == 200
+    assert calls
+    gateway_signal = calls[0]["json"]["signal"]
+    assert gateway_signal["api_key"] == "***"
+    assert gateway_signal["market_context"]["access_token"] == "***"
+    assert gateway_signal["risk"]["nested"]["private_key"] == "***"
+    assert "secret-key" not in str(calls[0]["json"])
+    assert "secret-token" not in str(calls[0]["json"])
+    assert "secret-private-key" not in str(calls[0]["json"])
+
+
 def test_ai_trading_runtime_summarizes_strategy_backtest_evidence(tmp_path):
     clients = _build_clients(tmp_path, usernames=("alice", "bob"))
     alice = clients["alice"]
