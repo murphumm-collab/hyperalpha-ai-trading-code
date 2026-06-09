@@ -902,6 +902,8 @@ export default function HyperAiPage() {
   const [strategyDraftLoadingSymbol, setStrategyDraftLoadingSymbol] = useState<string | null>(null)
   const [strategyDraftSaving, setStrategyDraftSaving] = useState(false)
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
+  const [strategyAdjustInstruction, setStrategyAdjustInstruction] = useState('')
+  const [strategyAdjusting, setStrategyAdjusting] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
   const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | 'evidence' | null>(null)
@@ -1503,6 +1505,62 @@ export default function HyperAiPage() {
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to approve strategy spec')
     } finally {
       setStrategyDraftApproving(false)
+    }
+  }
+
+  const handleAdjustStrategyDraft = async () => {
+    if (!strategyDraft) {
+      return
+    }
+    const instruction = strategyAdjustInstruction.trim()
+    if (!instruction) {
+      setStrategyDraftError(t('hyperAi.aiTradingAdjustInstructionRequired', 'Enter a strategy adjustment first'))
+      return
+    }
+
+    setStrategyAdjusting(true)
+    setStrategyDraftError(null)
+    try {
+      const isPersisted = Boolean(strategyDraftRecord?.id)
+      const res = await authFetch(
+        isPersisted
+          ? `/api/ai-trading/strategy-specs/${strategyDraftRecord?.id}/adjust`
+          : '/api/ai-trading/strategy-spec/adjust',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(
+            isPersisted
+              ? { instruction, source: 'hyper_ai_panel' }
+              : { spec: strategyDraft, instruction, source: 'hyper_ai_panel' }
+          ),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to adjust strategy spec')
+      }
+
+      const record = data.spec_record as AiTradingStrategySpecRecord | undefined
+      const spec = (record?.spec || data.spec) as AiTradingStrategySpec
+      if (record) {
+        setStrategyDraftRecord(record)
+      }
+      setStrategyDraft(spec)
+      setStrategyAdjustInstruction('')
+      setStrategyBacktestEvidenceDetail(null)
+      refreshAiTradingState()
+
+      const reviewPrompt = currentLang === 'zh'
+        ? `请审核这份已按自然语言调整后的 AI Trading Strategy Spec：重点检查旧回测是否已失效、是否需要重新回测/重新审批、止盈止损和风险约束是否足够。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+        : `Review this adjusted AI Trading Strategy Spec. Check whether prior backtest evidence was invalidated, whether re-approval/re-backtest is required, and whether stop-loss/take-profit and risk constraints are sufficient. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+      setInputValue(reviewPrompt)
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to adjust AI trading strategy spec:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to adjust strategy spec')
+    } finally {
+      setStrategyAdjusting(false)
     }
   }
 
@@ -3176,6 +3234,34 @@ export default function HyperAiPage() {
                     {backtestStatusLabel(strategyDraft.backtest)}
                   </span>
                 </div>
+                <div className="mt-2 flex items-end gap-1.5 border-t pt-2">
+                  <textarea
+                    value={strategyAdjustInstruction}
+                    onChange={(event) => setStrategyAdjustInstruction(event.target.value)}
+                    placeholder={t('hyperAi.aiTradingAdjustPlaceholder', 'Adjust strategy, risk, TP/SL, timeframe...')}
+                    className="min-h-[44px] flex-1 resize-none rounded-md border bg-background px-2 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                    disabled={strategyAdjusting || strategyDraftSaving || strategyDraftApproving}
+                    rows={2}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAdjustStrategyDraft}
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={
+                      strategyAdjusting ||
+                      strategyDraftSaving ||
+                      strategyDraftApproving ||
+                      !strategyAdjustInstruction.trim()
+                    }
+                    title={t('hyperAi.aiTradingApplyAdjustment', 'Apply strategy adjustment')}
+                  >
+                    {strategyAdjusting ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Pencil className="h-3.5 w-3.5" />
+                    )}
+                  </button>
+                </div>
                 <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
                   <span className="min-w-0 truncate text-muted-foreground">
                     {strategyDraftRecord
@@ -3187,7 +3273,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={handleSaveStrategyDraft}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting}
                       title={t('hyperAi.aiTradingSaveDraft', 'Save draft')}
                     >
                       {strategyDraftSaving ? (
@@ -3200,7 +3286,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={handleApproveStrategyDraft}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyDraftRecord?.status === 'approved'}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || strategyDraftRecord?.status === 'approved'}
                       title={t('hyperAi.aiTradingApproveDraft', 'Approve draft')}
                     >
                       {strategyDraftApproving ? (
@@ -3213,7 +3299,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleAttachBacktestSummary(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'summary' ? (
@@ -3226,7 +3312,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleAttachProgramBacktestResult(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'program' ? (
@@ -3239,7 +3325,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleAttachLatestProgramBacktestResult(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingAttachLatestProgramBacktest', 'Attach latest matching Program Backtest')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'latest' ? (
@@ -3252,7 +3338,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleStrategyBacktestPreflight(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'preflight' ? (
@@ -3265,7 +3351,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleRunStrategyProgramBacktest(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'run' ? (
@@ -3278,7 +3364,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleInspectStrategyBacktestEvidence(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingInspectBacktestEvidence', 'Inspect backtest evidence')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'evidence' ? (
@@ -3291,7 +3377,7 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={handleStrategySignalPreview}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || !canBuildStrategySignalPreview}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategySignalPreviewLoading || !canBuildStrategySignalPreview}
                       title={strategySignalPreviewTitle}
                     >
                       {strategySignalPreviewLoading ? (

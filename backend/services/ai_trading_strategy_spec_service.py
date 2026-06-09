@@ -9,6 +9,7 @@ from __future__ import annotations
 import re
 import json
 import os
+import copy
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -84,6 +85,11 @@ BACKTEST_PERFORMANCE_METRICS = (
 )
 SENSITIVE_AI_TRADING_KEY_PATTERN = re.compile(
     r"(api[_-]?key|secret|token|private[_-]?key|password|authorization|bearer)",
+    re.IGNORECASE,
+)
+DIRECT_ORDER_INTENT_PATTERN = re.compile(
+    r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
+    r"direct\s+order|立即下单|直接下单|市价单|限价单)",
     re.IGNORECASE,
 )
 HIP3_INDEX_SYMBOLS = {
@@ -700,6 +706,207 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
         "safe_to_emit_signal": validation["safe_to_emit_signal"],
     }
     return spec
+
+
+def _extract_adjustment_max_loss_pct(text: str) -> Optional[float]:
+    patterns = [
+        r"(?:max(?:imum)?\s+loss|risk\s+per\s+trade|risk|最大亏损|单笔亏损|单笔风险)[^\d%]{0,40}(\d+(?:\.\d+)?)\s*%",
+        r"(\d+(?:\.\d+)?)\s*%[^\n]{0,40}(?:max(?:imum)?\s+loss|risk\s+per\s+trade|risk|最大亏损|单笔风险)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return _as_float(match.group(1))
+    return None
+
+
+def _extract_adjustment_leverage(text: str) -> Optional[int]:
+    patterns = [
+        r"(?:max(?:imum)?\s+)?leverage[^\d]{0,20}(\d{1,2})\s*x?",
+        r"(?:杠杆)[^\d]{0,20}(\d{1,2})\s*x?",
+        r"\b(\d{1,2})\s*x\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            return _as_int(match.group(1))
+    return None
+
+
+def _extract_adjustment_position_notional(text: str) -> Optional[float]:
+    pattern = (
+        r"(?:position\s+notional|max\s+notional|notional|仓位|名义本金)[^\d$]{0,30}"
+        r"\$?\s*(\d+(?:\.\d+)?)\s*(k|m)?"
+    )
+    match = re.search(pattern, text, re.IGNORECASE)
+    if not match:
+        return None
+    value = _as_float(match.group(1))
+    if value is None:
+        return None
+    suffix = str(match.group(2) or "").lower()
+    if suffix == "k":
+        value *= 1000
+    elif suffix == "m":
+        value *= 1_000_000
+    return value
+
+
+def _force_signal_only_execution_boundary(spec: Dict[str, Any]) -> None:
+    execution = spec.get("execution") if isinstance(spec.get("execution"), dict) else {}
+    handoff = execution.get("handoff") if isinstance(execution.get("handoff"), dict) else {}
+    spec["execution"] = {
+        **execution,
+        "signal_only": True,
+        "auto_execution_enabled": False,
+        "requires_user_approval": True,
+        "ai_may_place_orders": False,
+        "order_backend_only": True,
+        "handoff": {
+            **handoff,
+            "status": handoff.get("status") or "not_connected",
+            "reason": handoff.get("reason")
+            or "Strategy draft is not an order and must be reviewed before any backend handoff.",
+        },
+    }
+
+
+def adjust_strategy_spec(
+    spec: Dict[str, Any],
+    *,
+    instruction: str,
+    user_id: int,
+    source: str = "natural_language_adjustment",
+) -> Dict[str, Any]:
+    """Apply a constrained natural-language adjustment to a strategy spec.
+
+    This intentionally uses deterministic parsing for safety. Model-produced
+    patches can call this function after being converted into the same fields.
+    """
+    if not isinstance(spec, dict):
+        raise ValueError("Strategy spec must be an object")
+
+    instruction_text = _clean_text(instruction, 4000)
+    if not instruction_text:
+        raise ValueError("Adjustment instruction is required")
+
+    adjusted = copy.deepcopy(spec)
+    adjusted["owner_user_id"] = user_id
+    adjusted.setdefault("version", SPEC_VERSION)
+    adjusted.setdefault("venue", "hyperliquid")
+    _force_signal_only_execution_boundary(adjusted)
+
+    changed_fields: List[str] = []
+
+    def mark_changed(field: str) -> None:
+        if field not in changed_fields:
+            changed_fields.append(field)
+
+    adjusted["intent"] = _clean_text(
+        f"{adjusted.get('intent') or ''}\n\nAdjustment request: {instruction_text}",
+        6000,
+    )
+    mark_changed("intent")
+
+    timeframe = _extract_timeframe(instruction_text, None)
+    if timeframe != DEFAULT_TIMEFRAME or re.search(r"\b(1m|3m|5m|15m|30m|1h|2h|4h|8h|12h|1d)\b", instruction_text.lower()):
+        if adjusted.get("timeframe") != timeframe:
+            adjusted["timeframe"] = timeframe
+            mark_changed("timeframe")
+
+    bias = _detect_bias(instruction_text)
+    if bias not in {"undecided", "hold"}:
+        entry = adjusted.get("entry") if isinstance(adjusted.get("entry"), dict) else {}
+        if entry.get("bias") != bias:
+            entry["bias"] = bias
+            adjusted["entry"] = entry
+            mark_changed("entry.bias")
+
+    risk = adjusted.get("risk") if isinstance(adjusted.get("risk"), dict) else {}
+    lowered_instruction = instruction_text.lower()
+    if any(term in lowered_instruction for term in {"conservative", "low risk", "保守", "稳健"}):
+        defaults = _risk_profile_defaults("conservative")
+        risk["profile"] = "conservative"
+        risk["max_loss_pct"] = defaults["max_loss_pct"]
+        risk["max_leverage"] = defaults["max_leverage"]
+        mark_changed("risk.profile")
+    elif any(term in lowered_instruction for term in {"aggressive", "high risk", "激进"}):
+        defaults = _risk_profile_defaults("aggressive")
+        risk["profile"] = "aggressive"
+        risk["max_loss_pct"] = defaults["max_loss_pct"]
+        risk["max_leverage"] = defaults["max_leverage"]
+        mark_changed("risk.profile")
+
+    max_loss_pct = _extract_adjustment_max_loss_pct(instruction_text)
+    if max_loss_pct is not None:
+        risk["max_loss_pct"] = max_loss_pct
+        mark_changed("risk.max_loss_pct")
+
+    max_leverage = _extract_adjustment_leverage(instruction_text)
+    if max_leverage is not None:
+        risk["max_leverage"] = max(1, min(max_leverage, AI_HARD_MAX_LEVERAGE))
+        mark_changed("risk.max_leverage")
+
+    position_notional_usd = _extract_adjustment_position_notional(instruction_text)
+    if position_notional_usd is not None:
+        risk["position_notional_usd"] = position_notional_usd
+        mark_changed("risk.position_notional_usd")
+
+    risk["constraints"] = _constraint_list(
+        max_loss_pct=_as_float(risk.get("max_loss_pct")),
+        max_loss_usd=_as_float(risk.get("max_loss_usd")),
+        max_leverage=_as_int(risk.get("max_leverage")),
+        position_notional_usd=_as_float(risk.get("position_notional_usd")),
+    )
+    adjusted["risk"] = risk
+
+    exit_rules = adjusted.get("exit") if isinstance(adjusted.get("exit"), dict) else {}
+    if re.search(r"(stop[- ]?loss|sl\b|止损|风控线|invalidation|失效)", instruction_text, re.IGNORECASE):
+        stop_loss = exit_rules.get("stop_loss") if isinstance(exit_rules.get("stop_loss"), dict) else {}
+        stop_loss["required"] = True
+        stop_loss["rule"] = instruction_text
+        exit_rules["stop_loss"] = stop_loss
+        mark_changed("exit.stop_loss")
+    if re.search(r"(take[- ]?profit|tp\b|止盈|目标位|profit target|target)", instruction_text, re.IGNORECASE):
+        take_profit = exit_rules.get("take_profit") if isinstance(exit_rules.get("take_profit"), dict) else {}
+        take_profit["required"] = True
+        take_profit["rule"] = instruction_text
+        exit_rules["take_profit"] = take_profit
+        mark_changed("exit.take_profit")
+    adjusted["exit"] = exit_rules
+
+    previous_backtest = adjusted.get("backtest") if isinstance(adjusted.get("backtest"), dict) else {}
+    if changed_fields:
+        adjusted["backtest"] = {
+            **_default_backtest_gate(),
+            "source": "invalidated_by_strategy_adjustment",
+            "previous_backtest_id": previous_backtest.get("backtest_id"),
+            "previous_status": previous_backtest.get("status"),
+            "invalidated_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    direct_order_ignored = bool(DIRECT_ORDER_INTENT_PATTERN.search(instruction_text))
+    metadata = adjusted.get("metadata") if isinstance(adjusted.get("metadata"), dict) else {}
+    metadata["last_adjustment"] = {
+        "instruction": instruction_text,
+        "source": _clean_text(source, 50) or "natural_language_adjustment",
+        "changed_fields": changed_fields,
+        "direct_order_intent_ignored": direct_order_ignored,
+        "adjusted_at": datetime.now(timezone.utc).isoformat(),
+    }
+    adjusted["metadata"] = metadata
+
+    validation = validate_strategy_spec(adjusted, user_id=user_id)
+    warnings = list(validation["warnings"])
+    if direct_order_ignored:
+        warnings.append("direct_order_intent_ignored")
+    adjusted["validation"] = {
+        "status": validation["status"],
+        "issues": validation["issues"],
+        "warnings": list(dict.fromkeys(warnings)),
+        "safe_to_emit_signal": validation["safe_to_emit_signal"],
+    }
+    return adjusted
 
 
 def validate_strategy_spec(spec: Dict[str, Any], *, user_id: int) -> Dict[str, Any]:
@@ -1610,6 +1817,42 @@ def archive_strategy_spec_record(
     if not record:
         raise ValueError("Strategy spec not found")
     record.status = ARCHIVED_STATUS
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def adjust_strategy_spec_record(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+    instruction: str,
+    source: str = "natural_language_adjustment",
+) -> AiTradingStrategySpecRecord:
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+
+    current_spec = _json_loads(record.spec_json, {})
+    adjusted_spec = adjust_strategy_spec(
+        current_spec,
+        instruction=instruction,
+        user_id=user_id,
+        source=source,
+    )
+    validation = validate_strategy_spec(adjusted_spec, user_id=user_id)
+    adjusted_spec["validation"] = {
+        "status": validation["status"],
+        "issues": validation["issues"],
+        "warnings": adjusted_spec.get("validation", {}).get("warnings", validation["warnings"]),
+        "safe_to_emit_signal": validation["safe_to_emit_signal"],
+    }
+    record.spec_json = _json_dumps(adjusted_spec)
+    record.validation_json = _json_dumps({**validation, "warnings": adjusted_spec["validation"]["warnings"]})
+    record.status = validation["status"]
+    record.approved_at = None
+    record.source = _clean_text(source, 50) or record.source
     db.commit()
     db.refresh(record)
     return record

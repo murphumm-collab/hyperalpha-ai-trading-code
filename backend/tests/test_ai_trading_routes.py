@@ -581,6 +581,69 @@ def test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only(tmp_pa
     assert calls[0]["headers"]["Authorization"] == "Bearer test-token"
 
 
+def test_ai_trading_strategy_spec_natural_language_adjustment_invalidates_approval_and_backtest(tmp_path):
+    client = _build_client(tmp_path)
+    approved_spec, _ = _create_approved_signal_event(client, symbol="BTC")
+    spec_id = approved_spec["id"]
+
+    unpersisted_adjust = client.post(
+        "/api/ai-trading/strategy-spec/adjust",
+        json={
+            "spec": approved_spec["spec"],
+            "instruction": (
+                "Switch to a 1h short setup, max leverage 2x, max loss 0.5%, "
+                "stop loss above breakdown invalidation, take profit at prior support. "
+                "Do not place order directly."
+            ),
+            "source": "pytest_adjust",
+        },
+    )
+    assert unpersisted_adjust.status_code == 200
+    adjusted_spec = unpersisted_adjust.json()["spec"]
+    assert adjusted_spec["timeframe"] == "1h"
+    assert adjusted_spec["entry"]["bias"] == "short"
+    assert adjusted_spec["risk"]["max_leverage"] == 2
+    assert adjusted_spec["risk"]["max_loss_pct"] == 0.5
+    assert adjusted_spec["execution"]["signal_only"] is True
+    assert adjusted_spec["execution"]["auto_execution_enabled"] is False
+    assert adjusted_spec["execution"]["ai_may_place_orders"] is False
+    assert adjusted_spec["execution"]["order_backend_only"] is True
+    assert adjusted_spec["metadata"]["last_adjustment"]["direct_order_intent_ignored"] is True
+    assert "direct_order_intent_ignored" in adjusted_spec["validation"]["warnings"]
+
+    persisted_adjust = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/adjust",
+        json={
+            "instruction": (
+                "Switch to a 1h short setup, max leverage 2x, max loss 0.5%, "
+                "stop loss above breakdown invalidation, take profit at prior support."
+            ),
+            "source": "pytest_adjust",
+        },
+    )
+    assert persisted_adjust.status_code == 200
+    adjusted_record = persisted_adjust.json()["spec_record"]
+    adjusted = adjusted_record["spec"]
+    assert adjusted_record["status"] == "ready_for_review"
+    assert adjusted_record["approved_at"] is None
+    assert adjusted["timeframe"] == "1h"
+    assert adjusted["entry"]["bias"] == "short"
+    assert adjusted["risk"]["max_leverage"] == 2
+    assert adjusted["risk"]["max_loss_pct"] == 0.5
+    assert adjusted["backtest"]["status"] == "not_run"
+    assert adjusted["backtest"]["accepted_for_handoff"] is False
+    assert adjusted["backtest"]["source"] == "invalidated_by_strategy_adjustment"
+    assert adjusted["backtest"]["previous_backtest_id"] == f"bt_pytest_{spec_id}"
+    assert "strategy_backtest_required_before_handoff" in adjusted["validation"]["warnings"]
+
+    preview_after_adjust = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest"}},
+    )
+    assert preview_after_adjust.status_code == 400
+    assert "approved" in preview_after_adjust.json()["detail"]
+
+
 def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)
@@ -1832,6 +1895,13 @@ def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_
 
     assert bob.get(f"/api/ai-trading/strategy-specs/{alice_spec['id']}").status_code == 404
     assert bob.post(f"/api/ai-trading/strategy-specs/{alice_spec['id']}/approve").status_code == 404
+    assert (
+        bob.post(
+            f"/api/ai-trading/strategy-specs/{alice_spec['id']}/adjust",
+            json={"instruction": "Switch Alice strategy to 1h short", "source": "pytest"},
+        ).status_code
+        == 404
+    )
     assert (
         bob.post(
             f"/api/ai-trading/strategy-specs/{alice_spec['id']}/backtest-summary",

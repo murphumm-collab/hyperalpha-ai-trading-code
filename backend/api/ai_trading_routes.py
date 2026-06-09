@@ -15,6 +15,8 @@ from services.ai_trading_strategy_spec_service import (
     attach_latest_matching_strategy_backtest_result,
     attach_strategy_backtest_result,
     attach_strategy_backtest_summary,
+    adjust_strategy_spec,
+    adjust_strategy_spec_record,
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_signal_preview_from_strategy_spec_record,
@@ -64,6 +66,17 @@ class StrategySpecDraftRequest(BaseModel):
 
 class StrategySpecValidateRequest(BaseModel):
     spec: Dict[str, Any]
+
+
+class StrategySpecAdjustRequest(BaseModel):
+    spec: Dict[str, Any]
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    source: Optional[str] = Field(default="natural_language_adjustment", max_length=50)
+
+
+class StrategySpecRecordAdjustRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    source: Optional[str] = Field(default="natural_language_adjustment", max_length=50)
 
 
 class StrategySpecSaveRequest(BaseModel):
@@ -207,6 +220,30 @@ def validate_strategy_spec_endpoint(
     }
 
 
+@router.post("/strategy-spec/adjust")
+def adjust_strategy_spec_endpoint(
+    request: StrategySpecAdjustRequest,
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Apply a constrained natural-language strategy adjustment without persisting."""
+    try:
+        spec = adjust_strategy_spec(
+            request.spec,
+            instruction=request.instruction,
+            user_id=current_user.id,
+            source=request.source or "natural_language_adjustment",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return {
+        "success": True,
+        "spec": spec,
+        "validation": spec.get("validation", {}),
+        "execution_boundary": spec.get("execution", {}),
+    }
+
+
 @router.get("/strategy-specs")
 def list_strategy_specs_endpoint(
     status: Optional[str] = None,
@@ -260,6 +297,33 @@ def get_strategy_spec_endpoint(
     if not record:
         raise HTTPException(status_code=404, detail="Strategy spec not found")
     return {
+        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/adjust")
+def adjust_strategy_spec_record_endpoint(
+    spec_id: int,
+    request: StrategySpecRecordAdjustRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Adjust a saved strategy spec and require re-approval/re-backtest before handoff."""
+    try:
+        record = adjust_strategy_spec_record(
+            db,
+            user_id=current_user.id,
+            record_id=spec_id,
+            instruction=request.instruction,
+            source=request.source or "natural_language_adjustment",
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    return {
+        "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),
     }
 
