@@ -68,6 +68,7 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
                 "| AI Trading production evidence text quality | Done |",
+                "| AI Trading production evidence item IDs | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -353,6 +354,32 @@ def test_completion_audit_rejects_unexpected_production_evidence_fields(tmp_path
     )
     assert "external_evidence_unexpected_item_fields" in item_extra["blockers"]
     assert item_extra["unexpected_fields"] == ["raw_trace"]
+
+
+def test_completion_audit_rejects_unexpected_production_evidence_item_ids(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    evidence_path = tmp_path / "unexpected-item-id-evidence.json"
+    _write_production_evidence(evidence_path)
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    payload["items"]["legacy_manual_acceptance"] = {
+        "status": "accepted",
+        "validated_at": "2026-06-10T12:00:00Z",
+        "validated_by": "ops-admin",
+        "evidence_summary": "Legacy acceptance item should not be accepted by the production schema.",
+        "artifact_refs": ["ops://ai-trading/legacy-manual-acceptance"],
+        "secret_values_returned": False,
+    }
+    _write(evidence_path, json.dumps(payload, indent=2, sort_keys=True))
+
+    report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=evidence_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert report["ready_for_live_orders"] is False
+    assert "external_evidence_unexpected_item_ids" in report["production_evidence"]["blockers"]
+    assert report["production_evidence"]["unexpected_item_ids"] == ["legacy_manual_acceptance"]
 
 
 def test_completion_audit_rejects_placeholder_production_evidence_text(tmp_path):

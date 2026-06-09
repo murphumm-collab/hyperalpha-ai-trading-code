@@ -135,6 +135,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
             "| AI Trading production evidence text quality | Done |",
+            "| AI Trading production evidence item IDs | Done |",
             "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
         ),
     ),
@@ -521,12 +522,17 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
     if secret_hits:
         blockers.append("external_evidence_secret_pattern_detected")
 
+    required_ids = [requirement.id for requirement in EXTERNAL_REQUIREMENTS]
     items_payload = payload.get("items")
+    unexpected_item_ids: list[str] = []
     if not isinstance(items_payload, dict):
         blockers.append("external_evidence_items_must_be_object")
         items_payload = {}
+    else:
+        unexpected_item_ids = sorted(str(item_id) for item_id in items_payload if item_id not in required_ids)
+        if unexpected_item_ids:
+            blockers.append("external_evidence_unexpected_item_ids")
 
-    required_ids = [requirement.id for requirement in EXTERNAL_REQUIREMENTS]
     item_reports = [
         _validate_external_evidence_item(item_id, items_payload.get(item_id), generated_at_utc=generated_at_utc)
         for item_id in required_ids
@@ -550,6 +556,7 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
         "items": item_reports,
         "secret_pattern_count": len(secret_hits),
         "unexpected_fields": unexpected_root_fields,
+        "unexpected_item_ids": unexpected_item_ids,
     }
 
 
@@ -616,7 +623,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file with documented schema fields, non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file with documented schema fields/item IDs, non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 
