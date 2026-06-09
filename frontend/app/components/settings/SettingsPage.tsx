@@ -28,6 +28,7 @@ import {
 } from '@/lib/api'
 import { authFetch } from '@/lib/authFetch'
 import { useAuth } from '@/contexts/AuthContext'
+import { extractAiTradingAgentContextLocators } from '@/lib/aiTradingReadiness'
 import type {
   HyperliquidSymbolMeta,
   BinanceSymbolMeta,
@@ -35,6 +36,12 @@ import type {
   NewsStatsResponse,
   TestNewsSourceResponse,
 } from '@/lib/api'
+import type {
+  AiTradingAgentContextLocatorMeta,
+  AiTradingAgentContextLocatorView,
+  AiTradingProductionComponent,
+  AiTradingProductionReadiness,
+} from '@/lib/aiTradingReadiness'
 import DataCoverageHeatmap from './DataCoverageHeatmap'
 import ExchangeIcon from '@/components/exchange/ExchangeIcon'
 import { CoinIcon } from '@/components/ui/coin-icon'
@@ -124,31 +131,6 @@ interface AiRuntimeStats {
     last_error?: string | null
   }
   users: AiRuntimeUserStats[]
-}
-
-interface AiTradingProductionComponent {
-  ready: boolean
-  blockers?: string[]
-  warnings?: string[]
-  checks?: Record<string, unknown>
-}
-
-interface AiTradingAgentContextLocatorView {
-  key: string
-  label: string
-  tone: string
-  id: number | null
-  agentSessionId: string | null
-  status: string | null
-  contextSummaryChars: number | null
-}
-
-interface AiTradingProductionReadiness {
-  production_ready: boolean
-  blockers: string[]
-  warnings: string[]
-  checks: Record<string, AiTradingProductionComponent>
-  next_actions: string[]
 }
 
 export default function SettingsPage() {
@@ -752,8 +734,7 @@ export default function SettingsPage() {
   }
 
   const getAgentContextLocators = (report: AiTradingProductionComponent): AiTradingAgentContextLocatorView[] => {
-    const checks = report.checks || {}
-    const locatorMeta = [
+    const locatorMeta: AiTradingAgentContextLocatorMeta[] = [
       {
         key: 'latest_over_budget',
         label: t('settings.aiTradingReadinessLatestOverBudget', 'Latest over-budget'),
@@ -770,28 +751,7 @@ export default function SettingsPage() {
         tone: 'text-amber-600',
       },
     ]
-
-    return locatorMeta.reduce<AiTradingAgentContextLocatorView[]>((acc, meta) => {
-      const rawLocator = checks[meta.key]
-      if (!rawLocator || typeof rawLocator !== 'object' || Array.isArray(rawLocator)) {
-        return acc
-      }
-      const locator = rawLocator as Record<string, unknown>
-      const id = typeof locator.id === 'number' ? locator.id : null
-      const agentSessionId = typeof locator.agent_session_id === 'string' ? locator.agent_session_id : null
-      if (id === null && !agentSessionId) {
-        return acc
-      }
-      acc.push({
-        ...meta,
-        id,
-        agentSessionId,
-        status: typeof locator.status === 'string' ? locator.status : null,
-        contextSummaryChars:
-          typeof locator.context_summary_chars === 'number' ? locator.context_summary_chars : null,
-      })
-      return acc
-    }, [])
+    return extractAiTradingAgentContextLocators(report, locatorMeta)
   }
 
   const handleToggleNewsSource = (index: number, enabled: boolean) => {
