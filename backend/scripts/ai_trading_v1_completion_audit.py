@@ -29,6 +29,21 @@ from urllib.parse import urlparse
 
 EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION = "hyperalpha.ai_trading.external_acceptance.v1"
 SAFE_ARTIFACT_REF_SCHEMES = {"https", "ops", "lark", "notion"}
+ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS = {
+    "version",
+    "generated_at",
+    "secret_values_returned",
+    "notes",
+    "items",
+}
+ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS = {
+    "status",
+    "validated_at",
+    "validated_by",
+    "evidence_summary",
+    "artifact_refs",
+    "secret_values_returned",
+}
 SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
@@ -323,6 +338,10 @@ def _parse_iso_timestamp(value: Any, field_name: str) -> tuple[datetime | None, 
     return parsed.astimezone(timezone.utc), []
 
 
+def _unexpected_fields(payload: dict[str, Any], allowed_fields: set[str]) -> list[str]:
+    return sorted(str(field) for field in payload if field not in allowed_fields)
+
+
 def _validate_external_evidence_item(
     item_id: str,
     item: Any,
@@ -340,6 +359,9 @@ def _validate_external_evidence_item(
 
     blockers: list[str] = []
     warnings: list[str] = []
+    unexpected_item_fields = _unexpected_fields(item, ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS)
+    if unexpected_item_fields:
+        blockers.append("external_evidence_unexpected_item_fields")
     status = str(item.get("status") or "")
     if status != "accepted":
         blockers.append("external_evidence_item_not_accepted")
@@ -376,6 +398,7 @@ def _validate_external_evidence_item(
         "warnings": warnings,
         "artifact_ref_count": len(artifact_refs) if isinstance(artifact_refs, list) else 0,
         "secret_pattern_count": len(secret_hits),
+        "unexpected_fields": unexpected_item_fields,
     }
 
 
@@ -437,6 +460,9 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
         }
 
     version = payload.get("version")
+    unexpected_root_fields = _unexpected_fields(payload, ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS)
+    if unexpected_root_fields:
+        blockers.append("external_evidence_unexpected_root_fields")
     if version != EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION:
         blockers.append("external_evidence_version_mismatch")
     generated_at_utc, timestamp_blockers = _parse_iso_timestamp(payload.get("generated_at"), "generated_at")
@@ -476,6 +502,7 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
         "warnings": warnings,
         "items": item_reports,
         "secret_pattern_count": len(secret_hits),
+        "unexpected_fields": unexpected_root_fields,
     }
 
 

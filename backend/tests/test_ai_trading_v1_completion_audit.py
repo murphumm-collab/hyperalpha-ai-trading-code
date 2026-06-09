@@ -124,6 +124,8 @@ def _write_production_evidence(
     empty_artifact_refs: bool = False,
     generated_at: object = "2026-06-10T12:05:00Z",
     validated_at: object = "2026-06-10T12:00:00Z",
+    root_extra: dict[str, object] | None = None,
+    item_extra: dict[str, object] | None = None,
 ) -> None:
     items = {}
     for requirement in completion_audit.EXTERNAL_REQUIREMENTS:
@@ -141,12 +143,16 @@ def _write_production_evidence(
             ),
             "secret_values_returned": False,
         }
+        if item_extra:
+            items[requirement.id].update(item_extra)
     payload = {
         "version": completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "generated_at": generated_at,
         "secret_values_returned": False,
         "items": items,
     }
+    if root_extra:
+        payload.update(root_extra)
     if include_secret:
         payload["items"]["real_order_backend_handoff"]["evidence_summary"] = (
             "accepted with Authorization: Bearer secret-production-token-123456789"
@@ -309,6 +315,37 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
         if item["id"] == "real_order_backend_handoff"
     )
     assert "external_evidence_validated_at_after_generated_at" in generated_before_validated_item["blockers"]
+
+
+def test_completion_audit_rejects_unexpected_production_evidence_fields(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    root_extra_path = tmp_path / "root-extra-evidence.json"
+    item_extra_path = tmp_path / "item-extra-evidence.json"
+    _write_production_evidence(root_extra_path, root_extra={"raw_output": "sanitized but not schema-approved"})
+    _write_production_evidence(item_extra_path, item_extra={"raw_trace": {"accepted": True}})
+
+    root_extra_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=root_extra_path,
+        allow_live_ready_from_evidence=True,
+    )
+    item_extra_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=item_extra_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert root_extra_report["ready_for_live_orders"] is False
+    assert "external_evidence_unexpected_root_fields" in root_extra_report["production_evidence"]["blockers"]
+    assert root_extra_report["production_evidence"]["unexpected_fields"] == ["raw_output"]
+    assert item_extra_report["ready_for_live_orders"] is False
+    item_extra = next(
+        item
+        for item in item_extra_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_unexpected_item_fields" in item_extra["blockers"]
+    assert item_extra["unexpected_fields"] == ["raw_trace"]
 
 
 def test_completion_audit_rejects_unsafe_artifact_refs(tmp_path):
