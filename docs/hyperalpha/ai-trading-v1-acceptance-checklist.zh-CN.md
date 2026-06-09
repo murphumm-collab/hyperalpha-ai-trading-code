@@ -43,7 +43,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - `cd frontend && npm run build`：通过，AI Trading runtime 摘要显示 Sessions 计数，Recent 区块显示最近 agent sessions；剩余为既有 browserslist/baseline/chunk-size warning。
 - In-app Browser 可以打开 `http://127.0.0.1:5174/#settings`；本地 auth config disabled 时 admin tab 按设计隐藏，普通本地浏览器不能看到 admin readiness 面板。管理员登录态下的 visual check 留到真实 Auth/JWKS 配置后验收。
 - In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、`Gateway available / 15m max / Local mock`、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
-- In-app Browser 已验证 agent-session UI 轻量预览：页面显示 `Sessions 1 active`、`Recent agent sessions`、最新 session `BTC V1 Live Stack Acceptance ...`、recent spec `#16` 和 recent signal `#14`。
+- In-app Browser 已验证 agent-session UI：页面显示 `Sessions 1 active`、`Agent session` 下拉默认选中最新 `BTC V1 Live Stack Acceptance ...`、`Recent agent sessions`、recent spec `#16` 和 recent signal `#14`。
 - In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
 - In-app Browser 已验证 `xyz:NVDA` safe prompt fill 和 strategy draft：UI 显示 `NVDA · 15m`、`ready_for_review`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
 - In-app Browser 已在最终代码验证 BTC 当前卡片完整安全流：draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；证据记录为 spec `#5`、signal `#3 rejected`。
@@ -61,7 +61,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - 真实 HyperAlpha 订单后端 URL/token live handoff 未验收；当前为 disabled-by-default 和 mock gateway contract 验收。
 - 生产 handoff readiness gate 和生产总 readiness gate 已实现，但真实 HTTPS 订单后端 URL/token、真实 Auth/JWKS、硬风控生产值和 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的 live 验收未做。
 - Settings Admin production readiness 面板代码和 build 已完成；真实登录态/真实 Auth 配置下的可视化验收未做。本地 auth disabled 时 admin tab 隐藏是预期状态。
-- AI Trading agent session 后端/API/UI 轻量预览已完成；真实 To C session 切换器、固定当前 session、以及用户在 UI 内选择/恢复某个 session 继续聊天尚未做完整浏览器验收。
+- AI Trading agent session 后端/API/UI 已完成轻量分区和当前 session 选择；更完整的 session 详情页、归档/重命名、以及按 session 过滤全部历史列表尚未做。
 - 真实交易所执行不属于 V1 本地验收完成条件，必须另开生产实盘验收。
 
 ## V1 通过标准

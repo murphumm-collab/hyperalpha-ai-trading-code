@@ -372,6 +372,7 @@ const AI_TRADING_BACKTEST_DEFAULTS = {
   slippage_percent: 0.05,
   fee_rate: 0.035,
 }
+const AI_TRADING_NEW_AGENT_SESSION_VALUE = '__new_ai_trading_agent_session__'
 
 const AI_TRADING_ACTION_TIMEOUT_MS = 45_000
 const AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE = '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":1}'
@@ -995,6 +996,7 @@ export default function HyperAiPage() {
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
   const [recentAgentSessions, setRecentAgentSessions] = useState<AiTradingAgentSessionRecord[]>([])
+  const [selectedAiTradingAgentSessionId, setSelectedAiTradingAgentSessionId] = useState('')
   const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
   const [recentSignalEvents, setRecentSignalEvents] = useState<AiTradingSignalEventRecord[]>([])
   const [recentBacktestResults, setRecentBacktestResults] = useState<AiTradingBacktestResultRecord[]>([])
@@ -1006,6 +1008,9 @@ export default function HyperAiPage() {
     aiTradingRuntime.gateway?.url_configured &&
     (aiTradingRuntime.gateway?.default_handoff_status || 'available') === 'available' &&
     aiTradingGatewayRuntimeBlockers.length === 0
+  )
+  const selectedAiTradingAgentSession = recentAgentSessions.find(
+    session => session.id === selectedAiTradingAgentSessionId
   )
   const backtestMetricValue = (metrics: Record<string, unknown> | undefined, keys: string[]): number | null => {
     if (!metrics) {
@@ -1277,6 +1282,21 @@ export default function HyperAiPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingContent])
+
+  useEffect(() => {
+    if (selectedAiTradingAgentSessionId === AI_TRADING_NEW_AGENT_SESSION_VALUE) {
+      return
+    }
+    if (recentAgentSessions.length === 0) {
+      return
+    }
+    const selectedStillExists = recentAgentSessions.some(
+      session => session.id === selectedAiTradingAgentSessionId
+    )
+    if (!selectedAiTradingAgentSessionId || !selectedStillExists) {
+      setSelectedAiTradingAgentSessionId(recentAgentSessions[0].id)
+    }
+  }, [recentAgentSessions, selectedAiTradingAgentSessionId])
 
   // Check for pending prompt from other pages (e.g. Factor Analysis "Ask AI")
   useEffect(() => {
@@ -1584,14 +1604,25 @@ export default function HyperAiPage() {
     setStrategyDraftSaving(true)
     setStrategyDraftError(null)
     try {
+      const savePayload: Record<string, unknown> = {
+        name: `${strategyDraft.symbol || 'AI'} ${strategyDraft.timeframe || '15m'} Review`,
+        source: 'hyper_ai_panel',
+        spec: strategyDraft,
+      }
+      if (
+        selectedAiTradingAgentSession &&
+        selectedAiTradingAgentSessionId !== AI_TRADING_NEW_AGENT_SESSION_VALUE
+      ) {
+        savePayload.agent_session_id = selectedAiTradingAgentSession.id
+        savePayload.agent_session_name = selectedAiTradingAgentSession.name || selectedAiTradingAgentSession.id
+        if (selectedAiTradingAgentSession.context_summary) {
+          savePayload.agent_context_summary = selectedAiTradingAgentSession.context_summary
+        }
+      }
       const res = await authFetchAiTradingAction('/api/ai-trading/strategy-specs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: `${strategyDraft.symbol || 'AI'} ${strategyDraft.timeframe || '15m'} Review`,
-          source: 'hyper_ai_panel',
-          spec: strategyDraft,
-        }),
+        body: JSON.stringify(savePayload),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
@@ -1599,6 +1630,9 @@ export default function HyperAiPage() {
       }
       const record = data.spec_record as AiTradingStrategySpecRecord
       setStrategyDraftRecord(record)
+      if (record.agent_session?.id) {
+        setSelectedAiTradingAgentSessionId(record.agent_session.id)
+      }
       if (record.spec) {
         setStrategyDraft(record.spec)
       }
@@ -3384,6 +3418,43 @@ export default function HyperAiPage() {
                 </div>
               </div>
             )}
+
+            <div className="mb-2 rounded-md border bg-muted/20 p-2">
+              <Label className="mb-1 block text-[11px] text-muted-foreground">
+                {t('hyperAi.aiTradingAgentSession', 'Agent session')}
+              </Label>
+              <Select
+                value={selectedAiTradingAgentSessionId || AI_TRADING_NEW_AGENT_SESSION_VALUE}
+                onValueChange={setSelectedAiTradingAgentSessionId}
+              >
+                <SelectTrigger className="h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={AI_TRADING_NEW_AGENT_SESSION_VALUE}>
+                    {t('hyperAi.aiTradingNewAgentSession', 'New agent session')}
+                  </SelectItem>
+                  {recentAgentSessions.map(session => (
+                    <SelectItem key={session.id} value={session.id}>
+                      {session.name || session.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {selectedAiTradingAgentSession && (
+                <div className="mt-1 truncate text-[11px] text-muted-foreground">
+                  {(selectedAiTradingAgentSession.symbols || []).slice(0, 4).join(', ') || selectedAiTradingAgentSession.id}
+                  {' · '}
+                  {(selectedAiTradingAgentSession.strategy_spec_count ?? 0)}
+                  {' '}
+                  {t('hyperAi.aiTradingSpecsShort', 'specs')}
+                  {' / '}
+                  {(selectedAiTradingAgentSession.signal_event_count ?? 0)}
+                  {' '}
+                  {t('hyperAi.aiTradingSignalsShort', 'signals')}
+                </div>
+              )}
+            </div>
 
             {tradingSymbolSource === 'universe' && tradingSymbolGroups.all.length > 0 && (
               <div className="mb-2 grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1 text-[11px]">
