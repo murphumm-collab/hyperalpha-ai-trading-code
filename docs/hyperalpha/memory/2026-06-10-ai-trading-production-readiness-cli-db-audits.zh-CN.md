@@ -43,8 +43,10 @@
   - 仍因真实 Auth/JWKS、生产 handoff、硬风控未配置而 `production_ready=false`
   - 输出不包含 DB URL/password、gateway token 或 summary 原文。
 - `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：63 passed，5 个既有 UTC deprecation warnings。
-- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：passed，覆盖 backend compile、63 条 AI Trading 回归、API smoke、live model-adjust 默认阻断、默认 production handoff/readiness blocker、frontend build、runtime readiness 和 live local mock handoff；最新证据为 strategy spec `#40`、signal event `#38`、agent sessions `25`、handoff attempts `36`、gateway response `mock_accepted`、model-adjust blocker `model_profile_not_configured`。
-- `scripts/local-dev/install_launch_agent.sh`：passed；首次 strict env check 命中 backend 冷启动，12 秒后重试 `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` 返回 `ready=true`，runtime totals 为 strategy specs `40`、signal events `38`、agent sessions `25`、handoff attempts `36`。
+- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh` 已纳入 default production readiness DB-audit blocker gate：在 frontend/runtime/mock handoff 之前显式运行 `ai_trading_v1_production_readiness_check.py --strict --include-db-audits` 并要求 exit 1。
+- `bash -n scripts/local-dev/run_ai_trading_v1_local_acceptance.sh`：passed。
+- 单独运行 aggregate runner 使用的 DB-audit expected-failure 命令：按预期 exit 1，返回 auth/signal_handoff/hard_risk/db_audit blockers，未输出数据库 URL、凭据或异常原文。
+- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：passed，覆盖 backend compile、63 条 AI Trading 回归、API smoke、live model-adjust 默认阻断、默认 production handoff blocker、默认 production readiness blocker、默认 production readiness DB-audit blocker、frontend build、runtime readiness 和 live local mock handoff；最新证据为 strategy spec `#41`、signal event `#39`、agent sessions `26`、handoff attempts `37`、gateway response `mock_accepted`、model-adjust blocker `model_profile_not_configured`。
 
 ## 下一步注意
 

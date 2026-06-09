@@ -17,6 +17,7 @@ Runs the AI Trading V1 local acceptance gate:
   - live DeepSeek/Qwen model-adjust runner must stay blocked without explicit confirmation
   - default production handoff gate must stay blocked
   - default production readiness gate must stay blocked
+  - default production readiness DB-audit gate must stay blocked
   - frontend production build
   - local runtime readiness check
   - live LaunchAgent/mock-gateway handoff acceptance
@@ -95,6 +96,9 @@ run_expected_failure "Default production handoff gate remains blocked" \
 
 run_expected_failure "Default production readiness gate remains blocked" \
   bash -lc "cd backend && env -u AUTH_REQUIRE_VERIFIED_BEARER -u AUTH_JWKS_URL -u AUTH_JWT_ISSUER -u AUTH_JWT_AUDIENCE -u AUTH_JWT_ALGORITHMS -u AUTH_ADMIN_USERNAMES -u AI_TRADING_SIGNAL_GATEWAY_ENABLED -u AI_TRADING_SIGNAL_GATEWAY_URL -u AI_TRADING_SIGNAL_GATEWAY_TOKEN -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED -u AI_HARD_MAX_ORDER_NOTIONAL_USD -u AI_HARD_REQUIRE_STOP_LOSS -u AI_HARD_REQUIRE_TAKE_PROFIT uv run python scripts/ai_trading_v1_production_readiness_check.py --strict"
+
+run_expected_failure "Default production readiness DB-audit gate remains blocked" \
+  bash -lc "cd backend && env -u AUTH_REQUIRE_VERIFIED_BEARER -u AUTH_JWKS_URL -u AUTH_JWT_ISSUER -u AUTH_JWT_AUDIENCE -u AUTH_JWT_ALGORITHMS -u AUTH_ADMIN_USERNAMES -u AI_TRADING_SIGNAL_GATEWAY_ENABLED -u AI_TRADING_SIGNAL_GATEWAY_URL -u AI_TRADING_SIGNAL_GATEWAY_TOKEN -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED -u AI_HARD_MAX_ORDER_NOTIONAL_USD -u AI_HARD_REQUIRE_STOP_LOSS -u AI_HARD_REQUIRE_TAKE_PROFIT uv run python scripts/ai_trading_v1_production_readiness_check.py --strict --include-db-audits"
 
 run_step "Frontend build" \
   bash -lc "cd frontend && npm run build"
