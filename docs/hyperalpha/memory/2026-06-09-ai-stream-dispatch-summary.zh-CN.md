@@ -72,6 +72,7 @@
 - Hyper AI AI Trading 的关键用户动作现在通过 `authFetchAiTradingAction` 增加 45 秒超时恢复，覆盖 draft/save/approve/adjust/model-adjust/backtest evidence/signal event/handoff/reject/handoff-attempts，避免本地热更新或网络抖动后按钮一直 loading。
 - Hyper AI AI Trading 当前策略卡片新增内联 Backtest ID 与 Metrics JSON 输入；当前卡片的 attach summary 读取内联值，recent spec 行仍保留 prompt 快捷入口。这样 To C 页面和浏览器验收都不再依赖原生 prompt。
 - 本地 LaunchAgent 后端启动时设置 `HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true`，默认只影响本地常驻验收栈：跳过行情流、新闻采集、账户快照等重后台任务，避免后端端口开放但 API 不响应；生产/普通后端默认不开启。
+- 新增 `backend/scripts/ai_trading_v1_live_stack_acceptance.py`：只允许本地 URL，要求显式 `--confirm-local-mock-handoff`，先校验 mock gateway health identity，再在本地 LaunchAgent/Postgres 栈上复跑 draft/save/backtest/approve/eligible signal/mock handoff/attempt audit/runtime。
 - Strategy spec 和 signal candidate 现在保留 HIP-3 market identity：`market.dex`、`market.exchange_symbol`（如 `xyz:NVDA`）、`market.display_symbol`、category；内部 `symbol` 仍可保持 `NVDA` 用于既有记录索引。
 - Strategy spec 和 signal candidate 现在记录非敏感 `ai_model` 上下文：`provider`、`model`、`source`、是否为 V1 DeepSeek/Qwen provider；校验会 warning 缺失/非 V1 provider，并 reject `api_key`、`token`、`secret` 等字段进入 `ai_model`。
 - Hyper AI AI Trading strategy draft 请求现在携带当前 profile 的 `llm_provider/llm_model`，来源标记为 `hyper_ai_profile`；不携带 base URL、API key 或 token。
@@ -248,6 +249,7 @@
 - In-app Browser 已完成最终本地 AI Trading UI 验收：BTC draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；UI 记录为 spec `#5`、signal `#3 rejected`。
 - 本地 live API 已完成最终正向 mock handoff：spec `#6`、signal event `#4`、`handoff_status=submitted`、latest handoff attempt `submitted`、`gateway_ready=true`。
 - In-app Browser 已确认 Recent signals 可见 `BTC · buy / #2 submitted` 和 `BTC · hold / #1/#3 rejected`，并能读取 handoff attempts，attempt response 只包含脱敏 gateway response summary。
+- `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py` 不带确认参数会拒绝 handoff；`cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff` 已通过，输出 `success=true`，最新本地证据为 spec `#8`、signal event `#6`、gateway response summary `status=mock_accepted`。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI signal identity blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
@@ -282,7 +284,7 @@
 ## 6. 未验收 / 阻塞
 
 - 本地 PostgreSQL/backend/mock gateway 当前已可用于本机验收；LaunchAgent runtime mirror 已安装并通过本机会话内自恢复，但实际整机重启尚未物理验收。
-- 本地 AI Trading browser/API 完整点击流仍需准备测试用户/profile/backtest evidence；当前已有页面 runtime readiness、market selector、HIP-3 过滤、安全 prompt fill 和 `xyz:NVDA` draft 浏览器证据。
+- 本地 AI Trading browser/API 点击流已完成 V1 验收；真实登录态、真实用户 profile、真实 Program Backtest evidence 点击进入 full-page route 仍需另验。
 - Docker Desktop/daemon 已启动，`docker compose up -d postgres` 已恢复 Postgres/Snapshot DB 验收路径。
 - 当前启动迁移和 model validation 偏 Postgres，临时 SQLite 环境不能作为完整浏览器验收环境。
 - GitHub 上传按用户要求暂不处理；本地继续开发、测试、验收标记和提交。历史推送失败原因为 HTTPS 凭据不可读：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
@@ -292,7 +294,7 @@
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前已做 disabled-by-default、mock gateway、V1 contract payload 和文档验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
 - 专用 AI Trading full-page rich backtest result route 已实现为只读 evidence 页面；真实登录态下从 saved Strategy Spec/Program Backtest evidence 点击进入并加载 live data 的浏览器验收仍未完成。
-- strategy spec / signal preview / signal event / recent records inspect / signal-event handoff 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols、持久化记录与 gateway readiness；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。
+- 本地 strategy spec / signal preview / signal event / recent records inspect / signal-event mock handoff 点击验收已完成；真实生产登录态和真实订单后端 handoff 仍未验收。
 
 ## 7. 当前提交锚点
 
