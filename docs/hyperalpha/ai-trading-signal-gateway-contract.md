@@ -165,3 +165,9 @@ AI_TRADING_SIGNAL_GATEWAY_TOKEN=local-mock-token
 ```
 
 Accepted mock payloads are appended to `backend/logs/ai_trading_mock_gateway.jsonl` unless `AI_TRADING_MOCK_GATEWAY_LOG` is set.
+
+For the full local V1 gate, run:
+
+```bash
+scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff
+```
