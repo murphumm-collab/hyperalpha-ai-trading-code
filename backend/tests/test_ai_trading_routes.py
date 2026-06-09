@@ -958,6 +958,100 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     assert "AI Trading session compressed context v1" in model_prompt
 
 
+def test_ai_trading_saved_model_adjustment_enforces_service_context_summary_budget(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m breakout with strict stop loss and staged take profit",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+            "model_source": "pytest",
+        },
+    )
+    assert draft.status_code == 200
+
+    long_context = ("x" * 2000) + "TAIL_SHOULD_NOT_REACH_MODEL"
+    db = client._ai_trading_session_factory()
+    try:
+        record = strategy_service.save_strategy_spec_record(
+            db,
+            user_id=client._ai_trading_user_ids[client._ai_trading_username],
+            spec=draft.json()["spec"],
+            name="Oversized Context BTC Spec",
+            source="pytest_service_context_budget",
+            agent_session_id="session:oversized-model-context",
+            agent_session_name="Oversized Model Context",
+            agent_context_summary=long_context,
+        )
+        spec_id = record.id
+    finally:
+        db.close()
+
+    calls = []
+
+    def fake_llm_config(db, user_id=None):
+        return {
+            "configured": True,
+            "provider": "qwen",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen-plus",
+            "api_key": "secret-model-key",
+            "api_format": "openai",
+        }
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps({
+                                "instruction": "Keep BTC long, reduce max loss to 0.5%, and require a tighter stop loss.",
+                                "rationale": "Oversized context must stay within the per-session budget.",
+                                "risk_notes": ["Re-run backtest before signal handoff."],
+                            })
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "get_llm_config", fake_llm_config)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    response = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/model-adjust",
+        json={"instruction": "Use Qwen to reduce risk with the current session context", "source": "pytest_budget"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    agent_context = payload["model_context"]["agent_session_context"]
+    assert agent_context["agent_session_id"] == "session:oversized-model-context"
+    assert agent_context["agent_session_name"] == "Oversized Model Context"
+    assert agent_context["context_summary"] == "x" * 2000
+    assert agent_context["context_summary_chars"] == 2000
+    assert agent_context["summary_max_chars"] == 2000
+    assert agent_context["ai_order_placement"] == "disallowed"
+    assert "TAIL_SHOULD_NOT_REACH_MODEL" not in json.dumps(payload, ensure_ascii=False)
+
+    assert calls
+    model_prompt = json.dumps(calls[0]["json"], ensure_ascii=False)
+    assert "Current non-secret AI Trading agent session context" in model_prompt
+    assert "session:oversized-model-context" in model_prompt
+    assert "TAIL_SHOULD_NOT_REACH_MODEL" not in model_prompt
+    assert "secret-model-key" not in model_prompt
+
+
 def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     draft = client.post(
