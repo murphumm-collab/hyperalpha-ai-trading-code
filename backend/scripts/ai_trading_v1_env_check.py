@@ -104,6 +104,11 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
     }
     runtime_payload = backend_runtime.get("json") if isinstance(backend_runtime.get("json"), dict) else {}
     runtime_gateway = runtime_payload.get("gateway") if isinstance(runtime_payload.get("gateway"), dict) else {}
+    runtime_model_adjustment = (
+        runtime_payload.get("model_adjustment")
+        if isinstance(runtime_payload.get("model_adjustment"), dict)
+        else {}
+    )
 
     blockers: List[str] = []
     if not frontend.get("ok"):
@@ -138,6 +143,7 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
                 "tcp_open": backend_open,
                 "runtime": backend_runtime,
                 "runtime_gateway": runtime_gateway,
+                "runtime_model_adjustment": runtime_model_adjustment,
             },
             "mock_gateway_5621": {"tcp_open": mock_gateway_open, "health": mock_gateway},
         },

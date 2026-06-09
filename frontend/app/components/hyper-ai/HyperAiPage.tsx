@@ -327,6 +327,17 @@ interface AiTradingRuntimeStatus {
     production_handoff_approved?: boolean
     runtime_config_blockers?: string[]
   }
+  model_adjustment?: {
+    ready?: boolean
+    configured?: boolean
+    provider?: string | null
+    model?: string | null
+    source?: string
+    provider_supported?: boolean
+    blockers?: string[]
+    credential_present?: boolean
+    credential_value_returned?: boolean
+  }
   strategy_specs?: {
     total?: number
     by_status?: Record<string, number>
@@ -1086,11 +1097,18 @@ export default function HyperAiPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const aiTradingGatewayRuntimeBlockers = aiTradingRuntime?.gateway?.runtime_config_blockers || []
+  const aiTradingModelAdjustment = aiTradingRuntime?.model_adjustment
+  const aiTradingModelAdjustmentBlockers = aiTradingModelAdjustment?.blockers || []
   const aiTradingGatewayReady = Boolean(
     aiTradingRuntime?.gateway?.enabled &&
     aiTradingRuntime.gateway?.url_configured &&
     (aiTradingRuntime.gateway?.default_handoff_status || 'available') === 'available' &&
     aiTradingGatewayRuntimeBlockers.length === 0
+  )
+  const aiTradingModelAdjustmentReady = Boolean(
+    aiTradingModelAdjustment
+      ? aiTradingModelAdjustment.ready
+      : profile?.llm_configured && ['deepseek', 'qwen'].includes(String(profile?.llm_provider || '').toLowerCase())
   )
   const aiTradingAgentSessions = useMemo(
     () => [...recentAgentSessions, ...archivedAgentSessions],
@@ -1326,13 +1344,36 @@ export default function HyperAiPage() {
     }
     return t('hyperAi.aiTradingGatewayTargetNotConfigured', 'Not configured')
   }
+  const modelAdjustmentStatusLabel = (): string => {
+    if (aiTradingModelAdjustmentReady) {
+      return t('hyperAi.aiTradingModelReady', 'Ready')
+    }
+    if (aiTradingModelAdjustmentBlockers.includes('model_provider_not_deepseek_or_qwen')) {
+      return t('hyperAi.aiTradingModelProviderUnsupported', 'DeepSeek/Qwen required')
+    }
+    if (aiTradingModelAdjustmentBlockers.includes('model_profile_credential_missing')) {
+      return t('hyperAi.aiTradingModelCredentialMissing', 'Key missing')
+    }
+    return t('hyperAi.aiTradingModelBlocked', 'Blocked')
+  }
+  const modelAdjustmentDetailLabel = (): string => {
+    const provider = aiTradingModelAdjustment?.provider || profile?.llm_provider
+    const model = aiTradingModelAdjustment?.model || profile?.llm_model
+    if (provider && model) {
+      return `${provider} / ${model}`
+    }
+    if (provider) {
+      return String(provider)
+    }
+    return t('hyperAi.aiTradingModelNotConfigured', 'Not configured')
+  }
   const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
   const currentStrategyBacktestReady = isBacktestReady(currentStrategyBacktest)
   const canBuildStrategySignalPreview = Boolean(
     strategyDraftRecord?.status === 'approved' && currentStrategyBacktestReady
   )
   const canUseAiTradingModelAdjust = Boolean(
-    profile?.llm_configured && ['deepseek', 'qwen'].includes(String(profile?.llm_provider || '').toLowerCase())
+    aiTradingModelAdjustmentReady
   )
   const strategySignalPreviewTitle = !strategyDraftRecord
     ? t('hyperAi.aiTradingSaveBeforeSignalPreview', 'Save and approve the strategy spec before signal preview')
@@ -3988,7 +4029,7 @@ export default function HyperAiPage() {
               <div className="mb-2 text-xs text-red-500">{strategyDraftError}</div>
             )}
             {aiTradingRuntime && (
-              <div className="mb-2 grid grid-cols-2 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px] xl:grid-cols-4">
+              <div className="mb-2 grid grid-cols-2 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px] xl:grid-cols-5">
                 <div className="min-w-0">
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingGateway', 'Gateway')}</div>
                   <div className={`truncate font-medium ${
@@ -4016,6 +4057,19 @@ export default function HyperAiPage() {
                       {gatewayTargetLabel()}
                     </div>
                   )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingModel', 'Model')}</div>
+                  <div className={`truncate font-medium ${
+                    aiTradingModelAdjustmentReady
+                      ? 'text-green-600'
+                      : 'text-yellow-600'
+                  }`}>
+                    {modelAdjustmentStatusLabel()}
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground" title={modelAdjustmentDetailLabel()}>
+                    {modelAdjustmentDetailLabel()}
+                  </div>
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSessions', 'Sessions')}</div>

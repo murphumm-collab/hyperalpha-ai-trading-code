@@ -37,6 +37,7 @@ from database.models import (
     AiTradingStrategySpecRecord,
     BacktestResult,
     BacktestTriggerLog,
+    HyperAiProfile,
     SignalPool,
     TradingProgram,
 )
@@ -49,6 +50,8 @@ from services.ai_decision_service import (
     strip_thinking_tags,
 )
 from services.hyper_ai_service import get_llm_config
+from services.hyper_ai_llm_providers import get_provider
+from utils.encryption import decrypt_private_key
 
 
 SPEC_VERSION = "hyperalpha.ai_trading.strategy_spec.v1"
@@ -3415,6 +3418,57 @@ def _summarize_strategy_backtest_evidence(
     return summary
 
 
+def _summarize_model_adjustment_readiness(db: Session, *, user_id: int) -> Dict[str, Any]:
+    blockers: List[str] = []
+    profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).first()
+    provider = _clean_text(profile.llm_provider if profile else None, 50).lower()
+    provider_config = get_provider(provider) if provider else None
+    model = _clean_text(
+        (profile.llm_model if profile else None)
+        or (provider_config.models[0] if provider_config and provider_config.models else None),
+        100,
+    )
+    base_url_present = bool(
+        _clean_text(
+            (profile.llm_base_url if profile else None)
+            or (provider_config.base_url if provider_config else None),
+            500,
+        )
+    )
+    configured = bool(profile and provider)
+    credential_present = False
+    if profile and profile.llm_api_key_encrypted:
+        try:
+            credential_present = bool(decrypt_private_key(profile.llm_api_key_encrypted))
+        except Exception:
+            blockers.append("model_profile_credential_unreadable")
+    provider_supported = provider in AI_TRADING_V1_MODEL_PROVIDERS
+
+    if not configured:
+        blockers.append("model_profile_not_configured")
+    if configured and not credential_present:
+        blockers.append("model_profile_credential_missing")
+    if configured and not provider_supported:
+        blockers.append("model_provider_not_deepseek_or_qwen")
+    if configured and not model:
+        blockers.append("model_name_missing")
+    if configured and not base_url_present:
+        blockers.append("model_base_url_missing")
+
+    blockers = list(dict.fromkeys(blockers))
+    return {
+        "ready": not blockers,
+        "configured": configured,
+        "provider": provider or None,
+        "model": model or None,
+        "source": "hyper_ai_profile",
+        "provider_supported": provider_supported,
+        "blockers": blockers,
+        "credential_present": credential_present,
+        "credential_value_returned": False,
+    }
+
+
 def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any]:
     """Return non-sensitive AI Trading runtime status for the current user."""
     spec_rows = db.query(
@@ -3483,6 +3537,7 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
         "agent_sessions": {
             "total": int(agent_session_count),
         },
+        "model_adjustment": _summarize_model_adjustment_readiness(db, user_id=user_id),
         "signal_events": {
             "total": sum(event_counts.values()),
             "by_status": event_counts,

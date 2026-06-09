@@ -20,6 +20,7 @@ from database.models import (
     AiTradingStrategySpecRecord,
     BacktestResult,
     BacktestTriggerLog,
+    HyperAiProfile,
     TradingProgram,
     User,
 )
@@ -312,6 +313,8 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert runtime.json()["gateway"]["max_handoff_age_seconds"] == int(
         strategy_service.SIGNAL_MAX_HANDOFF_AGE_SECONDS
     )
+    assert runtime.json()["model_adjustment"]["ready"] is False
+    assert runtime.json()["model_adjustment"]["blockers"] == ["model_profile_not_configured"]
 
     draft = client.post(
         "/api/ai-trading/strategy-spec/draft",
@@ -754,6 +757,78 @@ def test_ai_trading_strategy_spec_natural_language_adjustment_invalidates_approv
     )
     assert preview_after_adjust.status_code == 400
     assert "approved" in preview_after_adjust.json()["detail"]
+
+
+def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    user_id = client._ai_trading_user_ids[client._ai_trading_username]
+    session_factory = client._ai_trading_session_factory
+    secrets_by_encrypted_value = {
+        "encrypted-openai-key": "secret-openai-key",
+        "encrypted-qwen-key": "secret-qwen-key",
+    }
+    monkeypatch.setattr(
+        strategy_service,
+        "decrypt_private_key",
+        lambda encrypted_value: secrets_by_encrypted_value[encrypted_value],
+    )
+    session = session_factory()
+    try:
+        session.add(
+            HyperAiProfile(
+                user_id=user_id,
+                llm_provider="openai",
+                llm_base_url="https://api.openai.example/v1",
+                llm_model="gpt-4o",
+                llm_api_key_encrypted="encrypted-openai-key",
+            )
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    unsupported_runtime = client.get("/api/ai-trading/runtime")
+    assert unsupported_runtime.status_code == 200
+    unsupported_model = unsupported_runtime.json()["model_adjustment"]
+    assert unsupported_model["ready"] is False
+    assert unsupported_model["configured"] is True
+    assert unsupported_model["provider"] == "openai"
+    assert unsupported_model["provider_supported"] is False
+    assert "model_provider_not_deepseek_or_qwen" in unsupported_model["blockers"]
+    assert unsupported_model["credential_present"] is True
+    assert unsupported_model["credential_value_returned"] is False
+    unsupported_serialized = str(unsupported_runtime.json())
+    assert "secret-openai-key" not in unsupported_serialized
+    assert "api.openai.example" not in unsupported_serialized
+
+    session = session_factory()
+    try:
+        profile = session.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).one()
+        profile.llm_provider = "qwen"
+        profile.llm_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        profile.llm_model = "qwen-plus"
+        profile.llm_api_key_encrypted = "encrypted-qwen-key"
+        session.commit()
+    finally:
+        session.close()
+
+    ready_runtime = client.get("/api/ai-trading/runtime")
+    assert ready_runtime.status_code == 200
+    ready_model = ready_runtime.json()["model_adjustment"]
+    assert ready_model == {
+        "ready": True,
+        "configured": True,
+        "provider": "qwen",
+        "model": "qwen-plus",
+        "source": "hyper_ai_profile",
+        "provider_supported": True,
+        "blockers": [],
+        "credential_present": True,
+        "credential_value_returned": False,
+    }
+    ready_serialized = str(ready_runtime.json())
+    assert "secret-qwen-key" not in ready_serialized
+    assert "dashscope.aliyuncs.com" not in ready_serialized
 
 
 def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_adjusts(tmp_path, monkeypatch):

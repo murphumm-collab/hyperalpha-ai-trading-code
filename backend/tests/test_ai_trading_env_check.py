@@ -11,9 +11,19 @@ sys.modules[SPEC.name] = env_check
 SPEC.loader.exec_module(env_check)
 
 
-def _patch_ready_dependencies(monkeypatch, *, runtime_gateway):
+def _patch_ready_dependencies(monkeypatch, *, runtime_gateway, runtime_model_adjustment=None):
     monkeypatch.setattr(env_check, "_docker_ready", lambda: {"installed": True, "daemon_ready": True})
     monkeypatch.setattr(env_check, "_tcp_open", lambda host, port, timeout=1.0: True)
+    runtime_model_adjustment = runtime_model_adjustment or {
+        "ready": False,
+        "configured": False,
+        "provider": None,
+        "model": None,
+        "provider_supported": False,
+        "blockers": ["model_profile_not_configured"],
+        "credential_present": False,
+        "credential_value_returned": False,
+    }
 
     def fake_http_probe(url, timeout=3.0):
         if url.endswith("/api/ai-trading/runtime"):
@@ -21,7 +31,7 @@ def _patch_ready_dependencies(monkeypatch, *, runtime_gateway):
                 "ok": True,
                 "status": 200,
                 "body_sample": "{}",
-                "json": {"gateway": runtime_gateway},
+                "json": {"gateway": runtime_gateway, "model_adjustment": runtime_model_adjustment},
             }
         if url.endswith("/health"):
             return {
@@ -55,6 +65,11 @@ def test_env_check_ready_requires_local_mock_gateway(monkeypatch):
     assert report["ready"] is True
     assert report["blockers"] == []
     assert report["checks"]["backend_8802"]["runtime_gateway"]["target_kind"] == "local_mock"
+    assert report["checks"]["backend_8802"]["runtime_model_adjustment"]["ready"] is False
+    assert (
+        report["checks"]["backend_8802"]["runtime_model_adjustment"]["blockers"]
+        == ["model_profile_not_configured"]
+    )
 
 
 def test_env_check_blocks_external_runtime_gateway(monkeypatch):
