@@ -22,6 +22,8 @@
 - 前端主要 AI chat、stream polling、Settings、交易账户、Signal/Prompt/Program/Attribution 等请求已改为 auth-aware fetch。
 - `/api/ai-trading/strategy-spec/schema|draft|validate` 已提供结构化 Hyperliquid 策略草案和校验入口，默认要求用户审批、止盈/止损、最大亏损和 no-direct-order 边界。
 - Hyper AI 右侧 AI Trading 标的区域已增加结构化策略草案入口，草案会回填聊天框供 agent 审核。
+- `ai_trading_strategy_specs` 已持久化当前用户的策略 spec 草案/待审/已审批记录；审批会重新校验 spec，不触发下单或信号发送。
+- Hyper AI 策略草案摘要已提供保存和审批按钮，仍只操作 review 状态。
 
 ## 3. AI Stream / Worker 现状
 
@@ -63,6 +65,9 @@
 - Frontend production build 已通过，Settings AI Runtime 显示 dispatch queue counts 和 claim timeout。
 - AI Trading strategy spec service/route smoke：完整草案进入 `ready_for_review`，缺失 TP/SL 返回 `needs_user_input`，篡改 `ai_may_place_orders=true` 会被拒。
 - Frontend production build 已通过，Hyper AI AI Trading strategy-spec 草案控件编译成功。
+- AI Trading strategy spec persistence smoke：SQLite 下 save/list/get/approve/archive 完成，归档记录默认列表隐藏。
+- AI Trading strategy spec HTTP CRUD smoke：FastAPI TestClient 下 endpoints 保存、详情、审批、归档均通过。
+- Frontend production build 已通过，Hyper AI strategy spec 保存/审批控件编译成功。
 
 ## 6. 未验收 / 阻塞
 
@@ -71,7 +76,7 @@
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
-- strategy spec 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols；当前只做了页面 shell、service 和 FastAPI route 烟测。
+- strategy spec 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols；当前只做了页面 shell、service、persistence 和 FastAPI route 烟测。
 
 ## 7. 当前提交锚点
 

@@ -7,7 +7,11 @@ approval fields before any downstream signal or order backend is involved.
 from __future__ import annotations
 
 import re
+import json
+from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from sqlalchemy.orm import Session
 
 from config.settings import (
     AI_HARD_MAX_LEVERAGE,
@@ -17,6 +21,7 @@ from config.settings import (
     AI_HARD_REQUIRE_STOP_LOSS,
     AI_HARD_REQUIRE_TAKE_PROFIT,
 )
+from database.models import AiTradingStrategySpecRecord
 from services.exchanges.symbol_mapper import SymbolMapper
 
 
@@ -35,6 +40,7 @@ SUPPORTED_TIMEFRAMES = {
     "12h",
     "1d",
 }
+ARCHIVED_STATUS = "archived"
 
 
 def _normalize_symbol(symbol: Any) -> str:
@@ -168,6 +174,58 @@ def _constraint_list(
     if position_notional_usd is not None:
         constraints.append(f"Maximum position notional: ${position_notional_usd:g}")
     return constraints
+
+
+def _json_dumps(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True)
+
+
+def _json_loads(value: Optional[str], fallback: Any) -> Any:
+    if not value:
+        return fallback
+    try:
+        return json.loads(value)
+    except (TypeError, json.JSONDecodeError):
+        return fallback
+
+
+def _record_timestamp(value: Any) -> Optional[str]:
+    if not value:
+        return None
+    if hasattr(value, "isoformat"):
+        return value.isoformat()
+    return str(value)
+
+
+def _derive_record_name(spec: Dict[str, Any], name: Optional[str] = None) -> str:
+    explicit = _clean_text(name, 120)
+    if explicit:
+        return explicit
+    symbol = _normalize_symbol(spec.get("symbol")) or "Strategy"
+    timeframe = str(spec.get("timeframe") or DEFAULT_TIMEFRAME)
+    return f"{symbol} {timeframe} AI Trading Spec"[:120]
+
+
+def serialize_strategy_spec_record(
+    record: AiTradingStrategySpecRecord,
+    *,
+    include_spec: bool = False,
+) -> Dict[str, Any]:
+    payload = {
+        "id": record.id,
+        "user_id": record.user_id,
+        "name": record.name,
+        "symbol": record.symbol,
+        "status": record.status,
+        "source": record.source,
+        "validation": _json_loads(record.validation_json, {}),
+        "approved_at": _record_timestamp(record.approved_at),
+        "created_at": _record_timestamp(record.created_at),
+        "updated_at": _record_timestamp(record.updated_at),
+    }
+    if include_spec:
+        payload["spec"] = _json_loads(record.spec_json, {})
+    return payload
 
 
 def get_strategy_spec_schema() -> Dict[str, Any]:
@@ -393,3 +451,124 @@ def validate_strategy_spec(spec: Dict[str, Any], *, user_id: int) -> Dict[str, A
             "requires_user_approval": True,
         },
     }
+
+
+def save_strategy_spec_record(
+    db: Session,
+    *,
+    user_id: int,
+    spec: Dict[str, Any],
+    name: Optional[str] = None,
+    source: str = "manual",
+) -> AiTradingStrategySpecRecord:
+    """Persist a user-owned strategy spec draft/review record."""
+    spec_copy = dict(spec or {})
+    spec_copy["owner_user_id"] = user_id
+    spec_copy.setdefault("version", SPEC_VERSION)
+    spec_copy.setdefault("venue", "hyperliquid")
+
+    validation = validate_strategy_spec(spec_copy, user_id=user_id)
+    spec_copy["validation"] = {
+        "status": validation["status"],
+        "issues": validation["issues"],
+        "warnings": validation["warnings"],
+        "safe_to_emit_signal": validation["safe_to_emit_signal"],
+    }
+
+    record = AiTradingStrategySpecRecord(
+        user_id=user_id,
+        name=_derive_record_name(spec_copy, name),
+        symbol=_normalize_symbol(spec_copy.get("symbol")),
+        status=validation["status"],
+        source=_clean_text(source, 50) or "manual",
+        spec_json=_json_dumps(spec_copy),
+        validation_json=_json_dumps(validation),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def list_strategy_spec_records(
+    db: Session,
+    *,
+    user_id: int,
+    status: Optional[str] = None,
+    limit: int = 50,
+) -> List[AiTradingStrategySpecRecord]:
+    query = db.query(AiTradingStrategySpecRecord).filter(
+        AiTradingStrategySpecRecord.user_id == user_id,
+    )
+    if status:
+        query = query.filter(AiTradingStrategySpecRecord.status == status)
+    else:
+        query = query.filter(AiTradingStrategySpecRecord.status != ARCHIVED_STATUS)
+    return (
+        query
+        .order_by(AiTradingStrategySpecRecord.updated_at.desc(), AiTradingStrategySpecRecord.id.desc())
+        .limit(max(1, min(int(limit or 50), 100)))
+        .all()
+    )
+
+
+def get_strategy_spec_record(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+) -> Optional[AiTradingStrategySpecRecord]:
+    return db.query(AiTradingStrategySpecRecord).filter(
+        AiTradingStrategySpecRecord.id == record_id,
+        AiTradingStrategySpecRecord.user_id == user_id,
+    ).first()
+
+
+def approve_strategy_spec_record(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+) -> AiTradingStrategySpecRecord:
+    """Mark a valid strategy spec approved for later handoff workflows."""
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+
+    spec = _json_loads(record.spec_json, {})
+    validation = validate_strategy_spec(spec, user_id=user_id)
+    if not validation.get("valid") or not validation.get("safe_to_emit_signal"):
+        record.status = validation["status"]
+        record.validation_json = _json_dumps(validation)
+        db.commit()
+        db.refresh(record)
+        raise ValueError("Strategy spec is not valid for approval")
+
+    spec["validation"] = {
+        "status": "approved",
+        "issues": validation["issues"],
+        "warnings": validation["warnings"],
+        "safe_to_emit_signal": validation["safe_to_emit_signal"],
+    }
+    record.status = "approved"
+    record.spec_json = _json_dumps(spec)
+    record.validation_json = _json_dumps({**validation, "status": "approved"})
+    record.approved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def archive_strategy_spec_record(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+) -> AiTradingStrategySpecRecord:
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record:
+        raise ValueError("Strategy spec not found")
+    record.status = ARCHIVED_STATUS
+    db.commit()
+    db.refresh(record)
+    return record

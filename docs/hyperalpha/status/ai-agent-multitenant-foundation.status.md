@@ -86,6 +86,8 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI startup splash has a bounded fallback so backend/API startup failures surface the app shell instead of trapping users on the loading screen.
 - AI Trading strategy-spec API drafts and validates structured, signal-only Hyperliquid strategy plans with explicit risk, TP/SL, user-approval, and no-direct-order boundaries.
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
+- AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
+- Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -228,6 +230,8 @@ Local checkpoint: current branch `HEAD`
 | Hyper AI startup fallback | Done | Splash completes after a bounded wait even if initial backend data is unavailable, allowing the AI Trading shell to render API/connectivity errors |
 | AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
+| AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
+| AI Trading strategy spec approval UI | Done | Hyper AI strategy draft summaries expose save and approve controls without connecting to order execution |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
@@ -482,6 +486,11 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading strategy spec FastAPI route smoke test in `uv run`: schema, draft, and validate endpoints preserve `signal_only`, `ai_may_place_orders=false`, and reject direct-order mutation.
 - Passed: Frontend production build after adding the Hyper AI AI Trading strategy-spec draft controls.
 - Partial: Playwright opened the current repo Vite app at `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; the new per-symbol draft control could not be clicked in-browser because backend/API symbol loading is unavailable while local backend/Postgres are not running.
+- Passed: AI Trading strategy spec persistence compile in both system Python and `uv run` backend environment for ORM model, migration, service, and route changes.
+- Passed: AI Trading strategy spec persistence smoke test in `uv run` with SQLite: current-user spec save/list/get/approve/archive flow worked and archived records disappeared from default lists.
+- Passed: AI Trading strategy spec HTTP CRUD smoke test in `uv run` with FastAPI TestClient and SQLite: save/list/detail/approve/archive endpoints stayed user-scoped and preserved approval state.
+- Passed: Frontend production build after adding Hyper AI strategy spec save/approval controls.
+- Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; full save/approve click acceptance still needs local backend/Postgres and loaded Hyperliquid symbols.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

@@ -49,6 +49,7 @@ import {
   MessageCircle,
   Blocks,
   FileJson,
+  Save,
   ShieldCheck,
   Search as SearchIcon
 } from 'lucide-react'
@@ -157,6 +158,15 @@ interface AiTradingStrategySpec {
     warnings?: string[]
     safe_to_emit_signal?: boolean
   }
+}
+
+interface AiTradingStrategySpecRecord {
+  id: number
+  name: string
+  symbol: string
+  status: string
+  approved_at?: string | null
+  spec?: AiTradingStrategySpec
 }
 
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
@@ -689,7 +699,10 @@ export default function HyperAiPage() {
   const [tradingSymbolsLoading, setTradingSymbolsLoading] = useState(false)
   const [tradingSymbolsError, setTradingSymbolsError] = useState<string | null>(null)
   const [strategyDraft, setStrategyDraft] = useState<AiTradingStrategySpec | null>(null)
+  const [strategyDraftRecord, setStrategyDraftRecord] = useState<AiTradingStrategySpecRecord | null>(null)
   const [strategyDraftLoadingSymbol, setStrategyDraftLoadingSymbol] = useState<string | null>(null)
+  const [strategyDraftSaving, setStrategyDraftSaving] = useState(false)
+  const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -859,6 +872,7 @@ export default function HyperAiPage() {
 
       const spec = data.spec as AiTradingStrategySpec
       setStrategyDraft(spec)
+      setStrategyDraftRecord(null)
       const reviewPrompt = currentLang === 'zh'
         ? `请审核下面这份 AI Trading Strategy Spec：先指出缺失的约束、是否需要补充止盈止损、是否满足实盘前的风控；如果不满足，请给出 HOLD 和需要我确认的问题。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
         : `Review this AI Trading Strategy Spec. Identify missing constraints, whether stop-loss/take-profit need refinement, and whether the spec passes pre-live risk checks. If it does not pass, return HOLD and ask for the required confirmations. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
@@ -869,6 +883,73 @@ export default function HyperAiPage() {
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to draft strategy spec')
     } finally {
       setStrategyDraftLoadingSymbol(null)
+    }
+  }
+
+  const persistStrategyDraft = async (): Promise<AiTradingStrategySpecRecord | null> => {
+    if (!strategyDraft) {
+      return null
+    }
+    setStrategyDraftSaving(true)
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetch('/api/ai-trading/strategy-specs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: `${strategyDraft.symbol || 'AI'} ${strategyDraft.timeframe || '15m'} Review`,
+          source: 'hyper_ai_panel',
+          spec: strategyDraft,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to save strategy spec')
+      }
+      const record = data.spec_record as AiTradingStrategySpecRecord
+      setStrategyDraftRecord(record)
+      if (record.spec) {
+        setStrategyDraft(record.spec)
+      }
+      return record
+    } catch (e) {
+      console.error('Failed to save AI trading strategy spec:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to save strategy spec')
+      return null
+    } finally {
+      setStrategyDraftSaving(false)
+    }
+  }
+
+  const handleSaveStrategyDraft = async () => {
+    await persistStrategyDraft()
+  }
+
+  const handleApproveStrategyDraft = async () => {
+    setStrategyDraftApproving(true)
+    setStrategyDraftError(null)
+    try {
+      const record = strategyDraftRecord || (await persistStrategyDraft())
+      if (!record) {
+        return
+      }
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${record.id}/approve`, {
+        method: 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to approve strategy spec')
+      }
+      const approved = data.spec_record as AiTradingStrategySpecRecord
+      setStrategyDraftRecord(approved)
+      if (approved.spec) {
+        setStrategyDraft(approved.spec)
+      }
+    } catch (e) {
+      console.error('Failed to approve AI trading strategy spec:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to approve strategy spec')
+    } finally {
+      setStrategyDraftApproving(false)
     }
   }
 
@@ -1598,12 +1679,14 @@ export default function HyperAiPage() {
                   </div>
                   <span
                     className={`shrink-0 rounded px-1.5 py-0.5 ${
-                      strategyDraft.validation?.safe_to_emit_signal
+                      strategyDraftRecord?.status === 'approved'
+                        ? 'bg-green-500/10 text-green-600'
+                        : strategyDraft.validation?.safe_to_emit_signal
                         ? 'bg-green-500/10 text-green-600'
                         : 'bg-yellow-500/10 text-yellow-600'
                     }`}
                   >
-                    {strategyDraft.validation?.status || 'draft'}
+                    {strategyDraftRecord?.status || strategyDraft.validation?.status || 'draft'}
                   </span>
                 </div>
                 <div className="grid grid-cols-2 gap-1 text-muted-foreground">
@@ -1621,6 +1704,41 @@ export default function HyperAiPage() {
                   <span className="truncate text-foreground">
                     {strategyDraft.execution?.signal_only ? 'signal only' : 'review'}
                   </span>
+                </div>
+                <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
+                  <span className="min-w-0 truncate text-muted-foreground">
+                    {strategyDraftRecord
+                      ? `#${strategyDraftRecord.id} · ${strategyDraftRecord.status}`
+                      : t('hyperAi.aiTradingUnsavedDraft', 'Unsaved draft')}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={handleSaveStrategyDraft}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving}
+                      title={t('hyperAi.aiTradingSaveDraft', 'Save draft')}
+                    >
+                      {strategyDraftSaving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Save className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleApproveStrategyDraft}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyDraftRecord?.status === 'approved'}
+                      title={t('hyperAi.aiTradingApproveDraft', 'Approve draft')}
+                    >
+                      {strategyDraftApproving ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
                 </div>
                 {strategyDraft.validation?.issues && strategyDraft.validation.issues.length > 0 && (
                   <div className="mt-2 flex items-start gap-1.5 text-yellow-600">

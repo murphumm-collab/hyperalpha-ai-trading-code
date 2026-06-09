@@ -72,6 +72,7 @@ MIGRATIONS = [
     "add_strategy_entity_user_scope.py",
     "add_hyper_insight_wallet_runtime_user_scope.py",
     "add_user_symbol_watchlists.py",
+    "add_ai_trading_strategy_specs.py",
     "add_kline_task_user_scope.py",
     "add_ai_stream_persistence.py",
     "add_ai_stream_confirmations.py",

@@ -249,6 +249,27 @@ class UserSymbolWatchlist(Base):
     )
 
 
+class AiTradingStrategySpecRecord(Base):
+    """Per-user structured AI Trading strategy draft/review record."""
+    __tablename__ = "ai_trading_strategy_specs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    symbol = Column(String(64), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="draft", index=True)
+    source = Column(String(50), nullable=False, default="manual")
+    spec_json = Column(Text, nullable=False)
+    validation_json = Column(Text, nullable=False, default="{}")
+    approved_at = Column(TIMESTAMP, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+
+
 class AiStreamTaskRecord(Base):
     """Persistent metadata for background AI stream tasks."""
     __tablename__ = "ai_stream_tasks"
