@@ -927,13 +927,16 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     assert adjusted["backtest"]["source"] == "invalidated_by_strategy_adjustment"
     assert adjusted["metadata"]["model_adjustment"]["provider"] == "qwen"
     assert adjusted["metadata"]["model_adjustment"]["model"] == "qwen-plus"
+    expected_context_summary = (
+        "AI Trading session compressed context v1 | symbols=BTC | "
+        "risk=0.5%; redaction=enabled; ai_order_placement=disallowed"
+    )
     assert adjusted["metadata"]["model_adjustment"]["agent_session_context"] == {
         "agent_session_id": "session:model-btc",
         "agent_session_name": "BTC Model Session",
-        "context_summary": (
-            "AI Trading session compressed context v1 | symbols=BTC | "
-            "risk=0.5%; redaction=enabled; ai_order_placement=disallowed"
-        ),
+        "context_summary": expected_context_summary,
+        "context_summary_chars": len(expected_context_summary),
+        "summary_max_chars": 2000,
         "source": "agent_session",
         "redaction": "enabled",
         "ai_order_placement": "disallowed",
@@ -1035,6 +1038,8 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
     assert agent_context["agent_session_id"] == "session:sensitive-btc"
     assert agent_context["agent_session_name"] == "Sensitive BTC Session"
     assert agent_context["context_summary"] == "[redacted_sensitive_context]"
+    assert agent_context["context_summary_chars"] == len("[redacted_sensitive_context]")
+    assert agent_context["summary_max_chars"] == 2000
     assert agent_context["ai_order_placement"] == "disallowed"
     serialized_payload = json.dumps(payload, ensure_ascii=False)
     assert "secret-session-key" not in serialized_payload
@@ -1109,6 +1114,8 @@ def test_ai_trading_saved_spec_model_adjustment_redacts_sensitive_agent_session_
     assert agent_context["agent_session_id"] == "session:saved-sensitive-btc"
     assert agent_context["agent_session_name"] == "Saved Sensitive BTC Session"
     assert agent_context["context_summary"] == "[redacted_sensitive_context]"
+    assert agent_context["context_summary_chars"] == len("[redacted_sensitive_context]")
+    assert agent_context["summary_max_chars"] == 2000
     assert agent_context["ai_order_placement"] == "disallowed"
     adjusted = payload["spec_record"]["spec"]
     assert adjusted["metadata"]["model_adjustment"]["agent_session_context"] == agent_context

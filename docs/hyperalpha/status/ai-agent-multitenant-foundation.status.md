@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Agent Session Context Limit UI Gate Complete / Remote Push Skipped
+Status: Local V1 Model Adjust Context Budget Audit Gate Complete / Remote Push Skipped
 
 Local checkpoint: current branch `HEAD`
 
@@ -118,6 +118,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading has a local live DeepSeek/Qwen model-adjust acceptance runner that is disabled by default without `--confirm-live-model-call`, only targets local backend URLs, never accepts API-key arguments, never writes signal events, and never submits handoff/orders.
 - AI Trading runtime now exposes current-user, non-secret model-adjust readiness (`model_adjustment`) so the UI and env checker can show whether DeepSeek/Qwen adjustment is ready without returning API keys or base URLs.
 - AI Trading model-adjust prompts can include the current-user agent session's non-secret `agent_session_id`, `agent_session_name`, and compressed `context_summary`, with sensitive summaries redacted and `ai_order_placement=disallowed` preserved in model context.
+- AI Trading model-adjust audit context now includes non-secret `context_summary_chars` and `summary_max_chars` so operators can verify DeepSeek/Qwen prompt context stays within the per-session budget.
 - Unsaved-draft AI Trading model-adjust now requires any supplied `agent_session_id` to resolve to the current user's active AI Trading agent session before model config is read or any model request can be attempted.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
 - Hyper AI AI Trading strategy draft summary includes a compact natural-language adjustment control that calls the constrained adjustment API for saved or unsaved specs, then reloads the adjusted spec into chat for review.
@@ -351,6 +352,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading live model-adjust acceptance gate | Done | `backend/scripts/ai_trading_model_adjust_live_acceptance.py` verifies the live DeepSeek/Qwen model-adjust path can be accepted locally only with explicit confirmation, keeps the flow signal-only, and defaults to refusing model calls without API-key arguments |
 | AI Trading model-adjust runtime readiness | Done | `/api/ai-trading/runtime` returns non-secret current-user `model_adjustment` readiness, env checker exposes it as `runtime_model_adjustment`, and Hyper AI AI Trading shows a Model status card without API key/base URL leakage |
 | AI Trading model-adjust session context | Done | Draft and saved-spec model-adjust can pass current-user non-secret agent session context into the DeepSeek/Qwen prompt and response `model_context`, while redacting sensitive summaries and keeping model output inside the safe parser/no-order boundary |
+| AI Trading model-adjust context budget audit | Done | Model-adjust `agent_session_context` returns non-secret `context_summary_chars` and `summary_max_chars=2000` for normal and redacted summaries, with tests proving secrets stay out of response/prompt bodies |
 | AI Trading unsaved model-adjust session ownership | Done | `/api/ai-trading/strategy-spec/model-adjust` rejects cross-user, missing, or archived `agent_session_id` before reading model config, so unsaved drafts cannot spoof another user's session context |
 | AI Trading backtest handoff gate | Done | `/api/ai-trading/strategy-specs/{id}/backtest-summary` stores non-executable backtest evidence, and signal-event handoff eligibility blocks candidates without accepted passing backtest evidence |
 | AI Trading backtest metrics gate | Done | Handoff readiness requires positive `trade_count`, parseable `max_drawdown`, and at least one performance metric such as `total_return`, `sharpe`, `win_rate`, or `profit_factor` |
@@ -956,6 +958,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: frontend production build after agent-session context limit UI: `cd frontend && npm run build` passed with only existing browser-baseline/Browserslist/chunk-size warnings.
 - Passed: LaunchAgent runtime mirror was resynced after agent-session context limit UI with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true` with runtime totals strategy specs `35`, signal events `33`, agent sessions `20`, and handoff attempts `31`.
 - Passed: In-app Browser opened `/app/ai-trading/sessions/ait%3Abtc%3A4d53a40f6789`, skipped local onboarding without entering API keys, and confirmed the detail page shows `Context limits`, `returned / requested / max`, `Summary max chars`, `2000`, specs/signals/attempts, and no visible error.
+- Passed: AI Trading model-adjust context budget audit checks: `cd backend && uv run python -m py_compile services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` passed; `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 35 passing tests, including `context_summary_chars`, `summary_max_chars=2000`, redacted sensitive session contexts, and no model/profile/session secret leakage into responses or prompt bodies.
+- Passed: aggregate AI Trading regression after model-adjust context budget audit: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 59 passing tests with 4 existing UTC deprecation warnings.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

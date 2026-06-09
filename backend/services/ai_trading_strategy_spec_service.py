@@ -1427,6 +1427,8 @@ def _build_model_adjustment_agent_context(
         "agent_session_id": resolved_session_id,
         "agent_session_name": resolved_name or None,
         "context_summary": resolved_summary,
+        "context_summary_chars": len(resolved_summary or ""),
+        "summary_max_chars": AGENT_CONTEXT_SUMMARY_MAX_CHARS,
         "source": _clean_text(source, 50) or "request",
         "redaction": "enabled",
         "ai_order_placement": "disallowed",
