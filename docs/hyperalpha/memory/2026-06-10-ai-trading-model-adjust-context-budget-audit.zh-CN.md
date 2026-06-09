@@ -27,6 +27,8 @@
 - `cd backend && uv run python -m py_compile services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q`：35 passed。
 - `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：59 passed，4 个既有 UTC deprecation warnings。
+- `scripts/local-dev/install_launch_agent.sh`：passed。
+- `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict`：`ready=true`，runtime totals 为 strategy specs `35`、signal events `33`、agent sessions `20`、handoff attempts `31`。
 
 ## 下一步注意
 
