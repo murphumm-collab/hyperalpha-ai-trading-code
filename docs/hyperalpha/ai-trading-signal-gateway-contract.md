@@ -19,6 +19,18 @@ The gateway is off unless all required runtime config is present:
 
 When the gateway is disabled or missing a URL, `/api/ai-trading/signal-events/{id}/handoff` returns `409` and writes a blocked audit attempt. It does not submit to the order backend.
 
+Before any production-like order-backend acceptance, run:
+
+```bash
+cd backend
+uv run python scripts/ai_trading_production_handoff_check.py --strict
+```
+
+The check requires a real HTTPS non-local/non-mock gateway URL, a bearer token,
+a bounded timeout, a positive handoff-age gate, and
+`AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`. It prints only sanitized URL
+parts and token presence, never the token value.
+
 ## HTTP Request
 
 Method: `POST`
@@ -118,6 +130,7 @@ Contract regression is covered by `backend/tests/test_ai_trading_routes.py`:
 - `test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only`
 - `test_ai_trading_strategy_signal_and_handoff_flow`
 - Redaction, response-summary, and blocker-specific handoff tests
+- `backend/tests/test_ai_trading_production_handoff_check.py` covers the production handoff readiness checker, including localhost/mock rejection and token redaction.
 
 ## Local Mock Gateway
 

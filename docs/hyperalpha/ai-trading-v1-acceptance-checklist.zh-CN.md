@@ -32,6 +32,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py`：通过，覆盖 draft -> model-adjust -> save -> attach backtest -> approve -> reject signal -> confirmed mock handoff -> runtime。
 - `cd backend && uv run python scripts/ai_trading_v1_env_check.py`：在 Docker/Postgres/mock gateway/backend/frontend 启动后返回 `ready=true`。
 - `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff`：通过，覆盖本地 LaunchAgent/live Postgres 栈 draft -> save -> attach backtest -> approve -> eligible signal -> confirmed mock handoff -> attempt audit -> runtime；最新证据为 spec `#8`、signal event `#6`、gateway response `mock_accepted`。脚本默认拒绝无确认 handoff，且只允许本地 URL。
+- `cd backend && uv run python scripts/ai_trading_production_handoff_check.py --strict`：当前默认配置应拒绝生产 handoff；真实订单后端验收前必须通过该生产前检查，且不能使用 localhost/mock/placeholder URL。
 - `cd frontend && npm run build`：通过，剩余为既有 browserslist/baseline/chunk-size warning。
 - In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
 - In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
@@ -49,6 +50,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - 实际 macOS 整机重启后的自动恢复还未物理验收；当前已完成 LaunchAgent 会话内自恢复验收。后续代码变更需要重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime 副本。
 - 真实 DeepSeek/Qwen API key live model-adjust 未验收；当前为 mocked Qwen regression。
 - 真实 HyperAlpha 订单后端 URL/token live handoff 未验收；当前为 disabled-by-default 和 mock gateway contract 验收。
+- 生产 handoff readiness gate 已实现，但真实 HTTPS 订单后端 URL/token 和 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的 live 验收未做。
 - 真实交易所执行不属于 V1 本地验收完成条件，必须另开生产实盘验收。
 
 ## V1 通过标准

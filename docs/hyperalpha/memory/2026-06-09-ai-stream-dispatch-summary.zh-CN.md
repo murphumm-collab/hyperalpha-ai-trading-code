@@ -47,6 +47,7 @@
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 - gateway payload 现在有稳定的 V1 HTTP JSON contract：顶层包含 `contract/version`、event/spec/user IDs、`venue`、`symbol`、`exchange_symbol`、`action`、`idempotency_key`、signal age、用户确认、`market`、`market_context`、`risk`、`backtest`、`execution_boundary`、`validation` 和 redacted full `signal`；契约文档在 `docs/hyperalpha/ai-trading-signal-gateway-contract.md`。
 - 新增本地 mock signal gateway：`backend/dev_ai_trading_signal_gateway.py`。它只校验 V1 gateway contract 和 signal-only 边界，返回 202 并写 JSONL 审计，不连接真实订单服务或交易所。
+- 新增生产 handoff readiness gate：`backend/scripts/ai_trading_production_handoff_check.py`。它不联网、不提交信号，只检查生产订单后端配置是否显式可用；localhost/private/mock/placeholder/non-HTTPS/URL 内嵌凭据或 query、缺 token、timeout 过大、max age 无效、缺 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 都会阻塞，输出只含 token presence 不含 token 原文。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
 - `/api/ai-trading/runtime` 现在还返回非敏感 `gateway.max_handoff_age_seconds`；Hyper AI Gateway 卡片会显示紧凑 max-age，让运营知道后端当前 stale-signal gate。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
@@ -250,6 +251,10 @@
 - 本地 live API 已完成最终正向 mock handoff：spec `#6`、signal event `#4`、`handoff_status=submitted`、latest handoff attempt `submitted`、`gateway_ready=true`。
 - In-app Browser 已确认 Recent signals 可见 `BTC · buy / #2 submitted` 和 `BTC · hold / #1/#3 rejected`，并能读取 handoff attempts，attempt response 只包含脱敏 gateway response summary。
 - `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py` 不带确认参数会拒绝 handoff；`cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff` 已通过，输出 `success=true`，最新本地证据为 spec `#8`、signal event `#6`、gateway response summary `status=mock_accepted`。
+- `cd backend && uv run pytest tests/test_ai_trading_production_handoff_check.py -q` 已通过，5 条生产 handoff readiness 回归全绿；覆盖 localhost/mock gateway 拒绝、placeholder/缺 token/缺审批拒绝、private IP 拒绝、合格 HTTPS 配置通过且不输出 token、env-file parser。
+- `cd backend && uv run python scripts/ai_trading_production_handoff_check.py --strict` 在当前默认配置下正确失败，blockers 为 gateway disabled、URL missing、token missing、approval missing；使用假生产 HTTPS URL/token/`AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 时返回 `production_handoff_ready=true` 且不输出 token 原文。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 已通过，当前 AI Trading 合并回归为 34 条全绿。
+- 生产 handoff checker 后再次验证本地栈和前端：`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`；`cd frontend && npm run build` 通过，剩余为既有 browserslist/baseline/chunk-size 警告。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI signal identity blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
@@ -292,7 +297,7 @@
 - DeepSeek/Qwen 真实 API key/live profile 调用 model-adjust 的链路仍未验收；当前已完成 mocked Qwen 回归和前端按钮，模型输出进入 deterministic safety parser 后才会改 spec。
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
-- AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前已做 disabled-by-default、mock gateway、V1 contract payload 和文档验收。
+- AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前已做 disabled-by-default、mock gateway、V1 contract payload、生产 handoff readiness gate 和文档验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
 - 专用 AI Trading full-page rich backtest result route 已实现为只读 evidence 页面；真实登录态下从 saved Strategy Spec/Program Backtest evidence 点击进入并加载 live data 的浏览器验收仍未完成。
 - 本地 strategy spec / signal preview / signal event / recent records inspect / signal-event mock handoff 点击验收已完成；真实生产登录态和真实订单后端 handoff 仍未验收。
