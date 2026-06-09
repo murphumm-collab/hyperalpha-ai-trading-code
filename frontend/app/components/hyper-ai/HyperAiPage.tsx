@@ -234,6 +234,29 @@ interface AiTradingBacktestResultRecord {
   completed_at?: string | null
 }
 
+interface AiTradingBacktestPreflight {
+  ready?: boolean
+  blockers?: string[]
+  recommended_binding?: Record<string, unknown> | null
+  default_request?: {
+    binding_id?: number
+    start_time_ms?: number
+    end_time_ms?: number
+    initial_balance?: number
+    slippage_percent?: number
+    fee_rate?: number
+  } | null
+  candidate_bindings?: Record<string, unknown>[]
+}
+
+interface AiTradingBacktestRunStatus {
+  specId: number
+  phase: 'preflight' | 'calculating' | 'running' | 'attaching'
+  current?: number
+  total?: number
+  backtestId?: number
+}
+
 interface AiTradingMarket {
   symbol?: string
   coin?: string
@@ -263,6 +286,13 @@ interface AiTradingRuntimeStatus {
       by_blocker?: Record<string, number>
     }
   }
+}
+
+const AI_TRADING_BACKTEST_DEFAULTS = {
+  days: 30,
+  initial_balance: 10000,
+  slippage_percent: 0.05,
+  fee_rate: 0.035,
 }
 
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
@@ -801,7 +831,8 @@ export default function HyperAiPage() {
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
-  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | null>(null)
+  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | null>(null)
+  const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -1406,36 +1437,48 @@ export default function HyperAiPage() {
     }
   }
 
+  const requestStrategyBacktestPreflight = async (recordId: number): Promise<AiTradingBacktestPreflight> => {
+    const res = await authFetch(`/api/ai-trading/strategy-specs/${recordId}/backtest-preflight`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(AI_TRADING_BACKTEST_DEFAULTS),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      throw new Error(data.detail || 'Failed to build backtest preflight')
+    }
+    return data.preflight || {}
+  }
+
+  const resolveStrategyRecordIdForBacktest = async (
+    recordId: number | undefined,
+    errorMessage: string
+  ): Promise<number | null> => {
+    if (recordId) {
+      return recordId
+    }
+    const record = strategyDraftRecord || (await persistStrategyDraft())
+    if (!record) {
+      setStrategyDraftError(errorMessage)
+      return null
+    }
+    return record.id
+  }
+
   const handleStrategyBacktestPreflight = async (recordId?: number) => {
     setStrategyDraftError(null)
-    let targetRecordId = recordId
+    const targetRecordId = await resolveStrategyRecordIdForBacktest(
+      recordId,
+      'Save or draft a strategy spec before building a backtest preflight'
+    )
     if (!targetRecordId) {
-      const record = strategyDraftRecord || (await persistStrategyDraft())
-      if (!record) {
-        setStrategyDraftError('Save or draft a strategy spec before building a backtest preflight')
-        return
-      }
-      targetRecordId = record.id
+      return
     }
 
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('preflight')
     try {
-      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-preflight`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          days: 30,
-          initial_balance: 10000,
-          slippage_percent: 0.05,
-          fee_rate: 0.035,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        throw new Error(data.detail || 'Failed to build backtest preflight')
-      }
-      const preflight = data.preflight || {}
+      const preflight = await requestStrategyBacktestPreflight(targetRecordId)
       const prompt = currentLang === 'zh'
         ? `请复核 AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest preflight：确认 recommended binding 是否属于当前用户、symbol 是否匹配、default_request 是否可以作为下一步回测请求；这一步不执行回测、不下单。\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
         : `Review the Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId}. Confirm the recommended binding belongs to the current user, the symbol matches, and the default_request is suitable for the next backtest step. This does not run a backtest or place an order.\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
@@ -1448,6 +1491,147 @@ export default function HyperAiPage() {
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
+    }
+  }
+
+  const handleRunStrategyProgramBacktest = async (recordId?: number) => {
+    setStrategyDraftError(null)
+    const targetRecordId = await resolveStrategyRecordIdForBacktest(
+      recordId,
+      'Save or draft a strategy spec before running a Program Backtest'
+    )
+    if (!targetRecordId) {
+      return
+    }
+
+    setStrategyBacktestLoadingId(targetRecordId)
+    setStrategyBacktestLoadingSource('run')
+    setStrategyBacktestRunStatus({ specId: targetRecordId, phase: 'preflight' })
+
+    try {
+      const preflight = await requestStrategyBacktestPreflight(targetRecordId)
+      const requestBody = preflight.default_request
+      if (!preflight.ready || !requestBody?.binding_id || !requestBody.start_time_ms || !requestBody.end_time_ms) {
+        const blockers = preflight.blockers?.length ? preflight.blockers.join(', ') : 'missing_default_request'
+        const prompt = currentLang === 'zh'
+          ? `AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest 预检未通过，暂不启动回测。请先修复 blockers，然后再运行；这一步没有下单。\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
+          : `Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId} is blocked, so the backtest was not started. Fix the blockers first; no order was placed.\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
+        setInputValue(prompt)
+        throw new Error(`Backtest preflight blocked: ${blockers}`)
+      }
+
+      const confirmed = window.confirm(
+        t(
+          'hyperAi.aiTradingRunBacktestConfirm',
+          'Run a Program Backtest now? This uses historical data only and will not place orders.'
+        )
+      )
+      if (!confirmed) {
+        setStrategyBacktestRunStatus(null)
+        return
+      }
+
+      setStrategyBacktestRunStatus({ specId: targetRecordId, phase: 'calculating' })
+      const response = await authFetch('/api/programs/backtest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      })
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '')
+        throw new Error(errorText || 'Failed to start Program Backtest')
+      }
+
+      const reader = response.body?.getReader()
+      if (!reader) {
+        throw new Error('No Program Backtest response body')
+      }
+
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let backtestId: number | null = null
+      let completePayload: Record<string, unknown> | null = null
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) {
+            continue
+          }
+          const event = JSON.parse(line.slice(6)) as Record<string, unknown>
+          const eventType = String(event.type || '')
+
+          if (eventType === 'calculating') {
+            setStrategyBacktestRunStatus({ specId: targetRecordId, phase: 'calculating', backtestId: backtestId || undefined })
+          } else if (eventType === 'init') {
+            backtestId = Number(event.backtest_id) || null
+            setStrategyBacktestRunStatus({
+              specId: targetRecordId,
+              phase: 'running',
+              total: Number(event.total_triggers) || undefined,
+              backtestId: backtestId || undefined,
+            })
+          } else if (eventType === 'progress') {
+            setStrategyBacktestRunStatus({
+              specId: targetRecordId,
+              phase: 'running',
+              current: Number(event.current) || undefined,
+              total: Number(event.total) || undefined,
+              backtestId: backtestId || undefined,
+            })
+          } else if (eventType === 'complete') {
+            completePayload = event
+            backtestId = Number(event.backtest_id) || backtestId
+          } else if (eventType === 'error') {
+            throw new Error(String(event.message || 'Program Backtest failed'))
+          }
+        }
+      }
+
+      if (!backtestId) {
+        throw new Error('Program Backtest completed without a backtest id')
+      }
+
+      setStrategyBacktestRunStatus({ specId: targetRecordId, phase: 'attaching', backtestId })
+      const attachRes = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          backtest_result_id: backtestId,
+          accepted_for_handoff: true,
+          notes: 'Created from Hyper AI AI Trading Program Backtest run. Evidence only, not an order.',
+        }),
+      })
+      const attachData = await attachRes.json().catch(() => ({}))
+      if (!attachRes.ok) {
+        throw new Error(attachData.detail || 'Failed to attach completed Program Backtest result')
+      }
+
+      const record = attachData.spec_record as AiTradingStrategySpecRecord
+      setStrategyDraftRecord(record)
+      if (record.spec) {
+        setStrategyDraft(record.spec)
+      }
+      const attachedBacktest = record.spec?.backtest || { program_backtest_result_id: backtestId }
+      const prompt = currentLang === 'zh'
+        ? `Program Backtest #${backtestId} 已完成并绑定到 AI Trading Strategy Spec #${targetRecordId}。请复核结果质量、drawdown、trade_count、handoff gate，以及是否需要调整策略；不要直接下单。\n\n\`\`\`json\n${JSON.stringify({ result: completePayload, attached_backtest: attachedBacktest }, null, 2)}\n\`\`\``
+        : `Program Backtest #${backtestId} completed and was attached to AI Trading Strategy Spec #${targetRecordId}. Review result quality, drawdown, trade_count, handoff gate, and whether the strategy should be adjusted. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify({ result: completePayload, attached_backtest: attachedBacktest }, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to run AI trading Program Backtest:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to run Program Backtest')
+    } finally {
+      setStrategyBacktestLoadingId(null)
+      setStrategyBacktestLoadingSource(null)
+      setStrategyBacktestRunStatus(null)
     }
   }
 
@@ -2488,6 +2672,19 @@ export default function HyperAiPage() {
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'preflight' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleRunStrategyProgramBacktest(strategyDraftRecord?.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      title={t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
+                    >
+                      {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'run' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
                         <Play className="h-3.5 w-3.5" />
                       )}
                     </button>
@@ -2506,6 +2703,17 @@ export default function HyperAiPage() {
                     </button>
                   </div>
                 </div>
+                {strategyBacktestRunStatus && strategyBacktestRunStatus.specId === strategyDraftRecord?.id && (
+                  <div className="mt-2 flex items-center gap-1.5 rounded bg-primary/10 px-2 py-1 text-[11px] text-primary">
+                    <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                    <span className="truncate">
+                      {strategyBacktestRunStatus.phase === 'running' && strategyBacktestRunStatus.current != null && strategyBacktestRunStatus.total != null
+                        ? `${t('hyperAi.aiTradingBacktestRunning', 'Backtest running')} ${strategyBacktestRunStatus.current}/${strategyBacktestRunStatus.total}`
+                        : t('hyperAi.aiTradingBacktestRunning', 'Backtest running')}
+                      {strategyBacktestRunStatus.backtestId ? ` · #${strategyBacktestRunStatus.backtestId}` : ''}
+                    </span>
+                  </div>
+                )}
                 {strategyDraft.validation?.issues && strategyDraft.validation.issues.length > 0 && (
                   <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -2621,6 +2829,19 @@ export default function HyperAiPage() {
                             title={t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
                           >
                             {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'preflight' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRunStrategyProgramBacktest(record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={strategyBacktestLoadingId !== null}
+                            title={t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
+                          >
+                            {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'run' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <Play className="h-3.5 w-3.5" />
