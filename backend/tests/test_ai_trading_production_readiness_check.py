@@ -1,6 +1,20 @@
 import importlib.util
+import json
 import sys
+from datetime import datetime
 from pathlib import Path
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from database.connection import Base
+from database.models import (
+    AiTradingAgentSessionRecord,
+    AiTradingSignalEventRecord,
+    AiTradingSignalHandoffAttemptRecord,
+    AiTradingStrategySpecRecord,
+    User,
+)
 
 
 SCRIPT_DIR = Path(__file__).resolve().parents[1] / "scripts"
@@ -128,3 +142,102 @@ def test_env_file_parser_is_reused_without_leaking_tokens(tmp_path):
     assert env["AI_TRADING_SIGNAL_GATEWAY_TOKEN"] == "secret-order-gateway-token"
     assert report["production_ready"] is True
     assert "secret-order-gateway-token" not in str(report)
+
+
+def test_include_db_audits_adds_handoff_and_agent_context_gates_without_secret_leakage(tmp_path):
+    engine = create_engine(f"sqlite:///{tmp_path / 'readiness_with_db_audits.db'}")
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    session = Session()
+    try:
+        user = User(username="ops-admin", role="admin", is_active="true")
+        session.add(user)
+        session.flush()
+        spec = AiTradingStrategySpecRecord(
+            user_id=user.id,
+            name="CLI DB audit spec",
+            symbol="BTC",
+            status="approved",
+            source="pytest",
+            spec_json=json.dumps({"symbol": "BTC"}),
+            validation_json=json.dumps({"status": "ok"}),
+        )
+        session.add(spec)
+        session.flush()
+        event = AiTradingSignalEventRecord(
+            user_id=user.id,
+            strategy_spec_id=spec.id,
+            symbol="BTC",
+            action="buy",
+            status="review_candidate",
+            handoff_status="failed",
+            signal_json=json.dumps({"symbol": "BTC"}),
+        )
+        session.add(event)
+        session.flush()
+        session.add_all([
+            AiTradingSignalHandoffAttemptRecord(
+                user_id=user.id,
+                signal_event_id=event.id,
+                strategy_spec_id=spec.id,
+                symbol="BTC",
+                action="buy",
+                result="failed",
+                gateway_ready=True,
+                blockers_json=json.dumps([]),
+                eligibility_json=json.dumps({"authorization": "secret-db-audit-auth"}),
+                error_message="failed with secret-db-audit-token",
+                created_at=datetime(2026, 6, 9, 12, 0, 0),
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=user.id,
+                agent_session_id="session:over-budget-cli",
+                name="Over Budget CLI",
+                context_summary="x" * 2001,
+                status="active",
+            ),
+        ])
+        session.commit()
+    finally:
+        session.close()
+
+    report = readiness_check.build_readiness_report(
+        _ready_env(),
+        include_db_audits=True,
+        session_factory=Session,
+    )
+
+    assert report["production_ready"] is False
+    assert "agent_session_context:agent_session_context_over_budget_present" in report["blockers"]
+    assert "handoff_audit:handoff_attempt_failed_present" in report["warnings"]
+    assert report["checks"]["handoff_audit"]["checks"]["by_result"] == {"failed": 1}
+    assert report["checks"]["agent_session_context"]["checks"]["over_budget_count"] == 1
+    assert report["checks"]["handoff_audit"]["checks"]["secret_values_returned"] is False
+    assert report["checks"]["agent_session_context"]["checks"]["secret_values_returned"] is False
+    serialized = str(report)
+    assert "secret-db-audit-auth" not in serialized
+    assert "secret-db-audit-token" not in serialized
+    assert "xxxxxxxx" not in serialized
+
+
+def test_include_db_audits_fails_closed_without_leaking_database_error_text():
+    def broken_session_factory():
+        raise RuntimeError("database password=secret-db-password")
+
+    report = readiness_check.build_readiness_report(
+        _ready_env(),
+        include_db_audits=True,
+        session_factory=broken_session_factory,
+    )
+
+    assert report["production_ready"] is False
+    assert "db_audit:db_audit_unavailable" in report["blockers"]
+    assert report["checks"]["db_audit"]["ready"] is False
+    assert report["checks"]["db_audit"]["checks"] == {
+        "error_type": "RuntimeError",
+        "secret_values_returned": False,
+    }
+    serialized = str(report)
+    assert "secret-db-password" not in serialized
+    assert "password=" not in serialized
