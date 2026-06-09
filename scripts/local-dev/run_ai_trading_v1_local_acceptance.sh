@@ -14,6 +14,7 @@ Runs the AI Trading V1 local acceptance gate:
   - backend compile check
   - AI Trading pytest regression
   - API-level V1 smoke runner
+  - live DeepSeek/Qwen model-adjust runner must stay blocked without explicit confirmation
   - default production handoff gate must stay blocked
   - default production readiness gate must stay blocked
   - frontend production build
@@ -78,13 +79,16 @@ run_expected_failure() {
 cd "$REPO_ROOT"
 
 run_step "Backend compile check" \
-  bash -lc "cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_production_handoff_service.py services/ai_trading_production_readiness_service.py database/migrations/add_ai_trading_agent_session_fields.py scripts/ai_trading_v1_live_stack_acceptance.py scripts/ai_trading_v1_acceptance_smoke.py scripts/ai_trading_v1_env_check.py scripts/ai_trading_production_handoff_check.py scripts/ai_trading_v1_production_readiness_check.py tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py"
+  bash -lc "cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_production_handoff_service.py services/ai_trading_production_readiness_service.py database/migrations/add_ai_trading_agent_session_fields.py scripts/ai_trading_v1_live_stack_acceptance.py scripts/ai_trading_v1_acceptance_smoke.py scripts/ai_trading_model_adjust_live_acceptance.py scripts/ai_trading_v1_env_check.py scripts/ai_trading_production_handoff_check.py scripts/ai_trading_v1_production_readiness_check.py tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py"
 
 run_step "AI Trading backend regression" \
-  bash -lc "cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q"
+  bash -lc "cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q"
 
 run_step "API-level V1 smoke" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py"
+
+run_expected_failure "Live model-adjust runner refuses without confirmation" \
+  bash -lc "cd backend && uv run python scripts/ai_trading_model_adjust_live_acceptance.py"
 
 run_expected_failure "Default production handoff gate remains blocked" \
   bash -lc "cd backend && env -u AI_TRADING_SIGNAL_GATEWAY_ENABLED -u AI_TRADING_SIGNAL_GATEWAY_URL -u AI_TRADING_SIGNAL_GATEWAY_TOKEN -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED uv run python scripts/ai_trading_production_handoff_check.py --strict"

@@ -1,7 +1,7 @@
 # HyperAlpha AI Trading 开发压缩记忆
 
-版本：v0.3
-日期：2026-06-09  
+版本：v0.4
+日期：2026-06-10
 分支：`codex/ai-agent-multitenant-foundation`
 
 ## 1. 当前产品边界
@@ -27,6 +27,7 @@
 - Hyper AI 策略草案摘要已提供保存和审批按钮，仍只操作 review 状态。
 - 新增受控自然语言策略调整：`/api/ai-trading/strategy-spec/adjust` 可调整未保存草案，`/api/ai-trading/strategy-specs/{id}/adjust` 可调整当前用户已保存 spec；调整只解析 timeframe、方向、风险、杠杆、仓位、止损/止盈等受控字段，强制保留 `signal_only` / `ai_may_place_orders=false` / `order_backend_only=true`，并让已审批记录回到 review 状态。
 - 新增 DeepSeek/Qwen model-adjust 桥接：`/api/ai-trading/strategy-spec/model-adjust` 和 `/api/ai-trading/strategy-specs/{id}/model-adjust` 会读取当前用户 Hyper AI profile 的 DeepSeek/Qwen 配置，让模型只返回 JSON adjustment suggestion，然后仍交给同一个安全 adjust parser/validation/backtest invalidation 流程。
+- 新增 live DeepSeek/Qwen model-adjust acceptance runner：`backend/scripts/ai_trading_model_adjust_live_acceptance.py` 只允许本地 backend，默认没有 `--confirm-live-model-call` 会拒绝调用真实模型；脚本不接受 API-key 参数、不输出 key、不创建 signal event、不 handoff、不下单。
 - 已保存 spec 被自然语言调整后，原 backtest evidence 会被标记为 `invalidated_by_strategy_adjustment`，`approved_at` 清空；必须重新审批并重新绑定/运行 handoff-ready backtest，才能生成新的信号事件。
 - Hyper AI AI Trading 策略摘要卡片现在有紧凑自然语言调整输入框、local apply 按钮和 DeepSeek/Qwen Brain 按钮；未保存草案走非持久化 adjust，已保存记录走持久化 adjust，成功后把调整后的 spec 或 model suggestion review packet 回填聊天框给 agent/用户复核。
 - 已审批 strategy spec 可生成 `hyperalpha.ai_trading.signal_candidate.v1` 信号预览；该 preview 明确 `not_an_order=true`、`ai_may_place_orders=false`，只供聊天审核和后端 handoff 前检查。
@@ -282,7 +283,7 @@
 - Gateway target-kind 安全边界已实现：runtime gateway 现在返回非敏感 `target_kind`（`disabled_or_unconfigured` / `local_mock` / `external_order_backend`），live-stack 验收脚本在 draft/handoff 前强制要求 `target_kind=local_mock`，Hyper AI Gateway 卡片显示 `Local mock` 目标标签但不显示 URL/token。
 - 本轮 target-kind 变更后已验证：`cd backend && uv run pytest tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 返回 39 条全绿；`cd frontend && npm run build` 通过；`scripts/local-dev/install_launch_agent.sh` 已同步 runtime mirror；`cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` 返回 `ready=true`；`cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff` 返回 `success=true`，最新证据为 spec `#11`、signal event `#9`、runtime `target_kind=local_mock`。
 - In-app Browser 已打开 `http://127.0.0.1:5174/app/ai-trading` 并跳过本地 onboarding；DOM 确认可见 `Gateway available / 15m max / Local mock`、Specs `11`、Signals `9` 和 AI Trading 标的按钮。
-- 新增一键本地 V1 验收 runner：`scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`，显式确认后才会跑 live mock handoff；后续增强 env checker 结构化解析 `runtime_gateway` 并要求 `target_kind=local_mock` 且无 runtime blockers；当前也纳入默认生产 handoff gate、生产总 readiness gate 阻断检查和 admin readiness API 回归；agent-session CRUD 后最新完整通过 backend compile、51 条 AI Trading 回归、API smoke、默认生产 gate 阻断、默认生产总 readiness 阻断、frontend build、runtime readiness、live local mock handoff，最新证据为 spec `#17`、signal event `#15`、runtime `target_kind=local_mock`、`agent_sessions.total=2`；不带确认参数时已验证会拒绝运行并退出 2。
+- 新增一键本地 V1 验收 runner：`scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`，显式确认后才会跑 live mock handoff；后续增强 env checker 结构化解析 `runtime_gateway` 并要求 `target_kind=local_mock` 且无 runtime blockers；当前也纳入 live DeepSeek/Qwen model-adjust 默认阻断、默认生产 handoff gate、生产总 readiness gate 阻断检查和 admin readiness API 回归；live model-adjust acceptance gate 后最新完整通过 backend compile、54 条 AI Trading 回归、API smoke、默认生产 gate 阻断、默认生产总 readiness 阻断、frontend build、runtime readiness、live local mock handoff，最新证据为 spec `#18`、signal event `#16`、runtime `target_kind=local_mock`、`agent_sessions.total=3`；不带确认参数时已验证会拒绝运行并退出 2。
 - 本轮 admin readiness API/UI 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；`cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` 返回 `ready=true`，`curl -I http://127.0.0.1:5174/#settings` 返回 200，backend `8802` health 正常。
 - 本轮新增验证：`cd backend && uv run pytest tests/test_ai_trading_production_handoff_check.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py -q` 返回 12 条全绿；agent-session 分区后合并 AI Trading 回归返回 50 条全绿；`cd frontend && npm run build` 通过。
 - In-app Browser 已在 agent-session UI 后打开 `http://127.0.0.1:5174/app/ai-trading`，跳过本地 onboarding 后可见 `Gateway available / 15m max / Local mock`、`Sessions 1 active`、`Recent agent sessions`、latest spec `#16`、latest signal `#14`。
@@ -293,6 +294,7 @@
 - Agent-session history/context UI 后新增验证：`cd frontend && npm run build` 通过，`cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 返回 31 条全绿；重跑 `scripts/local-dev/install_launch_agent.sh` 后 strict readiness 返回 `ready=true`；In-app Browser 复核可见 `Load context`、`Session specs`、`Session signals`、本地归档 smoke row `Browser Archived Smoke`，点击 context 按钮后 textarea 包含 `ai_trading_agent_session_context.v1` packet。
 - Agent-session compression 后新增验证：`cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 通过；`cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 返回 31 条全绿；合并 AI Trading 回归返回 51 条全绿；`cd frontend && npm run build` 通过；重跑 LaunchAgent 后 strict readiness 返回 `ready=true`；In-app Browser 点击 `Compress context` 后 `Context summary` 包含 `AI Trading session compressed context v1`、`redaction=enabled`、`ai_order_placement=disallowed`，且没有 `[redacted_sensitive_context]`。
 - Agent-session full-page detail 后新增验证：`cd frontend && npm run build` 通过；重跑 `scripts/local-dev/install_launch_agent.sh` 后 `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` 返回 `ready=true`；In-app Browser 直接打开 `/app/ai-trading/sessions/ait%3Abtc%3A1d03c72b5168`，跳过本地 onboarding 后可见 `Agent session detail`、`Session specs`、`Session signals`、`ai_order_placement=disallowed`，点击 detail 页 `Compress context` 后仍无 `[redacted_sensitive_context]`，返回主页面后可见 `Open session detail` 入口。
+- Live model-adjust acceptance gate 后新增验证：`cd backend && uv run python -m py_compile scripts/ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py` 通过；`cd backend && uv run pytest tests/test_ai_trading_model_adjust_live_acceptance.py -q` 返回 3 条全绿；合并 AI Trading 回归返回 54 条全绿；`cd backend && uv run python scripts/ai_trading_model_adjust_live_acceptance.py` 在未带确认参数时返回 `success=false` 并退出 1；一键本地 V1 验收 runner 已纳入该默认阻断检查并通过，最新 live mock handoff 证据为 spec `#18`、signal event `#16`。
 - 本地运行时 `/api/ai-trading/admin/production-readiness` 已用临时 admin bearer 验证：返回 `production_ready=false`、13 个 blocker、component readiness 为 auth/signal_handoff/hard_risk blocked、ai_stream/model_policy ready，且 `token_value_returned=false`；匿名请求返回 401。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
@@ -333,7 +335,7 @@
 - Docker Desktop/daemon 已启动，`docker compose up -d postgres` 已恢复 Postgres/Snapshot DB 验收路径。
 - 当前启动迁移和 model validation 偏 Postgres，临时 SQLite 环境不能作为完整浏览器验收环境。
 - GitHub 上传按用户要求暂不处理；本地继续开发、测试、验收标记和提交。历史推送失败原因为 HTTPS 凭据不可读：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
-- DeepSeek/Qwen 真实 API key/live profile 调用 model-adjust 的链路仍未验收；当前已完成 mocked Qwen 回归和前端按钮，模型输出进入 deterministic safety parser 后才会改 spec。
+- DeepSeek/Qwen 真实 API key/live profile 调用 model-adjust 的链路仍未验收；当前已完成 mocked Qwen 回归、前端按钮和本地 live acceptance runner 默认阻断门，模型输出进入 deterministic safety parser 后才会改 spec；真实配置 profile/API key 后仍需带 `--confirm-live-model-call` 单独验收。
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前已做 disabled-by-default、mock gateway、V1 contract payload、生产 handoff readiness gate、生产总 readiness gate 和文档验收。
