@@ -760,6 +760,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after adding the DeepSeek/Qwen model-adjust button to the Hyper AI strategy panel: `cd frontend && npm run build`; existing browserslist/baseline and chunk-size warnings remain.
 - Partial: Playwright CLI opened `http://127.0.0.1:5174/app/ai-trading` and captured page title `Hyper Alpha Arena`; the page rendered the Hyper AI shell/onboarding state, but console errors showed local backend API/WS failures because the backend was not running.
 - Blocked: local backend `uv run uvicorn main:app --port 5611 --host 127.0.0.1` failed during import because local PostgreSQL on `localhost:5432` was not running; `database.snapshot_connection` raised `psycopg2.OperationalError`.
+- Blocked: local SQLite fallback probe with `DATABASE_URL=sqlite:///./tmp_hyperalpha_dev.db SNAPSHOT_DATABASE_URL=sqlite:///./tmp_hyperalpha_snapshot.db uv run uvicorn main:app --port 5611 --host 127.0.0.1` produced many Postgres-specific migration/model-validation errors and did not become reliably reachable for AI Trading runtime acceptance; temporary SQLite files were removed.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
@@ -776,6 +777,7 @@ Local checkpoint: current branch `HEAD`
 - Live DeepSeek/Qwen API acceptance with a real user Hyper AI profile/API key remains pending; the model-adjust bridge is implemented and tested with a mocked Qwen response, then routed through the deterministic safety parser.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Local backend startup/browser API acceptance is still pending until local PostgreSQL/Snapshot DB is running or a dev SQLite/snapshot fallback is configured; current browser evidence is shell-level only.
+- Existing startup migrations/model validation are Postgres-oriented and not suitable for an ad hoc SQLite browser acceptance environment without a dedicated dev fallback path.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.
 - Factor computation/value storage is still global by factor name; private custom factors are now excluded from shared precompute/effectiveness storage, but a dedicated per-user factor value schema is still needed if private custom factors should be precomputed instead of computed on demand.

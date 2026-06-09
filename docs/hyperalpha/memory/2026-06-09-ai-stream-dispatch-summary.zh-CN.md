@@ -249,11 +249,13 @@
 - `cd frontend && npm run build` 已在 Hyper AI DeepSeek/Qwen Brain 调整按钮后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
 - Playwright CLI 已打开 `http://127.0.0.1:5174/app/ai-trading`，页面 title 为 `Hyper Alpha Arena`，快照落在 Hyper AI shell/onboarding 状态；控制台错误主要来自本地后端 API/WS 未运行和少量静态资源 404，因此仍不是完整 AI Trading 点击级验收。
 - 临时启动后端 `uv run uvicorn main:app --port 5611 --host 127.0.0.1` 失败：`database.snapshot_connection` import 时连接本地 PostgreSQL `localhost:5432` 被拒，抛出 `psycopg2.OperationalError`。
+- 用 `DATABASE_URL=sqlite:///./tmp_hyperalpha_dev.db SNAPSHOT_DATABASE_URL=sqlite:///./tmp_hyperalpha_snapshot.db` 探测 SQLite fallback 时，uvicorn 启动阶段产生大量 Postgres 专用 migration / model validation SQL 错误，服务没有稳定进入可验收状态；探测生成的临时 SQLite 文件已删除。
 
 ## 6. 未验收 / 阻塞
 
 - 本地 PostgreSQL 未运行，导致后端 `8000` 未监听；analytics route runtime import 会因 snapshot DB 默认 Postgres 不可达而失败。
 - 本地 AI Trading browser/API 端到端验收仍需先启动 PostgreSQL/Snapshot DB，或实现明确的 dev SQLite/snapshot fallback；当前只有前端 shell 级 Playwright 证据。
+- 当前启动迁移和 model validation 偏 Postgres，临时 SQLite 环境不能作为完整浏览器验收环境。
 - GitHub 上传按用户要求暂不处理；本地继续开发、测试、验收标记和提交。历史推送失败原因为 HTTPS 凭据不可读：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
 - DeepSeek/Qwen 真实 API key/live profile 调用 model-adjust 的链路仍未验收；当前已完成 mocked Qwen 回归和前端按钮，模型输出进入 deterministic safety parser 后才会改 spec。
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
