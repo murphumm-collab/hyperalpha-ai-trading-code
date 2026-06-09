@@ -62,6 +62,7 @@
 - 新增 `/api/ai-trading/strategy-specs/{id}/backtest-evidence`：按当前用户读取已绑定 Program BacktestResult detail，返回 metrics、equity_curve_sample、trigger/action counts、trigger summaries、markers 和 leakage_guard；不返回 Program code、API key、decision_input/output。
 - Hyper AI AI Trading strategy 卡片和 recent spec 行现在有只读 evidence inspect action，可把 attached Program Backtest evidence detail 回填到聊天框给 agent 复盘，不启动回测、不绑定新 evidence、不提交订单。
 - Hyper AI AI Trading 右侧面板现在会把 inspected attached backtest evidence 渲染成紧凑复盘面板：handoff ready/blocked、return、drawdown、trade count、action counts、quality issues 和前三条 trigger summary。
+- Hyper AI AI Trading 现在有 expanded attached-backtest evidence dialog：展示 metric cards、equity curve sample SVG、action distribution、quality issues、trigger review table；仍然只读，不启动回测/不 handoff/不下单。
 
 ## 3. AI Stream / Worker 现状
 
@@ -166,6 +167,8 @@
 - `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI attached backtest evidence inspect action 后。
 - `cd frontend && npm run build` 已通过；最近一次通过是在 compact attached-backtest evidence review panel 后。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 compact evidence panel 后重新通过，13 条 AI Trading route 回归全绿。
+- `cd frontend && npm run build` 已通过；最近一次通过是在 expanded attached-backtest evidence dialog 后。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 expanded evidence dialog 后重新通过，13 条 AI Trading route 回归全绿。
 
 ## 6. 未验收 / 阻塞
 
@@ -175,7 +178,7 @@
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前只做 disabled-by-default 和 mock gateway 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
-- 专用 AI Trading full-page rich backtest result UI 仍未实现；当前已实现 manual/external summary gate、existing Program BacktestResult evidence bridge、不执行的 Program Backtest preflight request、从 Hyper AI 面板启动现有 Program Backtest SSE 并自动绑定 evidence、只读 evidence detail 复盘入口、以及紧凑 evidence review panel。
+- 专用 AI Trading full-page rich backtest result route 仍未实现；当前已实现 manual/external summary gate、existing Program BacktestResult evidence bridge、不执行的 Program Backtest preflight request、从 Hyper AI 面板启动现有 Program Backtest SSE 并自动绑定 evidence、只读 evidence detail 复盘入口、紧凑 evidence review panel、以及 expanded evidence dialog。
 - strategy spec / signal preview / signal event / recent records inspect / signal-event handoff 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols、持久化记录与 gateway readiness；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。
 
 ## 7. 当前提交锚点

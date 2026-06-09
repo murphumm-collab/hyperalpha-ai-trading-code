@@ -26,6 +26,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import PacmanLoader from '@/components/ui/pacman-loader'
 import {
   Plus,
@@ -857,6 +863,7 @@ export default function HyperAiPage() {
   const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | 'evidence' | null>(null)
   const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
   const [strategyBacktestEvidenceDetail, setStrategyBacktestEvidenceDetail] = useState<AiTradingBacktestEvidenceDetail | null>(null)
+  const [strategyBacktestEvidenceDialogOpen, setStrategyBacktestEvidenceDialogOpen] = useState(false)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -944,6 +951,36 @@ export default function HyperAiPage() {
     Object.entries(detail?.trigger_summary?.action_counts || {})
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4)
+  )
+  const evidenceEquitySeries = (detail: AiTradingBacktestEvidenceDetail | null): Array<{ timestamp: number; equity: number }> => (
+    (detail?.backtest_result?.equity_curve_sample || [])
+      .map((point, index) => ({
+        timestamp: Number(point.timestamp ?? index),
+        equity: Number(point.equity),
+      }))
+      .filter(point => Number.isFinite(point.timestamp) && Number.isFinite(point.equity))
+  )
+  const evidenceEquityPath = (detail: AiTradingBacktestEvidenceDetail | null): string => {
+    const series = evidenceEquitySeries(detail)
+    if (series.length === 0) {
+      return ''
+    }
+    const width = 320
+    const height = 120
+    const padding = 10
+    const minEquity = Math.min(...series.map(point => point.equity))
+    const maxEquity = Math.max(...series.map(point => point.equity))
+    const span = maxEquity - minEquity || 1
+    return series.map((point, index) => {
+      const x = series.length === 1
+        ? width / 2
+        : padding + (index / (series.length - 1)) * (width - padding * 2)
+      const y = height - padding - ((point.equity - minEquity) / span) * (height - padding * 2)
+      return `${index === 0 ? 'M' : 'L'} ${x.toFixed(1)} ${y.toFixed(1)}`
+    }).join(' ')
+  }
+  const evidenceTriggerRows = (detail: AiTradingBacktestEvidenceDetail | null): Array<Record<string, unknown>> => (
+    (detail?.trigger_summary?.triggers || []).slice(0, 25)
   )
   const isSignalHandoffEligible = (event: AiTradingSignalEventRecord): boolean => (
     event.handoff_eligibility?.eligible ??
@@ -1691,6 +1728,7 @@ export default function HyperAiPage() {
       }
       const evidence = data.evidence || {}
       setStrategyBacktestEvidenceDetail(evidence as AiTradingBacktestEvidenceDetail)
+      setStrategyBacktestEvidenceDialogOpen(true)
       const prompt = currentLang === 'zh'
         ? `请复核 AI Trading Strategy Spec #${targetRecordId} 绑定的 Program Backtest evidence：重点检查 metrics、equity curve sample、trigger/action 分布、quality_issues 和 handoff_ready；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
         : `Review the Program Backtest evidence attached to AI Trading Strategy Spec #${targetRecordId}. Focus on metrics, equity curve sample, trigger/action distribution, quality_issues, and handoff_ready. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
@@ -2828,7 +2866,18 @@ export default function HyperAiPage() {
                     </span>
                     <button
                       type="button"
-                      onClick={() => setStrategyBacktestEvidenceDetail(null)}
+                      onClick={() => setStrategyBacktestEvidenceDialogOpen(true)}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      title={t('hyperAi.aiTradingOpenBacktestEvidence', 'Open evidence details')}
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setStrategyBacktestEvidenceDetail(null)
+                        setStrategyBacktestEvidenceDialogOpen(false)
+                      }}
                       className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                       title={t('common.close', 'Close')}
                     >
@@ -3317,6 +3366,176 @@ export default function HyperAiPage() {
         open={showMemoryModal}
         onClose={() => setShowMemoryModal(false)}
       />
+
+      <Dialog open={strategyBacktestEvidenceDialogOpen} onOpenChange={setStrategyBacktestEvidenceDialogOpen}>
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader className="border-b pb-3">
+            <DialogTitle className="flex items-center gap-2 text-base">
+              <BarChart3 className="h-4 w-4 text-primary" />
+              {t('hyperAi.aiTradingBacktestEvidence', 'Backtest evidence')}
+              {strategyBacktestEvidenceDetail?.backtest_result?.id
+                ? ` #${strategyBacktestEvidenceDetail.backtest_result.id}`
+                : ''}
+            </DialogTitle>
+          </DialogHeader>
+          {strategyBacktestEvidenceDetail ? (
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              <div className="grid gap-3 p-1 md:grid-cols-4">
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingStatus', 'Status')}</div>
+                  <div className={`mt-1 text-lg font-semibold ${
+                    strategyBacktestEvidenceDetail.handoff_ready ? 'text-green-600' : 'text-yellow-600'
+                  }`}>
+                    {strategyBacktestEvidenceDetail.handoff_ready
+                      ? t('hyperAi.aiTradingStatusReady', 'Ready')
+                      : t('hyperAi.aiTradingStatusBlocked', 'Blocked')}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {strategyBacktestEvidenceDetail.backtest_result?.status || '-'}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingReturn', 'Return')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['total_return'], '%')}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['net_pnl'])} PnL
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingDrawdown', 'Drawdown')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['max_drawdown'], '%')}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['profit_factor'])} PF
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingTrades', 'Trades')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['trade_count'])}
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['win_rate'], '%')} win
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-3 lg:grid-cols-[1.4fr_1fr]">
+                <div className="rounded-md border bg-muted/10 p-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <div className="text-sm font-medium">{t('hyperAi.aiTradingEquityCurve', 'Equity curve')}</div>
+                    <div className="text-xs text-muted-foreground">
+                      {(strategyBacktestEvidenceDetail.backtest_result?.symbols || []).join(', ') || strategyBacktestEvidenceDetail.strategy_symbol || '-'}
+                    </div>
+                  </div>
+                  <div className="h-40 rounded bg-background/70 p-2">
+                    {evidenceEquityPath(strategyBacktestEvidenceDetail) ? (
+                      <svg viewBox="0 0 320 120" className="h-full w-full" preserveAspectRatio="none">
+                        <path d={evidenceEquityPath(strategyBacktestEvidenceDetail)} fill="none" stroke="currentColor" strokeWidth="2" className="text-primary" />
+                        {evidenceEquitySeries(strategyBacktestEvidenceDetail).map((point, index, series) => {
+                          const minEquity = Math.min(...series.map(item => item.equity))
+                          const maxEquity = Math.max(...series.map(item => item.equity))
+                          const span = maxEquity - minEquity || 1
+                          const x = series.length === 1 ? 160 : 10 + (index / (series.length - 1)) * 300
+                          const y = 110 - ((point.equity - minEquity) / span) * 100
+                          return <circle key={`${point.timestamp}-${index}`} cx={x} cy={y} r="2.5" className="fill-primary" />
+                        })}
+                      </svg>
+                    ) : (
+                      <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        {t('hyperAi.aiTradingNoEquityCurve', 'No equity curve sample')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-md border bg-muted/10 p-3">
+                  <div className="mb-2 text-sm font-medium">{t('hyperAi.aiTradingActionDistribution', 'Action distribution')}</div>
+                  <div className="space-y-2">
+                    {evidenceActionCounts(strategyBacktestEvidenceDetail).map(([action, count]) => {
+                      const maxCount = Math.max(...evidenceActionCounts(strategyBacktestEvidenceDetail).map(([, value]) => value), 1)
+                      return (
+                        <div key={action}>
+                          <div className="mb-1 flex items-center justify-between text-xs">
+                            <span className="truncate">{action}</span>
+                            <span className="text-muted-foreground">{count}</span>
+                          </div>
+                          <div className="h-2 overflow-hidden rounded bg-muted">
+                            <div className="h-full bg-primary" style={{ width: `${Math.max(8, (count / maxCount) * 100)}%` }} />
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {evidenceActionCounts(strategyBacktestEvidenceDetail).length === 0 && (
+                      <div className="text-sm text-muted-foreground">
+                        {t('hyperAi.aiTradingNoTriggers', 'No triggers')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {strategyBacktestEvidenceDetail.quality_issues && strategyBacktestEvidenceDetail.quality_issues.length > 0 && (
+                <div className="mt-3 rounded-md border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-700 dark:text-yellow-300">
+                  <div className="mb-1 font-medium">{t('hyperAi.aiTradingQualityIssues', 'Quality issues')}</div>
+                  <div className="flex flex-wrap gap-1">
+                    {strategyBacktestEvidenceDetail.quality_issues.map(issue => (
+                      <span key={issue} className="rounded bg-background/70 px-2 py-1 text-xs">{issue}</span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-3 rounded-md border">
+                <div className="flex items-center justify-between border-b px-3 py-2">
+                  <div className="text-sm font-medium">{t('hyperAi.aiTradingTriggerReview', 'Trigger review')}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {evidenceTriggerRows(strategyBacktestEvidenceDetail).length}/{strategyBacktestEvidenceDetail.trigger_summary?.total || 0}
+                  </div>
+                </div>
+                <div className="max-h-72 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="sticky top-0 bg-background text-muted-foreground">
+                      <tr className="border-b">
+                        <th className="px-3 py-2 text-left font-medium">#</th>
+                        <th className="px-3 py-2 text-left font-medium">{t('hyperAi.aiTradingAction', 'Action')}</th>
+                        <th className="px-3 py-2 text-left font-medium">{t('hyperAi.aiTradingSymbol', 'Symbol')}</th>
+                        <th className="px-3 py-2 text-right font-medium">{t('hyperAi.aiTradingEquity', 'Equity')}</th>
+                        <th className="px-3 py-2 text-left font-medium">{t('hyperAi.aiTradingReason', 'Reason')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {evidenceTriggerRows(strategyBacktestEvidenceDetail).map((trigger, index) => (
+                        <tr key={`${trigger.id || index}`} className="border-b last:border-0">
+                          <td className="px-3 py-2 text-muted-foreground">{String(trigger.trigger_index ?? index)}</td>
+                          <td className="px-3 py-2">{String(trigger.decision_action || '-')}</td>
+                          <td className="px-3 py-2">{String(trigger.symbol || strategyBacktestEvidenceDetail.strategy_symbol || '-')}</td>
+                          <td className="px-3 py-2 text-right">{formatEvidenceValue(trigger.equity_after)}</td>
+                          <td className="max-w-[360px] truncate px-3 py-2 text-muted-foreground">{String(trigger.decision_reason || '-')}</td>
+                        </tr>
+                      ))}
+                      {evidenceTriggerRows(strategyBacktestEvidenceDetail).length === 0 && (
+                        <tr>
+                          <td colSpan={5} className="px-3 py-8 text-center text-muted-foreground">
+                            {t('hyperAi.aiTradingNoTriggers', 'No triggers')}
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="py-12 text-center text-sm text-muted-foreground">
+              {t('hyperAi.aiTradingNoBacktestEvidence', 'No backtest evidence loaded')}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {/* Bot Integration Modal */}
       <BotIntegrationModal
