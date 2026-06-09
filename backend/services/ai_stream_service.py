@@ -41,7 +41,7 @@ from typing import Any, Callable, Dict, Generator, List, Optional
 from datetime import datetime, timedelta
 
 from database.connection import SessionLocal
-from database.models import AiStreamChunkRecord, AiStreamTaskRecord
+from database.models import AiStreamChunkRecord, AiStreamConfirmationRecord, AiStreamTaskRecord
 
 logger = logging.getLogger(__name__)
 
@@ -510,6 +510,171 @@ class StreamBufferManager:
         finally:
             db.close()
 
+    def _begin_persisted_confirmation(self, task: StreamTask, confirmation_id: str) -> bool:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return True
+
+        db = SessionLocal()
+        try:
+            pending = db.query(AiStreamConfirmationRecord).filter(
+                AiStreamConfirmationRecord.task_id == task.task_id,
+                AiStreamConfirmationRecord.status == "pending",
+            ).first()
+            if pending and pending.confirmation_id != confirmation_id:
+                return False
+
+            record = pending or db.query(AiStreamConfirmationRecord).filter(
+                AiStreamConfirmationRecord.task_id == task.task_id,
+                AiStreamConfirmationRecord.confirmation_id == confirmation_id,
+            ).first()
+            if not record:
+                record = AiStreamConfirmationRecord(
+                    task_id=task.task_id,
+                    user_id=task.user_id,
+                    confirmation_id=confirmation_id,
+                    created_at_epoch=time.time(),
+                )
+                db.add(record)
+
+            record.user_id = task.user_id
+            record.status = "pending"
+            record.confirmed = None
+            record.response = None
+            record.submitted_at_epoch = None
+            record.cleared_at_epoch = None
+            db.commit()
+            return True
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "[StreamBuffer] Failed to persist confirmation begin %s/%s: %s",
+                task.task_id,
+                confirmation_id,
+                exc,
+            )
+            return False
+        finally:
+            db.close()
+
+    def _submit_persisted_confirmation(
+        self,
+        task_id: str,
+        confirmation_id: str,
+        confirmed: bool,
+        user_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return None
+
+        db = SessionLocal()
+        try:
+            task_record = db.query(AiStreamTaskRecord).filter(
+                AiStreamTaskRecord.task_id == task_id,
+            ).first()
+            if not task_record or task_record.status != "running":
+                return None
+            if user_id is not None and task_record.user_id != user_id:
+                return None
+
+            record = db.query(AiStreamConfirmationRecord).filter(
+                AiStreamConfirmationRecord.task_id == task_id,
+                AiStreamConfirmationRecord.confirmation_id == confirmation_id,
+            ).first()
+            if not record or record.status != "pending":
+                return None
+            if user_id is not None and record.user_id != user_id:
+                return None
+
+            submitted_at = time.time()
+            response = {
+                "confirmation_id": confirmation_id,
+                "confirmed": bool(confirmed),
+                "submitted_at": submitted_at,
+            }
+            record.status = "confirmed" if confirmed else "cancelled"
+            record.confirmed = bool(confirmed)
+            record.submitted_at_epoch = submitted_at
+            record.response = _json_dumps(response)
+            db.commit()
+            return response
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "[StreamBuffer] Failed to persist confirmation submit %s/%s: %s",
+                task_id,
+                confirmation_id,
+                exc,
+            )
+            return None
+        finally:
+            db.close()
+
+    def _get_persisted_confirmation_response(
+        self,
+        task_id: str,
+        confirmation_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return None
+
+        db = SessionLocal()
+        try:
+            record = db.query(AiStreamConfirmationRecord).filter(
+                AiStreamConfirmationRecord.task_id == task_id,
+                AiStreamConfirmationRecord.confirmation_id == confirmation_id,
+            ).first()
+            if not record or record.status not in {"confirmed", "cancelled"}:
+                return None
+
+            response = _json_loads_dict(record.response)
+            if not response:
+                response = {
+                    "confirmation_id": confirmation_id,
+                    "confirmed": record.status == "confirmed",
+                    "submitted_at": record.submitted_at_epoch or time.time(),
+                }
+            response["confirmation_id"] = confirmation_id
+            response["confirmed"] = record.status == "confirmed" and bool(record.confirmed)
+            if record.submitted_at_epoch is not None:
+                response["submitted_at"] = record.submitted_at_epoch
+            return response
+        except Exception as exc:
+            logger.warning(
+                "[StreamBuffer] Failed to read confirmation response %s/%s: %s",
+                task_id,
+                confirmation_id,
+                exc,
+            )
+            return None
+        finally:
+            db.close()
+
+    def _clear_persisted_confirmation(self, task_id: str, confirmation_id: str) -> None:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return
+
+        db = SessionLocal()
+        try:
+            record = db.query(AiStreamConfirmationRecord).filter(
+                AiStreamConfirmationRecord.task_id == task_id,
+                AiStreamConfirmationRecord.confirmation_id == confirmation_id,
+            ).first()
+            if record and record.status == "pending":
+                record.status = "cleared"
+                record.confirmed = False
+                record.cleared_at_epoch = time.time()
+                db.commit()
+        except Exception as exc:
+            db.rollback()
+            logger.warning(
+                "[StreamBuffer] Failed to clear persisted confirmation %s/%s: %s",
+                task_id,
+                confirmation_id,
+                exc,
+            )
+        finally:
+            db.close()
+
     def _hydrate_task_from_db(self, task_id: str, user_id: Optional[int] = None) -> Optional[StreamTask]:
         if not AI_STREAM_PERSISTENCE_ENABLED:
             return None
@@ -780,17 +945,23 @@ class StreamBufferManager:
         user_id: Optional[int] = None,
     ) -> bool:
         """Submit a user response for a pending runtime checkpoint."""
+        persisted_response = self._submit_persisted_confirmation(
+            task_id,
+            confirmation_id,
+            confirmed,
+            user_id=user_id,
+        )
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if not task or task.status != "running":
-                return False
+                return persisted_response is not None
             if user_id is not None and task.user_id != user_id:
-                return False
+                return persisted_response is not None
             if not task.pending_confirmation_id:
-                return False
+                return persisted_response is not None
             if task.pending_confirmation_id != confirmation_id:
-                return False
-            task.confirmation_response = {
+                return persisted_response is not None
+            task.confirmation_response = persisted_response or {
                 "confirmation_id": confirmation_id,
                 "confirmed": bool(confirmed),
                 "submitted_at": time.time(),
@@ -806,22 +977,73 @@ class StreamBufferManager:
                 return False
             if task.pending_confirmation_id:
                 return False
+            if not self._begin_persisted_confirmation(task, confirmation_id):
+                return False
             task.confirmation_response = None
             task.pending_confirmation_id = confirmation_id
             task.confirmation_event.clear()
             return True
 
+    def wait_for_confirmation(
+        self,
+        task_id: str,
+        confirmation_id: str,
+        timeout_seconds: float = 300,
+        poll_interval: float = 0.5,
+    ) -> Optional[Dict[str, Any]]:
+        """Wait for a confirmation response from local memory or the DB mailbox."""
+        deadline = time.time() + max(0, timeout_seconds)
+        poll_interval = max(0.05, poll_interval)
+
+        while True:
+            with self._tasks_lock:
+                task = self._tasks.get(task_id)
+                if (
+                    not task
+                    or task.status != "running"
+                    or task.pending_confirmation_id != confirmation_id
+                ):
+                    return None
+                if task.confirmation_response:
+                    return task.confirmation_response
+                confirmation_event = task.confirmation_event
+
+            remaining = deadline - time.time()
+            if remaining <= 0:
+                return None
+
+            if confirmation_event.wait(timeout=min(poll_interval, remaining)):
+                with self._tasks_lock:
+                    task = self._tasks.get(task_id)
+                    if task and task.confirmation_response:
+                        return task.confirmation_response
+
+            response = self._get_persisted_confirmation_response(task_id, confirmation_id)
+            if response:
+                with self._tasks_lock:
+                    task = self._tasks.get(task_id)
+                    if task and task.pending_confirmation_id == confirmation_id:
+                        task.confirmation_response = response
+                        task.confirmation_event.set()
+                return response
+
     def clear_confirmation(self, task_id: str, confirmation_id: Optional[str] = None):
         """Clear pending runtime checkpoint state."""
+        should_clear_persisted = False
         with self._tasks_lock:
             task = self._tasks.get(task_id)
             if not task:
+                should_clear_persisted = bool(confirmation_id)
+            elif confirmation_id and task.pending_confirmation_id != confirmation_id:
                 return
-            if confirmation_id and task.pending_confirmation_id != confirmation_id:
-                return
-            task.confirmation_response = None
-            task.pending_confirmation_id = None
-            task.confirmation_event.clear()
+            else:
+                should_clear_persisted = bool(task.pending_confirmation_id)
+                task.confirmation_response = None
+                task.pending_confirmation_id = None
+                task.confirmation_event.clear()
+
+        if should_clear_persisted and confirmation_id:
+            self._clear_persisted_confirmation(task_id, confirmation_id)
 
     def get_pending_task_for_conversation(
         self,

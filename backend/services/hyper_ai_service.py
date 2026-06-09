@@ -704,12 +704,11 @@ def _await_tool_confirmation(
         return False, blocked_tool_result("High-risk operation was blocked because the task is no longer available.")
 
     try:
-        confirmed = task.confirmation_event.wait(timeout=300)
-        response = task.confirmation_response
+        response = manager.wait_for_confirmation(task_id, confirmation_id, timeout_seconds=300)
     finally:
         manager.clear_confirmation(task_id, confirmation_id)
 
-    if not confirmed or not response or not response.get("confirmed"):
+    if not response or not response.get("confirmed"):
         return False, blocked_tool_result(
             "User declined this operation. The tool was NOT executed. "
             "Do NOT retry or re-ask. Simply acknowledge the cancellation and move on."

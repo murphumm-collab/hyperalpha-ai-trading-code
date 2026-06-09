@@ -287,6 +287,32 @@ class AiStreamChunkRecord(Base):
     )
 
 
+class AiStreamConfirmationRecord(Base):
+    """Persistent user confirmation checkpoints for high-risk AI stream tools."""
+    __tablename__ = "ai_stream_confirmations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    task_id = Column(String(120), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    confirmation_id = Column(String(120), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    confirmed = Column(Boolean, nullable=True)
+    response = Column(Text, nullable=True)
+    created_at_epoch = Column(Float, nullable=False)
+    submitted_at_epoch = Column(Float, nullable=True)
+    cleared_at_epoch = Column(Float, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint("task_id", "confirmation_id", name="uq_ai_stream_confirmations_task_confirmation"),
+    )
+
+
 class HyperInsightWalletRuntimeConfig(Base):
     """Per-user Hyper Insight wallet tracking runtime configuration."""
     __tablename__ = "hyper_insight_wallet_runtime_configs"

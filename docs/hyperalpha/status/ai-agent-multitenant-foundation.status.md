@@ -52,6 +52,7 @@ Local checkpoint: current branch `HEAD`
 - AI stream task admission has global and per-user running-task limits for single-server DeepSeek/Qwen capacity isolation.
 - AI stream admission can optionally use Redis-backed distributed leases for multi-instance global/per-user capacity isolation.
 - AI stream polling can read active remote-instance running tasks from DB chunks when a Redis lease is still alive.
+- AI stream high-risk tool confirmations are persisted so a confirmation submitted to one backend instance can wake the instance running the Agent task.
 - AI stream local/Redis admission environment variables are documented in root and backend `.env.example` templates.
 - AI stream task IDs use UUID entropy to avoid multi-user/multi-request collisions under high concurrency.
 - Admin-only AI runtime visibility shows shared model capacity, queue depth, and per-user buffered task occupancy.
@@ -178,6 +179,7 @@ Local checkpoint: current branch `HEAD`
 | AI stream task admission limits | Done | `AI_STREAM_MAX_RUNNING_GLOBAL` and `AI_STREAM_MAX_RUNNING_PER_USER` cap shared LLM task concurrency before model calls are submitted |
 | AI stream distributed admission leases | Done | Optional `AI_STREAM_REDIS_URL` Redis leases share global/per-user admission limits across backend instances while no-Redis deployments keep local admission |
 | AI stream remote running hydration | Done | Running tasks found in DB stay running only when a Redis lease is active; remote pollers refresh DB chunks while stale running rows become interrupted |
+| AI stream distributed confirmations | Done | `ai_stream_confirmations` stores high-risk tool checkpoint responses; waiters use local `Event` plus DB polling so cross-instance confirmations can unblock the running task |
 | AI stream runtime env templates | Done | Root and backend `.env.example` include worker, local admission, persistence, Redis URL, lease TTL, key prefix, and fail-open settings |
 | AI stream task ID entropy | Done | `generate_task_id()` keeps the readable prefix/timestamp and adds UUID entropy to prevent same-thread same-millisecond collisions |
 | AI runtime admin visibility | Done | Admin-only `/api/ai-stream/admin/runtime` plus Settings AI Runtime section expose shared capacity, queue depth, and per-user task occupancy without message/tool payloads |
@@ -253,7 +255,7 @@ Local checkpoint: current branch `HEAD`
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
 | Remote push | Blocked | Terminal GitHub HTTPS credentials unavailable |
-| Acceptance | Partial | Multi-user AI foundation, Redis distributed admission leases, and automated hard-risk checks passed; live Casdoor env acceptance, distributed worker queue routing, and real exchange execution remain unaccepted |
+| Acceptance | Partial | Multi-user AI foundation, Redis distributed admission leases, cross-instance AI confirmation mailbox, and automated hard-risk checks passed; live Casdoor env acceptance, distributed worker queue routing, and real exchange execution remain unaccepted |
 
 ## Verification Log
 
@@ -300,6 +302,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream distributed admission smoke test in `uv run`: fake distributed admission acquired/released/refreshed leases, enforced per-user/global limits, released Redis leases when local capacity rejected a task, and exposed distributed admission stats.
 - Passed: Redis admission controller fake-client smoke test in `uv run`: controller parsed Redis script responses for accepted/user-limit/global-limit paths, refreshed and released leases, reported running lease stats, and cleaned expired global leases.
 - Passed: AI stream remote running hydration smoke test in `uv run`: a DB running task with active Redis lease stayed running and refreshed newly persisted chunks on subsequent polls, while a running row without a lease was marked interrupted.
+- Passed: AI stream persisted confirmation mailbox and owner guard smoke test in `uv run`: duplicate pending confirmations and cross-user submissions were rejected; a simulated remote backend submitted the owning user's response through the DB and the waiting task woke from the persisted response.
 - Passed: Frontend production build after Settings AI Runtime displayed distributed admission status, Redis leases, and lease TTL.
 - Passed: AI stream runtime environment templates updated for single-server and Redis distributed admission configuration.
 - Passed: AI stream task ID UUID smoke test in `uv run`: 5000 sequential task IDs with the same prefix were unique and preserved the expected prefix/timestamp/random-suffix shape.
@@ -436,7 +439,7 @@ Local checkpoint: current branch `HEAD`
 ## Known Not-Accepted Items
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
-- Redis distributed admission leases are implemented for cross-instance capacity isolation; distributed worker queue routing/execution is still not implemented in this slice.
+- Redis distributed admission leases and persisted high-risk confirmation responses are implemented for cross-instance capacity/confirmation coordination; distributed worker queue routing/execution is still not implemented in this slice.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.
