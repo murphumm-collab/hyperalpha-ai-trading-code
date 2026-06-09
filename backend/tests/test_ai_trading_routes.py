@@ -116,6 +116,25 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert disabled_handoff_summary["blocked"] == 1
     assert disabled_handoff_summary["by_blocker"]["gateway_disabled"] == 1
 
+    reject_event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 101000, "source": "pytest-reject"}},
+    )
+    assert reject_event_response.status_code == 200
+    reject_event = reject_event_response.json()["signal_event"]
+    rejected = client.post(
+        f"/api/ai-trading/signal-events/{reject_event['id']}/reject",
+        json={"reason": "pytest rejected before handoff"},
+    )
+    assert rejected.status_code == 200
+    rejected_event = rejected.json()["signal_event"]
+    assert rejected_event["status"] == "rejected"
+    assert rejected_event["handoff_status"] == "rejected"
+    assert rejected_event["signal"]["validation"]["eligible_for_backend_handoff"] is False
+    assert rejected_event["signal"]["review"]["reason"] == "pytest rejected before handoff"
+    rejected_handoff = client.post(f"/api/ai-trading/signal-events/{reject_event['id']}/handoff")
+    assert rejected_handoff.status_code == 400
+
     calls = []
 
     class FakeResponse:
@@ -166,5 +185,6 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     final_runtime = client.get("/api/ai-trading/runtime").json()
     assert final_runtime["strategy_specs"]["by_status"]["approved"] == 1
     assert final_runtime["signal_events"]["by_status"]["submitted"] == 1
+    assert final_runtime["signal_events"]["by_status"]["rejected"] == 1
     assert final_runtime["signal_events"]["handoff_eligibility"]["review_candidates"] == 0
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0

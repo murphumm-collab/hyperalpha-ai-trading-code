@@ -841,6 +841,54 @@ def list_signal_handoff_attempt_records(
     )
 
 
+def reject_signal_event_record(
+    db: Session,
+    *,
+    user_id: int,
+    event_id: int,
+    reason: Optional[str] = None,
+) -> AiTradingSignalEventRecord:
+    """Mark a review candidate rejected by the user without contacting a gateway."""
+    event = get_signal_event_record(db, user_id=user_id, event_id=event_id)
+    if not event:
+        raise ValueError("Signal event not found")
+    if event.status != "review_candidate":
+        raise ValueError("Only review_candidate signal events can be rejected")
+
+    signal = _json_loads(event.signal_json, {})
+    if not isinstance(signal, dict):
+        signal = {}
+    now = datetime.now(timezone.utc)
+    rejection_reason = _clean_text(reason, 1000) or "Rejected by user before handoff"
+
+    validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
+    signal["validation"] = {
+        **validation,
+        "status": "rejected_by_user",
+        "eligible_for_backend_handoff": False,
+        "warnings": list(validation.get("warnings") or []) + ["signal_rejected_by_user"],
+    }
+    execution_boundary = signal.get("execution_boundary") if isinstance(signal.get("execution_boundary"), dict) else {}
+    signal["execution_boundary"] = {
+        **execution_boundary,
+        "handoff_status": "rejected",
+    }
+    signal["review"] = {
+        **(signal.get("review") if isinstance(signal.get("review"), dict) else {}),
+        "status": "rejected",
+        "reason": rejection_reason,
+        "reviewed_at": now.isoformat(),
+    }
+
+    event.status = "rejected"
+    event.handoff_status = "rejected"
+    event.error_message = rejection_reason
+    event.signal_json = _json_dumps(signal)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
 def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
     signal = _json_loads(event.signal_json, {})
     return {

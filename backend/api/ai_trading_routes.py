@@ -23,6 +23,7 @@ from services.ai_trading_strategy_spec_service import (
     list_signal_handoff_attempt_records,
     list_signal_event_records,
     list_strategy_spec_records,
+    reject_signal_event_record,
     save_strategy_spec_record,
     serialize_signal_handoff_attempt_record,
     serialize_signal_event_record,
@@ -62,6 +63,10 @@ class StrategySpecSaveRequest(BaseModel):
 
 class StrategySignalPreviewRequest(BaseModel):
     market_context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class SignalEventRejectRequest(BaseModel):
+    reason: Optional[str] = Field(default=None, max_length=1000)
 
 
 def _model_dump(model: BaseModel) -> Dict[str, Any]:
@@ -326,6 +331,31 @@ def list_signal_event_handoff_attempts_endpoint(
             serialize_signal_handoff_attempt_record(attempt)
             for attempt in attempts
         ]
+    }
+
+
+@router.post("/signal-events/{event_id}/reject")
+def reject_signal_event_endpoint(
+    event_id: int,
+    request: SignalEventRejectRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Reject a current-user review candidate without contacting the gateway."""
+    try:
+        event = reject_signal_event_record(
+            db,
+            user_id=current_user.id,
+            event_id=event_id,
+            reason=request.reason,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "signal_event": serialize_signal_event_record(event, include_signal=True),
     }
 
 

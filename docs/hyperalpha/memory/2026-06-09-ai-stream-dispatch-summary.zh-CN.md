@@ -38,6 +38,7 @@
 - `/api/ai-trading/runtime` 现在汇总 review-candidate handoff readiness：`review_candidates`、`eligible`、`blocked` 和 `by_blocker`；Hyper AI 面板的 Signals 卡片显示 total / ready。
 - 新增 `ai_trading_signal_handoff_attempts`：每次 handoff 尝试如果 blocked、failed 或 submitted 都会写非敏感审计记录，包含 blockers、eligibility、gateway_ready、result，但不包含 gateway URL/token 或交易凭据；`GET /api/ai-trading/signal-events/{id}/handoff-attempts` 可按当前用户读取。
 - Hyper AI AI Trading recent signals 行现在有只读 handoff history 按钮，会读取 `/handoff-attempts` 并把 attempts JSON 回填聊天框给 agent 做审计复核，不会触发执行。
+- 新增 signal event reject 流程：`POST /api/ai-trading/signal-events/{id}/reject` 只允许拒绝 `review_candidate`，会把 signal JSON 标为 `rejected_by_user`、`eligible_for_backend_handoff=false`、`handoff_status=rejected`；Hyper AI recent signals 行有拒绝按钮，拒绝后回填聊天框供 agent 复核。
 
 ## 3. AI Stream / Worker 现状
 
@@ -108,6 +109,9 @@
 - `backend/tests/test_ai_trading_routes.py` 已覆盖 disabled gateway 产生 blocked attempt、enabled gateway 产生 submitted attempt，并确认 attempt response 不泄露 gateway token/URL。
 - Frontend production build 已通过，recent signal handoff history 只读按钮编译成功。
 - `backend/tests/test_ai_trading_routes.py` 在 handoff history 前端集成后重新通过。
+- Python syntax compile 已通过，AI Trading service/routes 在 signal reject 后正常。
+- `backend/tests/test_ai_trading_routes.py` 已覆盖 signal event reject、rejected 后不能 handoff、runtime rejected 计数。
+- Frontend production build 已通过，recent signal reject 按钮编译成功。
 
 ## 6. 未验收 / 阻塞
 

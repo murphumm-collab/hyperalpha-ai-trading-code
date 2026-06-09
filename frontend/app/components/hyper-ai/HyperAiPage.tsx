@@ -764,6 +764,7 @@ export default function HyperAiPage() {
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
+  const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
   const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
@@ -1203,6 +1204,38 @@ export default function HyperAiPage() {
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load handoff attempts')
     } finally {
       setSignalHandoffAttemptsLoadingId(null)
+    }
+  }
+
+  const handleRejectSignalEvent = async (eventId: number) => {
+    setSignalRejectLoadingId(eventId)
+    setStrategyDraftError(null)
+    try {
+      const reason = currentLang === 'zh'
+        ? 'User rejected this signal candidate from the Hyper AI panel before handoff.'
+        : 'User rejected this signal candidate from the Hyper AI panel before handoff.'
+      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const detail = data.detail
+        throw new Error(typeof detail === 'string' ? detail : 'Failed to reject signal event')
+      }
+      const event = data.signal_event as AiTradingSignalEventRecord
+      const prompt = currentLang === 'zh'
+        ? `请复核 AI Trading Signal Event #${event.id} 的拒绝结果：确认该信号已不可 handoff、拒绝原因是否充分、是否还需要更新 strategy spec 或风险约束。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
+        : `Review the rejection result for AI Trading Signal Event #${event.id}. Confirm that the signal can no longer be handed off, whether the rejection reason is sufficient, and whether the strategy spec or risk constraints should be updated. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to reject AI trading signal event:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to reject signal event')
+    } finally {
+      setSignalRejectLoadingId(null)
     }
   }
 
@@ -2113,6 +2146,19 @@ export default function HyperAiPage() {
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <History className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRejectSignalEvent(event.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={event.status !== 'review_candidate' || signalRejectLoadingId !== null || signalHandoffLoadingId !== null}
+                            title={t('hyperAi.aiTradingRejectSignal', 'Reject signal')}
+                          >
+                            {signalRejectLoadingId === event.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <X className="h-3.5 w-3.5" />
                             )}
                           </button>
                           <button
