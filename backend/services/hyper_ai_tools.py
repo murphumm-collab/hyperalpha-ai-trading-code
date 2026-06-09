@@ -567,8 +567,18 @@ HYPER_AI_TOOLS = [
                 "properties": {
                     "category": {
                         "type": "string",
-                        "enum": ["preference", "decision", "lesson", "insight", "context"],
-                        "description": "Memory category: preference (trading style/risk), decision (config changes), lesson (from wins/losses), insight (market patterns), context (general)"
+                        "enum": [
+                            "preference",
+                            "decision",
+                            "lesson",
+                            "insight",
+                            "context",
+                            "strategy_memory",
+                            "risk_memory",
+                            "performance_memory",
+                            "execution_memory"
+                        ],
+                        "description": "Memory category: preference (trading style/risk), decision (config changes), lesson (from wins/losses), insight (market patterns), context (general), strategy_memory (strategy specs/logic), risk_memory (risk constraints), performance_memory (backtest/live outcomes), execution_memory (handoff/fill/reject operations)"
                     },
                     "content": {
                         "type": "string",

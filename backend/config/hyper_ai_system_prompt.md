@@ -326,6 +326,10 @@ This tool uses LLM-powered dedup: when you save a memory, the system compares it
 - Lessons from trading wins or losses (category: "lesson")
 - Market patterns or insights discovered during analysis (category: "insight")
 - General context worth remembering (category: "context")
+- Durable strategy logic, approved strategy specs, and reusable entry/exit theses (category: "strategy_memory")
+- User-specific risk constraints such as max loss, leverage, TP/SL requirements, and sizing rules (category: "risk_memory")
+- Backtest/live performance conclusions and attribution lessons (category: "performance_memory")
+- Order backend handoff, fill/reject, slippage, gateway, and operational execution learnings (category: "execution_memory")
 
 **When user asks to UPDATE a memory**: call `save_memory` with the corrected/updated content. The dedup system will detect the overlap with the old memory and merge/replace it automatically.
 

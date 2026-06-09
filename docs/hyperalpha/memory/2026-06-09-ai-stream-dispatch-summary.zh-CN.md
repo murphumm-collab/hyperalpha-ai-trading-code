@@ -60,7 +60,8 @@
 - Hyper/Prompt/Signal/Program/Attribution AI 服务均已调用 compression pipeline。
 - `compress_messages(..., user_id=...)` 已把当前用户传给 background memory extraction。
 - `hyper_ai_memory_service.py` 已按 `user_id` 存取、去重、更新、软删除 memory。
-- 当前 memory categories 是 `preference`、`decision`、`lesson`、`insight`、`context`；产品文档里的 `strategy_memory`、`performance_memory`、`risk_memory`、`execution_memory` 仍属于后续 schema 升级。
+- 当前 memory categories 包含通用类别 `preference`、`decision`、`lesson`、`insight`、`context`，以及 AI Trading 专用类别 `strategy_memory`、`risk_memory`、`performance_memory`、`execution_memory`。
+- Hyper AI tool schema 和 system prompt 已指导 agent 把策略逻辑、风控约束、表现结论和执行经验分别写入对应 memory category。
 
 ## 5. 已验证
 
@@ -83,6 +84,7 @@
 - AI Trading signal handoff route smoke：默认关闭返回 409；mock enabled gateway 后提交 `AI_TRADING_SIGNAL_CANDIDATE`，event 状态变为 submitted，并携带 bearer token 给 gateway。
 - AI Trading runtime route smoke：空状态不泄露 URL/token；创建 approved spec 和 review signal event 后计数正确。
 - Frontend production build 已通过，Hyper AI AI Trading runtime status 面板编译成功。
+- Hyper AI memory category smoke：SQLite 下四个 AI Trading 专用 memory category 可保存和按用户读取。
 
 ## 6. 未验收 / 阻塞
 

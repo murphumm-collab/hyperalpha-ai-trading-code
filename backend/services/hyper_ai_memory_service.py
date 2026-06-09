@@ -13,6 +13,10 @@ Memory Categories:
 - lesson: Lessons learned from trades
 - insight: Market insights and observations
 - context: General context about user's situation
+- strategy_memory: Durable strategy logic, thesis, and approved spec details
+- risk_memory: User-specific risk constraints, max loss, leverage, TP/SL rules
+- performance_memory: Backtest/live performance conclusions and attribution lessons
+- execution_memory: Order backend, handoff, fill/reject, and operational learnings
 
 Architecture:
 - Memory is extracted during context compression (async, non-blocking)
@@ -38,11 +42,15 @@ MAX_MEMORIES = 50
 
 # Memory categories
 MEMORY_CATEGORIES = [
-    "preference",  # Trading preferences
-    "decision",    # Important decisions
-    "lesson",      # Lessons learned
-    "insight",     # Market insights
-    "context",     # General context
+    "preference",          # Trading preferences
+    "decision",            # Important decisions
+    "lesson",              # Lessons learned
+    "insight",             # Market insights
+    "context",             # General context
+    "strategy_memory",     # Strategy logic and approved specs
+    "risk_memory",         # Risk constraints and guardrails
+    "performance_memory",  # Backtest/live performance conclusions
+    "execution_memory",    # Order backend and execution operations
 ]
 
 
@@ -457,6 +465,22 @@ Conversation:
 - Market observations (e.g. "BTC tends to dump after funding rate > 0.1%")
 - Correlations or patterns discussed
 - Backtesting results and conclusions
+
+**strategy_memory** (importance 0.7-0.9):
+- Durable strategy thesis, entry/exit logic, approved strategy-spec details
+- Natural-language strategy changes the user confirmed for future reuse
+
+**risk_memory** (importance 0.8-0.95):
+- Max loss, leverage, position sizing, stop-loss/take-profit requirements
+- User-specific constraints that should affect future AI Trading drafts/signals
+
+**performance_memory** (importance 0.7-0.9):
+- Backtest/live results, attribution findings, what improved or hurt returns
+- Strategy-specific metrics or lessons that should guide future revisions
+
+**execution_memory** (importance 0.7-0.9):
+- Order backend handoff rules, fill/reject outcomes, operational issues
+- Execution constraints such as slippage, retries, gateway availability, timing
 
 ## Rules:
 - Each memory should be specific and self-contained (readable without context)
