@@ -124,6 +124,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI signal preview control now stays gated until the approved strategy spec also has handoff-ready backtest evidence, matching the user-facing safety path before signal-event creation.
 - AI Trading signal handoff endpoint is present but disabled by default; it only submits audited signal events to a configured external order-backend URL when explicitly enabled.
 - AI Trading signal gateway payload now has a documented V1 HTTP JSON contract with stable top-level fields for contract/version, event/spec/user IDs, venue, market identity, action, idempotency, signal age, user confirmation, risk, backtest evidence, validation, execution boundary, and a redacted full signal copy.
+- AI Trading includes a local mock signal gateway at `backend/dev_ai_trading_signal_gateway.py` for browser/local handoff acceptance without touching the real order backend.
 - AI Trading signal handoff endpoint requires an explicit `confirmed_by_user=true` request before any eligible signal can be submitted to the order backend.
 - AI Trading signal handoff eligibility now requires the persisted signal execution boundary to keep `requires_user_confirmation=true` before any order-backend handoff.
 - AI Trading signal handoff eligibility now requires the persisted signal execution boundary to keep `signal_only=true` before any order-backend handoff.
@@ -754,6 +755,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading service/route/test syntax compile after signal gateway contract fields: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Added: `docs/hyperalpha/ai-trading-signal-gateway-contract.md` documents the disabled-by-default gateway config, required payload, handoff gates, downstream order-backend responsibilities, and test evidence.
 - Added: `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` defines V1 target, required capabilities, current verified evidence, non-accepted items, and final pass criteria.
+- Passed: mock signal gateway compile and health check: `cd backend && uv run python -m py_compile dev_ai_trading_signal_gateway.py`, then `uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1` and `curl http://127.0.0.1:5621/health` returned `{"ok":true,...}`; temporary service was stopped.
 - Passed: AI Trading route regression after natural-language strategy adjustment API: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 26 passing tests, including unpersisted adjustment, saved-record adjustment, approval/backtest invalidation, direct-order-intent ignore warning, and cross-user adjust 404.
 - Passed: AI Trading service/route/test syntax compile after strategy adjustment API: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: Frontend production build after adding the Hyper AI strategy adjustment control: `cd frontend && npm run build`; existing browserslist/baseline and chunk-size warnings remain.

@@ -46,6 +46,7 @@
 - `/api/ai-trading/signal-events/{id}/handoff` 现在默认限制 signal event 最大 handoff 年龄：`AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS=900`。超过时 `handoff_eligibility.blockers` 包含 `signal_event_stale_for_handoff`，并返回非敏感 `signal_age_seconds` / `max_handoff_age_seconds`；设为 `0` 可关闭年龄 gate。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 - gateway payload 现在有稳定的 V1 HTTP JSON contract：顶层包含 `contract/version`、event/spec/user IDs、`venue`、`symbol`、`exchange_symbol`、`action`、`idempotency_key`、signal age、用户确认、`market`、`market_context`、`risk`、`backtest`、`execution_boundary`、`validation` 和 redacted full `signal`；契约文档在 `docs/hyperalpha/ai-trading-signal-gateway-contract.md`。
+- 新增本地 mock signal gateway：`backend/dev_ai_trading_signal_gateway.py`。它只校验 V1 gateway contract 和 signal-only 边界，返回 202 并写 JSONL 审计，不连接真实订单服务或交易所。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
 - `/api/ai-trading/runtime` 现在还返回非敏感 `gateway.max_handoff_age_seconds`；Hyper AI Gateway 卡片会显示紧凑 max-age，让运营知道后端当前 stale-signal gate。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
@@ -249,6 +250,7 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 model-adjust bridge 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI DeepSeek/Qwen Brain 调整按钮后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
 - `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` 已保存 V1 完成标准、当前已验证项、未验收项和最终通过标准，避免继续无限扩功能。
+- mock signal gateway 已通过轻量验证：`cd backend && uv run python -m py_compile dev_ai_trading_signal_gateway.py`；临时运行 `uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1` 后，`curl http://127.0.0.1:5621/health` 返回 ok，随后已停止服务。
 - Playwright CLI 已打开 `http://127.0.0.1:5174/app/ai-trading`，页面 title 为 `Hyper Alpha Arena`，快照落在 Hyper AI shell/onboarding 状态；控制台错误主要来自本地后端 API/WS 未运行和少量静态资源 404，因此仍不是完整 AI Trading 点击级验收。
 - 临时启动后端 `uv run uvicorn main:app --port 5611 --host 127.0.0.1` 失败：`database.snapshot_connection` import 时连接本地 PostgreSQL `localhost:5432` 被拒，抛出 `psycopg2.OperationalError`。
 - 用 `DATABASE_URL=sqlite:///./tmp_hyperalpha_dev.db SNAPSHOT_DATABASE_URL=sqlite:///./tmp_hyperalpha_snapshot.db` 探测 SQLite fallback 时，uvicorn 启动阶段产生大量 Postgres 专用 migration / model validation SQL 错误，服务没有稳定进入可验收状态；探测生成的临时 SQLite 文件已删除。

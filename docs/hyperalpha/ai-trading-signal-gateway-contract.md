@@ -110,3 +110,21 @@ Contract regression is covered by `backend/tests/test_ai_trading_routes.py`:
 - `test_ai_trading_strategy_signal_and_handoff_flow`
 - Redaction and blocker-specific handoff tests
 
+## Local Mock Gateway
+
+For local/browser acceptance without touching the real order backend:
+
+```bash
+cd backend
+uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1
+```
+
+Point the main backend at the mock gateway:
+
+```bash
+AI_TRADING_SIGNAL_GATEWAY_ENABLED=true
+AI_TRADING_SIGNAL_GATEWAY_URL=http://127.0.0.1:5621/api/ai-trading/signals
+AI_TRADING_SIGNAL_GATEWAY_TOKEN=local-mock-token
+```
+
+Accepted mock payloads are appended to `backend/logs/ai_trading_mock_gateway.jsonl` unless `AI_TRADING_MOCK_GATEWAY_LOG` is set.

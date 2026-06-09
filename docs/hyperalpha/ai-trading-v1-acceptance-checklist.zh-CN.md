@@ -47,5 +47,5 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - Postgres/Snapshot DB 启动后，后端 `/api/ai-trading/runtime` 可响应。
 - 浏览器从 `/app/ai-trading` 完成至少一条测试策略流：draft -> adjust -> save -> approve -> attach/run backtest evidence -> create signal event -> reject 一条 signal -> confirm handoff 一条 eligible mock gateway signal。
 - Handoff payload 符合 `docs/hyperalpha/ai-trading-signal-gateway-contract.md`。
+- Mock gateway 可用：`cd backend && uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1`，主后端 `AI_TRADING_SIGNAL_GATEWAY_URL` 指向 `http://127.0.0.1:5621/api/ai-trading/signals`。
 - Status 和 memory 文档标记通过证据。
-
