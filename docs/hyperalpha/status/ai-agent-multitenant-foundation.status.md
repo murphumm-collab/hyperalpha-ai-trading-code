@@ -61,6 +61,7 @@ Local checkpoint: current branch `HEAD`
 - Admin-only AI runtime visibility distinguishes local, remote, effective, persisted, and stale AI running tasks across backend instances.
 - AI stream tasks persist runner id and heartbeat timestamps to support future distributed worker routing or takeover.
 - AI stream dispatch queue records serializable worker jobs with claim/running/completed/failed states for distributed worker routing.
+- AI stream dispatch workers can claim registered task types and run Hyper AI chat/onboarding jobs from serialized payloads when enabled.
 - Hyper AI and Program AI task admission is conversation-scoped, so one conversation cannot run overlapping writes while other users/conversations can still run.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
@@ -193,6 +194,7 @@ Local checkpoint: current branch `HEAD`
 | AI runtime remote-task visibility | Done | Admin runtime stats and Settings AI Runtime display local/effective/remote running counts plus persisted/stale DB running tasks for multi-instance operations |
 | AI stream runner heartbeat | Done | `ai_stream_tasks.runner_id` and `last_heartbeat_epoch` record the backend instance and last persisted activity for each AI stream task |
 | AI stream dispatch queue foundation | Done | `ai_stream_dispatch_jobs` plus enqueue/claim/running/complete/fail service methods persist serializable worker jobs and expose admin queue stats |
+| AI stream dispatch worker handlers | Done | Optional dispatch worker loop claims supported DB jobs; Hyper AI chat and onboarding register serializable handlers and enqueue instead of running local closures when enabled |
 | Conversation task admission | Done | Hyper AI and Program AI return `already_running` for the same user's active conversation task while allowing other users/conversations to start under capacity limits |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
@@ -318,6 +320,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI runtime remote stats smoke test in `uv run`: admin runtime stats reported local, remote, effective, persisted, and stale running tasks and per-user remote occupancy from DB plus fake Redis leases.
 - Passed: AI stream runner heartbeat smoke test in `uv run`: task create/chunk/complete persisted `runner_id` and refreshed `last_heartbeat_epoch`; admin runtime stats returned the current runner id.
 - Passed: AI stream dispatch queue foundation smoke test in `uv run`: dispatch jobs enqueued, duplicate enqueue stayed idempotent, type-scoped claim worked, running/completed/failed transitions persisted runner/error state, and admin runtime stats exposed queue counts.
+- Passed: AI stream dispatch worker fake-handler smoke test in `uv run`: a claimed job was adopted by the runner, emitted chunks through the shared stream buffer, completed the task, and persisted completed dispatch/task runner state.
+- Passed: Hyper AI dispatch enqueue smoke test in `uv run`: chat and onboarding task starts created stream tasks and pending dispatch jobs with serialized payloads when dispatch mode was enabled.
 - Passed: Frontend production build after Settings AI Runtime displayed dispatch queue pending/claimed/running/completed/failed counts.
 - Passed: Hyperliquid ranked symbols API smoke test in `uv run`: fake `metaAndAssetCtxs` data sorted by `dayNtlVlm`, skipped delisted symbols, parsed market fields, and reused the in-process cache.
 - Passed: Hyper AI trading focus UI frontend build after switching the no-auto-order prompt strip to watchlist -> 24h volume-ranked -> available-symbol fallback.
@@ -457,7 +461,7 @@ Local checkpoint: current branch `HEAD`
 ## Known Not-Accepted Items
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
-- Redis distributed admission leases, persisted high-risk confirmation responses, runner heartbeats, and dispatch queue persistence are implemented for cross-instance capacity/confirmation/routing coordination; serialized task-type handlers still need to be wired before full distributed worker execution acceptance.
+- Redis distributed admission leases, persisted high-risk confirmation responses, runner heartbeats, dispatch queue persistence, and Hyper AI chat/onboarding serialized worker handlers are implemented for cross-instance capacity/confirmation/routing coordination; Prompt/Signal/Program/Attribution task-type handlers still need to be wired before full distributed worker execution acceptance.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.

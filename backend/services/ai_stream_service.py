@@ -86,6 +86,9 @@ AI_STREAM_DISTRIBUTED_WORKER_ENABLED = (
     os.getenv("AI_STREAM_DISTRIBUTED_WORKER_ENABLED", "false").lower() == "true"
 )
 AI_STREAM_DISPATCH_MAX_ATTEMPTS = int(os.getenv("AI_STREAM_DISPATCH_MAX_ATTEMPTS", "1"))
+AI_STREAM_DISPATCH_POLL_INTERVAL_SECONDS = float(
+    os.getenv("AI_STREAM_DISPATCH_POLL_INTERVAL_SECONDS", "1.0")
+)
 
 _ai_task_executor = ThreadPoolExecutor(
     max_workers=AI_TASK_MAX_WORKERS,
@@ -433,6 +436,27 @@ class AiStreamDispatchJob:
     attempts: int = 0
 
 
+_ai_stream_task_handlers: Dict[
+    str,
+    Callable[[AiStreamDispatchJob], Generator[str, None, None]],
+] = {}
+
+
+def register_ai_stream_task_handler(
+    task_type: str,
+    handler: Callable[[AiStreamDispatchJob], Generator[str, None, None]],
+) -> None:
+    """Register a serializable AI stream task handler for distributed workers."""
+    if not task_type:
+        raise ValueError("task_type is required")
+    _ai_stream_task_handlers[task_type] = handler
+
+
+def is_ai_stream_dispatch_enabled() -> bool:
+    """Return whether serialized AI stream dispatch is enabled."""
+    return AI_STREAM_DISTRIBUTED_WORKER_ENABLED and AI_STREAM_PERSISTENCE_ENABLED
+
+
 class StreamBufferManager:
     """
     Manages stream buffers for all active AI tasks.
@@ -460,9 +484,11 @@ class StreamBufferManager:
         self._tasks: Dict[str, StreamTask] = {}
         self._tasks_lock = threading.Lock()
         self._cleanup_thread = None
+        self._dispatch_thread = None
         self._running = True
         self._admission_controller = self._build_distributed_admission_controller()
         self._start_cleanup_thread()
+        self._start_dispatch_worker()
         self._initialized = True
 
     def _build_distributed_admission_controller(self) -> Optional[DistributedAdmissionController]:
@@ -841,6 +867,37 @@ class StreamBufferManager:
         self._cleanup_thread = threading.Thread(target=cleanup_loop, daemon=True)
         self._cleanup_thread.start()
 
+    def _start_dispatch_worker(self):
+        """Start a lightweight polling worker for serialized AI stream jobs."""
+        if not is_ai_stream_dispatch_enabled():
+            return
+        if self._dispatch_thread and self._dispatch_thread.is_alive():
+            return
+
+        self._dispatch_thread = threading.Thread(
+            target=self._dispatch_worker_loop,
+            daemon=True,
+            name=f"ai-dispatch-{AI_STREAM_RUNNER_ID}",
+        )
+        self._dispatch_thread.start()
+
+    def _dispatch_worker_loop(self):
+        while self._running:
+            try:
+                task_types = set(_ai_stream_task_handlers.keys())
+                if not task_types:
+                    time.sleep(AI_STREAM_DISPATCH_POLL_INTERVAL_SECONDS)
+                    continue
+
+                job = self.claim_dispatch_job(task_types)
+                if job:
+                    _ai_task_executor.submit(run_ai_stream_dispatch_job, job)
+                else:
+                    time.sleep(AI_STREAM_DISPATCH_POLL_INTERVAL_SECONDS)
+            except Exception as exc:
+                logger.warning("[StreamBuffer] Dispatch worker loop error: %s", exc)
+                time.sleep(AI_STREAM_DISPATCH_POLL_INTERVAL_SECONDS)
+
     def _cleanup_expired_tasks(self):
         """Remove tasks that have been completed for more than 15 minutes."""
         now = time.time()
@@ -940,6 +997,36 @@ class StreamBufferManager:
                 return None
             if user_id is not None and task.user_id != user_id:
                 return None
+            return task
+
+    def adopt_task_for_dispatch(
+        self,
+        task_id: str,
+        conversation_id: Optional[int] = None,
+        user_id: Optional[int] = None,
+    ) -> StreamTask:
+        """Attach this runner to a persisted dispatch task without re-admitting capacity."""
+        with self._tasks_lock:
+            task = self._tasks.get(task_id)
+            if task:
+                return task
+
+            task = self._hydrate_task_from_db(task_id, user_id=user_id)
+            if task and task.status == "running":
+                task.remote_hydrated = False
+                task.distributed_admission_acquired = self._has_active_distributed_lease(task_id, task.user_id)
+                self._tasks[task_id] = task
+                self._persist_task(task)
+                return task
+
+            task = StreamTask(
+                task_id=task_id,
+                conversation_id=conversation_id,
+                user_id=user_id,
+            )
+            task.distributed_admission_acquired = self._has_active_distributed_lease(task_id, user_id)
+            self._tasks[task_id] = task
+            self._persist_task(task)
             return task
 
     def add_chunk(self, task_id: str, event_type: str, data: Dict[str, Any]):
@@ -1366,6 +1453,59 @@ def generate_task_id(prefix: str = "ai") -> str:
     return f"{prefix}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:12]}"
 
 
+def _consume_ai_stream_generator(
+    task_id: str,
+    generator: Generator[str, None, None],
+    on_complete: Optional[Callable[[StreamTask], None]] = None,
+    on_error: Optional[Callable[[StreamTask, Exception], None]] = None,
+) -> None:
+    """Parse yielded SSE events into the shared polling buffer."""
+    manager = get_buffer_manager()
+    task = manager.get_task(task_id)
+
+    try:
+        for sse_event in generator:
+            # Parse SSE event: "event: type\ndata: {...}\n\n"
+            if not sse_event or not sse_event.strip():
+                continue
+
+            lines = sse_event.strip().split('\n')
+            event_type = "message"
+            data = {}
+
+            for line in lines:
+                if line.startswith('event: '):
+                    event_type = line[7:]
+                elif line.startswith('data: '):
+                    try:
+                        data = json.loads(line[6:])
+                    except json.JSONDecodeError:
+                        data = {"raw": line[6:]}
+
+            manager.add_chunk(task_id, event_type, data)
+
+            if event_type == "done":
+                manager.complete_task(task_id, data)
+                if on_complete and task:
+                    on_complete(task)
+                return
+            if event_type == "error":
+                manager.fail_task(task_id, data.get("message", "Unknown error"))
+                return
+            if event_type == "interrupted":
+                manager.fail_task(task_id, f"Interrupted: {data.get('error', 'Unknown')}")
+                return
+
+        manager.complete_task(task_id, {"status": "completed"})
+        if on_complete and task:
+            on_complete(task)
+    except Exception as e:
+        logger.error(f"[AITask {task_id}] Background task error: {e}", exc_info=True)
+        manager.fail_task(task_id, str(e))
+        if on_error and task:
+            on_error(task, e)
+
+
 def run_ai_task_in_background(
     task_id: str,
     generator_func: Callable[[], Generator[str, None, None]],
@@ -1384,56 +1524,40 @@ def run_ai_task_in_background(
     to the frontend without changes here.
     """
     def run():
-        manager = get_buffer_manager()
-        task = manager.get_task(task_id)
-
-        try:
-            for sse_event in generator_func():
-                # Parse SSE event: "event: type\ndata: {...}\n\n"
-                if not sse_event or not sse_event.strip():
-                    continue
-
-                lines = sse_event.strip().split('\n')
-                event_type = "message"
-                data = {}
-
-                for line in lines:
-                    if line.startswith('event: '):
-                        event_type = line[7:]
-                    elif line.startswith('data: '):
-                        try:
-                            data = json.loads(line[6:])
-                        except json.JSONDecodeError:
-                            data = {"raw": line[6:]}
-
-                # Add to buffer
-                manager.add_chunk(task_id, event_type, data)
-
-                # Track completion/error events
-                if event_type == "done":
-                    manager.complete_task(task_id, data)
-                    if on_complete and task:
-                        on_complete(task)
-                    return
-                elif event_type == "error":
-                    manager.fail_task(task_id, data.get("message", "Unknown error"))
-                    return
-                elif event_type == "interrupted":
-                    manager.fail_task(task_id, f"Interrupted: {data.get('error', 'Unknown')}")
-                    return
-
-            # Generator finished without done/error event
-            manager.complete_task(task_id, {"status": "completed"})
-            if on_complete and task:
-                on_complete(task)
-
-        except Exception as e:
-            logger.error(f"[AITask {task_id}] Background task error: {e}", exc_info=True)
-            manager.fail_task(task_id, str(e))
-            if on_error and task:
-                on_error(task, e)
+        _consume_ai_stream_generator(
+            task_id,
+            generator_func(),
+            on_complete=on_complete,
+            on_error=on_error,
+        )
 
     return _ai_task_executor.submit(run)
+
+
+def run_ai_stream_dispatch_job(job: AiStreamDispatchJob) -> None:
+    """Run one claimed serializable AI stream job using the registered handler."""
+    manager = get_buffer_manager()
+    handler = _ai_stream_task_handlers.get(job.task_type)
+    if not handler:
+        manager.fail_dispatch_job(job.task_id, f"No handler registered for {job.task_type}")
+        manager.fail_task(job.task_id, f"No handler registered for {job.task_type}")
+        return
+
+    manager.adopt_task_for_dispatch(
+        job.task_id,
+        conversation_id=job.conversation_id,
+        user_id=job.user_id,
+    )
+    manager.mark_dispatch_job_running(job.task_id)
+    try:
+        _consume_ai_stream_generator(job.task_id, handler(job))
+        task = manager.get_task(job.task_id, user_id=job.user_id)
+        if task and task.status == "error":
+            manager.fail_dispatch_job(job.task_id, task.error_message or "AI stream task failed")
+        else:
+            manager.complete_dispatch_job(job.task_id)
+    except Exception as exc:
+        manager.fail_dispatch_job(job.task_id, str(exc))
 
 
 def submit_ai_background_task(

@@ -46,8 +46,11 @@ from services.ai_decision_service import (
     strip_thinking_tags,
 )
 from services.ai_stream_service import (
+    AiStreamDispatchJob,
     get_buffer_manager,
     generate_task_id,
+    is_ai_stream_dispatch_enabled,
+    register_ai_stream_task_handler,
     run_ai_task_in_background,
     format_sse_event,
     submit_ai_background_task,
@@ -72,6 +75,9 @@ from services.hyper_ai_harness import (
     mask_tool_args,
 )
 from utils.encryption import decrypt_private_key
+
+HYPER_AI_CHAT_TASK_TYPE = "hyper_ai.chat"
+HYPER_AI_ONBOARDING_TASK_TYPE = "hyper_ai.onboarding"
 
 logger = logging.getLogger(__name__)
 
@@ -1242,6 +1248,23 @@ def start_chat_task(
     manager = get_buffer_manager()
     manager.create_task(task_id, conversation_id, user_id=user_id)
 
+    if is_ai_stream_dispatch_enabled():
+        enqueued = manager.enqueue_dispatch_job(
+            task_id=task_id,
+            task_type=HYPER_AI_CHAT_TASK_TYPE,
+            payload={
+                "conversation_id": conversation_id,
+                "user_message": user_message,
+                "lang": lang,
+            },
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+        if not enqueued:
+            manager.fail_task(task_id, "Failed to enqueue Hyper AI chat task")
+            raise RuntimeError("Failed to enqueue Hyper AI chat task")
+        return task_id
+
     def generator_func():
         from database.connection import SessionLocal
         task_db = SessionLocal()
@@ -1359,6 +1382,23 @@ def start_onboarding_chat_task(
     # Default to English if not specified
     effective_lang = lang or "en"
 
+    if is_ai_stream_dispatch_enabled():
+        enqueued = manager.enqueue_dispatch_job(
+            task_id=task_id,
+            task_type=HYPER_AI_ONBOARDING_TASK_TYPE,
+            payload={
+                "conversation_id": conversation_id,
+                "user_message": user_message,
+                "lang": effective_lang,
+            },
+            user_id=user_id,
+            conversation_id=conversation_id,
+        )
+        if not enqueued:
+            manager.fail_task(task_id, "Failed to enqueue Hyper AI onboarding task")
+            raise RuntimeError("Failed to enqueue Hyper AI onboarding task")
+        return task_id
+
     def generator_func():
         from database.connection import SessionLocal
         task_db = SessionLocal()
@@ -1375,6 +1415,51 @@ def start_onboarding_chat_task(
 
     run_ai_task_in_background(task_id, generator_func)
     return task_id
+
+
+def _dispatch_hyper_ai_chat(job: AiStreamDispatchJob) -> Generator[str, None, None]:
+    from database.connection import SessionLocal
+
+    payload = job.payload or {}
+    conversation_id = int(payload.get("conversation_id") or job.conversation_id or 0)
+    user_message = str(payload.get("user_message") or "")
+
+    task_db = SessionLocal()
+    try:
+        yield from stream_chat_response(
+            task_db,
+            conversation_id,
+            user_message,
+            task_id=job.task_id,
+            user_id=job.user_id,
+        )
+    finally:
+        task_db.close()
+
+
+def _dispatch_hyper_ai_onboarding(job: AiStreamDispatchJob) -> Generator[str, None, None]:
+    from database.connection import SessionLocal
+
+    payload = job.payload or {}
+    conversation_id = int(payload.get("conversation_id") or job.conversation_id or 0)
+    user_message = str(payload.get("user_message") or "")
+    lang = str(payload.get("lang") or "en")
+
+    task_db = SessionLocal()
+    try:
+        yield from stream_onboarding_response(
+            task_db,
+            conversation_id,
+            user_message,
+            lang,
+            user_id=job.user_id,
+        )
+    finally:
+        task_db.close()
+
+
+register_ai_stream_task_handler(HYPER_AI_CHAT_TASK_TYPE, _dispatch_hyper_ai_chat)
+register_ai_stream_task_handler(HYPER_AI_ONBOARDING_TASK_TYPE, _dispatch_hyper_ai_onboarding)
 
 
 def _build_insight_messages(
