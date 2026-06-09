@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Archived-Session UI Label And Runtime Sync Fix Complete / Remote Push Deferred
+Status: Local V1 Archived-Session Frontend Action Gate Complete / Remote Push Deferred
 
 Local checkpoint: current branch `HEAD`
 
@@ -155,6 +155,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel can edit the selected session name/context summary, create a new session, archive the selected session, and keep saved drafts attached to the selected session.
 - Hyper AI AI Trading panel can load the selected session context packet into chat review, compress/save the selected session context summary, list archived sessions, and filter visible specs/signals to the selected session for session-scoped audit review.
 - Hyper AI AI Trading has a deep-linkable read-only agent-session detail page at `/app/ai-trading/sessions/{agent_session_id}` for current-user session context, specs, signals, blockers, and compressed summary review.
+- Hyper AI AI Trading disables archived-session strategy write/action controls before submission, while leaving read-only inspect/detail/audit controls available.
 - AI Trading runtime handoff eligibility now enforces the production handoff approval boundary for external order-backend URLs and blocks them with `production_handoff_approval_required` unless `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`; local mock gateway URLs remain allowed for local acceptance.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
 - AI Trading runtime status exposes the non-secret signal max handoff age so operators can see the stale-signal gate currently enforced by the backend.
@@ -392,6 +393,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading archived-session adjustment gate | Done | Saved strategy specs in archived agent sessions reject natural-language and DeepSeek/Qwen model-adjust before model config reads, while historical detail/audit records remain readable |
 | AI Trading archived-session action gate | Done | Archived agent sessions block approval, backtest attach/latest/preflight, signal preview/event creation, and confirmed signal handoff; event eligibility and handoff attempts expose `agent_session_archived` |
 | AI Trading archived-session blocker UI | Done | Hyper AI signal blocker labels render `agent_session_archived` as a readable `Agent session archived` safety reason in titles, recent signal rows, session detail, and attempt review text |
+| AI Trading archived-session frontend action gate | Done | Hyper AI disables save-to-archived-session, approve, adjust/model-adjust, backtest attach/latest/preflight/run, and signal preview controls when the selected or owning session is archived |
 | AI Trading agent-session management UI | Done | Hyper AI AI Trading exposes session name/context fields plus save/archive icon controls; route regression covers metadata propagation to specs, signals, and handoff attempts |
 | AI Trading agent-session history UI | Done | Hyper AI AI Trading lists archived sessions, fetches a selected session context packet into chat, and filters specs/signals to the selected session using existing current-user query guards |
 | AI Trading agent-session context compression | Done | `/api/ai-trading/agent-sessions/{id}/compress-context` builds a deterministic non-secret summary from context packet counts/latest records/blockers, persists it to session/spec metadata, and rejects cross-user compression |
@@ -901,6 +903,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: LaunchAgent runtime mirror was resynced after the archived-session action gate with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true` for frontend `5174`, backend `8802`, mock gateway `5621`, Docker, and Postgres `5432`; runtime totals are strategy specs `29`, signal events `27`, and agent sessions `14`.
 - Passed: Frontend archived-session blocker label build: `cd frontend && npm run build` passed after mapping `agent_session_archived` to the readable `Agent session archived` label; remaining output is existing browserslist/baseline/chunk-size warnings.
 - Passed: LaunchAgent installer cache-exclusion fix: `bash -n scripts/local-dev/install_launch_agent.sh` and `git diff --check` passed; `scripts/local-dev/install_launch_agent.sh` succeeded after excluding `frontend/node_modules/.vite`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true`.
+- Passed: Frontend archived-session action gate build: `cd frontend && npm run build` passed after disabling archived-session strategy write/action controls and adding an inline archived-session warning; remaining output is existing browserslist/baseline/chunk-size warnings.
+- Passed: LaunchAgent runtime mirror was resynced after the archived-session frontend action gate with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

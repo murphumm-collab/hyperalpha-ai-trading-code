@@ -1114,9 +1114,31 @@ export default function HyperAiPage() {
     () => [...recentAgentSessions, ...archivedAgentSessions],
     [recentAgentSessions, archivedAgentSessions]
   )
+  const aiTradingAgentSessionById = useMemo(
+    () => new Map(aiTradingAgentSessions.map(session => [session.id, session])),
+    [aiTradingAgentSessions]
+  )
   const selectedAiTradingAgentSession = aiTradingAgentSessions.find(
     session => session.id === selectedAiTradingAgentSessionId
   )
+  const selectedAiTradingAgentSessionArchived = selectedAiTradingAgentSession?.status === 'archived'
+  const isAiTradingAgentSessionArchived = (agentSessionId?: string | null): boolean => {
+    const cleanAgentSessionId = String(agentSessionId || '').trim()
+    if (!cleanAgentSessionId) {
+      return false
+    }
+    return aiTradingAgentSessionById.get(cleanAgentSessionId)?.status === 'archived'
+  }
+  const isStrategyRecordActionBlockedByArchivedSession = (
+    record?: AiTradingStrategySpecRecord | null
+  ): boolean => Boolean(record?.agent_session?.id && isAiTradingAgentSessionArchived(record.agent_session.id))
+  const aiTradingStrategyRecordById = useMemo(() => {
+    const records = [...recentStrategySpecs]
+    if (strategyDraftRecord) {
+      records.push(strategyDraftRecord)
+    }
+    return new Map(records.map(record => [record.id, record]))
+  }, [recentStrategySpecs, strategyDraftRecord])
   const backtestMetricValue = (metrics: Record<string, unknown> | undefined, keys: string[]): number | null => {
     if (!metrics) {
       return null
@@ -1368,16 +1390,45 @@ export default function HyperAiPage() {
     }
     return t('hyperAi.aiTradingModelNotConfigured', 'Not configured')
   }
+  const archivedSessionActionBlockerLabel = t(
+    'hyperAi.aiTradingAgentSessionArchivedBlocker',
+    'Agent session archived'
+  )
+  const archivedSessionActionTitle = t(
+    'hyperAi.aiTradingAgentSessionArchivedActionBlocked',
+    'Agent session archived; create a new session or select an active session before changing strategy, backtest, signal, or handoff state.'
+  )
   const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
   const currentStrategyBacktestReady = isBacktestReady(currentStrategyBacktest)
+  const currentStrategyRecordArchivedSessionBlocked = isStrategyRecordActionBlockedByArchivedSession(strategyDraftRecord)
+  const currentStrategyActionBlockedByArchivedSession = Boolean(
+    currentStrategyRecordArchivedSessionBlocked ||
+    (!strategyDraftRecord && selectedAiTradingAgentSessionArchived)
+  )
+  const currentStrategySaveBlockedByArchivedSession = Boolean(selectedAiTradingAgentSessionArchived)
+  const currentStrategyAdjustBlockedByArchivedSession = currentStrategyRecordArchivedSessionBlocked
+  const currentStrategyModelAdjustBlockedByArchivedSession = Boolean(
+    currentStrategyRecordArchivedSessionBlocked ||
+    (!strategyDraftRecord && selectedAiTradingAgentSessionArchived)
+  )
+  const isStrategyRecordIdActionBlockedByArchivedSession = (recordId?: number | null): boolean => {
+    if (!recordId) {
+      return currentStrategyActionBlockedByArchivedSession
+    }
+    return isStrategyRecordActionBlockedByArchivedSession(aiTradingStrategyRecordById.get(recordId))
+  }
   const canBuildStrategySignalPreview = Boolean(
-    strategyDraftRecord?.status === 'approved' && currentStrategyBacktestReady
+    strategyDraftRecord?.status === 'approved' &&
+    currentStrategyBacktestReady &&
+    !currentStrategyRecordArchivedSessionBlocked
   )
   const canUseAiTradingModelAdjust = Boolean(
     aiTradingModelAdjustmentReady
   )
-  const strategySignalPreviewTitle = !strategyDraftRecord
-    ? t('hyperAi.aiTradingSaveBeforeSignalPreview', 'Save and approve the strategy spec before signal preview')
+  const strategySignalPreviewTitle = currentStrategyActionBlockedByArchivedSession
+    ? archivedSessionActionTitle
+    : !strategyDraftRecord
+      ? t('hyperAi.aiTradingSaveBeforeSignalPreview', 'Save and approve the strategy spec before signal preview')
     : strategyDraftRecord.status !== 'approved'
       ? t('hyperAi.aiTradingApproveBeforeSignalPreview', 'Approve the strategy spec before signal preview')
       : !currentStrategyBacktestReady
@@ -1990,6 +2041,10 @@ export default function HyperAiPage() {
     if (!strategyDraft) {
       return null
     }
+    if (currentStrategySaveBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return null
+    }
     setStrategyDraftSaving(true)
     setStrategyDraftError(null)
     try {
@@ -2041,6 +2096,10 @@ export default function HyperAiPage() {
   }
 
   const handleApproveStrategyDraft = async () => {
+    if (currentStrategyActionBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
+    }
     setStrategyDraftApproving(true)
     setStrategyDraftError(null)
     try {
@@ -2076,6 +2135,10 @@ export default function HyperAiPage() {
     const instruction = strategyAdjustInstruction.trim()
     if (!instruction) {
       setStrategyDraftError(t('hyperAi.aiTradingAdjustInstructionRequired', 'Enter a strategy adjustment first'))
+      return
+    }
+    if (currentStrategyAdjustBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
       return
     }
 
@@ -2132,6 +2195,10 @@ export default function HyperAiPage() {
     const instruction = strategyAdjustInstruction.trim()
     if (!instruction) {
       setStrategyDraftError(t('hyperAi.aiTradingAdjustInstructionRequired', 'Enter a strategy adjustment first'))
+      return
+    }
+    if (currentStrategyModelAdjustBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
       return
     }
 
@@ -2204,6 +2271,10 @@ export default function HyperAiPage() {
 
   const handleAttachBacktestSummary = async (recordId?: number) => {
     setStrategyDraftError(null)
+    if (!recordId && currentStrategyActionBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
+    }
     let targetRecordId = recordId
     if (!targetRecordId) {
       const record = strategyDraftRecord || (await persistStrategyDraft())
@@ -2211,6 +2282,10 @@ export default function HyperAiPage() {
         return
       }
       targetRecordId = record.id
+    }
+    if (isStrategyRecordIdActionBlockedByArchivedSession(targetRecordId)) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
     }
 
     const useInlineSummary = !recordId
@@ -2291,6 +2366,10 @@ export default function HyperAiPage() {
 
   const handleAttachProgramBacktestResult = async (recordId?: number, providedBacktestResultId?: number) => {
     setStrategyDraftError(null)
+    if (!recordId && currentStrategyActionBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
+    }
     let targetRecordId = recordId
     if (!targetRecordId) {
       const record = strategyDraftRecord || (await persistStrategyDraft())
@@ -2299,6 +2378,10 @@ export default function HyperAiPage() {
         return
       }
       targetRecordId = record.id
+    }
+    if (isStrategyRecordIdActionBlockedByArchivedSession(targetRecordId)) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
     }
 
     let backtestResultId = providedBacktestResultId
@@ -2353,6 +2436,10 @@ export default function HyperAiPage() {
 
   const handleAttachLatestProgramBacktestResult = async (recordId?: number) => {
     setStrategyDraftError(null)
+    if (!recordId && currentStrategyActionBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
+    }
     let targetRecordId = recordId
     if (!targetRecordId) {
       const record = strategyDraftRecord || (await persistStrategyDraft())
@@ -2361,6 +2448,10 @@ export default function HyperAiPage() {
         return
       }
       targetRecordId = record.id
+    }
+    if (isStrategyRecordIdActionBlockedByArchivedSession(targetRecordId)) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
     }
 
     setStrategyBacktestLoadingId(targetRecordId)
@@ -2426,11 +2517,19 @@ export default function HyperAiPage() {
 
   const handleStrategyBacktestPreflight = async (recordId?: number) => {
     setStrategyDraftError(null)
+    if (!recordId && currentStrategyActionBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
+    }
     const targetRecordId = await resolveStrategyRecordIdForBacktest(
       recordId,
       'Save or draft a strategy spec before building a backtest preflight'
     )
     if (!targetRecordId) {
+      return
+    }
+    if (isStrategyRecordIdActionBlockedByArchivedSession(targetRecordId)) {
+      setStrategyDraftError(archivedSessionActionTitle)
       return
     }
 
@@ -2455,11 +2554,19 @@ export default function HyperAiPage() {
 
   const handleRunStrategyProgramBacktest = async (recordId?: number) => {
     setStrategyDraftError(null)
+    if (!recordId && currentStrategyActionBlockedByArchivedSession) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
+    }
     const targetRecordId = await resolveStrategyRecordIdForBacktest(
       recordId,
       'Save or draft a strategy spec before running a Program Backtest'
     )
     if (!targetRecordId) {
+      return
+    }
+    if (isStrategyRecordIdActionBlockedByArchivedSession(targetRecordId)) {
+      setStrategyDraftError(archivedSessionActionTitle)
       return
     }
 
@@ -2631,6 +2738,10 @@ export default function HyperAiPage() {
   }
 
   const handleStrategySignalPreview = async () => {
+    if (currentStrategyRecordArchivedSessionBlocked) {
+      setStrategyDraftError(archivedSessionActionTitle)
+      return
+    }
     if (!strategyDraftRecord || strategyDraftRecord.status !== 'approved') {
       setStrategyDraftError('Approve the strategy spec before building a signal preview')
       return
@@ -4393,9 +4504,10 @@ export default function HyperAiPage() {
                       strategyModelAdjusting ||
                       strategyDraftSaving ||
                       strategyDraftApproving ||
-                      !strategyAdjustInstruction.trim()
+                      !strategyAdjustInstruction.trim() ||
+                      currentStrategyAdjustBlockedByArchivedSession
                     }
-                    title={t('hyperAi.aiTradingApplyAdjustment', 'Apply strategy adjustment')}
+                    title={currentStrategyAdjustBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingApplyAdjustment', 'Apply strategy adjustment')}
                   >
                     {strategyAdjusting ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4413,10 +4525,13 @@ export default function HyperAiPage() {
                       strategyDraftSaving ||
                       strategyDraftApproving ||
                       !strategyAdjustInstruction.trim() ||
-                      !canUseAiTradingModelAdjust
+                      !canUseAiTradingModelAdjust ||
+                      currentStrategyModelAdjustBlockedByArchivedSession
                     }
                     title={
-                      canUseAiTradingModelAdjust
+                      currentStrategyModelAdjustBlockedByArchivedSession
+                        ? archivedSessionActionTitle
+                      : canUseAiTradingModelAdjust
                         ? t('hyperAi.aiTradingApplyModelAdjustment', 'Apply with DeepSeek/Qwen')
                         : t('hyperAi.aiTradingModelAdjustmentUnavailable', 'Configure DeepSeek or Qwen for model adjustment')
                     }
@@ -4435,7 +4550,7 @@ export default function HyperAiPage() {
                     onChange={(event) => setStrategyBacktestSummaryId(event.target.value)}
                     placeholder={t('hyperAi.aiTradingBacktestIdPrompt', 'Backtest ID from the external/backtest service')}
                     className="h-8 text-xs"
-                    disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving}
+                    disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving || currentStrategyActionBlockedByArchivedSession}
                   />
                   <textarea
                     data-testid="ai-trading-backtest-summary-metrics"
@@ -4443,7 +4558,7 @@ export default function HyperAiPage() {
                     onChange={(event) => setStrategyBacktestSummaryMetricsText(event.target.value)}
                     placeholder={t('hyperAi.aiTradingBacktestMetricsPrompt', 'Metrics JSON')}
                     className="min-h-[56px] resize-none rounded-md border bg-background px-2 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
-                    disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving}
+                    disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving || currentStrategyActionBlockedByArchivedSession}
                     rows={2}
                   />
                 </div>
@@ -4458,8 +4573,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={handleSaveStrategyDraft}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting}
-                      title={t('hyperAi.aiTradingSaveDraft', 'Save draft')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || currentStrategySaveBlockedByArchivedSession}
+                      title={currentStrategySaveBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingSaveDraft', 'Save draft')}
                     >
                       {strategyDraftSaving ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4471,8 +4586,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={handleApproveStrategyDraft}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyDraftRecord?.status === 'approved'}
-                      title={t('hyperAi.aiTradingApproveDraft', 'Approve draft')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyDraftRecord?.status === 'approved' || currentStrategyActionBlockedByArchivedSession}
+                      title={currentStrategyActionBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingApproveDraft', 'Approve draft')}
                     >
                       {strategyDraftApproving ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4484,8 +4599,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleAttachBacktestSummary()}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
-                      title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession}
+                      title={currentStrategyActionBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'summary' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4497,8 +4612,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleAttachProgramBacktestResult(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
-                      title={t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession}
+                      title={currentStrategyActionBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'program' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4510,8 +4625,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleAttachLatestProgramBacktestResult(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
-                      title={t('hyperAi.aiTradingAttachLatestProgramBacktest', 'Attach latest matching Program Backtest')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession}
+                      title={currentStrategyActionBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachLatestProgramBacktest', 'Attach latest matching Program Backtest')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'latest' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4523,8 +4638,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleStrategyBacktestPreflight(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
-                      title={t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession}
+                      title={currentStrategyActionBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'preflight' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4536,8 +4651,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleRunStrategyProgramBacktest(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
-                      title={t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession}
+                      title={currentStrategyActionBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'run' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4588,6 +4703,12 @@ export default function HyperAiPage() {
                   <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span className="break-words">{strategyDraft.validation.issues.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+                {currentStrategyActionBlockedByArchivedSession && (
+                  <div className="mt-2 flex items-start gap-1.5 rounded bg-yellow-500/10 px-2 py-1 text-[11px] text-yellow-700 dark:text-yellow-300">
+                    <Archive className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{archivedSessionActionBlockerLabel}</span>
                   </div>
                 )}
                 {strategyDraftRecord?.status === 'approved' && !currentStrategyBacktestReady && (
@@ -4883,8 +5004,8 @@ export default function HyperAiPage() {
                             type="button"
                             onClick={() => handleAttachBacktestSummary(record.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            disabled={strategyBacktestLoadingId !== null}
-                            title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
+                            disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
+                            title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
                           >
                             {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'summary' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4896,8 +5017,8 @@ export default function HyperAiPage() {
                             type="button"
                             onClick={() => handleAttachProgramBacktestResult(record.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            disabled={strategyBacktestLoadingId !== null}
-                            title={t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
+                            disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
+                            title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
                           >
                             {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'program' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4909,8 +5030,8 @@ export default function HyperAiPage() {
                             type="button"
                             onClick={() => handleAttachLatestProgramBacktestResult(record.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            disabled={strategyBacktestLoadingId !== null}
-                            title={t('hyperAi.aiTradingAttachLatestProgramBacktest', 'Attach latest matching Program Backtest')}
+                            disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
+                            title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachLatestProgramBacktest', 'Attach latest matching Program Backtest')}
                           >
                             {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'latest' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4922,8 +5043,8 @@ export default function HyperAiPage() {
                             type="button"
                             onClick={() => handleStrategyBacktestPreflight(record.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            disabled={strategyBacktestLoadingId !== null}
-                            title={t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
+                            disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
+                            title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingBacktestPreflight', 'Build backtest preflight')}
                           >
                             {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'preflight' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -4935,8 +5056,8 @@ export default function HyperAiPage() {
                             type="button"
                             onClick={() => handleRunStrategyProgramBacktest(record.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            disabled={strategyBacktestLoadingId !== null}
-                            title={t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
+                            disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
+                            title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
                           >
                             {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'run' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
