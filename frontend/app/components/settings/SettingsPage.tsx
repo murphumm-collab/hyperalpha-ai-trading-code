@@ -133,6 +133,16 @@ interface AiTradingProductionComponent {
   checks?: Record<string, unknown>
 }
 
+interface AiTradingAgentContextLocatorView {
+  key: string
+  label: string
+  tone: string
+  id: number | null
+  agentSessionId: string | null
+  status: string | null
+  contextSummaryChars: number | null
+}
+
 interface AiTradingProductionReadiness {
   production_ready: boolean
   blockers: string[]
@@ -739,6 +749,49 @@ export default function SettingsPage() {
       ),
     }
     return labels[code] || code.replace(/_/g, ' ')
+  }
+
+  const getAgentContextLocators = (report: AiTradingProductionComponent): AiTradingAgentContextLocatorView[] => {
+    const checks = report.checks || {}
+    const locatorMeta = [
+      {
+        key: 'latest_over_budget',
+        label: t('settings.aiTradingReadinessLatestOverBudget', 'Latest over-budget'),
+        tone: 'text-red-500',
+      },
+      {
+        key: 'latest_redacted_context',
+        label: t('settings.aiTradingReadinessLatestRedacted', 'Latest redacted'),
+        tone: 'text-amber-600',
+      },
+      {
+        key: 'latest_sensitive_context',
+        label: t('settings.aiTradingReadinessLatestSensitive', 'Latest sensitive-looking'),
+        tone: 'text-amber-600',
+      },
+    ]
+
+    return locatorMeta.reduce<AiTradingAgentContextLocatorView[]>((acc, meta) => {
+      const rawLocator = checks[meta.key]
+      if (!rawLocator || typeof rawLocator !== 'object' || Array.isArray(rawLocator)) {
+        return acc
+      }
+      const locator = rawLocator as Record<string, unknown>
+      const id = typeof locator.id === 'number' ? locator.id : null
+      const agentSessionId = typeof locator.agent_session_id === 'string' ? locator.agent_session_id : null
+      if (id === null && !agentSessionId) {
+        return acc
+      }
+      acc.push({
+        ...meta,
+        id,
+        agentSessionId,
+        status: typeof locator.status === 'string' ? locator.status : null,
+        contextSummaryChars:
+          typeof locator.context_summary_chars === 'number' ? locator.context_summary_chars : null,
+      })
+      return acc
+    }, [])
   }
 
   const handleToggleNewsSource = (index: number, enabled: boolean) => {
@@ -1931,6 +1984,9 @@ export default function SettingsPage() {
                         {aiTradingReadinessComponents.map(([component, report]) => {
                           const blockers = report.blockers || []
                           const warnings = report.warnings || []
+                          const agentContextLocators = component === 'agent_session_context'
+                            ? getAgentContextLocators(report)
+                            : []
                           return (
                             <div key={component} className="min-w-0 rounded-md border p-3 text-sm">
                               <div className="mb-2 flex items-center justify-between gap-2">
@@ -1971,6 +2027,30 @@ export default function SettingsPage() {
                                       {t('settings.readinessMoreWarnings', '+{{count}} more', { count: warnings.length - 2 })}
                                     </div>
                                   )}
+                                </div>
+                              )}
+                              {agentContextLocators.length > 0 && (
+                                <div className="mt-3 space-y-2 border-t pt-2">
+                                  <div className="text-xs font-medium text-muted-foreground">
+                                    {t('settings.aiTradingReadinessLatestContextLocators', 'Latest context locators')}
+                                  </div>
+                                  {agentContextLocators.map((locator) => (
+                                    <div key={locator.key} className="min-w-0 space-y-1">
+                                      <div className={`text-xs font-medium ${locator.tone}`}>{locator.label}</div>
+                                      <div className="break-all text-xs text-muted-foreground">
+                                        #{locator.id ?? t('settings.notAvailable', 'N/A')} · {locator.agentSessionId || t('settings.notAvailable', 'N/A')}
+                                      </div>
+                                      <div className="text-xs text-muted-foreground">
+                                        {(locator.status || t('settings.notAvailable', 'N/A'))}
+                                        {' · '}
+                                        {locator.contextSummaryChars === null
+                                          ? t('settings.readinessContextLocatorCharsUnknown', 'chars N/A')
+                                          : t('settings.readinessContextLocatorChars', '{{count}} chars', {
+                                              count: locator.contextSummaryChars,
+                                            })}
+                                      </div>
+                                    </div>
+                                  ))}
                                 </div>
                               )}
                             </div>
