@@ -13,7 +13,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 ## 必须完成
 
 - 多用户隔离：每个用户只能读取、调整、审批、归档、生成和 handoff 自己的 strategy spec / signal event / handoff attempt。
-- 多会话 Agent：AI Trading strategy spec、signal event、handoff attempt 必须支持当前用户内的 `agent_session_id` 分区，并能生成非敏感 session context packet，避免一个用户的多个策略会话混在一起。
+- 多会话 Agent：AI Trading strategy spec、signal event、handoff attempt 必须支持当前用户内的 `agent_session_id` 分区；agent session 本身可创建、重命名、更新压缩上下文和归档，并能生成非敏感 session context packet，避免一个用户的多个策略会话混在一起。
 - 市场标的：Hyperliquid Crypto Top 20/50 与 HIP-3 Top 20/50 可用于策略入口，HIP-3 `dex:symbol` 身份不能丢失。
 - 策略草案：支持结构化 draft、validate、save、list、detail、approve、archive。
 - 策略调整：支持本地受控自然语言 adjustment，也支持 DeepSeek/Qwen model-adjust 后进入同一个安全 parser。
@@ -29,10 +29,10 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 
 ## 当前已验证
 
-- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：一键本地 V1 验收通过，覆盖 backend compile、50 条 AI Trading 回归、API-level smoke、默认生产 handoff gate 阻断、默认生产总 readiness gate 阻断、frontend build、runtime readiness、live local mock handoff；最新证据为 spec `#16`、signal event `#14`、runtime `target_kind=local_mock`、`agent_sessions.total=1`。
-- `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：50 条 AI Trading/env checker/live-stack runner/production readiness/admin readiness API/mock gateway/production handoff gate 回归通过。
-- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py database/models.py database/migration_manager.py database/migrations/add_ai_trading_agent_session_fields.py tests/test_ai_trading_routes.py`：通过。
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q`：30 条 AI Trading route regression 通过，新增覆盖 `agent_session_id` 分区、session list/context、signal/handoff attempt 继承 session、Bob 不能读取 Alice session context。
+- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：一键本地 V1 验收通过，覆盖 backend compile、51 条 AI Trading 回归、API-level smoke、默认生产 handoff gate 阻断、默认生产总 readiness gate 阻断、frontend build、runtime readiness、live local mock handoff；最新证据为 spec `#17`、signal event `#15`、runtime `target_kind=local_mock`、`agent_sessions.total=2`。
+- `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：51 条 AI Trading/env checker/live-stack runner/production readiness/admin readiness API/mock gateway/production handoff gate 回归通过。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py database/models.py database/migrations/add_ai_trading_agent_session_fields.py tests/test_ai_trading_routes.py`：通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q`：31 条 AI Trading route regression 通过，新增覆盖 first-class agent session create/update/archive、archived session 禁止继续保存 strategy spec、metadata 同步到 spec/signal/handoff attempt、active/archived list 隔离，以及 Bob 不能修改/归档 Alice session。
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py`：通过，覆盖 draft -> model-adjust -> save -> attach backtest -> approve -> reject signal -> confirmed mock handoff -> runtime。
 - `cd backend && uv run python scripts/ai_trading_v1_env_check.py`：在 Docker/Postgres/mock gateway/backend/frontend 启动后返回 `ready=true`，并结构化输出/校验 runtime gateway `target_kind=local_mock` 和空 `runtime_config_blockers`。
 - `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff`：通过，覆盖本地 LaunchAgent/live Postgres 栈 draft -> save -> attach backtest -> approve -> eligible signal -> confirmed mock handoff -> attempt audit -> runtime；最新证据为 spec `#15`、signal event `#13`、gateway response `mock_accepted`。脚本默认拒绝无确认 handoff，只允许本地 URL，并要求 runtime gateway `target_kind=local_mock`。
@@ -43,7 +43,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - `cd frontend && npm run build`：通过，AI Trading runtime 摘要显示 Sessions 计数，Recent 区块显示最近 agent sessions；剩余为既有 browserslist/baseline/chunk-size warning。
 - In-app Browser 可以打开 `http://127.0.0.1:5174/#settings`；本地 auth config disabled 时 admin tab 按设计隐藏，普通本地浏览器不能看到 admin readiness 面板。管理员登录态下的 visual check 留到真实 Auth/JWKS 配置后验收。
 - In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、`Gateway available / 15m max / Local mock`、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
-- In-app Browser 已验证 agent-session UI：页面显示 `Sessions 1 active`、`Agent session` 下拉默认选中最新 `BTC V1 Live Stack Acceptance ...`、`Recent agent sessions`、recent spec `#16` 和 recent signal `#14`。
+- In-app Browser 已验证 agent-session UI：页面显示 `Sessions 2 active`、`Agent session` 下拉默认选中最新 `BTC V1 Live Stack Acceptance ...`、`Session name` / `Context summary` 编辑框、save/archive 图标按钮、`Recent agent sessions`、recent spec `#17` 和 recent signal `#15`。
 - In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
 - In-app Browser 已验证 `xyz:NVDA` safe prompt fill 和 strategy draft：UI 显示 `NVDA · 15m`、`ready_for_review`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
 - In-app Browser 已在最终代码验证 BTC 当前卡片完整安全流：draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；证据记录为 spec `#5`、signal `#3 rejected`。
@@ -61,7 +61,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - 真实 HyperAlpha 订单后端 URL/token live handoff 未验收；当前为 disabled-by-default 和 mock gateway contract 验收。
 - 生产 handoff readiness gate 和生产总 readiness gate 已实现，但真实 HTTPS 订单后端 URL/token、真实 Auth/JWKS、硬风控生产值和 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的 live 验收未做。
 - Settings Admin production readiness 面板代码和 build 已完成；真实登录态/真实 Auth 配置下的可视化验收未做。本地 auth disabled 时 admin tab 隐藏是预期状态。
-- AI Trading agent session 后端/API/UI 已完成轻量分区和当前 session 选择；更完整的 session 详情页、归档/重命名、以及按 session 过滤全部历史列表尚未做。
+- AI Trading agent session 后端/API/UI 已完成 first-class create/update/archive 和当前 session 选择；更完整的 session 详情页、归档列表 UI、以及按 session 过滤全部历史列表尚未做。
 - 真实交易所执行不属于 V1 本地验收完成条件，必须另开生产实盘验收。
 
 ## V1 通过标准

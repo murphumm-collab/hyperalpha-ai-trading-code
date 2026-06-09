@@ -31,6 +31,7 @@ from config.settings import (
 from database.models import (
     Account,
     AccountProgramBinding,
+    AiTradingAgentSessionRecord,
     AiTradingSignalEventRecord,
     AiTradingSignalHandoffAttemptRecord,
     AiTradingStrategySpecRecord,
@@ -78,6 +79,8 @@ SUPPORTED_TIMEFRAMES = {
     "1d",
 }
 ARCHIVED_STATUS = "archived"
+AGENT_SESSION_ACTIVE_STATUS = "active"
+AGENT_SESSION_ARCHIVED_STATUS = "archived"
 AI_TRADING_V1_MODEL_PROVIDERS = {
     "deepseek",
     "qwen",
@@ -561,6 +564,168 @@ def _record_agent_session_payload(record: Any) -> Dict[str, Any]:
         "name": getattr(record, "agent_session_name", None),
         "context_summary": getattr(record, "agent_context_summary", None),
     }
+
+
+def serialize_ai_trading_agent_session_record(
+    record: AiTradingAgentSessionRecord,
+) -> Dict[str, Any]:
+    return {
+        "id": record.agent_session_id,
+        "name": record.name,
+        "context_summary": record.context_summary,
+        "status": record.status,
+        "created_at": _record_timestamp(record.created_at),
+        "updated_at": _record_timestamp(record.updated_at),
+    }
+
+
+def _get_agent_session_record(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: str,
+) -> Optional[AiTradingAgentSessionRecord]:
+    resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
+    if not resolved_agent_session_id:
+        return None
+    return db.query(AiTradingAgentSessionRecord).filter(
+        AiTradingAgentSessionRecord.user_id == user_id,
+        AiTradingAgentSessionRecord.agent_session_id == resolved_agent_session_id,
+    ).first()
+
+
+def _ensure_agent_session_record(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: str,
+    name: str,
+    context_summary: Optional[str] = None,
+    allow_archived: bool = False,
+) -> AiTradingAgentSessionRecord:
+    resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
+    if not resolved_agent_session_id:
+        raise ValueError("agent_session_id is required")
+    resolved_name = _clean_text(name, 120) or resolved_agent_session_id
+    resolved_summary = _clean_agent_context_summary(context_summary)
+    record = _get_agent_session_record(
+        db,
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+    )
+    if record:
+        if record.status == AGENT_SESSION_ARCHIVED_STATUS and not allow_archived:
+            raise ValueError("AI Trading agent session is archived")
+        if not record.name and resolved_name:
+            record.name = resolved_name
+        if not record.context_summary and resolved_summary:
+            record.context_summary = resolved_summary
+        return record
+
+    record = AiTradingAgentSessionRecord(
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+        name=resolved_name,
+        context_summary=resolved_summary,
+        status=AGENT_SESSION_ACTIVE_STATUS,
+    )
+    db.add(record)
+    return record
+
+
+def create_ai_trading_agent_session(
+    db: Session,
+    *,
+    user_id: int,
+    name: Optional[str] = None,
+    context_summary: Optional[str] = None,
+    agent_session_id: Optional[str] = None,
+) -> AiTradingAgentSessionRecord:
+    """Create a current-user AI Trading session without creating a strategy spec."""
+    resolved_agent_session_id = _clean_agent_session_id(agent_session_id) or f"ait:manual:{uuid.uuid4().hex[:12]}"
+    if _get_agent_session_record(db, user_id=user_id, agent_session_id=resolved_agent_session_id):
+        raise ValueError("AI Trading agent session already exists")
+    record = AiTradingAgentSessionRecord(
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+        name=_clean_text(name, 120) or "AI Trading Agent Session",
+        context_summary=_clean_agent_context_summary(context_summary),
+        status=AGENT_SESSION_ACTIVE_STATUS,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def update_ai_trading_agent_session(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: str,
+    name: Optional[str] = None,
+    context_summary: Optional[str] = None,
+) -> AiTradingAgentSessionRecord:
+    """Update current-user AI Trading session metadata and mirror it onto audit rows."""
+    record = _get_agent_session_record(
+        db,
+        user_id=user_id,
+        agent_session_id=agent_session_id,
+    )
+    if not record or record.status == AGENT_SESSION_ARCHIVED_STATUS:
+        raise ValueError("AI Trading agent session not found")
+
+    if name is not None:
+        resolved_name = _clean_text(name, 120)
+        if not resolved_name:
+            raise ValueError("AI Trading agent session name is required")
+        record.name = resolved_name
+    if context_summary is not None:
+        record.context_summary = _clean_agent_context_summary(context_summary)
+
+    db.query(AiTradingStrategySpecRecord).filter(
+        AiTradingStrategySpecRecord.user_id == user_id,
+        AiTradingStrategySpecRecord.agent_session_id == record.agent_session_id,
+    ).update({
+        AiTradingStrategySpecRecord.agent_session_name: record.name,
+        AiTradingStrategySpecRecord.agent_context_summary: record.context_summary,
+    }, synchronize_session=False)
+    db.query(AiTradingSignalEventRecord).filter(
+        AiTradingSignalEventRecord.user_id == user_id,
+        AiTradingSignalEventRecord.agent_session_id == record.agent_session_id,
+    ).update({
+        AiTradingSignalEventRecord.agent_session_name: record.name,
+    }, synchronize_session=False)
+    db.query(AiTradingSignalHandoffAttemptRecord).filter(
+        AiTradingSignalHandoffAttemptRecord.user_id == user_id,
+        AiTradingSignalHandoffAttemptRecord.agent_session_id == record.agent_session_id,
+    ).update({
+        AiTradingSignalHandoffAttemptRecord.agent_session_name: record.name,
+    }, synchronize_session=False)
+
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def archive_ai_trading_agent_session(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: str,
+) -> AiTradingAgentSessionRecord:
+    """Archive a current-user AI Trading session without deleting audit records."""
+    record = _get_agent_session_record(
+        db,
+        user_id=user_id,
+        agent_session_id=agent_session_id,
+    )
+    if not record:
+        raise ValueError("AI Trading agent session not found")
+    record.status = AGENT_SESSION_ARCHIVED_STATUS
+    db.commit()
+    db.refresh(record)
+    return record
 
 
 def serialize_strategy_spec_record(
@@ -1283,6 +1448,15 @@ def save_strategy_spec_record(
     resolved_context_summary = _clean_agent_context_summary(
         agent_context_summary or spec_copy.get("agent_context_summary")
     )
+    session_record = _ensure_agent_session_record(
+        db,
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+        name=resolved_agent_session_name,
+        context_summary=resolved_context_summary,
+    )
+    resolved_agent_session_name = session_record.name
+    resolved_context_summary = session_record.context_summary
     spec_copy["agent_session"] = {
         "id": resolved_agent_session_id,
         "name": resolved_agent_session_name,
@@ -2453,10 +2627,37 @@ def list_ai_trading_agent_sessions(
     db: Session,
     *,
     user_id: int,
+    status: Optional[str] = AGENT_SESSION_ACTIVE_STATUS,
     limit: int = 50,
 ) -> List[Dict[str, Any]]:
-    """Return current-user AI Trading agent-session summaries derived from audit rows."""
+    """Return current-user AI Trading agent-session summaries."""
     max_limit = max(1, min(int(limit or 50), 100))
+    all_session_records = db.query(AiTradingAgentSessionRecord).filter(
+        AiTradingAgentSessionRecord.user_id == user_id,
+    ).all()
+    session_record_by_id = {
+        record.agent_session_id: record
+        for record in all_session_records
+    }
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for session in all_session_records:
+        if status and session.status != status:
+            continue
+        grouped[session.agent_session_id] = {
+            "id": session.agent_session_id,
+            "name": session.name,
+            "context_summary": session.context_summary,
+            "status": session.status,
+            "strategy_spec_count": 0,
+            "signal_event_count": 0,
+            "symbols": [],
+            "by_strategy_status": {},
+            "by_signal_status": {},
+            "latest_strategy_spec_id": None,
+            "latest_signal_event_id": None,
+            "updated_at": _record_timestamp(session.updated_at or session.created_at),
+        }
+
     specs = (
         db.query(AiTradingStrategySpecRecord)
         .filter(
@@ -2479,15 +2680,21 @@ def list_ai_trading_agent_sessions(
         .all()
     )
 
-    grouped: Dict[str, Dict[str, Any]] = {}
+    def include_derived_session(session_id: str) -> bool:
+        session_record = session_record_by_id.get(session_id)
+        if session_record is not None:
+            return not status or session_record.status == status
+        return status in {None, AGENT_SESSION_ACTIVE_STATUS}
+
     for spec in specs:
         session_id = spec.agent_session_id
-        if not session_id:
+        if not session_id or not include_derived_session(session_id):
             continue
         item = grouped.setdefault(session_id, {
             "id": session_id,
             "name": spec.agent_session_name or spec.name,
             "context_summary": spec.agent_context_summary,
+            "status": AGENT_SESSION_ACTIVE_STATUS,
             "strategy_spec_count": 0,
             "signal_event_count": 0,
             "symbols": [],
@@ -2512,12 +2719,13 @@ def list_ai_trading_agent_sessions(
 
     for event in events:
         session_id = event.agent_session_id
-        if not session_id:
+        if not session_id or not include_derived_session(session_id):
             continue
         item = grouped.setdefault(session_id, {
             "id": session_id,
             "name": event.agent_session_name or session_id,
             "context_summary": None,
+            "status": AGENT_SESSION_ACTIVE_STATUS,
             "strategy_spec_count": 0,
             "signal_event_count": 0,
             "symbols": [],
@@ -2559,6 +2767,11 @@ def build_ai_trading_agent_session_context(
     resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
     if not resolved_agent_session_id:
         raise ValueError("agent_session_id is required")
+    session_record = _get_agent_session_record(
+        db,
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+    )
 
     strategy_records = list_strategy_spec_records(
         db,
@@ -2572,12 +2785,21 @@ def build_ai_trading_agent_session_context(
         agent_session_id=resolved_agent_session_id,
         limit=max(1, min(int(signal_limit or 10), 50)),
     )
-    if not strategy_records and not signal_records:
+    if not session_record and not strategy_records and not signal_records:
         raise ValueError("AI Trading agent session not found")
 
-    representative = strategy_records[0] if strategy_records else signal_records[0]
-    session_payload = _record_agent_session_payload(representative)
-    session_payload["id"] = resolved_agent_session_id
+    if session_record:
+        session_payload = {
+            "id": session_record.agent_session_id,
+            "name": session_record.name,
+            "context_summary": session_record.context_summary,
+            "status": session_record.status,
+        }
+    else:
+        representative = strategy_records[0] if strategy_records else signal_records[0]
+        session_payload = _record_agent_session_payload(representative)
+        session_payload["id"] = resolved_agent_session_id
+        session_payload["status"] = AGENT_SESSION_ACTIVE_STATUS
     context_summary = session_payload.get("context_summary")
     if not context_summary and strategy_records:
         context_summary = strategy_records[0].agent_context_summary
@@ -2587,6 +2809,7 @@ def build_ai_trading_agent_session_context(
             "id": resolved_agent_session_id,
             "name": session_payload.get("name") or resolved_agent_session_id,
             "context_summary": context_summary,
+            "status": session_payload.get("status") or AGENT_SESSION_ACTIVE_STATUS,
         },
         "compression": {
             "format": "ai_trading_agent_session_context.v1",
@@ -3075,13 +3298,26 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
     spec_records = db.query(AiTradingStrategySpecRecord).filter(
         AiTradingStrategySpecRecord.user_id == user_id,
     ).all()
-    agent_session_count = db.query(
-        func.count(func.distinct(AiTradingStrategySpecRecord.agent_session_id))
-    ).filter(
-        AiTradingStrategySpecRecord.user_id == user_id,
-        AiTradingStrategySpecRecord.agent_session_id.isnot(None),
-        AiTradingStrategySpecRecord.status != ARCHIVED_STATUS,
-    ).scalar() or 0
+    active_session_count = db.query(AiTradingAgentSessionRecord).filter(
+        AiTradingAgentSessionRecord.user_id == user_id,
+        AiTradingAgentSessionRecord.status == AGENT_SESSION_ACTIVE_STATUS,
+    ).count()
+    known_session_ids = {
+        row[0]
+        for row in db.query(AiTradingAgentSessionRecord.agent_session_id).filter(
+            AiTradingAgentSessionRecord.user_id == user_id,
+        ).all()
+    }
+    orphan_session_ids = {
+        row[0]
+        for row in db.query(AiTradingStrategySpecRecord.agent_session_id).filter(
+            AiTradingStrategySpecRecord.user_id == user_id,
+            AiTradingStrategySpecRecord.agent_session_id.isnot(None),
+            AiTradingStrategySpecRecord.status != ARCHIVED_STATUS,
+        ).distinct().all()
+        if row[0] not in known_session_ids
+    }
+    agent_session_count = int(active_session_count) + len(orphan_session_ids)
 
     spec_counts = {str(status): int(count) for status, count in spec_rows}
     event_counts = {str(status): int(count) for status, count in event_rows}

@@ -2251,6 +2251,117 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     assert bob.get("/api/ai-trading/signal-events?agent_session_id=session:btc-breakout").json()["signal_events"] == []
 
 
+def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+
+    created = alice.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": "session:managed-btc",
+            "name": "Managed BTC Agent",
+            "context_summary": "BTC managed session without secrets.",
+        },
+    )
+    assert created.status_code == 200
+    created_session = created.json()["agent_session"]
+    assert created_session["id"] == "session:managed-btc"
+    assert created_session["status"] == "active"
+
+    empty_context = alice.get("/api/ai-trading/agent-sessions/session:managed-btc/context")
+    assert empty_context.status_code == 200
+    assert empty_context.json()["context"]["strategy_specs"] == []
+    assert empty_context.json()["context"]["signal_events"] == []
+
+    draft = alice.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m long breakout with stop-loss and take-profit.",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+        },
+    )
+    assert draft.status_code == 200
+    saved = alice.post(
+        "/api/ai-trading/strategy-specs",
+        json={
+            "spec": draft.json()["spec"],
+            "name": "Managed BTC Spec",
+            "source": "pytest",
+            "agent_session_id": "session:managed-btc",
+        },
+    )
+    assert saved.status_code == 200
+    saved_record = saved.json()["spec_record"]
+    assert saved_record["agent_session"]["name"] == "Managed BTC Agent"
+
+    saved_record = _attach_passing_backtest(alice, saved_record["id"])
+    approved = alice.post(f"/api/ai-trading/strategy-specs/{saved_record['id']}/approve")
+    assert approved.status_code == 200
+    event_response = alice.post(
+        f"/api/ai-trading/strategy-specs/{saved_record['id']}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest"}},
+    )
+    assert event_response.status_code == 200
+    event = event_response.json()["signal_event"]
+
+    disabled_handoff = alice.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert disabled_handoff.status_code == 409
+
+    updated = alice.patch(
+        "/api/ai-trading/agent-sessions/session:managed-btc",
+        json={
+            "name": "Renamed BTC Agent",
+            "context_summary": "Renamed context summary.",
+        },
+    )
+    assert updated.status_code == 200
+    assert updated.json()["agent_session"]["name"] == "Renamed BTC Agent"
+
+    detail = alice.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["spec_record"]["agent_session"]["name"] == "Renamed BTC Agent"
+    signal_detail = alice.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert signal_detail.status_code == 200
+    assert signal_detail.json()["signal_event"]["agent_session"]["name"] == "Renamed BTC Agent"
+    attempts = alice.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    assert attempts.json()["attempts"][0]["agent_session"]["name"] == "Renamed BTC Agent"
+
+    assert bob.patch(
+        "/api/ai-trading/agent-sessions/session:managed-btc",
+        json={"name": "Bob cannot rename Alice session"},
+    ).status_code == 404
+    assert bob.delete("/api/ai-trading/agent-sessions/session:managed-btc").status_code == 404
+
+    archived = alice.delete("/api/ai-trading/agent-sessions/session:managed-btc")
+    assert archived.status_code == 200
+    assert archived.json()["agent_session"]["status"] == "archived"
+    active_sessions = alice.get("/api/ai-trading/agent-sessions")
+    assert active_sessions.status_code == 200
+    assert all(row["id"] != "session:managed-btc" for row in active_sessions.json()["agent_sessions"])
+    archived_sessions = alice.get("/api/ai-trading/agent-sessions?status=archived")
+    assert archived_sessions.status_code == 200
+    assert archived_sessions.json()["agent_sessions"][0]["id"] == "session:managed-btc"
+
+    save_to_archived = alice.post(
+        "/api/ai-trading/strategy-specs",
+        json={
+            "spec": draft.json()["spec"],
+            "name": "Should not save",
+            "source": "pytest",
+            "agent_session_id": "session:managed-btc",
+        },
+    )
+    assert save_to_archived.status_code == 400
+    assert "archived" in save_to_archived.json()["detail"]
+
+
 def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     market_universe_service.clear_ai_trading_market_universe_cache()

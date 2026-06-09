@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Browser Acceptance Complete / Remote Push Deferred
+Status: Local V1 Agent Session Management Acceptance Complete / Remote Push Deferred
 
 Local checkpoint: current branch `HEAD`
 
@@ -143,6 +143,8 @@ Local checkpoint: current branch `HEAD`
 - Settings Admin UI has an AI Trading Production Readiness panel that summarizes component readiness, blockers, warnings, and next actions using the admin-only readiness API.
 - AI Trading strategy specs, signal events, and handoff attempts now carry current-user `agent_session_id` metadata so one To C user can run multiple strategy-agent sessions without mixing audit records.
 - AI Trading exposes `/api/ai-trading/agent-sessions` and `/api/ai-trading/agent-sessions/{agent_session_id}/context` as current-user, non-secret session list/context packet endpoints for frontend and model-context reuse.
+- AI Trading agent sessions are now first-class current-user records with create/update/archive APIs; archived sessions stay in the audit trail, are hidden from active runtime/session lists by default, and cannot accept new strategy specs.
+- Hyper AI AI Trading panel can edit the selected session name/context summary, create a new session, archive the selected session, and keep saved drafts attached to the selected session.
 - AI Trading runtime handoff eligibility now enforces the production handoff approval boundary for external order-backend URLs and blocks them with `production_handoff_approval_required` unless `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`; local mock gateway URLs remain allowed for local acceptance.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
 - AI Trading runtime status exposes the non-secret signal max handoff age so operators can see the stale-signal gate currently enforced by the backend.
@@ -371,6 +373,8 @@ Local checkpoint: current branch `HEAD`
 | AI Trading agent-session context API | Done | `/api/ai-trading/agent-sessions` and `/api/ai-trading/agent-sessions/{agent_session_id}/context` return current-user non-secret session summaries/context packets and cross-user context reads return 404 |
 | AI Trading agent-session UI preview | Done | Hyper AI AI Trading runtime shows session count and the Recent area lists recent agent sessions plus session labels on recent specs/signals |
 | AI Trading current agent-session selector | Done | Hyper AI AI Trading has an Agent session selector; saved drafts inherit the selected session, while New agent session lets the backend create a new session id |
+| AI Trading first-class agent sessions | Done | `ai_trading_agent_sessions` stores current-user session records with active/archived status; create/update/archive endpoints preserve audit records and block new specs in archived sessions |
+| AI Trading agent-session management UI | Done | Hyper AI AI Trading exposes session name/context fields plus save/archive icon controls; route regression covers metadata propagation to specs, signals, and handoff attempts |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
 | AI Trading runtime handoff age visibility | Done | Runtime gateway status includes `max_handoff_age_seconds`, and Hyper AI shows the compact max-age value in the Gateway card |
 | AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals, uses runtime gateway blockers for the Gateway card state, and refreshes after draft save, approval, and signal event creation |
@@ -848,6 +852,12 @@ Local checkpoint: current branch `HEAD`
 - Passed: aggregate AI Trading V1 local acceptance runner after agent-session partitioning: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 50 AI Trading regressions, API-level smoke, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#16`, signal event `#14`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, and `agent_sessions.total=1`.
 - Passed: In-app Browser opened `http://127.0.0.1:5174/app/ai-trading`, skipped local onboarding, and confirmed the AI Trading panel renders `Gateway available / 15m max / Local mock`, `Sessions 1 active`, `Recent agent sessions`, latest spec `#16`, and latest signal `#14`.
 - Passed: frontend production build after current agent-session selector: `cd frontend && npm run build`; LaunchAgent runtime mirror was resynced, env readiness returned `ready=true` after backend cold start, and In-app Browser confirmed `Agent session` defaults to the latest `BTC V1 Live Stack Acceptance ...` session while Recent session/spec/signal labels still render.
+- Passed: AI Trading first-class agent-session compile/build checks: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py database/models.py database/migrations/add_ai_trading_agent_session_fields.py tests/test_ai_trading_routes.py` passed, and `cd frontend && npm run build` passed with existing warning-only bundle/browserlist output.
+- Passed: AI Trading route regression after first-class agent-session CRUD: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 31 passing tests, covering explicit session create/update/archive, active/archived list separation, metadata propagation to specs/signals/handoff attempts, archived-session save rejection, and Bob 404s for Alice session changes.
+- Passed: aggregate AI Trading regression after first-class agent-session CRUD: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 51 passing tests.
+- Passed: aggregate AI Trading V1 local acceptance runner after first-class agent-session CRUD: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 51 AI Trading regressions, API-level smoke, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#17`, signal event `#15`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, and `agent_sessions.total=2`.
+- Passed: In-app Browser opened `http://127.0.0.1:5174/app/ai-trading`, skipped local onboarding, and confirmed the AI Trading panel renders `Gateway available / 15m max / Local mock`, `Sessions 2 active`, `Agent session`, `Session name`, `Context summary`, save/archive session controls, latest spec `#17`, and latest signal `#15`.
+- Passed: LaunchAgent runtime mirror was resynced after first-class agent-session CRUD with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true`, and In-app Browser confirmed the synced frontend exposes `Save session` / `Archive session` accessible icon controls.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

@@ -249,6 +249,32 @@ class UserSymbolWatchlist(Base):
     )
 
 
+class AiTradingAgentSessionRecord(Base):
+    """Per-user AI Trading agent-session metadata."""
+    __tablename__ = "ai_trading_agent_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    agent_session_id = Column(String(80), nullable=False, index=True)
+    name = Column(String(120), nullable=False)
+    context_summary = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, default="active", index=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
+    user = relationship("User")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "user_id",
+            "agent_session_id",
+            name="uq_ai_trading_agent_sessions_user_session",
+        ),
+    )
+
+
 class AiTradingStrategySpecRecord(Base):
     """Per-user structured AI Trading strategy draft/review record."""
     __tablename__ = "ai_trading_strategy_specs"

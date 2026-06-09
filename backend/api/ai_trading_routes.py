@@ -21,12 +21,14 @@ from services.ai_trading_strategy_spec_service import (
     adjust_strategy_spec_record,
     adjust_strategy_spec_record_with_model,
     adjust_strategy_spec_with_model,
+    archive_ai_trading_agent_session,
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_ai_trading_agent_session_context,
     build_signal_preview_from_strategy_spec_record,
     build_strategy_backtest_evidence_detail,
     build_strategy_backtest_preflight,
+    create_ai_trading_agent_session,
     create_signal_event_record,
     draft_strategy_spec,
     get_ai_trading_runtime_status,
@@ -43,8 +45,10 @@ from services.ai_trading_strategy_spec_service import (
     serialize_signal_handoff_attempt_record,
     serialize_signal_event_record,
     serialize_signal_preview_payload,
+    serialize_ai_trading_agent_session_record,
     serialize_strategy_spec_record,
     submit_signal_event_to_gateway,
+    update_ai_trading_agent_session,
     validate_strategy_spec,
 )
 
@@ -108,6 +112,22 @@ class StrategySpecSaveRequest(BaseModel):
     )
     agent_session_name: Optional[str] = Field(default=None, max_length=120)
     agent_context_summary: Optional[str] = Field(default=None, max_length=2000)
+
+
+class AiTradingAgentSessionCreateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=120)
+    context_summary: Optional[str] = Field(default=None, max_length=2000)
+    agent_session_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    )
+
+
+class AiTradingAgentSessionUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, max_length=120)
+    context_summary: Optional[str] = Field(default=None, max_length=2000)
 
 
 class StrategySignalPreviewRequest(BaseModel):
@@ -206,6 +226,7 @@ def ai_trading_production_readiness_endpoint(
 
 @router.get("/agent-sessions")
 def list_ai_trading_agent_sessions_endpoint(
+    status: Optional[str] = Query(default="active", pattern="^(active|archived)$"),
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
@@ -215,8 +236,89 @@ def list_ai_trading_agent_sessions_endpoint(
         "agent_sessions": list_ai_trading_agent_sessions(
             db,
             user_id=current_user.id,
+            status=status,
             limit=limit,
         ),
+    }
+
+
+@router.post("/agent-sessions")
+def create_ai_trading_agent_session_endpoint(
+    request: AiTradingAgentSessionCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Create a current-user AI Trading agent session without placing orders."""
+    try:
+        record = create_ai_trading_agent_session(
+            db,
+            user_id=current_user.id,
+            name=request.name,
+            context_summary=request.context_summary,
+            agent_session_id=request.agent_session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "agent_session": serialize_ai_trading_agent_session_record(record),
+    }
+
+
+@router.patch("/agent-sessions/{agent_session_id}")
+def update_ai_trading_agent_session_endpoint(
+    request: AiTradingAgentSessionUpdateRequest,
+    agent_session_id: str = Path(
+        ...,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Update current-user AI Trading agent-session metadata."""
+    try:
+        record = update_ai_trading_agent_session(
+            db,
+            user_id=current_user.id,
+            agent_session_id=agent_session_id,
+            name=request.name,
+            context_summary=request.context_summary,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "agent_session": serialize_ai_trading_agent_session_record(record),
+    }
+
+
+@router.delete("/agent-sessions/{agent_session_id}")
+def archive_ai_trading_agent_session_endpoint(
+    agent_session_id: str = Path(
+        ...,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Archive a current-user AI Trading agent session without deleting audit records."""
+    try:
+        record = archive_ai_trading_agent_session(
+            db,
+            user_id=current_user.id,
+            agent_session_id=agent_session_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "agent_session": serialize_ai_trading_agent_session_record(record),
     }
 
 
@@ -394,16 +496,19 @@ def save_strategy_spec_endpoint(
     current_user: User = Depends(get_current_user_dependency),
 ):
     """Save a current-user strategy spec draft/review record."""
-    record = save_strategy_spec_record(
-        db,
-        user_id=current_user.id,
-        spec=request.spec,
-        name=request.name,
-        source=request.source or "manual",
-        agent_session_id=request.agent_session_id,
-        agent_session_name=request.agent_session_name,
-        agent_context_summary=request.agent_context_summary,
-    )
+    try:
+        record = save_strategy_spec_record(
+            db,
+            user_id=current_user.id,
+            spec=request.spec,
+            name=request.name,
+            source=request.source or "manual",
+            agent_session_id=request.agent_session_id,
+            agent_session_name=request.agent_session_name,
+            agent_context_summary=request.agent_context_summary,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),

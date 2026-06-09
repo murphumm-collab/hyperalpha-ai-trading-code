@@ -63,6 +63,7 @@ import {
   Link2,
   ExternalLink,
   RefreshCw,
+  Archive,
   Search as SearchIcon
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
@@ -997,6 +998,10 @@ export default function HyperAiPage() {
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
   const [recentAgentSessions, setRecentAgentSessions] = useState<AiTradingAgentSessionRecord[]>([])
   const [selectedAiTradingAgentSessionId, setSelectedAiTradingAgentSessionId] = useState('')
+  const [agentSessionNameDraft, setAgentSessionNameDraft] = useState('')
+  const [agentSessionSummaryDraft, setAgentSessionSummaryDraft] = useState('')
+  const [agentSessionSaving, setAgentSessionSaving] = useState(false)
+  const [agentSessionArchiving, setAgentSessionArchiving] = useState(false)
   const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
   const [recentSignalEvents, setRecentSignalEvents] = useState<AiTradingSignalEventRecord[]>([])
   const [recentBacktestResults, setRecentBacktestResults] = useState<AiTradingBacktestResultRecord[]>([])
@@ -1298,6 +1303,16 @@ export default function HyperAiPage() {
     }
   }, [recentAgentSessions, selectedAiTradingAgentSessionId])
 
+  useEffect(() => {
+    if (selectedAiTradingAgentSession) {
+      setAgentSessionNameDraft(selectedAiTradingAgentSession.name || '')
+      setAgentSessionSummaryDraft(selectedAiTradingAgentSession.context_summary || '')
+    } else if (selectedAiTradingAgentSessionId === AI_TRADING_NEW_AGENT_SESSION_VALUE) {
+      setAgentSessionNameDraft('')
+      setAgentSessionSummaryDraft('')
+    }
+  }, [selectedAiTradingAgentSession, selectedAiTradingAgentSessionId])
+
   // Check for pending prompt from other pages (e.g. Factor Analysis "Ask AI")
   useEffect(() => {
     const pending = localStorage.getItem('hyper-ai-pending-prompt')
@@ -1537,6 +1552,70 @@ export default function HyperAiPage() {
   const refreshAiTradingState = () => {
     fetchAiTradingRuntime()
     fetchAiTradingRecords()
+  }
+
+  const handleSaveAgentSession = async () => {
+    setAgentSessionSaving(true)
+    setStrategyDraftError(null)
+    try {
+      const isNewSession = selectedAiTradingAgentSessionId === AI_TRADING_NEW_AGENT_SESSION_VALUE || !selectedAiTradingAgentSession
+      const endpoint = isNewSession
+        ? '/api/ai-trading/agent-sessions'
+        : `/api/ai-trading/agent-sessions/${encodeURIComponent(selectedAiTradingAgentSession.id)}`
+      const res = await authFetchAiTradingAction(endpoint, {
+        method: isNewSession ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: agentSessionNameDraft || undefined,
+          context_summary: agentSessionSummaryDraft || undefined,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to save agent session')
+      }
+      const record = data.agent_session as AiTradingAgentSessionRecord
+      if (record?.id) {
+        setSelectedAiTradingAgentSessionId(record.id)
+      }
+      refreshAiTradingState()
+    } catch (e) {
+      console.error('Failed to save AI Trading agent session:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to save agent session')
+    } finally {
+      setAgentSessionSaving(false)
+    }
+  }
+
+  const handleArchiveAgentSession = async () => {
+    if (!selectedAiTradingAgentSession) {
+      return
+    }
+    if (!window.confirm(t(
+      'hyperAi.aiTradingArchiveSessionConfirm',
+      'Archive this AI Trading agent session? Audit records will stay available.'
+    ))) {
+      return
+    }
+    setAgentSessionArchiving(true)
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetchAiTradingAction(
+        `/api/ai-trading/agent-sessions/${encodeURIComponent(selectedAiTradingAgentSession.id)}`,
+        { method: 'DELETE' },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to archive agent session')
+      }
+      setSelectedAiTradingAgentSessionId(AI_TRADING_NEW_AGENT_SESSION_VALUE)
+      refreshAiTradingState()
+    } catch (e) {
+      console.error('Failed to archive AI Trading agent session:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to archive agent session')
+    } finally {
+      setAgentSessionArchiving(false)
+    }
   }
 
   const handleTradingSymbolGroupChange = (group: AiTradingSymbolGroupKey) => {
@@ -3441,6 +3520,50 @@ export default function HyperAiPage() {
                   ))}
                 </SelectContent>
               </Select>
+              <div className="mt-2 grid grid-cols-[1fr_auto_auto] gap-1">
+                <Input
+                  value={agentSessionNameDraft}
+                  onChange={(e) => setAgentSessionNameDraft(e.target.value)}
+                  placeholder={t('hyperAi.aiTradingAgentSessionName', 'Session name')}
+                  className="h-8 text-xs"
+                  maxLength={120}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveAgentSession}
+                  disabled={agentSessionSaving || agentSessionArchiving}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                  title={selectedAiTradingAgentSession ? t('hyperAi.aiTradingSaveSession', 'Save session') : t('hyperAi.aiTradingCreateSession', 'Create session')}
+                  aria-label={selectedAiTradingAgentSession ? t('hyperAi.aiTradingSaveSession', 'Save session') : t('hyperAi.aiTradingCreateSession', 'Create session')}
+                >
+                  {agentSessionSaving ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Save className="h-3.5 w-3.5" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleArchiveAgentSession}
+                  disabled={!selectedAiTradingAgentSession || agentSessionSaving || agentSessionArchiving}
+                  className="flex h-8 w-8 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  title={t('hyperAi.aiTradingArchiveSession', 'Archive session')}
+                  aria-label={t('hyperAi.aiTradingArchiveSession', 'Archive session')}
+                >
+                  {agentSessionArchiving ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Archive className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+              <Input
+                value={agentSessionSummaryDraft}
+                onChange={(e) => setAgentSessionSummaryDraft(e.target.value)}
+                placeholder={t('hyperAi.aiTradingAgentSessionSummary', 'Context summary')}
+                className="mt-1 h-8 text-xs"
+                maxLength={2000}
+              />
               {selectedAiTradingAgentSession && (
                 <div className="mt-1 truncate text-[11px] text-muted-foreground">
                   {(selectedAiTradingAgentSession.symbols || []).slice(0, 4).join(', ') || selectedAiTradingAgentSession.id}
