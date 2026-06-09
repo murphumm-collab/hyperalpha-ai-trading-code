@@ -95,6 +95,7 @@ SIGNAL_GATEWAY_ENABLED = os.getenv("AI_TRADING_SIGNAL_GATEWAY_ENABLED", "false")
 SIGNAL_GATEWAY_URL = os.getenv("AI_TRADING_SIGNAL_GATEWAY_URL", "").strip()
 SIGNAL_GATEWAY_TIMEOUT_SECONDS = float(os.getenv("AI_TRADING_SIGNAL_GATEWAY_TIMEOUT_SECONDS", "10"))
 SIGNAL_GATEWAY_TOKEN = os.getenv("AI_TRADING_SIGNAL_GATEWAY_TOKEN", "").strip()
+SIGNAL_MAX_HANDOFF_AGE_SECONDS = float(os.getenv("AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS", "900"))
 
 
 class SignalGatewayDisabledError(RuntimeError):
@@ -422,6 +423,32 @@ def _record_timestamp(value: Any) -> Optional[str]:
     if hasattr(value, "isoformat"):
         return value.isoformat()
     return str(value)
+
+
+def _as_utc_datetime(value: Any) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    else:
+        return None
+
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _signal_event_age_seconds(event: AiTradingSignalEventRecord) -> Optional[int]:
+    created_at = _as_utc_datetime(event.created_at)
+    if not created_at:
+        return None
+    age = (datetime.now(timezone.utc) - created_at).total_seconds()
+    return max(0, int(age))
 
 
 def _derive_record_name(spec: Dict[str, Any], name: Optional[str] = None) -> str:
@@ -1842,6 +1869,7 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
     """Return a non-secret preflight result for a signal event handoff."""
     blockers: List[str] = []
     gateway_ready = bool(SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL)
+    signal_age_seconds = _signal_event_age_seconds(event)
 
     if event.status != "review_candidate":
         blockers.append("event_status_not_review_candidate")
@@ -1851,6 +1879,11 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         blockers.append("gateway_disabled")
     if not SIGNAL_GATEWAY_URL:
         blockers.append("gateway_url_not_configured")
+    if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0:
+        if signal_age_seconds is None:
+            blockers.append("signal_event_created_at_missing")
+        elif signal_age_seconds > SIGNAL_MAX_HANDOFF_AGE_SECONDS:
+            blockers.append("signal_event_stale_for_handoff")
 
     signal = _json_loads(event.signal_json, {})
     if not isinstance(signal, dict) or not signal:
@@ -1877,6 +1910,8 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         "eligible": not deduped_blockers,
         "blockers": deduped_blockers,
         "gateway_ready": gateway_ready,
+        "signal_age_seconds": signal_age_seconds,
+        "max_handoff_age_seconds": int(SIGNAL_MAX_HANDOFF_AGE_SECONDS) if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0 else None,
         "can_retry": event.status == "review_candidate" and event.handoff_status in {"not_submitted", "failed"},
         "default_handoff_status": "available" if gateway_ready else "disabled",
     }

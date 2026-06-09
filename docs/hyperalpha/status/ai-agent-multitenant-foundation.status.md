@@ -116,6 +116,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI signal preview control now stays gated until the approved strategy spec also has handoff-ready backtest evidence, matching the user-facing safety path before signal-event creation.
 - AI Trading signal handoff endpoint is present but disabled by default; it only submits audited signal events to a configured external order-backend URL when explicitly enabled.
 - AI Trading signal handoff endpoint requires an explicit `confirmed_by_user=true` request before any eligible signal can be submitted to the order backend.
+- AI Trading signal handoff eligibility blocks stale signal events by default after `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS` so old market signals cannot be submitted silently.
 - AI Trading signal gateway environment variables are documented in root and backend `.env.example` templates.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
 - Hyper AI AI Trading panel displays gateway/spec/signal runtime counts when the backend is available.
@@ -305,6 +306,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading signal preview backtest UI gate | Done | Hyper AI disables signal preview until an approved strategy has handoff-ready backtest evidence and shows the same blocker message in the strategy card |
 | AI Trading signal gateway boundary | Done | `/api/ai-trading/signal-events/{id}/handoff` defaults to 409 disabled; when configured it submits only audited `not_an_order` events to the external order backend |
 | AI Trading handoff confirmation API gate | Done | `/api/ai-trading/signal-events/{id}/handoff` requires `confirmed_by_user=true` before gateway eligibility, gateway POST, or handoff-attempt audit writes |
+| AI Trading stale signal handoff gate | Done | Handoff eligibility blocks signal events older than `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS` and includes non-secret signal age/max-age metadata in preflight responses |
 | AI Trading signal gateway env templates | Done | Root and backend `.env.example` document gateway enablement, URL, timeout, and bearer token without exposing secrets to the AI model |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
 | AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals and refreshes them after draft save, approval, and signal event creation |
@@ -680,6 +682,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading route regression re-run after the handoff confirmation UI: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 14 passing tests.
 - Passed: AI Trading route regression after requiring `confirmed_by_user=true` in the handoff API: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 14 passing tests, including no gateway call and no new attempt when confirmation is false.
 - Passed: Frontend production build after sending `confirmed_by_user=true` and a confirmation source from the confirmed Hyper AI signal handoff action.
+- Passed: AI Trading route regression after adding the stale signal handoff gate: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 15 passing tests, including stale signal eligibility/runtime/blocked-attempt assertions.
+- Passed: Frontend production build after documenting the stale signal handoff age gate in env templates.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

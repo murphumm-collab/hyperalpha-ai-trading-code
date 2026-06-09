@@ -12,7 +12,15 @@ import services.ai_trading_strategy_spec_service as strategy_service
 from api.ai_trading_routes import router
 from api.auth_utils import get_current_user_dependency
 from database.connection import Base, get_db
-from database.models import Account, AccountProgramBinding, BacktestResult, BacktestTriggerLog, TradingProgram, User
+from database.models import (
+    Account,
+    AccountProgramBinding,
+    AiTradingSignalEventRecord,
+    BacktestResult,
+    BacktestTriggerLog,
+    TradingProgram,
+    User,
+)
 
 
 def _build_clients(tmp_path, usernames=("ai-trading-test-user",)):
@@ -453,6 +461,59 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert final_runtime["signal_events"]["by_status"]["rejected"] == 1
     assert final_runtime["signal_events"]["handoff_eligibility"]["review_candidates"] == 0
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
+
+
+def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+
+    session_factory = client._ai_trading_session_factory
+    session = session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        row.created_at = datetime.now(timezone.utc) - timedelta(
+            seconds=int(strategy_service.SIGNAL_MAX_HANDOFF_AGE_SECONDS) + 60
+        )
+        session.commit()
+    finally:
+        session.close()
+
+    calls = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        raise AssertionError("gateway should not be called for stale signal events")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    eligibility = detail.json()["signal_event"]["handoff_eligibility"]
+    assert eligibility["eligible"] is False
+    assert eligibility["signal_age_seconds"] >= int(strategy_service.SIGNAL_MAX_HANDOFF_AGE_SECONDS)
+    assert eligibility["max_handoff_age_seconds"] == int(strategy_service.SIGNAL_MAX_HANDOFF_AGE_SECONDS)
+    assert "signal_event_stale_for_handoff" in eligibility["blockers"]
+
+    runtime = client.get("/api/ai-trading/runtime").json()
+    assert runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
+    assert runtime["signal_events"]["handoff_eligibility"]["by_blocker"]["signal_event_stale_for_handoff"] == 1
+
+    handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert handoff.status_code == 400
+    assert "signal_event_stale_for_handoff" in handoff.json()["detail"]
+    assert calls == []
+
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    assert attempts.json()["attempts"][0]["result"] == "blocked"
+    assert "signal_event_stale_for_handoff" in attempts.json()["attempts"][0]["blockers"]
 
 
 def test_ai_trading_runtime_summarizes_strategy_backtest_evidence(tmp_path):
