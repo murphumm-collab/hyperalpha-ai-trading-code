@@ -112,6 +112,7 @@ class StreamTask:
     confirmation_response: Optional[Dict[str, Any]] = field(default=None)
     pending_confirmation_id: Optional[str] = field(default=None)
     distributed_admission_acquired: bool = False
+    remote_hydrated: bool = False
 
 
 class TaskAdmissionError(RuntimeError):
@@ -342,6 +343,31 @@ return {1, 'accepted', global_limit, global_running + 1, user_limit, user_runnin
             self._last_error = str(exc)
             logger.warning("[StreamBuffer] Failed to cleanup Redis admission leases: %s", exc)
 
+    def has_active_lease(self, task_id: str, user_id: Optional[int]) -> bool:
+        try:
+            client = self._get_client()
+        except Exception as exc:
+            logger.warning("[StreamBuffer] Redis admission lease check unavailable for %s: %s", task_id, exc)
+            return False
+        if client is None:
+            return False
+        now = time.time()
+        try:
+            client.zremrangebyscore(self._global_key(), "-inf", now)
+            score = client.zscore(self._global_key(), task_id)
+            if score is None or float(score) <= now:
+                return False
+            if user_id is not None:
+                client.zremrangebyscore(self._user_key(user_id), "-inf", now)
+                user_score = client.zscore(self._user_key(user_id), task_id)
+                return user_score is not None and float(user_score) > now
+            return True
+        except Exception as exc:
+            self._available = False
+            self._last_error = str(exc)
+            logger.warning("[StreamBuffer] Failed to check Redis admission lease %s: %s", task_id, exc)
+            return False
+
     def stats(self) -> Dict[str, Any]:
         data: Dict[str, Any] = {
             "enabled": self.enabled,
@@ -422,6 +448,11 @@ class StreamBufferManager:
             fail_open=AI_STREAM_DISTRIBUTED_ADMISSION_FAIL_OPEN,
         )
 
+    def _has_active_distributed_lease(self, task_id: str, user_id: Optional[int]) -> bool:
+        if not self._admission_controller:
+            return False
+        return self._admission_controller.has_active_lease(task_id, user_id)
+
     def _persist_task(self, task: StreamTask) -> None:
         if not AI_STREAM_PERSISTENCE_ENABLED:
             return
@@ -493,7 +524,10 @@ class StreamBufferManager:
             if user_id is not None and record.user_id != user_id:
                 return None
 
+            remote_running = False
             if record.status == "running":
+                remote_running = self._has_active_distributed_lease(record.task_id, record.user_id)
+            if record.status == "running" and not remote_running:
                 record.status = "error"
                 record.error_message = "Task interrupted by service restart"
                 record.completed_at_epoch = time.time()
@@ -520,6 +554,7 @@ class StreamBufferManager:
                     for row in rows
                 ],
             )
+            task.remote_hydrated = remote_running
             self._tasks[task_id] = task
             return task
         except Exception as exc:
@@ -662,6 +697,8 @@ class StreamBufferManager:
         """Get a task by ID."""
         with self._tasks_lock:
             task = self._tasks.get(task_id)
+            if task and task.remote_hydrated and task.status == "running":
+                task = self._hydrate_task_from_db(task_id, user_id=user_id)
             if not task:
                 task = self._hydrate_task_from_db(task_id, user_id=user_id)
             if not task:
@@ -694,6 +731,8 @@ class StreamBufferManager:
         """
         with self._tasks_lock:
             task = self._tasks.get(task_id)
+            if task and task.remote_hydrated and task.status == "running":
+                task = self._hydrate_task_from_db(task_id, user_id=user_id)
             if not task:
                 task = self._hydrate_task_from_db(task_id, user_id=user_id)
             if not task:

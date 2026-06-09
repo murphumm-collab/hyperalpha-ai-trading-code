@@ -51,6 +51,7 @@ Local checkpoint: current branch `HEAD`
 - AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
 - AI stream task admission has global and per-user running-task limits for single-server DeepSeek/Qwen capacity isolation.
 - AI stream admission can optionally use Redis-backed distributed leases for multi-instance global/per-user capacity isolation.
+- AI stream polling can read active remote-instance running tasks from DB chunks when a Redis lease is still alive.
 - AI stream local/Redis admission environment variables are documented in root and backend `.env.example` templates.
 - AI stream task IDs use UUID entropy to avoid multi-user/multi-request collisions under high concurrency.
 - Admin-only AI runtime visibility shows shared model capacity, queue depth, and per-user buffered task occupancy.
@@ -176,6 +177,7 @@ Local checkpoint: current branch `HEAD`
 | AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
 | AI stream task admission limits | Done | `AI_STREAM_MAX_RUNNING_GLOBAL` and `AI_STREAM_MAX_RUNNING_PER_USER` cap shared LLM task concurrency before model calls are submitted |
 | AI stream distributed admission leases | Done | Optional `AI_STREAM_REDIS_URL` Redis leases share global/per-user admission limits across backend instances while no-Redis deployments keep local admission |
+| AI stream remote running hydration | Done | Running tasks found in DB stay running only when a Redis lease is active; remote pollers refresh DB chunks while stale running rows become interrupted |
 | AI stream runtime env templates | Done | Root and backend `.env.example` include worker, local admission, persistence, Redis URL, lease TTL, key prefix, and fail-open settings |
 | AI stream task ID entropy | Done | `generate_task_id()` keeps the readable prefix/timestamp and adds UUID entropy to prevent same-thread same-millisecond collisions |
 | AI runtime admin visibility | Done | Admin-only `/api/ai-stream/admin/runtime` plus Settings AI Runtime section expose shared capacity, queue depth, and per-user task occupancy without message/tool payloads |
@@ -297,6 +299,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream admission syntax compile in both system Python and `uv run` backend environment for StreamBuffer plus Hyper AI, Prompt AI, Signal AI, Attribution AI, and Hyper AI service task entry points.
 - Passed: AI stream distributed admission smoke test in `uv run`: fake distributed admission acquired/released/refreshed leases, enforced per-user/global limits, released Redis leases when local capacity rejected a task, and exposed distributed admission stats.
 - Passed: Redis admission controller fake-client smoke test in `uv run`: controller parsed Redis script responses for accepted/user-limit/global-limit paths, refreshed and released leases, reported running lease stats, and cleaned expired global leases.
+- Passed: AI stream remote running hydration smoke test in `uv run`: a DB running task with active Redis lease stayed running and refreshed newly persisted chunks on subsequent polls, while a running row without a lease was marked interrupted.
 - Passed: Frontend production build after Settings AI Runtime displayed distributed admission status, Redis leases, and lease TTL.
 - Passed: AI stream runtime environment templates updated for single-server and Redis distributed admission configuration.
 - Passed: AI stream task ID UUID smoke test in `uv run`: 5000 sequential task IDs with the same prefix were unique and preserved the expected prefix/timestamp/random-suffix shape.
