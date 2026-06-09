@@ -50,8 +50,10 @@ Local checkpoint: current branch `HEAD`
 - AI stream polling tasks are owner-scoped so users can only poll, inspect, or confirm their own background AI tasks.
 - AI stream polling tasks and chunks are persisted to the database for single-server restart recovery.
 - AI stream task admission has global and per-user running-task limits for single-server DeepSeek/Qwen capacity isolation.
+- AI stream admission can optionally use Redis-backed distributed leases for multi-instance global/per-user capacity isolation.
 - AI stream task IDs use UUID entropy to avoid multi-user/multi-request collisions under high concurrency.
 - Admin-only AI runtime visibility shows shared model capacity, queue depth, and per-user buffered task occupancy.
+- Admin-only AI runtime visibility shows optional Redis distributed admission status, lease count, and lease TTL.
 - Hyper AI and Program AI task admission is conversation-scoped, so one conversation cannot run overlapping writes while other users/conversations can still run.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
@@ -172,8 +174,10 @@ Local checkpoint: current branch `HEAD`
 | AI stream task ownership | Done | Stream tasks store `user_id`; poll/status/confirmation endpoints enforce current-user access |
 | AI stream task persistence | Done | `add_ai_stream_persistence.py`; stream tasks/chunks are persisted and stale running tasks hydrate as interrupted after restart |
 | AI stream task admission limits | Done | `AI_STREAM_MAX_RUNNING_GLOBAL` and `AI_STREAM_MAX_RUNNING_PER_USER` cap shared LLM task concurrency before model calls are submitted |
+| AI stream distributed admission leases | Done | Optional `AI_STREAM_REDIS_URL` Redis leases share global/per-user admission limits across backend instances while no-Redis deployments keep local admission |
 | AI stream task ID entropy | Done | `generate_task_id()` keeps the readable prefix/timestamp and adds UUID entropy to prevent same-thread same-millisecond collisions |
 | AI runtime admin visibility | Done | Admin-only `/api/ai-stream/admin/runtime` plus Settings AI Runtime section expose shared capacity, queue depth, and per-user task occupancy without message/tool payloads |
+| AI runtime distributed-admission visibility | Done | Admin runtime stats and Settings AI Runtime display show distributed admission enablement, availability, Redis leases, and lease TTL without exposing Redis URL |
 | Conversation task admission | Done | Hyper AI and Program AI return `already_running` for the same user's active conversation task while allowing other users/conversations to start under capacity limits |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
@@ -245,7 +249,7 @@ Local checkpoint: current branch `HEAD`
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
 | Remote push | Blocked | Terminal GitHub HTTPS credentials unavailable |
-| Acceptance | Partial | Multi-user AI foundation and automated hard-risk checks passed; live Casdoor env acceptance, distributed job queue, and real exchange execution remain unaccepted |
+| Acceptance | Partial | Multi-user AI foundation, Redis distributed admission leases, and automated hard-risk checks passed; live Casdoor env acceptance, distributed worker queue routing, and real exchange execution remain unaccepted |
 
 ## Verification Log
 
@@ -289,6 +293,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream persistence models/migration/service syntax compile.
 - Passed: AI stream admission smoke test in `uv run`: per-user limit rejected a third concurrent task for one user, global limit rejected the next task when global running count was full, and completing a task reopened capacity.
 - Passed: AI stream admission syntax compile in both system Python and `uv run` backend environment for StreamBuffer plus Hyper AI, Prompt AI, Signal AI, Attribution AI, and Hyper AI service task entry points.
+- Passed: AI stream distributed admission smoke test in `uv run`: fake distributed admission acquired/released/refreshed leases, enforced per-user/global limits, released Redis leases when local capacity rejected a task, and exposed distributed admission stats.
+- Passed: Redis admission controller fake-client smoke test in `uv run`: controller parsed Redis script responses for accepted/user-limit/global-limit paths, refreshed and released leases, reported running lease stats, and cleaned expired global leases.
+- Passed: Frontend production build after Settings AI Runtime displayed distributed admission status, Redis leases, and lease TTL.
 - Passed: AI stream task ID UUID smoke test in `uv run`: 5000 sequential task IDs with the same prefix were unique and preserved the expected prefix/timestamp/random-suffix shape.
 - Passed: AI runtime admin stats syntax compile in both system Python and `uv run` backend environment for `ai_stream_service.py` and `ai_stream_routes.py`.
 - Passed: AI runtime admin stats smoke test in `uv run`: in-memory Alice/Bob/anonymous tasks produced correct global running/completed/error totals, per-user occupancy, oldest-running age, and username enrichment from the admin endpoint.
@@ -423,7 +430,7 @@ Local checkpoint: current branch `HEAD`
 ## Known Not-Accepted Items
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
-- Redis/distributed job queue execution is not implemented in this slice; DB persistence and admission limits cover single-server task/chunk recovery and capacity isolation, not multi-instance worker orchestration.
+- Redis distributed admission leases are implemented for cross-instance capacity isolation; distributed worker queue routing/execution is still not implemented in this slice.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.

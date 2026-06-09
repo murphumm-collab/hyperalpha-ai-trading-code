@@ -53,6 +53,23 @@ AI_STREAM_MAX_RUNNING_GLOBAL = int(os.getenv("AI_STREAM_MAX_RUNNING_GLOBAL", str
 AI_STREAM_MAX_RUNNING_PER_USER = int(os.getenv("AI_STREAM_MAX_RUNNING_PER_USER", "2"))
 AI_STREAM_PERSISTENCE_ENABLED = os.getenv("AI_STREAM_PERSISTENCE_ENABLED", "true").lower() == "true"
 AI_STREAM_DB_RETENTION_SECONDS = int(os.getenv("AI_STREAM_DB_RETENTION_SECONDS", str(24 * 60 * 60)))
+AI_STREAM_REDIS_URL = os.getenv("AI_STREAM_REDIS_URL", "").strip()
+AI_STREAM_DISTRIBUTED_ADMISSION_ENABLED = (
+    os.getenv(
+        "AI_STREAM_DISTRIBUTED_ADMISSION_ENABLED",
+        "true" if AI_STREAM_REDIS_URL else "false",
+    ).lower() == "true"
+)
+AI_STREAM_DISTRIBUTED_ADMISSION_FAIL_OPEN = (
+    os.getenv("AI_STREAM_DISTRIBUTED_ADMISSION_FAIL_OPEN", "false").lower() == "true"
+)
+AI_STREAM_DISTRIBUTED_ADMISSION_PREFIX = os.getenv(
+    "AI_STREAM_DISTRIBUTED_ADMISSION_PREFIX",
+    "hyperalpha:ai-stream",
+).strip() or "hyperalpha:ai-stream"
+AI_STREAM_DISTRIBUTED_LEASE_TTL_SECONDS = int(
+    os.getenv("AI_STREAM_DISTRIBUTED_LEASE_TTL_SECONDS", str(BUFFER_EXPIRATION_SECONDS * 2))
+)
 
 _ai_task_executor = ThreadPoolExecutor(
     max_workers=AI_TASK_MAX_WORKERS,
@@ -94,6 +111,7 @@ class StreamTask:
     confirmation_event: threading.Event = field(default_factory=threading.Event)
     confirmation_response: Optional[Dict[str, Any]] = field(default=None)
     pending_confirmation_id: Optional[str] = field(default=None)
+    distributed_admission_acquired: bool = False
 
 
 class TaskAdmissionError(RuntimeError):
@@ -112,6 +130,240 @@ class TaskAdmissionError(RuntimeError):
             "limit": self.limit,
             "running": self.running,
         }
+
+
+class DistributedAdmissionController:
+    """
+    Optional Redis-backed task admission controller.
+
+    It stores running task leases in Redis sorted sets so multiple backend
+    instances share the same global/per-user capacity counters. The in-memory
+    StreamBufferManager remains the source of buffered chunks for this process.
+    """
+
+    _ACQUIRE_SCRIPT = """
+local global_key = KEYS[1]
+local user_key = KEYS[2]
+local task_id = ARGV[1]
+local now = tonumber(ARGV[2])
+local expires_at = tonumber(ARGV[3])
+local global_limit = tonumber(ARGV[4])
+local user_limit = tonumber(ARGV[5])
+
+redis.call('ZREMRANGEBYSCORE', global_key, '-inf', now)
+local has_user = user_key ~= nil and user_key ~= '' and user_limit > 0
+if has_user then
+  redis.call('ZREMRANGEBYSCORE', user_key, '-inf', now)
+end
+
+local global_running = redis.call('ZCARD', global_key)
+if global_limit > 0 and global_running >= global_limit then
+  return {0, 'global', global_limit, global_running}
+end
+
+local user_running = 0
+if has_user then
+  user_running = redis.call('ZCARD', user_key)
+  if user_running >= user_limit then
+    return {0, 'user', user_limit, user_running}
+  end
+end
+
+redis.call('ZADD', global_key, expires_at, task_id)
+if has_user then
+  redis.call('ZADD', user_key, expires_at, task_id)
+end
+
+return {1, 'accepted', global_limit, global_running + 1, user_limit, user_running + 1}
+"""
+
+    def __init__(
+        self,
+        redis_url: str,
+        prefix: str,
+        lease_ttl_seconds: int,
+        fail_open: bool = False,
+    ):
+        self.redis_url = redis_url
+        self.prefix = prefix.rstrip(":")
+        self.lease_ttl_seconds = lease_ttl_seconds
+        self.fail_open = fail_open
+        self._client = None
+        self._client_lock = threading.Lock()
+        self._available = False
+        self._last_error: Optional[str] = None
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.redis_url)
+
+    def _global_key(self) -> str:
+        return f"{self.prefix}:running:global"
+
+    def _user_key(self, user_id: Optional[int]) -> str:
+        return f"{self.prefix}:running:user:{user_id}"
+
+    def _get_client(self):
+        if self._client is not None:
+            return self._client
+        with self._client_lock:
+            if self._client is not None:
+                return self._client
+            try:
+                import redis  # type: ignore
+                self._client = redis.Redis.from_url(
+                    self.redis_url,
+                    socket_timeout=2,
+                    socket_connect_timeout=2,
+                    decode_responses=True,
+                )
+                self._client.ping()
+                self._available = True
+                self._last_error = None
+                return self._client
+            except Exception as exc:
+                self._available = False
+                self._last_error = str(exc)
+                if self.fail_open:
+                    logger.warning(
+                        "[StreamBuffer] Redis admission unavailable; falling back to local admission: %s",
+                        exc,
+                    )
+                    return None
+                raise TaskAdmissionError(
+                    "Distributed AI task admission is unavailable. Please retry later.",
+                    scope="distributed",
+                    limit=0,
+                    running=0,
+                ) from exc
+
+    def acquire(self, task_id: str, user_id: Optional[int]) -> bool:
+        client = self._get_client()
+        if client is None:
+            return False
+
+        now = time.time()
+        expires_at = now + max(1, self.lease_ttl_seconds)
+        user_key = self._user_key(user_id) if user_id is not None else f"{self.prefix}:running:user:none"
+        try:
+            result = client.eval(
+                self._ACQUIRE_SCRIPT,
+                2,
+                self._global_key(),
+                user_key,
+                task_id,
+                now,
+                expires_at,
+                AI_STREAM_MAX_RUNNING_GLOBAL,
+                AI_STREAM_MAX_RUNNING_PER_USER if user_id is not None else 0,
+            )
+            accepted = int(result[0]) == 1
+            if accepted:
+                self._available = True
+                self._last_error = None
+                return True
+            scope = str(result[1])
+            limit = int(result[2])
+            running = int(result[3])
+            message = (
+                "AI task capacity is full. Please retry after an existing task finishes."
+                if scope == "global"
+                else "You already have too many AI tasks running. Please wait for one to finish."
+            )
+            raise TaskAdmissionError(message, scope=scope, limit=limit, running=running)
+        except TaskAdmissionError:
+            raise
+        except Exception as exc:
+            self._available = False
+            self._last_error = str(exc)
+            if self.fail_open:
+                logger.warning(
+                    "[StreamBuffer] Redis admission acquire failed; falling back to local admission: %s",
+                    exc,
+                )
+                return False
+            raise TaskAdmissionError(
+                "Distributed AI task admission is unavailable. Please retry later.",
+                scope="distributed",
+                limit=0,
+                running=0,
+            ) from exc
+
+    def refresh(self, task_id: str, user_id: Optional[int]) -> None:
+        try:
+            client = self._get_client()
+        except Exception as exc:
+            logger.warning("[StreamBuffer] Redis admission refresh unavailable for %s: %s", task_id, exc)
+            return
+        if client is None:
+            return
+        expires_at = time.time() + max(1, self.lease_ttl_seconds)
+        try:
+            client.zadd(self._global_key(), {task_id: expires_at}, xx=True)
+            if user_id is not None:
+                client.zadd(self._user_key(user_id), {task_id: expires_at}, xx=True)
+        except Exception as exc:
+            self._available = False
+            self._last_error = str(exc)
+            logger.warning("[StreamBuffer] Failed to refresh Redis admission lease %s: %s", task_id, exc)
+
+    def release(self, task_id: str, user_id: Optional[int]) -> None:
+        try:
+            client = self._get_client()
+        except Exception as exc:
+            logger.warning("[StreamBuffer] Redis admission release unavailable for %s: %s", task_id, exc)
+            return
+        if client is None:
+            return
+        try:
+            keys = [self._global_key()]
+            if user_id is not None:
+                keys.append(self._user_key(user_id))
+            for key in keys:
+                client.zrem(key, task_id)
+        except Exception as exc:
+            self._available = False
+            self._last_error = str(exc)
+            logger.warning("[StreamBuffer] Failed to release Redis admission lease %s: %s", task_id, exc)
+
+    def cleanup_expired(self) -> None:
+        try:
+            client = self._get_client()
+        except Exception as exc:
+            logger.warning("[StreamBuffer] Redis admission cleanup unavailable: %s", exc)
+            return
+        if client is None:
+            return
+        now = time.time()
+        try:
+            client.zremrangebyscore(self._global_key(), "-inf", now)
+        except Exception as exc:
+            self._available = False
+            self._last_error = str(exc)
+            logger.warning("[StreamBuffer] Failed to cleanup Redis admission leases: %s", exc)
+
+    def stats(self) -> Dict[str, Any]:
+        data: Dict[str, Any] = {
+            "enabled": self.enabled,
+            "available": self._available,
+            "prefix": self.prefix,
+            "lease_ttl_seconds": self.lease_ttl_seconds,
+            "fail_open": self.fail_open,
+            "last_error": self._last_error,
+        }
+        if not self.enabled:
+            return data
+        try:
+            client = self._get_client()
+            if client is not None:
+                self.cleanup_expired()
+                data["running_tasks"] = int(client.zcard(self._global_key()) or 0)
+                data["available"] = True
+                data["last_error"] = None
+        except Exception:
+            data["available"] = self._available
+            data["last_error"] = self._last_error
+        return data
 
 
 def _json_dumps(data: Any) -> str:
@@ -156,8 +408,19 @@ class StreamBufferManager:
         self._tasks_lock = threading.Lock()
         self._cleanup_thread = None
         self._running = True
+        self._admission_controller = self._build_distributed_admission_controller()
         self._start_cleanup_thread()
         self._initialized = True
+
+    def _build_distributed_admission_controller(self) -> Optional[DistributedAdmissionController]:
+        if not AI_STREAM_DISTRIBUTED_ADMISSION_ENABLED or not AI_STREAM_REDIS_URL:
+            return None
+        return DistributedAdmissionController(
+            redis_url=AI_STREAM_REDIS_URL,
+            prefix=AI_STREAM_DISTRIBUTED_ADMISSION_PREFIX,
+            lease_ttl_seconds=AI_STREAM_DISTRIBUTED_LEASE_TTL_SECONDS,
+            fail_open=AI_STREAM_DISTRIBUTED_ADMISSION_FAIL_OPEN,
+        )
 
     def _persist_task(self, task: StreamTask) -> None:
         if not AI_STREAM_PERSISTENCE_ENABLED:
@@ -328,6 +591,8 @@ class StreamBufferManager:
                 logger.debug(f"[StreamBuffer] Cleaned up expired task: {task_id}")
 
         self._cleanup_persistent_tasks(now)
+        if self._admission_controller:
+            self._admission_controller.cleanup_expired()
 
     def create_task(
         self,
@@ -340,12 +605,26 @@ class StreamBufferManager:
         with self._tasks_lock:
             if task_id in self._tasks:
                 logger.warning(f"[StreamBuffer] Task {task_id} already exists, overwriting")
-            if enforce_limits:
-                self._assert_task_capacity(user_id)
-            task = StreamTask(task_id=task_id, conversation_id=conversation_id, user_id=user_id)
-            self._tasks[task_id] = task
-            self._persist_task(task)
-            return task
+            distributed_admission_acquired = False
+            try:
+                if enforce_limits:
+                    if self._admission_controller:
+                        distributed_admission_acquired = self._admission_controller.acquire(task_id, user_id)
+                    self._assert_task_capacity(user_id)
+                task = StreamTask(task_id=task_id, conversation_id=conversation_id, user_id=user_id)
+                task.distributed_admission_acquired = distributed_admission_acquired
+                self._tasks[task_id] = task
+                self._persist_task(task)
+                return task
+            except Exception:
+                if self._admission_controller and distributed_admission_acquired:
+                    self._admission_controller.release(task_id, user_id)
+                raise
+
+    def _release_task_admission(self, task: StreamTask) -> None:
+        if self._admission_controller and task.distributed_admission_acquired:
+            self._admission_controller.release(task.task_id, task.user_id)
+            task.distributed_admission_acquired = False
 
     def _running_task_counts(self, user_id: Optional[int] = None) -> tuple[int, int]:
         global_running = 0
@@ -399,6 +678,8 @@ class StreamBufferManager:
                 chunk_index = len(task.chunks)
                 chunk = StreamChunk(event_type=event_type, data=data)
                 task.chunks.append(chunk)
+                if self._admission_controller and task.distributed_admission_acquired:
+                    self._admission_controller.refresh(task_id, task.user_id)
                 self._persist_chunk(task_id, chunk_index, chunk)
 
     def get_chunks(
@@ -429,6 +710,7 @@ class StreamBufferManager:
                 task.status = "completed"
                 task.completed_at = time.time()
                 task.result = result
+                self._release_task_admission(task)
                 self._persist_task(task)
 
     def fail_task(self, task_id: str, error_message: str):
@@ -439,6 +721,7 @@ class StreamBufferManager:
                 task.status = "error"
                 task.completed_at = time.time()
                 task.error_message = error_message
+                self._release_task_admission(task)
                 self._persist_task(task)
 
     def update_task_data(self, task_id: str, **kwargs):
@@ -683,5 +966,17 @@ def get_ai_runtime_stats() -> Dict[str, Any]:
         "background_max_workers": AI_BACKGROUND_MAX_WORKERS,
         "background_threads": background_threads,
         "background_queue": background_queue,
+        "distributed_admission": (
+            manager._admission_controller.stats()
+            if manager._admission_controller
+            else {
+                "enabled": False,
+                "available": False,
+                "prefix": AI_STREAM_DISTRIBUTED_ADMISSION_PREFIX,
+                "lease_ttl_seconds": AI_STREAM_DISTRIBUTED_LEASE_TTL_SECONDS,
+                "fail_open": AI_STREAM_DISTRIBUTED_ADMISSION_FAIL_OPEN,
+                "last_error": None,
+            }
+        ),
         "users": users,
     }

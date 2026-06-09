@@ -95,6 +95,14 @@ interface AiRuntimeStats {
   background_max_workers: number
   background_threads: number
   background_queue: number
+  distributed_admission?: {
+    enabled: boolean
+    available: boolean
+    running_tasks?: number
+    lease_ttl_seconds?: number
+    fail_open?: boolean
+    last_error?: string | null
+  }
   users: AiRuntimeUserStats[]
 }
 
@@ -1580,6 +1588,48 @@ export default function SettingsPage() {
                           <div className="text-sm text-muted-foreground">{t('settings.perUserLimit', 'Per User Limit')}</div>
                           <div className="text-xl font-semibold">{aiRuntimeStats.task_max_running_per_user}</div>
                         </div>
+                      </div>
+
+                      <div className="grid gap-3 rounded-md border p-3 text-sm md:grid-cols-[minmax(160px,1fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)] md:items-center">
+                        <div>
+                          <div className="text-xs text-muted-foreground">
+                            {t('settings.distributedAdmission', 'Distributed Admission')}
+                          </div>
+                          <div className="font-medium">
+                            {aiRuntimeStats.distributed_admission?.enabled
+                              ? t('settings.enabled', 'Enabled')
+                              : t('settings.disabled', 'Disabled')}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">{t('settings.status', 'Status')}</div>
+                          <div className="font-medium">
+                            {aiRuntimeStats.distributed_admission?.enabled
+                              ? (aiRuntimeStats.distributed_admission.available
+                                ? t('settings.available', 'Available')
+                                : t('settings.unavailable', 'Unavailable'))
+                              : t('settings.notAvailable', 'N/A')}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">{t('settings.redisLeases', 'Redis Leases')}</div>
+                          <div className="font-medium">
+                            {aiRuntimeStats.distributed_admission?.running_tasks ?? t('settings.notAvailable', 'N/A')}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">{t('settings.leaseTtl', 'Lease TTL')}</div>
+                          <div className="font-medium">
+                            {aiRuntimeStats.distributed_admission?.lease_ttl_seconds
+                              ? `${aiRuntimeStats.distributed_admission.lease_ttl_seconds}s`
+                              : t('settings.notAvailable', 'N/A')}
+                          </div>
+                        </div>
+                        {aiRuntimeStats.distributed_admission?.last_error && (
+                          <div className="min-w-0 text-xs text-red-500 md:col-span-4">
+                            {aiRuntimeStats.distributed_admission.last_error}
+                          </div>
+                        )}
                       </div>
 
                       {aiRuntimeStats.users.length === 0 ? (
