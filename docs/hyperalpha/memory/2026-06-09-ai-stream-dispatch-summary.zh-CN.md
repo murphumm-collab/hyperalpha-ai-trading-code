@@ -46,6 +46,7 @@
 - 新增 signal event reject 流程：`POST /api/ai-trading/signal-events/{id}/reject` 只允许拒绝 `review_candidate`，会把 signal JSON 标为 `rejected_by_user`、`eligible_for_backend_handoff=false`、`handoff_status=rejected`；Hyper AI recent signals 行有拒绝按钮，拒绝后回填聊天框供 agent 复核。
 - 持久化 signal event 时会把 signal JSON 的 `idempotency_key` 改成事件级 `signal_event:{id}`，并写入 `signal_event_id`；gateway payload 顶层 idempotency key 复用同一个值，避免同一 strategy spec 生成多个候选信号时共享 preview key。
 - Hyper AI recent signals 行现在显示 Ready / Blocked / Rejected / Submitted 状态 badge；blocked 时会展示第一条 blocker，减少用户盲点操作。
+- Hyper AI recent signals 行现在会把常见 handoff blocker code 翻译成可读安全标签，包括 gateway disabled、missing backtest、weak metrics、boundary missing、already submitted、signal expired，并对过期信号显示 age/max-age。
 - AI Trading FastAPI route 回归现在覆盖 Alice/Bob 两个用户共享同一数据库时的隔离：Bob 不能 list/read/approve/archive/preview/create/reject/handoff Alice 的 strategy spec、signal event 或 handoff attempt。
 - 新增 `/api/ai-trading/market-universe`：返回 Hyperliquid Crypto Top 20/50 和 HIP-3 Top 20/50 presets，包含 dex、`coin`/`exchange_symbol`、category、24h volume、OI、max leverage、only-isolated、source/errors 等非敏感市场元数据。
 - Hyper AI AI Trading 标的加载逻辑现在优先使用用户 watchlist；没有 watchlist 时使用 AI Trading market universe 的 crypto + HIP-3 presets；最后才 fallback 到 available symbols。
@@ -188,6 +189,8 @@
 - `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI confirmed handoff POST body 后。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 stale signal handoff gate 后通过，15 条 AI Trading route 回归全绿；覆盖 stale eligibility、runtime blocker、blocked attempt 且不调用 gateway。
 - `cd frontend && npm run build` 已通过；最近一次通过是在 env 模板加入 signal max handoff age gate 后。
+- `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI handoff blocker 可读化后。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff blocker 可读化后重新通过，15 条 AI Trading route 回归全绿。
 
 ## 6. 未验收 / 阻塞
 

@@ -212,6 +212,8 @@ interface AiTradingSignalEventRecord {
     gateway_ready?: boolean
     can_retry?: boolean
     default_handoff_status?: string
+    signal_age_seconds?: number | null
+    max_handoff_age_seconds?: number | null
   }
   created_at?: string | null
   signal?: Record<string, unknown>
@@ -1035,13 +1037,52 @@ export default function HyperAiPage() {
       event.handoff_status !== 'submitted'
     )
   )
+  const formatDurationCompact = (seconds: unknown): string => {
+    const value = Number(seconds)
+    if (!Number.isFinite(value)) {
+      return ''
+    }
+    if (value >= 3600) {
+      return `${Math.round(value / 3600)}h`
+    }
+    if (value >= 60) {
+      return `${Math.round(value / 60)}m`
+    }
+    return `${Math.max(0, Math.round(value))}s`
+  }
+  const signalBlockerLabel = (blocker: string, event?: AiTradingSignalEventRecord): string => {
+    if (blocker === 'signal_event_stale_for_handoff') {
+      const age = formatDurationCompact(event?.handoff_eligibility?.signal_age_seconds)
+      const maxAge = formatDurationCompact(event?.handoff_eligibility?.max_handoff_age_seconds)
+      const label = t('hyperAi.aiTradingSignalExpired', 'Signal expired')
+      return age && maxAge ? `${label} (${age} > ${maxAge})` : label
+    }
+    const labels: Record<string, string> = {
+      gateway_disabled: t('hyperAi.aiTradingGatewayDisabled', 'Gateway disabled'),
+      gateway_url_not_configured: t('hyperAi.aiTradingGatewayUrlMissing', 'Gateway URL missing'),
+      strategy_backtest_required_before_handoff: t('hyperAi.aiTradingBacktestRequired', 'Backtest required'),
+      strategy_backtest_trade_count_required: t('hyperAi.aiTradingTradeCountRequired', 'Trade count required'),
+      strategy_backtest_max_drawdown_required: t('hyperAi.aiTradingDrawdownRequired', 'Drawdown required'),
+      strategy_backtest_performance_metric_required: t('hyperAi.aiTradingPerformanceMetricRequired', 'Performance metric required'),
+      signal_not_eligible_for_backend_handoff: t('hyperAi.aiTradingSignalNotEligible', 'Signal not eligible'),
+      signal_payload_missing: t('hyperAi.aiTradingSignalPayloadMissing', 'Signal payload missing'),
+      execution_boundary_missing: t('hyperAi.aiTradingExecutionBoundaryMissing', 'Execution boundary missing'),
+      signal_missing_not_an_order_boundary: t('hyperAi.aiTradingNotAnOrderBoundaryMissing', 'not_an_order missing'),
+      signal_allows_direct_ai_order_placement: t('hyperAi.aiTradingDirectAiOrderBlocked', 'Direct AI order not allowed'),
+      signal_missing_order_backend_only_boundary: t('hyperAi.aiTradingOrderBackendOnlyMissing', 'Order backend boundary missing'),
+      event_status_not_review_candidate: t('hyperAi.aiTradingEventNotReviewCandidate', 'Not review candidate'),
+      handoff_already_submitted: t('hyperAi.aiTradingHandoffAlreadySubmitted', 'Already submitted'),
+      signal_event_created_at_missing: t('hyperAi.aiTradingSignalCreatedAtMissing', 'Signal time missing'),
+    }
+    return labels[blocker] || blocker.replace(/_/g, ' ')
+  }
   const signalHandoffTitle = (event: AiTradingSignalEventRecord): string => {
     if (isSignalHandoffEligible(event)) {
       return t('hyperAi.aiTradingSubmitHandoff', 'Submit handoff')
     }
     const blockers = event.handoff_eligibility?.blockers || []
     if (blockers.length > 0) {
-      return blockers.join(', ')
+      return blockers.map(blocker => signalBlockerLabel(blocker, event)).join(', ')
     }
     return t('hyperAi.aiTradingGatewayDisabled', 'Gateway disabled')
   }
@@ -1074,7 +1115,7 @@ export default function HyperAiPage() {
     if (blockers.length === 0) {
       return event.handoff_status || 'not_submitted'
     }
-    return blockers[0]
+    return signalBlockerLabel(blockers[0], event)
   }
   const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
   const currentStrategyBacktestReady = isBacktestReady(currentStrategyBacktest)

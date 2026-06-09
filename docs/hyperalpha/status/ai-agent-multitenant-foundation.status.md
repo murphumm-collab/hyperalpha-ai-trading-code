@@ -131,6 +131,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading signal events can be explicitly rejected by the user before handoff; rejection updates the persisted signal review state and makes the event ineligible for backend handoff.
 - Persisted AI Trading signal events rewrite signal payload idempotency keys to event-scoped values so multiple candidates from one strategy spec do not collide at handoff.
 - Hyper AI recent signal rows show readable Ready/Blocked/Rejected/Submitted status badges plus the first blocker reason when handoff is blocked.
+- Hyper AI recent signal rows translate common handoff blocker codes into readable safety messages, including stale signal age versus max-age.
 - AI Trading route regression now covers two-user isolation for strategy specs, signal events, signal previews, rejection, handoff, and handoff-attempt audit reads.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
@@ -321,6 +322,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading signal rejection | Done | Review candidate signal events can be rejected before handoff; rejected events store review reason, become ineligible, and are visible in runtime status |
 | AI Trading signal idempotency | Done | Persisted signal events carry event-scoped `signal_event:{id}` idempotency keys, and gateway payloads reuse the same key |
 | AI Trading signal status UI | Done | Recent signal rows display readable handoff/review status badges and first-blocker summaries for blocked candidates |
+| AI Trading handoff blocker labels | Done | Recent signal rows and handoff tooltips translate common blocker codes into readable safety labels, including stale signal age/max-age |
 | AI Trading API regression test | Done | `backend/tests/test_ai_trading_routes.py` covers strategy draft/save/approve, signal event creation, disabled/enabled handoff, and runtime counts with SQLite |
 | AI Trading user isolation regression | Done | `backend/tests/test_ai_trading_routes.py` now creates Alice/Bob clients on one SQLite DB and verifies Bob cannot list/read/approve/archive/preview/create/reject/handoff Alice's records or attempts |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
@@ -684,6 +686,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after sending `confirmed_by_user=true` and a confirmation source from the confirmed Hyper AI signal handoff action.
 - Passed: AI Trading route regression after adding the stale signal handoff gate: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 15 passing tests, including stale signal eligibility/runtime/blocked-attempt assertions.
 - Passed: Frontend production build after documenting the stale signal handoff age gate in env templates.
+- Passed: Frontend production build after adding readable Hyper AI handoff blocker labels.
+- Passed: AI Trading route regression re-run after readable handoff blocker labels: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 15 passing tests.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
