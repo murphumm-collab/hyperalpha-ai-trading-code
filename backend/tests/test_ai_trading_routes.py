@@ -409,12 +409,25 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     class FakeResponse:
         status_code = 202
 
+        def __init__(self, payload=None):
+            self.payload = payload or {}
+
+        def json(self):
+            return self.payload
+
         def raise_for_status(self):
             return None
 
     def fake_post(url, json=None, headers=None, timeout=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
-        return FakeResponse()
+        return FakeResponse({
+            "accepted": True,
+            "status": "mock_accepted",
+            "idempotency_key": json["idempotency_key"],
+            "order_backend_signal_id": "obs_acceptance_1",
+            "access_token": "secret-response-token",
+            "body": "secret-response-body",
+        })
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
@@ -460,9 +473,19 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert attempt_rows[0]["gateway_ready"] is True
     assert attempt_rows[0]["eligibility"]["eligible"] is True
     assert attempt_rows[0]["eligibility"]["user_confirmation"] == {"confirmed": True, "source": "pytest"}
-    assert attempt_rows[0]["eligibility"]["gateway_response"] == {"status_code": 202}
+    assert attempt_rows[0]["eligibility"]["gateway_response"] == {
+        "status_code": 202,
+        "response_summary": {
+            "accepted": True,
+            "status": "mock_accepted",
+            "idempotency_key": submitted_event["signal"]["idempotency_key"],
+            "order_backend_signal_id": "obs_acceptance_1",
+        },
+    }
     assert "test-token" not in str(attempt_rows)
     assert "order-backend.test" not in str(attempt_rows)
+    assert "secret-response-token" not in str(attempt_rows)
+    assert "secret-response-body" not in str(attempt_rows)
 
     assert calls
     assert calls[0]["json"]["type"] == "AI_TRADING_SIGNAL_CANDIDATE"
@@ -1007,6 +1030,16 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
     class FakeResponse:
         status_code = 502
 
+        def json(self):
+            return {
+                "accepted": False,
+                "status": "rejected",
+                "code": "RISK_REJECTED",
+                "request_id": "req_gateway_502",
+                "authorization": "secret-response-authorization",
+                "message": "https://order-backend.test/signals test-token secret-response-body",
+            }
+
         def raise_for_status(self):
             raise FakeGatewayError(
                 "https://order-backend.test/signals test-token secret-response-body",
@@ -1048,10 +1081,17 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
     assert attempt["eligibility"]["gateway_response"] == {
         "status_code": 502,
         "error_type": "FakeGatewayError",
+        "response_summary": {
+            "accepted": False,
+            "status": "rejected",
+            "request_id": "req_gateway_502",
+            "code": "RISK_REJECTED",
+        },
     }
     assert "order-backend.test" not in str(attempt)
     assert "test-token" not in str(attempt)
     assert "secret-response-body" not in str(attempt)
+    assert "secret-response-authorization" not in str(attempt)
 
 
 def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tmp_path, monkeypatch):

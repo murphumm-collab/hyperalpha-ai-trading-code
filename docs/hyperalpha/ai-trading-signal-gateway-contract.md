@@ -102,13 +102,22 @@ The order backend must treat this payload as signal input, not as an order:
 
 The AI Trading gateway does not include exchange API keys, private keys, raw order size, or direct exchange order IDs.
 
+## Response Audit
+
+Handoff attempts store only a non-secret response summary for downstream audit:
+
+- Always record HTTP status code when available.
+- Optionally record whitelisted JSON fields only: `accepted`, `status`, `idempotency_key`, `signal_event_id`, `order_backend_signal_id`, `request_id`, and `code`.
+- Never store gateway URL, bearer token, authorization headers, response body, raw error message, or arbitrary downstream response fields in public attempt responses.
+- Failed handoffs store sanitized error type/status summaries instead of raw exception strings.
+
 ## Verification
 
 Contract regression is covered by `backend/tests/test_ai_trading_routes.py`:
 
 - `test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only`
 - `test_ai_trading_strategy_signal_and_handoff_flow`
-- Redaction and blocker-specific handoff tests
+- Redaction, response-summary, and blocker-specific handoff tests
 
 ## Local Mock Gateway
 

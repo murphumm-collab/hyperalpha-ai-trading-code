@@ -51,6 +51,15 @@ SPEC_VERSION = "hyperalpha.ai_trading.strategy_spec.v1"
 SIGNAL_VERSION = "hyperalpha.ai_trading.signal_candidate.v1"
 SIGNAL_GATEWAY_MESSAGE_TYPE = "AI_TRADING_SIGNAL_CANDIDATE"
 SIGNAL_GATEWAY_MESSAGE_VERSION = "hyperalpha.ai_trading.gateway_message.v1"
+SIGNAL_GATEWAY_RESPONSE_SUMMARY_FIELDS = (
+    "accepted",
+    "status",
+    "idempotency_key",
+    "signal_event_id",
+    "order_backend_signal_id",
+    "request_id",
+    "code",
+)
 DEFAULT_TIMEFRAME = "15m"
 SUPPORTED_TIMEFRAMES = {
     "1m",
@@ -2390,7 +2399,33 @@ def _gateway_response_audit(response: Any = None, exc: Optional[BaseException] =
     }
     if exc is not None:
         audit["error_type"] = _clean_text(exc.__class__.__name__, 120) or "Exception"
+    response_summary = _gateway_response_summary(response if response is not None else error_response)
+    if response_summary:
+        audit["response_summary"] = response_summary
     return audit
+
+
+def _gateway_response_summary(response: Any) -> Dict[str, Any]:
+    """Return a whitelisted non-secret summary from an order-backend response."""
+    if response is None or not hasattr(response, "json"):
+        return {}
+    try:
+        payload = response.json()
+    except Exception:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    summary: Dict[str, Any] = {}
+    for key in SIGNAL_GATEWAY_RESPONSE_SUMMARY_FIELDS:
+        if key not in payload:
+            continue
+        value = _redact_sensitive_payload(payload.get(key))
+        if isinstance(value, (bool, int, float)) or value is None:
+            summary[key] = value
+        else:
+            summary[key] = _clean_text(value, 300)
+    return summary
 
 
 def _gateway_error_message(exc: BaseException) -> str:

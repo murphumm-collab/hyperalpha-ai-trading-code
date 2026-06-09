@@ -60,7 +60,7 @@
 - handoff attempt response 现在会对 blockers 和 eligibility audit JSON 递归 mask 敏感 key，例如 api_key、access_token、authorization、private_key；数据库里的 attempt audit 原文仍保留。
 - Hyper AI AI Trading recent signals 行现在有只读 handoff history 按钮，会读取 `/handoff-attempts` 并把 attempts JSON 回填聊天框给 agent 做审计复核，不会触发执行。
 - handoff attempts 的 `eligibility_json` 现在会在已确认的 blocked/failed/submitted attempt 中记录非敏感 `user_confirmation`，例如 `confirmed=true` 和确认来源；未确认请求仍不写 attempt。
-- submitted handoff attempts 的 `eligibility_json` 现在会记录非敏感 `gateway_response.status_code`，不记录 gateway URL/token 或响应 body，避免订单后端误回敏感内容被持久化。
+- submitted/failed handoff attempts 的 `eligibility_json.gateway_response` 现在只记录非敏感 response summary：HTTP status code 加白名单 JSON 字段（accepted/status/idempotency/request/code 等），不记录 gateway URL/token、authorization、响应 body 或订单后端任意返回字段，避免订单后端误回敏感内容被持久化/出站。
 - failed handoff 的 event `error_message`、attempt `error_message` 和 API error detail 现在只保留清洗后的错误类型/status，例如 `Signal gateway handoff failed: FakeGatewayError (status 502)`，不会持久化 raw exception 中的 gateway URL/token/body。
 - 新增 signal event reject 流程：`POST /api/ai-trading/signal-events/{id}/reject` 只允许拒绝 `review_candidate`，会把 signal JSON 标为 `rejected_by_user`、`eligible_for_backend_handoff=false`、`handoff_status=rejected`；Hyper AI recent signals 行有拒绝按钮，拒绝后回填聊天框供 agent 复核。
 - 持久化 signal event 时会把 signal JSON 的 `idempotency_key` 改成事件级 `signal_event:{id}`，并写入 `signal_event_id`；gateway payload 顶层 idempotency key 复用同一个值，避免同一 strategy spec 生成多个候选信号时共享 preview key。
@@ -217,6 +217,9 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 gateway response status audit 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 failed handoff error sanitization 后通过，16 条 AI Trading route 回归全绿；覆盖 API detail、event error、failed attempt 都不泄露 URL/token/body。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 failed handoff error sanitization 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py -q` 已在 gateway response summary 白名单审计后通过，29 条回归全绿；覆盖 submitted/failed handoff attempt 不泄露响应 token/body/authorization。
+- `cd backend && uv run python -m py_compile services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py scripts/ai_trading_v1_acceptance_smoke.py` 已在 gateway response summary 白名单审计后通过。
+- `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` 已在 gateway response summary 白名单审计后返回 `success=true`。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 runtime max handoff age visibility 后重新通过，16 条 AI Trading route 回归全绿。
 - `cd frontend && npm run build` 已在 Hyper AI Gateway 卡片显示 max-age 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal payload recursive redaction 后通过，17 条 AI Trading route 回归全绿；覆盖 signal detail 和 gateway payload 都不泄露敏感字段。
