@@ -84,6 +84,8 @@ Local checkpoint: current branch `HEAD`
 - Auth-aware Hyper AI, Signal AI, Prompt AI, Program AI, Attribution AI, Program Trader, Program Backtest, Kline AI, Prompt Manager, and Signal Manager frontend requests.
 - `/app/ai-trading` and `#ai-trading` route aliases resolve to the existing Hyper AI trading agent page.
 - Hyper AI startup splash has a bounded fallback so backend/API startup failures surface the app shell instead of trapping users on the loading screen.
+- AI Trading strategy-spec API drafts and validates structured, signal-only Hyperliquid strategy plans with explicit risk, TP/SL, user-approval, and no-direct-order boundaries.
+- Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -224,6 +226,8 @@ Local checkpoint: current branch `HEAD`
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
 | AI Trading route alias | Done | `/app/ai-trading`, `/ai-trading`, and `#ai-trading` resolve to the Hyper AI page without duplicating UI state |
 | Hyper AI startup fallback | Done | Splash completes after a bounded wait even if initial backend data is unavailable, allowing the AI Trading shell to render API/connectivity errors |
+| AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
+| AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
@@ -473,6 +477,11 @@ Local checkpoint: current branch `HEAD`
 - Partial: Playwright opened the current repo Vite app at `http://127.0.0.1:5174/app/ai-trading` and confirmed the app title/root rendered; backend API/WS calls returned errors because the local backend/Postgres were not running.
 - Passed: Frontend production build after adding a bounded Hyper AI startup splash fallback.
 - Passed: Playwright opened `http://127.0.0.1:5174/app/ai-trading`, waited beyond the fallback window, and confirmed the Hyper AI app shell rendered instead of remaining stuck on splash while backend API/WS calls failed locally.
+- Passed: AI Trading strategy spec compile in both system Python and `uv run` backend environment for the service, API route, and main router registration.
+- Passed: AI Trading strategy spec service smoke test in `uv run`: complete drafts become `ready_for_review`, missing TP/SL returns `needs_user_input`, invalid owner IDs are flagged, and direct AI order-placement flags are rejected.
+- Passed: AI Trading strategy spec FastAPI route smoke test in `uv run`: schema, draft, and validate endpoints preserve `signal_only`, `ai_may_place_orders=false`, and reject direct-order mutation.
+- Passed: Frontend production build after adding the Hyper AI AI Trading strategy-spec draft controls.
+- Partial: Playwright opened the current repo Vite app at `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; the new per-symbol draft control could not be clicked in-browser because backend/API symbol loading is unavailable while local backend/Postgres are not running.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

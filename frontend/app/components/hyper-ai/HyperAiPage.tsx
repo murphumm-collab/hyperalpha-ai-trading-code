@@ -48,6 +48,8 @@ import {
   Brain,
   MessageCircle,
   Blocks,
+  FileJson,
+  ShieldCheck,
   Search as SearchIcon
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
@@ -117,6 +119,44 @@ interface Message {
   toolCalls?: ToolCallEntry[]
   isInterrupted?: boolean
   interruptedRound?: number
+}
+
+interface AiTradingStrategySpec {
+  symbol?: string
+  timeframe?: string
+  entry?: {
+    bias?: string
+  }
+  exit?: {
+    stop_loss?: {
+      required?: boolean
+      rule?: string | null
+    }
+    take_profit?: {
+      required?: boolean
+      rule?: string | null
+    }
+  }
+  risk?: {
+    profile?: string
+    max_loss_pct?: number | null
+    max_loss_usd?: number | null
+    max_leverage?: number | null
+    position_notional_usd?: number | null
+  }
+  execution?: {
+    signal_only?: boolean
+    auto_execution_enabled?: boolean
+    requires_user_approval?: boolean
+    ai_may_place_orders?: boolean
+    order_backend_only?: boolean
+  }
+  validation?: {
+    status?: string
+    issues?: string[]
+    warnings?: string[]
+    safe_to_emit_signal?: boolean
+  }
 }
 
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
@@ -648,6 +688,9 @@ export default function HyperAiPage() {
   const [tradingSymbolSource, setTradingSymbolSource] = useState<'watchlist' | 'ranked' | 'available' | 'none'>('none')
   const [tradingSymbolsLoading, setTradingSymbolsLoading] = useState(false)
   const [tradingSymbolsError, setTradingSymbolsError] = useState<string | null>(null)
+  const [strategyDraft, setStrategyDraft] = useState<AiTradingStrategySpec | null>(null)
+  const [strategyDraftLoadingSymbol, setStrategyDraftLoadingSymbol] = useState<string | null>(null)
+  const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -786,6 +829,47 @@ export default function HyperAiPage() {
       : `Act as a Hyperliquid AI Trading Agent for ${symbol}. Before execution, check data availability, current market state, entry/exit logic, position and leverage constraints, max-loss limits, and whether take-profit/stop-loss or alternative risk controls are required. If risk constraints are not met, return HOLD. Provide the plan and constraints for my confirmation first; do not place an order directly.`
     setInputValue(prompt)
     setTimeout(() => textareaRef.current?.focus(), 50)
+  }
+
+  const handleStrategySpecDraft = async (symbol: string) => {
+    setStrategyDraftLoadingSymbol(symbol)
+    setStrategyDraftError(null)
+    try {
+      const strategyText = currentLang === 'zh'
+        ? `为 ${symbol} 设计一版 15m 到 1h 的 Hyperliquid 趋势/突破策略，必须包含止损、止盈、最大亏损、杠杆限制；如果条件不完整则输出 HOLD。`
+        : `Design a 15m to 1h Hyperliquid trend/breakout strategy for ${symbol}. Include stop-loss, take-profit, max loss, and leverage constraints; return HOLD if conditions are incomplete.`
+      const res = await authFetch('/api/ai-trading/strategy-spec/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol,
+          strategy_text: strategyText,
+          timeframe: '15m',
+          risk_profile: 'balanced',
+          max_loss_pct: 1,
+          max_leverage: 3,
+          require_stop_loss: true,
+          require_take_profit: true,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to draft strategy spec')
+      }
+
+      const spec = data.spec as AiTradingStrategySpec
+      setStrategyDraft(spec)
+      const reviewPrompt = currentLang === 'zh'
+        ? `请审核下面这份 AI Trading Strategy Spec：先指出缺失的约束、是否需要补充止盈止损、是否满足实盘前的风控；如果不满足，请给出 HOLD 和需要我确认的问题。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+        : `Review this AI Trading Strategy Spec. Identify missing constraints, whether stop-loss/take-profit need refinement, and whether the spec passes pre-live risk checks. If it does not pass, return HOLD and ask for the required confirmations. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+      setInputValue(reviewPrompt)
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to draft AI trading strategy spec:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to draft strategy spec')
+    } finally {
+      setStrategyDraftLoadingSymbol(null)
+    }
   }
 
   const fetchConversations = async () => {
@@ -1460,19 +1544,39 @@ export default function HyperAiPage() {
             {tradingSymbolsError && (
               <div className="mb-2 text-xs text-red-500">{tradingSymbolsError}</div>
             )}
+            {strategyDraftError && (
+              <div className="mb-2 text-xs text-red-500">{strategyDraftError}</div>
+            )}
 
             {tradingSymbols.length > 0 ? (
               <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
                 {tradingSymbols.map(symbol => (
-                  <button
+                  <div
                     key={symbol}
-                    type="button"
-                    onClick={() => handleTradingSymbolPrompt(symbol)}
-                    className="rounded-md border px-2 py-1 text-xs font-medium transition-colors hover:border-primary hover:bg-primary/10"
-                    disabled={sending}
+                    className="flex h-8 items-center overflow-hidden rounded-md border bg-background"
                   >
-                    {symbol}
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => handleTradingSymbolPrompt(symbol)}
+                      className="h-full px-2 text-xs font-medium transition-colors hover:bg-primary/10"
+                      disabled={sending}
+                    >
+                      {symbol}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStrategySpecDraft(symbol)}
+                      className="flex h-full w-7 items-center justify-center border-l text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={sending || strategyDraftLoadingSymbol !== null}
+                      title={t('hyperAi.aiTradingDraftSpec', 'Draft strategy spec')}
+                    >
+                      {strategyDraftLoadingSymbol === symbol ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <FileJson className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </div>
                 ))}
               </div>
             ) : (
@@ -1481,6 +1585,50 @@ export default function HyperAiPage() {
                   ? t('common.loading', 'Loading...')
                   : t('hyperAi.aiTradingEmpty', 'Configure a Hyperliquid watchlist in Settings.')}
               </p>
+            )}
+
+            {strategyDraft && (
+              <div className="mt-3 rounded-md border bg-muted/30 p-2 text-xs">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5 font-medium">
+                    <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span className="truncate">
+                      {strategyDraft.symbol || 'Symbol'} · {strategyDraft.timeframe || '-'}
+                    </span>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded px-1.5 py-0.5 ${
+                      strategyDraft.validation?.safe_to_emit_signal
+                        ? 'bg-green-500/10 text-green-600'
+                        : 'bg-yellow-500/10 text-yellow-600'
+                    }`}
+                  >
+                    {strategyDraft.validation?.status || 'draft'}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-1 text-muted-foreground">
+                  <span>{t('hyperAi.aiTradingBias', 'Bias')}</span>
+                  <span className="truncate text-foreground">{strategyDraft.entry?.bias || '-'}</span>
+                  <span>{t('hyperAi.aiTradingMaxLoss', 'Max loss')}</span>
+                  <span className="truncate text-foreground">
+                    {strategyDraft.risk?.max_loss_pct != null ? `${strategyDraft.risk.max_loss_pct}%` : '-'}
+                  </span>
+                  <span>{t('hyperAi.aiTradingLeverage', 'Leverage')}</span>
+                  <span className="truncate text-foreground">
+                    {strategyDraft.risk?.max_leverage != null ? `${strategyDraft.risk.max_leverage}x` : '-'}
+                  </span>
+                  <span>{t('hyperAi.aiTradingBoundary', 'Boundary')}</span>
+                  <span className="truncate text-foreground">
+                    {strategyDraft.execution?.signal_only ? 'signal only' : 'review'}
+                  </span>
+                </div>
+                {strategyDraft.validation?.issues && strategyDraft.validation.issues.length > 0 && (
+                  <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span className="break-words">{strategyDraft.validation.issues.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+              </div>
             )}
           </div>
 

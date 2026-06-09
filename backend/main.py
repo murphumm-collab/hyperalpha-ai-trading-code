@@ -723,6 +723,7 @@ from api.system_routes import router as system_router
 from api.binance_routes import router as binance_router
 from api.ai_stream_routes import router as ai_stream_router
 from api.hyper_ai_routes import router as hyper_ai_router
+from api.ai_trading_routes import router as ai_trading_router
 from api.bot_routes import router as bot_router
 from api.factor_routes import router as factor_router
 from api.news_routes import router as news_router
@@ -756,6 +757,7 @@ app.include_router(system_router)
 app.include_router(binance_router)
 app.include_router(ai_stream_router)
 app.include_router(hyper_ai_router)
+app.include_router(ai_trading_router)
 app.include_router(bot_router)
 app.include_router(factor_router)
 app.include_router(news_router)
