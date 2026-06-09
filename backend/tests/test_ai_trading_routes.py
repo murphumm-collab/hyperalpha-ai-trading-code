@@ -583,6 +583,57 @@ def test_ai_trading_signal_handoff_requires_signal_only_boundary(tmp_path, monke
     assert "signal_missing_signal_only_boundary" in attempts.json()["attempts"][0]["blockers"]
 
 
+def test_ai_trading_signal_handoff_requires_user_confirmation_boundary(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        signal = json.loads(row.signal_json)
+        signal["execution_boundary"]["requires_user_confirmation"] = False
+        row.signal_json = json.dumps(signal)
+        session.commit()
+    finally:
+        session.close()
+
+    calls = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        raise AssertionError("gateway should not be called without the user-confirmation boundary")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    eligibility = detail.json()["signal_event"]["handoff_eligibility"]
+    assert eligibility["eligible"] is False
+    assert "signal_missing_user_confirmation_boundary" in eligibility["blockers"]
+
+    runtime = client.get("/api/ai-trading/runtime").json()
+    handoff_summary = runtime["signal_events"]["handoff_eligibility"]
+    assert handoff_summary["eligible"] == 0
+    assert handoff_summary["by_blocker"]["signal_missing_user_confirmation_boundary"] == 1
+
+    blocked_handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert blocked_handoff.status_code == 400
+    assert "signal_missing_user_confirmation_boundary" in blocked_handoff.json()["detail"]
+    assert calls == []
+
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    assert attempts.json()["attempts"][0]["result"] == "blocked"
+    assert "signal_missing_user_confirmation_boundary" in attempts.json()["attempts"][0]["blockers"]
+
+
 def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)

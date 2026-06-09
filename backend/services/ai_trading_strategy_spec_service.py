@@ -1961,6 +1961,8 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         blockers.append("signal_missing_signal_only_boundary")
     if execution_boundary.get("not_an_order") is not True:
         blockers.append("signal_missing_not_an_order_boundary")
+    if execution_boundary.get("requires_user_confirmation") is not True:
+        blockers.append("signal_missing_user_confirmation_boundary")
     if execution_boundary.get("ai_may_place_orders") is not False:
         blockers.append("signal_allows_direct_ai_order_placement")
     if execution_boundary.get("order_backend_only") is not True:

@@ -1070,6 +1070,7 @@ export default function HyperAiPage() {
       execution_boundary_missing: t('hyperAi.aiTradingExecutionBoundaryMissing', 'Execution boundary missing'),
       signal_missing_signal_only_boundary: t('hyperAi.aiTradingSignalOnlyBoundaryMissing', 'signal_only missing'),
       signal_missing_not_an_order_boundary: t('hyperAi.aiTradingNotAnOrderBoundaryMissing', 'not_an_order missing'),
+      signal_missing_user_confirmation_boundary: t('hyperAi.aiTradingUserConfirmationBoundaryMissing', 'User confirmation missing'),
       signal_allows_direct_ai_order_placement: t('hyperAi.aiTradingDirectAiOrderBlocked', 'Direct AI order not allowed'),
       signal_missing_order_backend_only_boundary: t('hyperAi.aiTradingOrderBackendOnlyMissing', 'Order backend boundary missing'),
       event_status_not_review_candidate: t('hyperAi.aiTradingEventNotReviewCandidate', 'Not review candidate'),
