@@ -455,6 +455,7 @@ def build_completion_report(
         production_track = "external_evidence_accepted_pending_explicit_confirmation"
     else:
         production_track = "pending_external_acceptance"
+    effective_external_pending_count = 0 if production_evidence["ready"] else len(pending_external_items)
 
     return {
         "local_v1_accepted": local_v1_accepted,
@@ -464,7 +465,8 @@ def build_completion_report(
         "summary": {
             "local_track": "accepted" if not local_blockers and not missing_external_markers else "incomplete",
             "production_track": production_track,
-            "external_pending_count": len(pending_external_items),
+            "external_pending_count": effective_external_pending_count,
+            "documented_external_pending_count": len(pending_external_items),
             "local_blockers": local_blockers,
             "missing_external_markers": missing_external_markers,
             "production_evidence_blockers": list(production_evidence["blockers"]),

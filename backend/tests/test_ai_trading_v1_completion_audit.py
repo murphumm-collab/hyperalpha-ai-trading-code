@@ -154,6 +154,7 @@ def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
     assert report["summary"]["local_blockers"] == []
     assert report["summary"]["missing_external_markers"] == []
     assert report["summary"]["external_pending_count"] >= 6
+    assert report["summary"]["documented_external_pending_count"] == report["summary"]["external_pending_count"]
     assert report["production_evidence"]["provided"] is False
     assert report["production_evidence"]["ready"] is False
     statuses = {item["id"]: item["status"] for item in report["external_acceptance"]}
@@ -197,6 +198,8 @@ def test_completion_audit_validates_production_evidence_but_requires_explicit_li
     assert report_without_confirmation["production_evidence"]["ready"] is True
     assert report_without_confirmation["production_evidence"]["accepted_count"] == len(completion_audit.EXTERNAL_REQUIREMENTS)
     assert report_without_confirmation["ready_for_live_orders"] is False
+    assert report_without_confirmation["summary"]["external_pending_count"] == 0
+    assert report_without_confirmation["summary"]["documented_external_pending_count"] == len(completion_audit.EXTERNAL_REQUIREMENTS)
     assert (
         report_without_confirmation["summary"]["production_track"]
         == "external_evidence_accepted_pending_explicit_confirmation"
@@ -210,6 +213,7 @@ def test_completion_audit_validates_production_evidence_but_requires_explicit_li
 
     assert report_with_confirmation["ready_for_live_orders"] is True
     assert report_with_confirmation["summary"]["production_track"] == "accepted"
+    assert report_with_confirmation["summary"]["external_pending_count"] == 0
 
 
 def test_completion_audit_rejects_incomplete_or_secret_bearing_production_evidence(tmp_path):

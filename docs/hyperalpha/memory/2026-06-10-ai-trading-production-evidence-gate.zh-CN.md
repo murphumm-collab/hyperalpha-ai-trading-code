@@ -15,6 +15,7 @@
   - Evidence 必须覆盖七个外部验收项，且每项都为 `status=accepted`、有 `validated_at`、`validated_by`、`evidence_summary`、`artifact_refs`、`secret_values_returned=false`。
   - Evidence 会扫描 Authorization/Bearer、API key/password/private key/access token、DB URL、OpenAI-style `sk-...`、AWS-style key 等常见密钥模式。
   - 即使 evidence 完整，默认仍保持 `ready_for_live_orders=false`；必须显式追加 `--allow-live-ready-from-evidence` 才允许 live-ready 变 true。
+  - 报告区分 effective `external_pending_count` 和 `documented_external_pending_count`：默认/模板为 `7/7`；完整脱敏 evidence 可把 effective pending 降到 `0`，但保留文档里的 local-V1 pending marker 数。
   - 继承最新一键本地验收证据：`scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`。
 
 - `docs/hyperalpha/ai-trading-v1-production-evidence.template.json`：
@@ -35,6 +36,7 @@
 - `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py -q`：5 passed。
 - `cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-local`：passed，返回 `local_v1_accepted=true`、`ready_for_live_orders=false`、`production_evidence.provided=false`、`production_track=pending_external_acceptance`。
 - `cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production`：按预期 exit 1，返回 `production_evidence.provided=true`、`production_evidence.ready=false`、`accepted_count=0`、`required_count=7`、`ready_for_live_orders=false`。
+- 临时完整脱敏 accepted evidence CLI 检查：未加 `--allow-live-ready-from-evidence` 时返回 `ready_for_live_orders=false`、`production_track=external_evidence_accepted_pending_explicit_confirmation`、effective/documented pending `0/7`；加 `--allow-live-ready-from-evidence --strict-production` 后返回 `ready_for_live_orders=true`、`production_track=accepted`、effective/documented pending `0/7`。
 - `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：68 passed，5 个既有 UTC deprecation warnings。
 - `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：passed；一键本地验收覆盖 backend compile、68 条 AI Trading 回归、API smoke、live model-adjust 默认阻断、默认 production handoff/readiness/DB-audit blockers、local V1 completion boundary audit、production completion boundary expected blocker、production evidence template expected blocker、frontend build、runtime readiness 和 live local mock handoff。最新证据为 strategy spec `#44`、signal event `#42`、agent sessions `29`、handoff attempts `40`、gateway response `mock_accepted`、model-adjust blocker `model_profile_not_configured`。
 
