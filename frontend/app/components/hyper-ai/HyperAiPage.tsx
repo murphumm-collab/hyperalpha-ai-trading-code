@@ -644,6 +644,10 @@ export default function HyperAiPage() {
   const [externalTools, setExternalTools] = useState<ToolInfo[]>([])
   const [showToolModal, setShowToolModal] = useState(false)
   const [selectedTool, setSelectedTool] = useState<ToolInfo | null>(null)
+  const [tradingSymbols, setTradingSymbols] = useState<string[]>([])
+  const [tradingSymbolSource, setTradingSymbolSource] = useState<'watchlist' | 'available' | 'none'>('none')
+  const [tradingSymbolsLoading, setTradingSymbolsLoading] = useState(false)
+  const [tradingSymbolsError, setTradingSymbolsError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -659,6 +663,7 @@ export default function HyperAiPage() {
     fetchDiscordBotConfig()
     fetchNotificationConfig()
     fetchExternalTools()
+    fetchTradingSymbols()
   }, [])
 
   useEffect(() => {
@@ -726,6 +731,51 @@ export default function HyperAiPage() {
     } catch (e) {
       console.error('Failed to fetch external tools:', e)
     }
+  }
+
+  const fetchTradingSymbols = async () => {
+    setTradingSymbolsLoading(true)
+    setTradingSymbolsError(null)
+    try {
+      const [watchlistRes, availableRes] = await Promise.all([
+        authFetch('/api/hyperliquid/symbols/watchlist'),
+        authFetch('/api/hyperliquid/symbols/available'),
+      ])
+      const watchlistData = watchlistRes.ok ? await watchlistRes.json() : {}
+      const availableData = availableRes.ok ? await availableRes.json() : {}
+      const watchlist = Array.isArray(watchlistData.symbols) ? watchlistData.symbols : []
+      const available = Array.isArray(availableData.symbols)
+        ? availableData.symbols.map((entry: { symbol?: string } | string) => (
+            typeof entry === 'string' ? entry : entry.symbol
+          )).filter((symbol: string | undefined): symbol is string => Boolean(symbol))
+        : []
+
+      if (watchlist.length > 0) {
+        setTradingSymbols(watchlist.slice(0, 20))
+        setTradingSymbolSource('watchlist')
+      } else if (available.length > 0) {
+        setTradingSymbols(available.slice(0, 20))
+        setTradingSymbolSource('available')
+      } else {
+        setTradingSymbols([])
+        setTradingSymbolSource('none')
+      }
+    } catch (e) {
+      console.error('Failed to fetch trading symbols:', e)
+      setTradingSymbolsError(e instanceof Error ? e.message : 'Failed to load trading symbols')
+      setTradingSymbols([])
+      setTradingSymbolSource('none')
+    } finally {
+      setTradingSymbolsLoading(false)
+    }
+  }
+
+  const handleTradingSymbolPrompt = (symbol: string) => {
+    const prompt = currentLang === 'zh'
+      ? `请作为 Hyperliquid AI Trading Agent，针对 ${symbol} 做一版可执行前的策略分析：先检查该标的的数据可用性、当前市场状态、入场/出场逻辑、仓位和杠杆约束、最大亏损限制、是否需要止盈止损或替代风控；如果策略不满足风控，请明确给出 HOLD。先给出方案和需要我确认的约束，不要直接下单。`
+      : `Act as a Hyperliquid AI Trading Agent for ${symbol}. Before execution, check data availability, current market state, entry/exit logic, position and leverage constraints, max-loss limits, and whether take-profit/stop-loss or alternative risk controls are required. If risk constraints are not met, return HOLD. Provide the plan and constraints for my confirmation first; do not place an order directly.`
+    setInputValue(prompt)
+    setTimeout(() => textareaRef.current?.focus(), 50)
   }
 
   const fetchConversations = async () => {
@@ -1363,6 +1413,64 @@ export default function HyperAiPage() {
               )}
             </div>
           )}
+
+          <div className="border-t pt-4">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <div>
+                <h4 className="flex items-center gap-1.5 text-sm font-medium">
+                  <Play className="h-4 w-4 shrink-0 text-primary" />
+                  {t('hyperAi.aiTrading', 'AI Trading')}
+                </h4>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  {tradingSymbolSource === 'watchlist'
+                    ? t('hyperAi.aiTradingWatchlist', 'Hyperliquid watchlist')
+                    : tradingSymbolSource === 'available'
+                      ? t('hyperAi.aiTradingAvailable', 'Top available Hyperliquid symbols')
+                      : t('hyperAi.aiTradingNoSymbols', 'No Hyperliquid symbols loaded')}
+                </p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={fetchTradingSymbols}
+                disabled={tradingSymbolsLoading}
+                title={t('common.refresh', 'Refresh')}
+              >
+                {tradingSymbolsLoading ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <SearchIcon className="h-3.5 w-3.5" />
+                )}
+              </Button>
+            </div>
+
+            {tradingSymbolsError && (
+              <div className="mb-2 text-xs text-red-500">{tradingSymbolsError}</div>
+            )}
+
+            {tradingSymbols.length > 0 ? (
+              <div className="flex max-h-28 flex-wrap gap-1.5 overflow-y-auto pr-1">
+                {tradingSymbols.map(symbol => (
+                  <button
+                    key={symbol}
+                    type="button"
+                    onClick={() => handleTradingSymbolPrompt(symbol)}
+                    className="rounded-md border px-2 py-1 text-xs font-medium transition-colors hover:border-primary hover:bg-primary/10"
+                    disabled={sending}
+                  >
+                    {symbol}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {tradingSymbolsLoading
+                  ? t('common.loading', 'Loading...')
+                  : t('hyperAi.aiTradingEmpty', 'Configure a Hyperliquid watchlist in Settings.')}
+              </p>
+            )}
+          </div>
 
           {/* Memory Entry */}
           <div className="pt-4">

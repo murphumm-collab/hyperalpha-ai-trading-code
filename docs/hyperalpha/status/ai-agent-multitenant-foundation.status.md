@@ -63,6 +63,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI and Program AI task admission is conversation-scoped, so one conversation cannot run overlapping writes while other users/conversations can still run.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
+- Hyper AI exposes a Hyperliquid AI Trading focus strip using the user's watchlist or top available symbols to prefill safe strategy prompts.
 - User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
@@ -194,6 +195,7 @@ Local checkpoint: current branch `HEAD`
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
 | Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
+| Hyper AI trading focus UI | Done | Hyper AI config panel loads the current user's Hyperliquid watchlist, falls back to top available symbols, and pre-fills no-auto-order strategy prompts per symbol |
 | Exchange preference ownership | Done | `/api/users/exchange-config` reads/writes `UserExchangeConfig` by resolved request user; frontend `ExchangeContext` uses `authFetch` |
 | Trading command watchlist isolation | Done | Hyperliquid/Binance AI prompts use each account owner's watchlist while price collectors use the union |
 | Hyperliquid API ownership guard | Done | Account-level Hyperliquid config, balance, positions, manual order, wallet, agent wallet, actions summary, and upgrade-check APIs validate current user |
@@ -312,6 +314,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream cross-instance conversation duplicate guard smoke test in `uv run`: same-user same-conversation starts reused a remote active task with a live lease, cross-user tasks stayed isolated, and stale running records without leases were interrupted.
 - Passed: AI runtime remote stats smoke test in `uv run`: admin runtime stats reported local, remote, effective, persisted, and stale running tasks and per-user remote occupancy from DB plus fake Redis leases.
 - Passed: AI stream runner heartbeat smoke test in `uv run`: task create/chunk/complete persisted `runner_id` and refreshed `last_heartbeat_epoch`; admin runtime stats returned the current runner id.
+- Passed: Hyper AI trading focus UI frontend build after adding the Hyperliquid watchlist/top-symbol prompt strip to the Agent config panel.
 - Passed: Frontend production build after Settings AI Runtime displayed distributed admission status, Redis leases, and lease TTL.
 - Passed: AI stream runtime environment templates updated for single-server and Redis distributed admission configuration.
 - Passed: AI stream task ID UUID smoke test in `uv run`: 5000 sequential task IDs with the same prefix were unique and preserved the expected prefix/timestamp/random-suffix shape.
