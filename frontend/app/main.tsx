@@ -120,11 +120,12 @@ const PATH_PAGE_ALIASES: Record<string, string> = {
 }
 
 const AI_TRADING_BACKTEST_PATH_RE = /^\/(?:app\/)?ai-trading\/backtests\/\d+\/?$/
+const AI_TRADING_AGENT_SESSION_PATH_RE = /^\/(?:app\/)?ai-trading\/sessions\/[^/]+\/?$/
 
 const resolvePageName = (page: string) => PAGE_ALIASES[page] || page
 const resolvePathPageName = (pathname: string) => (
   PATH_PAGE_ALIASES[pathname] ||
-  (AI_TRADING_BACKTEST_PATH_RE.test(pathname) ? 'hyper-ai' : undefined)
+  (AI_TRADING_BACKTEST_PATH_RE.test(pathname) || AI_TRADING_AGENT_SESSION_PATH_RE.test(pathname) ? 'hyper-ai' : undefined)
 )
 
 function App() {

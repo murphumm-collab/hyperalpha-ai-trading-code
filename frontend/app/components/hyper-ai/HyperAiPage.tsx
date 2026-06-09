@@ -392,6 +392,7 @@ const AI_TRADING_ACTION_TIMEOUT_MS = 45_000
 const AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE = '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":1}'
 
 const AI_TRADING_BACKTEST_ROUTE_RE = /^\/(?:app\/)?ai-trading\/backtests\/(\d+)\/?$/
+const AI_TRADING_AGENT_SESSION_ROUTE_RE = /^\/(?:app\/)?ai-trading\/sessions\/([^/?#]+)\/?$/
 
 async function authFetchAiTradingAction(
   input: RequestInfo | URL,
@@ -447,6 +448,59 @@ function parseAiTradingBacktestRouteSpecId(): number | null {
   const hashId = params.get('backtestSpecId') || params.get('backtest_spec_id')
   const parsed = Number(hashId)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
+}
+
+function cleanAiTradingAgentSessionRouteId(value?: string | null): string | null {
+  if (!value) {
+    return null
+  }
+  let decoded = value
+  try {
+    decoded = decodeURIComponent(value)
+  } catch {
+    decoded = value
+  }
+  const trimmed = decoded.trim()
+  return /^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$/.test(trimmed) ? trimmed : null
+}
+
+function parseAiTradingAgentSessionRouteId(): string | null {
+  if (typeof window === 'undefined') {
+    return null
+  }
+
+  const pathMatch = window.location.pathname.match(AI_TRADING_AGENT_SESSION_ROUTE_RE)
+  const pathId = cleanAiTradingAgentSessionRouteId(pathMatch?.[1])
+  if (pathId) {
+    return pathId
+  }
+
+  const hash = window.location.hash.slice(1)
+  const hashParamIndex = hash.indexOf('?')
+  if (hashParamIndex === -1) {
+    return null
+  }
+
+  const pageName = hash.slice(0, hashParamIndex)
+  if (!['ai-trading', 'hyper-ai'].includes(pageName)) {
+    return null
+  }
+
+  const params = new URLSearchParams(hash.slice(hashParamIndex + 1))
+  return cleanAiTradingAgentSessionRouteId(params.get('agentSessionId') || params.get('agent_session_id') || params.get('sessionId'))
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function textValue(value: unknown, fallback = '-'): string {
+  if (value === null || value === undefined || value === '') {
+    return fallback
+  }
+  return String(value)
 }
 
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
@@ -1004,6 +1058,12 @@ export default function HyperAiPage() {
   const [strategyBacktestEvidencePageLoading, setStrategyBacktestEvidencePageLoading] = useState(false)
   const [strategyBacktestEvidencePageError, setStrategyBacktestEvidencePageError] = useState<string | null>(null)
   const [strategyBacktestEvidencePageReloadKey, setStrategyBacktestEvidencePageReloadKey] = useState(0)
+  const [agentSessionDetailPageId, setAgentSessionDetailPageId] = useState<string | null>(() => parseAiTradingAgentSessionRouteId())
+  const [agentSessionDetailContext, setAgentSessionDetailContext] = useState<AiTradingAgentSessionContext | null>(null)
+  const [agentSessionDetailLoading, setAgentSessionDetailLoading] = useState(false)
+  const [agentSessionDetailError, setAgentSessionDetailError] = useState<string | null>(null)
+  const [agentSessionDetailReloadKey, setAgentSessionDetailReloadKey] = useState(0)
+  const [agentSessionDetailCompressing, setAgentSessionDetailCompressing] = useState(false)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -1349,6 +1409,7 @@ export default function HyperAiPage() {
   useEffect(() => {
     const syncBacktestRoute = () => {
       setStrategyBacktestEvidencePageSpecId(parseAiTradingBacktestRouteSpecId())
+      setAgentSessionDetailPageId(parseAiTradingAgentSessionRouteId())
     }
     window.addEventListener('popstate', syncBacktestRoute)
     window.addEventListener('hashchange', syncBacktestRoute)
@@ -1357,6 +1418,52 @@ export default function HyperAiPage() {
       window.removeEventListener('hashchange', syncBacktestRoute)
     }
   }, [])
+
+  useEffect(() => {
+    if (!agentSessionDetailPageId) {
+      setAgentSessionDetailLoading(false)
+      setAgentSessionDetailError(null)
+      setAgentSessionDetailContext(null)
+      return
+    }
+
+    let cancelled = false
+    const loadAgentSessionDetailPage = async () => {
+      setAgentSessionDetailLoading(true)
+      setAgentSessionDetailError(null)
+      setAgentSessionDetailContext(null)
+      try {
+        const res = await authFetchAiTradingAction(
+          `/api/ai-trading/agent-sessions/${encodeURIComponent(agentSessionDetailPageId)}/context?strategy_limit=20&signal_limit=50`
+        )
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          throw new Error(data.detail || 'Failed to load agent session')
+        }
+        if (cancelled) {
+          return
+        }
+        const context = data.context as AiTradingAgentSessionContext
+        setAgentSessionDetailContext(context)
+        setSelectedAiTradingAgentSessionId(agentSessionDetailPageId)
+      } catch (e) {
+        if (cancelled) {
+          return
+        }
+        console.error('Failed to load AI Trading agent session detail page:', e)
+        setAgentSessionDetailError(e instanceof Error ? e.message : 'Failed to load agent session')
+      } finally {
+        if (!cancelled) {
+          setAgentSessionDetailLoading(false)
+        }
+      }
+    }
+
+    loadAgentSessionDetailPage()
+    return () => {
+      cancelled = true
+    }
+  }, [agentSessionDetailPageId, agentSessionDetailReloadKey])
 
   useEffect(() => {
     if (!strategyBacktestEvidencePageSpecId) {
@@ -1414,6 +1521,52 @@ export default function HyperAiPage() {
     window.history.pushState({}, '', `/app/ai-trading/backtests/${targetRecordId}`)
     setStrategyBacktestEvidencePageSpecId(targetRecordId)
     setStrategyBacktestEvidenceDialogOpen(false)
+  }
+
+  const handleAgentSessionDetailPageBack = () => {
+    window.history.pushState({}, '', '/app/ai-trading')
+    setAgentSessionDetailPageId(null)
+    setAgentSessionDetailError(null)
+  }
+
+  const handleOpenAgentSessionDetailPage = (agentSessionId?: string) => {
+    const targetSessionId = cleanAiTradingAgentSessionRouteId(agentSessionId || selectedAiTradingAgentSession?.id)
+    if (!targetSessionId) {
+      return
+    }
+    window.history.pushState({}, '', `/app/ai-trading/sessions/${encodeURIComponent(targetSessionId)}`)
+    setAgentSessionDetailPageId(targetSessionId)
+  }
+
+  const handleCompressAgentSessionDetailContext = async () => {
+    if (!agentSessionDetailPageId) {
+      return
+    }
+    setAgentSessionDetailCompressing(true)
+    setAgentSessionDetailError(null)
+    try {
+      const res = await authFetchAiTradingAction(
+        `/api/ai-trading/agent-sessions/${encodeURIComponent(agentSessionDetailPageId)}/compress-context?strategy_limit=20&signal_limit=50`,
+        { method: 'POST' },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to compress agent session context')
+      }
+      if (data.context) {
+        setAgentSessionDetailContext(data.context as AiTradingAgentSessionContext)
+      }
+      const summary = data.context_summary || data.agent_session?.context_summary || ''
+      if (selectedAiTradingAgentSessionId === agentSessionDetailPageId) {
+        setAgentSessionSummaryDraft(summary)
+      }
+      refreshAiTradingState()
+    } catch (e) {
+      console.error('Failed to compress AI Trading agent session detail context:', e)
+      setAgentSessionDetailError(e instanceof Error ? e.message : 'Failed to compress agent session context')
+    } finally {
+      setAgentSessionDetailCompressing(false)
+    }
   }
 
   const fetchBotConfig = async () => {
@@ -3056,6 +3209,294 @@ export default function HyperAiPage() {
     : null
   const pageActionCounts = Object.entries(pageEvidence?.trigger_summary?.action_counts || {})
     .sort((a, b) => b[1] - a[1])
+  const agentSessionDetail = agentSessionDetailContext?.agent_session || null
+  const agentSessionDetailSpecs = Array.isArray(agentSessionDetailContext?.strategy_specs)
+    ? agentSessionDetailContext.strategy_specs
+    : []
+  const agentSessionDetailSignals = Array.isArray(agentSessionDetailContext?.signal_events)
+    ? agentSessionDetailContext.signal_events
+    : []
+  const agentSessionDetailSymbols = Array.from(new Set([
+    ...agentSessionDetailSpecs.map(spec => textValue(asRecord(spec).symbol, '')),
+    ...agentSessionDetailSignals.map(signal => textValue(asRecord(signal).symbol, '')),
+  ].filter(Boolean))).slice(0, 12)
+  const agentSessionDetailStrategyStatusCounts = Object.entries(
+    agentSessionDetailSpecs.reduce<Record<string, number>>((counts, spec) => {
+      const status = textValue(asRecord(spec).status, 'unknown')
+      counts[status] = (counts[status] || 0) + 1
+      return counts
+    }, {})
+  ).sort(([a], [b]) => a.localeCompare(b))
+  const agentSessionDetailSignalStatusCounts = Object.entries(
+    agentSessionDetailSignals.reduce<Record<string, number>>((counts, signal) => {
+      const status = textValue(asRecord(signal).status, 'unknown')
+      counts[status] = (counts[status] || 0) + 1
+      return counts
+    }, {})
+  ).sort(([a], [b]) => a.localeCompare(b))
+  const agentSessionDetailHandoffCounts = Object.entries(
+    agentSessionDetailSignals.reduce<Record<string, number>>((counts, signal) => {
+      const handoff = textValue(asRecord(signal).handoff_status, 'unknown')
+      counts[handoff] = (counts[handoff] || 0) + 1
+      return counts
+    }, {})
+  ).sort(([a], [b]) => a.localeCompare(b))
+
+  if (agentSessionDetailPageId) {
+    return (
+      <div className="flex h-full flex-col bg-background" data-testid="ai-trading-agent-session-detail-page">
+        <div className="flex items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={handleAgentSessionDetailPageBack}
+              title={t('hyperAi.aiTradingBackToAgent', 'Back to AI Trading')}
+              aria-label={t('hyperAi.aiTradingBackToAgent', 'Back to AI Trading')}
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0">
+              <div className="flex min-w-0 items-center gap-2">
+                <Bot className="h-4 w-4 shrink-0 text-primary" />
+                <h2 className="truncate text-base font-semibold">
+                  {t('hyperAi.aiTradingAgentSessionDetail', 'Agent session detail')}
+                </h2>
+                <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                  {agentSessionDetail?.status || t('hyperAi.aiTradingStatusActive', 'active')}
+                </span>
+              </div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                {agentSessionDetail?.name || agentSessionDetailPageId}
+                {' · '}
+                {agentSessionDetailPageId}
+              </div>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1.5"
+              onClick={handleCompressAgentSessionDetailContext}
+              disabled={agentSessionDetailLoading || agentSessionDetailCompressing}
+              title={t('hyperAi.aiTradingCompressSessionContext', 'Compress context')}
+            >
+              {agentSessionDetailCompressing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              <span className="hidden sm:inline">{t('hyperAi.aiTradingCompressSessionContext', 'Compress context')}</span>
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8"
+              onClick={() => setAgentSessionDetailReloadKey(value => value + 1)}
+              disabled={agentSessionDetailLoading || agentSessionDetailCompressing}
+              title={t('common.refresh', 'Refresh')}
+              aria-label={t('common.refresh', 'Refresh')}
+            >
+              {agentSessionDetailLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+          {agentSessionDetailError && (
+            <div className="mx-auto mb-4 max-w-6xl rounded-md border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-600">
+              {agentSessionDetailError}
+            </div>
+          )}
+
+          {agentSessionDetailLoading && !agentSessionDetailContext ? (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {t('common.loading', 'Loading...')}
+            </div>
+          ) : agentSessionDetailContext ? (
+            <div className="mx-auto max-w-6xl space-y-4">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingStatus', 'Status')}</div>
+                  <div className="mt-1 truncate text-lg font-semibold">
+                    {agentSessionDetail?.status || 'active'}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {agentSessionDetailContext.compression?.format ? String(agentSessionDetailContext.compression.format) : 'ai_trading_agent_session_context.v1'}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingSymbols', 'Symbols')}</div>
+                  <div className="mt-1 truncate text-lg font-semibold">
+                    {agentSessionDetailSymbols.length || 0}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {agentSessionDetailSymbols.join(', ') || '-'}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingSpecsShort', 'Specs')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {agentSessionDetailSpecs.length}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {agentSessionDetailStrategyStatusCounts.map(([status, count]) => `${status}:${count}`).join(', ') || '-'}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingSignals', 'Signals')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {agentSessionDetailSignals.length}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {agentSessionDetailSignalStatusCounts.map(([status, count]) => `${status}:${count}`).join(', ') || '-'}
+                  </div>
+                </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingHandoff', 'Handoff')}</div>
+                  <div className="mt-1 truncate text-lg font-semibold">
+                    {agentSessionDetailHandoffCounts.map(([status, count]) => `${status}:${count}`).join(', ') || '-'}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {t('hyperAi.aiTradingSignalOnly', 'Signal only')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/10 p-4">
+                <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+                  <Brain className="h-4 w-4 text-primary" />
+                  {t('hyperAi.aiTradingAgentSessionSummary', 'Context summary')}
+                </div>
+                <div className="whitespace-pre-wrap break-words rounded bg-background/70 p-3 text-sm text-muted-foreground" data-testid="ai-trading-agent-session-detail-summary">
+                  {agentSessionDetail?.context_summary || t('hyperAi.aiTradingNoContextSummary', 'No context summary yet')}
+                </div>
+              </div>
+
+              <div className="grid gap-4 xl:grid-cols-2">
+                <div className="rounded-md border bg-muted/10 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                    <FileJson className="h-4 w-4 text-primary" />
+                    {t('hyperAi.aiTradingSessionSpecs', 'Session specs')}
+                  </div>
+                  <div className="space-y-2">
+                    {agentSessionDetailSpecs.map((item) => {
+                      const spec = asRecord(item)
+                      const risk = asRecord(spec.risk)
+                      const backtest = asRecord(spec.backtest)
+                      return (
+                        <div key={`detail-spec-${textValue(spec.id)}`} className="rounded-md border bg-background/70 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">
+                                {textValue(spec.symbol)} · {textValue(spec.timeframe)}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                #{textValue(spec.id)} · {textValue(spec.status)}
+                              </div>
+                            </div>
+                            <span className={`shrink-0 rounded px-2 py-1 text-[11px] ${backtestStatusClassName(backtest as AiTradingBacktestSummary)}`}>
+                              {backtestStatusLabel(backtest as AiTradingBacktestSummary)}
+                            </span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+                            <div className="rounded bg-muted/40 px-2 py-1">
+                              <div className="text-[10px] uppercase text-muted-foreground">Loss</div>
+                              <div className="truncate">{textValue(risk.max_loss_pct)}%</div>
+                            </div>
+                            <div className="rounded bg-muted/40 px-2 py-1">
+                              <div className="text-[10px] uppercase text-muted-foreground">Lev</div>
+                              <div className="truncate">{textValue(risk.max_leverage)}x</div>
+                            </div>
+                            <div className="rounded bg-muted/40 px-2 py-1">
+                              <div className="text-[10px] uppercase text-muted-foreground">Notional</div>
+                              <div className="truncate">${textValue(risk.position_notional_usd)}</div>
+                            </div>
+                            <div className="rounded bg-muted/40 px-2 py-1">
+                              <div className="text-[10px] uppercase text-muted-foreground">Model</div>
+                              <div className="truncate">{textValue(asRecord(spec.ai_model).provider, '-')}</div>
+                            </div>
+                          </div>
+                          {Array.isArray(asRecord(spec.validation).warnings) && (asRecord(spec.validation).warnings as unknown[]).length > 0 && (
+                            <div className="mt-2 truncate text-xs text-yellow-600">
+                              {(asRecord(spec.validation).warnings as unknown[]).slice(0, 3).map(String).join(', ')}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {agentSessionDetailSpecs.length === 0 && (
+                      <div className="rounded-md border bg-background/70 p-4 text-sm text-muted-foreground">
+                        {t('hyperAi.aiTradingNoSessionSpecs', 'No strategy specs in this session')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-md border bg-muted/10 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                    <MessageCircle className="h-4 w-4 text-primary" />
+                    {t('hyperAi.aiTradingSessionSignals', 'Session signals')}
+                  </div>
+                  <div className="space-y-2">
+                    {agentSessionDetailSignals.map((item) => {
+                      const signal = asRecord(item)
+                      const eligibility = asRecord(signal.handoff_eligibility)
+                      const blockers = Array.isArray(eligibility.blockers) ? eligibility.blockers.map(String) : []
+                      return (
+                        <div key={`detail-signal-${textValue(signal.id)}`} className="rounded-md border bg-background/70 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">
+                                {textValue(signal.symbol)} · {textValue(signal.action)}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                #{textValue(signal.id)} · spec #{textValue(signal.strategy_spec_id)}
+                              </div>
+                            </div>
+                            <span className={`shrink-0 rounded px-2 py-1 text-[11px] ${
+                              textValue(signal.handoff_status) === 'submitted'
+                                ? 'bg-green-500/10 text-green-600'
+                                : blockers.length > 0
+                                  ? 'bg-yellow-500/10 text-yellow-600'
+                                  : 'bg-muted text-muted-foreground'
+                            }`}>
+                              {textValue(signal.status)} / {textValue(signal.handoff_status)}
+                            </span>
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            {blockers.length > 0
+                              ? blockers.slice(0, 4).map(blocker => signalBlockerLabel(blocker, signal as unknown as AiTradingSignalEventRecord)).join(', ')
+                              : t('hyperAi.aiTradingNoHandoffBlockers', 'No handoff blockers in context')}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {agentSessionDetailSignals.length === 0 && (
+                      <div className="rounded-md border bg-background/70 p-4 text-sm text-muted-foreground">
+                        {t('hyperAi.aiTradingNoSessionSignals', 'No signal events in this session')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+              {t('hyperAi.aiTradingAgentSessionNotFound', 'Agent session not found')}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
 
   if (strategyBacktestEvidencePageSpecId) {
     return (
@@ -3704,7 +4145,7 @@ export default function HyperAiPage() {
                   <div className="truncate text-[11px] text-muted-foreground">
                     {(selectedAiTradingAgentSession.symbols || []).slice(0, 4).join(', ') || selectedAiTradingAgentSession.id}
                   </div>
-                  <div className="grid grid-cols-2 gap-1">
+                  <div className="grid grid-cols-3 gap-1">
                     <button
                       type="button"
                       onClick={() => fetchAiTradingAgentSessionContext(selectedAiTradingAgentSession.id, true)}
@@ -3733,7 +4174,18 @@ export default function HyperAiPage() {
                       ) : (
                         <RefreshCw className="h-3.5 w-3.5" />
                       )}
-                      <span>{t('hyperAi.aiTradingCompressSessionContext', 'Compress context')}</span>
+                      <span>{t('hyperAi.aiTradingCompressSessionContextShort', 'Compress')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAgentSessionDetailPage(selectedAiTradingAgentSession.id)}
+                      disabled={agentSessionContextLoading || agentSessionCompressing}
+                      className="flex h-7 items-center justify-center gap-1.5 rounded-md border bg-background text-[11px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      title={t('hyperAi.aiTradingOpenSessionDetail', 'Open session detail')}
+                      aria-label={t('hyperAi.aiTradingOpenSessionDetail', 'Open session detail')}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      <span>{t('hyperAi.aiTradingOpenSessionShort', 'Detail')}</span>
                     </button>
                   </div>
                   {agentSessionContextError && (
@@ -4232,31 +4684,44 @@ export default function HyperAiPage() {
                     </div>
                     <div className="space-y-1">
                       {recentAgentSessions.map(session => (
-                        <button
+                        <div
                           key={session.id}
-                          type="button"
-                          onClick={() => setSelectedAiTradingAgentSessionId(session.id)}
-                          className={`w-full min-w-0 rounded border px-2 py-1.5 text-left transition-colors hover:bg-primary/10 ${
+                          className={`flex items-stretch gap-1 rounded border transition-colors ${
                             selectedAiTradingAgentSessionId === session.id ? 'border-primary/60 bg-primary/10' : 'bg-background/60'
                           }`}
-                          title={t('hyperAi.aiTradingSelectSession', 'Select session')}
                         >
-                          <div className="flex min-w-0 items-center justify-between gap-2">
-                            <div className="truncate font-medium">{session.name || session.id}</div>
-                            <div className="shrink-0 text-[11px] text-muted-foreground">
-                              {(session.strategy_spec_count ?? 0)}
-                              {' '}
-                              {t('hyperAi.aiTradingSpecsShort', 'specs')}
-                              {' / '}
-                              {(session.signal_event_count ?? 0)}
-                              {' '}
-                              {t('hyperAi.aiTradingSignalsShort', 'signals')}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedAiTradingAgentSessionId(session.id)}
+                            className="min-w-0 flex-1 px-2 py-1.5 text-left transition-colors hover:bg-primary/10"
+                            title={t('hyperAi.aiTradingSelectSession', 'Select session')}
+                          >
+                            <div className="flex min-w-0 items-center justify-between gap-2">
+                              <div className="truncate font-medium">{session.name || session.id}</div>
+                              <div className="shrink-0 text-[11px] text-muted-foreground">
+                                {(session.strategy_spec_count ?? 0)}
+                                {' '}
+                                {t('hyperAi.aiTradingSpecsShort', 'specs')}
+                                {' / '}
+                                {(session.signal_event_count ?? 0)}
+                                {' '}
+                                {t('hyperAi.aiTradingSignalsShort', 'signals')}
+                              </div>
                             </div>
-                          </div>
-                          <div className="truncate text-[11px] text-muted-foreground">
-                            {(session.symbols || []).slice(0, 4).join(', ') || t('hyperAi.aiTradingNoSymbols', 'No symbols')}
-                          </div>
-                        </button>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              {(session.symbols || []).slice(0, 4).join(', ') || t('hyperAi.aiTradingNoSymbols', 'No symbols')}
+                            </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenAgentSessionDetailPage(session.id)}
+                            className="flex w-8 shrink-0 items-center justify-center border-l text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            title={t('hyperAi.aiTradingOpenSessionDetail', 'Open session detail')}
+                            aria-label={t('hyperAi.aiTradingOpenSessionDetail', 'Open session detail')}
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
                       ))}
                       {archivedAgentSessions.length > 0 && (
                         <div className="pt-1">
@@ -4265,33 +4730,46 @@ export default function HyperAiPage() {
                           </div>
                           <div className="space-y-1">
                             {archivedAgentSessions.map(session => (
-                              <button
+                              <div
                                 key={session.id}
-                                type="button"
-                                onClick={() => setSelectedAiTradingAgentSessionId(session.id)}
-                                className={`w-full min-w-0 rounded border px-2 py-1.5 text-left opacity-80 transition-colors hover:bg-primary/10 ${
+                                className={`flex items-stretch gap-1 rounded border opacity-80 transition-colors ${
                                   selectedAiTradingAgentSessionId === session.id ? 'border-primary/60 bg-primary/10' : 'bg-background/60'
                                 }`}
-                                title={t('hyperAi.aiTradingSelectArchivedSession', 'Select archived session')}
                               >
-                                <div className="flex min-w-0 items-center justify-between gap-2">
-                                  <div className="truncate font-medium">{session.name || session.id}</div>
-                                  <div className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                                    {session.status || 'archived'}
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedAiTradingAgentSessionId(session.id)}
+                                  className="min-w-0 flex-1 px-2 py-1.5 text-left transition-colors hover:bg-primary/10"
+                                  title={t('hyperAi.aiTradingSelectArchivedSession', 'Select archived session')}
+                                >
+                                  <div className="flex min-w-0 items-center justify-between gap-2">
+                                    <div className="truncate font-medium">{session.name || session.id}</div>
+                                    <div className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                                      {session.status || 'archived'}
+                                    </div>
                                   </div>
-                                </div>
-                                <div className="truncate text-[11px] text-muted-foreground">
-                                  {(session.strategy_spec_count ?? 0)}
-                                  {' '}
-                                  {t('hyperAi.aiTradingSpecsShort', 'specs')}
-                                  {' / '}
-                                  {(session.signal_event_count ?? 0)}
-                                  {' '}
-                                  {t('hyperAi.aiTradingSignalsShort', 'signals')}
-                                  {' · '}
-                                  {(session.symbols || []).slice(0, 3).join(', ') || t('hyperAi.aiTradingNoSymbols', 'No symbols')}
-                                </div>
-                              </button>
+                                  <div className="truncate text-[11px] text-muted-foreground">
+                                    {(session.strategy_spec_count ?? 0)}
+                                    {' '}
+                                    {t('hyperAi.aiTradingSpecsShort', 'specs')}
+                                    {' / '}
+                                    {(session.signal_event_count ?? 0)}
+                                    {' '}
+                                    {t('hyperAi.aiTradingSignalsShort', 'signals')}
+                                    {' · '}
+                                    {(session.symbols || []).slice(0, 3).join(', ') || t('hyperAi.aiTradingNoSymbols', 'No symbols')}
+                                  </div>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenAgentSessionDetailPage(session.id)}
+                                  className="flex w-8 shrink-0 items-center justify-center border-l text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                                  title={t('hyperAi.aiTradingOpenSessionDetail', 'Open session detail')}
+                                  aria-label={t('hyperAi.aiTradingOpenSessionDetail', 'Open session detail')}
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                </button>
+                              </div>
                             ))}
                           </div>
                         </div>

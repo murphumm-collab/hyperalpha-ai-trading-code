@@ -46,6 +46,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - In-app Browser 已验证 agent-session UI：页面显示 `Sessions 2 active`、`Agent session` 下拉默认选中最新 `BTC V1 Live Stack Acceptance ...`、`Session name` / `Context summary` 编辑框、save/archive 图标按钮、`Recent agent sessions`、recent spec `#17` 和 recent signal `#15`。
 - In-app Browser 已验证 agent-session history/context UI：选中 session 后 Recent 区块切换为 `Session specs` / `Session signals` 并只显示当前 session 的 spec `#17` / signal `#15`；`Load context` 会把 `ai_trading_agent_session_context.v1` 非敏感 context packet 回填到聊天输入；本地归档 smoke session 可在 `Archived sessions` 区块显示。
 - In-app Browser 已验证 agent-session context compression UI：`Compress context` 会把当前 session 的 specs/signals/handoff blocker 压缩成可读 `AI Trading session compressed context v1` summary，写回 `Context summary` 输入框，且不会触发 `[redacted_sensitive_context]`。
+- In-app Browser 已验证 agent-session full-page detail UI：`/app/ai-trading/sessions/ait%3Abtc%3A1d03c72b5168` 可直接加载 current-user session context，显示 status/symbol/spec/signal/handoff summary、`Session specs`、`Session signals`、`ai_order_placement=disallowed`，并能从主 AI Trading 页面通过 `Open session detail` 返回/进入。
 - In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
 - In-app Browser 已验证 `xyz:NVDA` safe prompt fill 和 strategy draft：UI 显示 `NVDA · 15m`、`ready_for_review`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
 - In-app Browser 已在最终代码验证 BTC 当前卡片完整安全流：draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；证据记录为 spec `#5`、signal `#3 rejected`。
@@ -63,7 +64,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - 真实 HyperAlpha 订单后端 URL/token live handoff 未验收；当前为 disabled-by-default 和 mock gateway contract 验收。
 - 生产 handoff readiness gate 和生产总 readiness gate 已实现，但真实 HTTPS 订单后端 URL/token、真实 Auth/JWKS、硬风控生产值和 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的 live 验收未做。
 - Settings Admin production readiness 面板代码和 build 已完成；真实登录态/真实 Auth 配置下的可视化验收未做。本地 auth disabled 时 admin tab 隐藏是预期状态。
-- AI Trading agent session 后端/API/UI 已完成 first-class create/update/archive、当前 session 选择、归档列表、context packet 载入和按 session 过滤 specs/signals；独立 full-page session 详情页尚未做。
+- AI Trading agent session 后端/API/UI 已完成 first-class create/update/archive、当前 session 选择、归档列表、context packet 载入、context compression、按 session 过滤 specs/signals，以及独立 full-page session 详情页；真实生产登录态下的 session 详情页验收另行处理。
 - 真实交易所执行不属于 V1 本地验收完成条件，必须另开生产实盘验收。
 
 ## V1 通过标准
