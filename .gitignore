@@ -318,6 +318,7 @@ AGENTS.md
 *.db
 backend/.venv/
 frontend/node_modules/
+.playwright-cli/
 
 # Development Plans (sensitive information)
 REAL_TRADING_PLAN.md

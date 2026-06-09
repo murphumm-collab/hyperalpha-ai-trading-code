@@ -110,6 +110,17 @@ const PAGE_TITLES: Record<string, string> = {
   'arena-assets': 'Arena Assets',
 }
 
+const PAGE_ALIASES: Record<string, string> = {
+  'ai-trading': 'hyper-ai',
+}
+
+const PATH_PAGE_ALIASES: Record<string, string> = {
+  '/ai-trading': 'hyper-ai',
+  '/app/ai-trading': 'hyper-ai',
+}
+
+const resolvePageName = (page: string) => PAGE_ALIASES[page] || page
+
 function App() {
   const { tradingMode } = useTradingMode()
   const { setUser: setAuthUser } = useAuth()
@@ -136,8 +147,9 @@ function App() {
    * IMPORTANT: All page navigation should use this function, not setCurrentPage directly.
    */
   const handlePageChange = useCallback((page: string) => {
-    setCurrentPage(page)
-    window.location.hash = page
+    const resolvedPage = resolvePageName(page)
+    setCurrentPage(resolvedPage)
+    window.location.hash = resolvedPage
   }, [])
 
   // Hyper AI states - initialization happens during splash
@@ -181,6 +193,7 @@ function App() {
   useEffect(() => {
     const hash = window.location.hash.slice(1)
     const pathname = window.location.pathname
+    const pathPage = PATH_PAGE_ALIASES[pathname]
 
     // Handle OAuth callback
     if (pathname === '/callback') {
@@ -296,9 +309,12 @@ function App() {
     if (hash) {
       const hashParamIndex = hash.indexOf('?')
       const pageName = hashParamIndex !== -1 ? hash.slice(0, hashParamIndex) : hash
-      if (PAGE_TITLES[pageName]) {
-        setCurrentPage(pageName)
+      const resolvedPageName = resolvePageName(pageName)
+      if (PAGE_TITLES[resolvedPageName]) {
+        setCurrentPage(resolvedPageName)
       }
+    } else if (pathPage && PAGE_TITLES[pathPage]) {
+      setCurrentPage(pathPage)
     }
   }, [])
 
@@ -309,7 +325,8 @@ function App() {
       if (hash) {
         const paramIdx = hash.indexOf('?')
         const pageName = paramIdx !== -1 ? hash.slice(0, paramIdx) : hash
-        if (PAGE_TITLES[pageName]) setCurrentPage(pageName)
+        const resolvedPageName = resolvePageName(pageName)
+        if (PAGE_TITLES[resolvedPageName]) setCurrentPage(resolvedPageName)
       }
     }
     window.addEventListener('hashchange', onHashChange)
