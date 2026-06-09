@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Agent-Session Status Payload Gate Complete / Remote Push Deferred
+Status: Local V1 Failed-Handoff Retry Audit Gate Complete / Remote Push Deferred
 
 Local checkpoint: current branch `HEAD`
 
@@ -173,6 +173,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading signal handoff attempts are persisted as non-secret per-user audit records for blocked, failed, and submitted handoff attempts.
 - AI Trading signal handoff attempt responses recursively redact sensitive keys from blockers and eligibility audit JSON before returning data.
 - AI Trading signal handoff attempt audit records include non-secret user-confirmation metadata for confirmed blocked, failed, and submitted handoff attempts.
+- Failed AI Trading signal handoff attempts can be retried only after a fresh user-confirmed eligibility check; retry success keeps the failed attempt in audit history, writes a new submitted attempt, and clears the event error message.
 - Submitted and failed AI Trading signal handoff attempts include only a non-secret gateway response summary: HTTP status code plus whitelisted JSON fields such as accepted/status/idempotency/request/code; gateway URL/token, authorization, response body, and arbitrary downstream fields are not stored in public attempt responses.
 - Failed AI Trading signal handoff attempts and signal-event errors store sanitized gateway failure summaries instead of raw exception strings, avoiding gateway URL/token/body leakage.
 - Hyper AI AI Trading panel can load signal handoff attempt history into chat for audit review without triggering execution.
@@ -413,6 +414,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading handoff attempt audit | Done | `ai_trading_signal_handoff_attempts` stores blocked/failed/submitted handoff attempts without gateway URL/token or trading credentials |
 | AI Trading handoff attempt response redaction | Done | Handoff-attempt blockers and eligibility audit JSON recursively mask sensitive keys before API responses |
 | AI Trading handoff confirmation audit | Done | Confirmed handoff attempts persist non-secret `user_confirmation` metadata inside eligibility audit JSON, while unconfirmed handoff requests still write no attempt |
+| AI Trading failed handoff retry audit | Done | A failed handoff remains retryable only after fresh confirmation/eligibility, successful retry clears event error state, and attempt history keeps submitted plus failed records without secrets |
 | AI Trading handoff gateway response audit | Done | Submitted handoff attempts persist only non-secret gateway response status metadata inside eligibility audit JSON |
 | AI Trading failed handoff error sanitization | Done | Failed handoff event/attempt errors persist sanitized error type/status summaries and never raw gateway exception text |
 | AI Trading handoff attempt UI | Done | Recent signal events expose a read-only handoff history button that loads non-secret attempts into chat for audit review |
@@ -912,6 +914,10 @@ Local checkpoint: current branch `HEAD`
 - Passed: frontend production build after record-level archived-session status gating: `cd frontend && npm run build` passed with only existing baseline/browserlist/chunk-size warnings.
 - Passed: aggregate AI Trading V1 local acceptance runner after agent-session status payloads: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 58 AI Trading regressions, API-level smoke, live model-adjust default blocker, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#31`, signal event `#29`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, and `agent_sessions.total=16`.
 - Passed: LaunchAgent runtime mirror was resynced after agent-session status payloads with `scripts/local-dev/install_launch_agent.sh`; the first strict readiness check hit backend cold start, and retry returned `ready=true`.
+- Passed: failed handoff retry audit regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 35 passing tests, including failed gateway handoff, retry eligibility/can_retry, fresh retry confirmation, error clearing after successful retry, and submitted/failed attempt history ordering with secret redaction.
+- Passed: aggregate AI Trading regression after failed-handoff retry audit: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 58 passing tests with 3 existing UTC deprecation warnings.
+- Passed: frontend production build after failed-handoff retry status labels: `cd frontend && npm run build` passed with only existing baseline/browserlist/chunk-size warnings; failed eligible signals now display `Retry ready` and the handoff tooltip says `Retry handoff`.
+- Passed: aggregate AI Trading V1 local acceptance runner after failed-handoff retry audit: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 58 AI Trading regressions, API-level smoke, live model-adjust default blocker, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#32`, signal event `#30`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, and `agent_sessions.total=17`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

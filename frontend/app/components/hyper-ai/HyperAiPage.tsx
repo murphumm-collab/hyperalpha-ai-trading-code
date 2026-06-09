@@ -1325,6 +1325,9 @@ export default function HyperAiPage() {
   }
   const signalHandoffTitle = (event: AiTradingSignalEventRecord): string => {
     if (isSignalHandoffEligible(event)) {
+      if (event.handoff_status === 'failed') {
+        return t('hyperAi.aiTradingRetryHandoff', 'Retry handoff')
+      }
       return t('hyperAi.aiTradingSubmitHandoff', 'Submit handoff')
     }
     const blockers = event.handoff_eligibility?.blockers || []
@@ -1340,6 +1343,12 @@ export default function HyperAiPage() {
     if (event.status === 'rejected' || event.handoff_status === 'rejected') {
       return t('hyperAi.aiTradingStatusRejected', 'Rejected')
     }
+    if (event.handoff_status === 'failed') {
+      if (isSignalHandoffEligible(event)) {
+        return t('hyperAi.aiTradingStatusRetryReady', 'Retry ready')
+      }
+      return t('hyperAi.aiTradingStatusFailed', 'Failed')
+    }
     if (isSignalHandoffEligible(event)) {
       return t('hyperAi.aiTradingStatusReady', 'Ready')
     }
@@ -1351,6 +1360,11 @@ export default function HyperAiPage() {
     }
     if (event.status === 'rejected' || event.handoff_status === 'rejected') {
       return 'bg-red-500/10 text-red-600'
+    }
+    if (event.handoff_status === 'failed') {
+      return isSignalHandoffEligible(event)
+        ? 'bg-green-500/10 text-green-600'
+        : 'bg-orange-500/10 text-orange-600'
     }
     if (isSignalHandoffEligible(event)) {
       return 'bg-green-500/10 text-green-600'

@@ -1464,6 +1464,7 @@ def test_ai_trading_signal_handoff_requires_event_signal_action_symbol_consisten
 def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)
+    gateway_calls = []
 
     class FakeGatewayError(Exception):
         def __init__(self, message, response):
@@ -1490,6 +1491,7 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
             )
 
     def fake_post(url, json=None, headers=None, timeout=None):
+        gateway_calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse()
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
@@ -1513,6 +1515,8 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
     failed_event = detail.json()["signal_event"]
     assert failed_event["handoff_status"] == "failed"
     assert failed_event["error_message"] == "Signal gateway handoff failed: FakeGatewayError (status 502)"
+    assert failed_event["handoff_eligibility"]["eligible"] is True
+    assert failed_event["handoff_eligibility"]["can_retry"] is True
     assert "order-backend.test" not in str(failed_event)
     assert "test-token" not in str(failed_event)
     assert "secret-response-body" not in str(failed_event)
@@ -1536,6 +1540,66 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
     assert "test-token" not in str(attempt)
     assert "secret-response-body" not in str(attempt)
     assert "secret-response-authorization" not in str(attempt)
+    assert len(gateway_calls) == 1
+
+    class SuccessResponse:
+        status_code = 202
+
+        def json(self):
+            return {
+                "accepted": True,
+                "status": "mock_accepted_after_retry",
+                "idempotency_key": gateway_calls[-1]["json"]["idempotency_key"],
+                "order_backend_signal_id": "obs_retry_1",
+                "authorization": "secret-success-authorization",
+            }
+
+        def raise_for_status(self):
+            return None
+
+    def fake_retry_post(url, json=None, headers=None, timeout=None):
+        gateway_calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return SuccessResponse()
+
+    monkeypatch.setattr(strategy_service.requests, "post", fake_retry_post)
+
+    retried = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest_retry"},
+    )
+    assert retried.status_code == 200
+    retried_event = retried.json()["signal_event"]
+    assert retried_event["status"] == "submitted"
+    assert retried_event["handoff_status"] == "submitted"
+    assert retried_event["error_message"] is None
+    assert retried_event["handoff_eligibility"]["eligible"] is False
+    assert "handoff_already_submitted" in retried_event["handoff_eligibility"]["blockers"]
+
+    retry_attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert retry_attempts.status_code == 200
+    retry_rows = retry_attempts.json()["attempts"]
+    assert [row["result"] for row in retry_rows] == ["submitted", "failed"]
+    assert retry_rows[0]["eligibility"]["eligible"] is True
+    assert retry_rows[0]["eligibility"]["user_confirmation"] == {
+        "confirmed": True,
+        "source": "pytest_retry",
+    }
+    assert retry_rows[0]["eligibility"]["gateway_response"] == {
+        "status_code": 202,
+        "response_summary": {
+            "accepted": True,
+            "status": "mock_accepted_after_retry",
+            "idempotency_key": retried_event["signal"]["idempotency_key"],
+            "order_backend_signal_id": "obs_retry_1",
+        },
+    }
+    assert len(gateway_calls) == 2
+    assert gateway_calls[0]["json"]["idempotency_key"] == gateway_calls[1]["json"]["idempotency_key"]
+    assert gateway_calls[1]["json"]["user_confirmation"] == {
+        "confirmed": True,
+        "source": "pytest_retry",
+    }
+    assert "secret-success-authorization" not in str(retry_rows)
 
 
 def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tmp_path, monkeypatch):
