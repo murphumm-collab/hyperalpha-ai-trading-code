@@ -1425,7 +1425,7 @@ export default function HyperAiPage() {
                   {tradingSymbolSource === 'watchlist'
                     ? t('hyperAi.aiTradingWatchlist', 'Hyperliquid watchlist')
                     : tradingSymbolSource === 'available'
-                      ? t('hyperAi.aiTradingAvailable', 'Top available Hyperliquid symbols')
+                      ? t('hyperAi.aiTradingAvailable', 'Available Hyperliquid symbols')
                       : t('hyperAi.aiTradingNoSymbols', 'No Hyperliquid symbols loaded')}
                 </p>
               </div>
