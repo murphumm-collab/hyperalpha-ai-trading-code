@@ -347,6 +347,25 @@ def test_admin_readiness_reports_agent_session_context_budget_without_summary_le
     assert any("over-budget AI Trading agent session summaries" in action for action in next_actions)
     assert any("near-budget AI Trading agent session summaries" in action for action in next_actions)
     assert any("redacted or sensitive-looking context" in action for action in next_actions)
+    over_budget_locator_action = next(
+        action for action in next_actions
+        if "Latest over-budget AI Trading agent context locator" in action
+    )
+    assert "session=session:over-budget" in over_budget_locator_action
+    assert "status=active" in over_budget_locator_action
+    assert "chars=2001" in over_budget_locator_action
+    redacted_locator_action = next(
+        action for action in next_actions
+        if "Latest redacted AI Trading agent context locator" in action
+    )
+    assert "session=session:redacted-context" in redacted_locator_action
+    assert f"chars={len('[redacted_sensitive_context]')}" in redacted_locator_action
+    sensitive_locator_action = next(
+        action for action in next_actions
+        if "Latest sensitive-looking AI Trading agent context locator" in action
+    )
+    assert "session=session:sensitive-context" in sensitive_locator_action
+    assert "secret-session-key" not in sensitive_locator_action
     serialized = str(response.json())
     assert "secret-session-key" not in serialized
     assert "BTC breakout context with risk caps" not in serialized

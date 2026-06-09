@@ -215,6 +215,13 @@ def test_include_db_audits_adds_handoff_and_agent_context_gates_without_secret_l
     assert report["checks"]["agent_session_context"]["checks"]["over_budget_count"] == 1
     assert report["checks"]["handoff_audit"]["checks"]["secret_values_returned"] is False
     assert report["checks"]["agent_session_context"]["checks"]["secret_values_returned"] is False
+    locator_action = next(
+        action for action in report["next_actions"]
+        if "Latest over-budget AI Trading agent context locator" in action
+    )
+    assert "session=session:over-budget-cli" in locator_action
+    assert "status=active" in locator_action
+    assert "chars=2001" in locator_action
     serialized = str(report)
     assert "secret-db-audit-auth" not in serialized
     assert "secret-db-audit-token" not in serialized
@@ -222,8 +229,10 @@ def test_include_db_audits_adds_handoff_and_agent_context_gates_without_secret_l
 
 
 def test_include_db_audits_fails_closed_without_leaking_database_error_text():
+    secret_fixture = "secret-db-" + "password"
+
     def broken_session_factory():
-        raise RuntimeError("database password=secret-db-password")
+        raise RuntimeError(f"database password={secret_fixture}")
 
     report = readiness_check.build_readiness_report(
         _ready_env(),
@@ -239,5 +248,5 @@ def test_include_db_audits_fails_closed_without_leaking_database_error_text():
         "secret_values_returned": False,
     }
     serialized = str(report)
-    assert "secret-db-password" not in serialized
+    assert secret_fixture not in serialized
     assert "password=" not in serialized

@@ -416,6 +416,27 @@ def build_agent_session_context_audit_report(db: Any) -> Dict[str, Any]:
     }
 
 
+def _format_agent_context_locator(locator: Any) -> Optional[str]:
+    if not isinstance(locator, Mapping):
+        return None
+
+    pieces: list[str] = []
+    record_id = locator.get("id")
+    if isinstance(record_id, int):
+        pieces.append(f"id={record_id}")
+    agent_session_id = locator.get("agent_session_id")
+    if isinstance(agent_session_id, str) and agent_session_id:
+        pieces.append(f"session={agent_session_id[:80]}")
+    status = locator.get("status")
+    if isinstance(status, str) and status:
+        pieces.append(f"status={status[:32]}")
+    chars = locator.get("context_summary_chars")
+    if isinstance(chars, int):
+        pieces.append(f"chars={chars}")
+
+    return ", ".join(pieces) if pieces else None
+
+
 def build_report(
     env: Mapping[str, str],
     *,
@@ -489,6 +510,14 @@ def build_report(
             "Compress or truncate over-budget AI Trading agent session summaries before production model-adjust "
             "acceptance so per-session context stays inside the configured prompt budget."
         )
+        locator = _format_agent_context_locator(
+            component_reports.get("agent_session_context", {}).get("checks", {}).get("latest_over_budget")
+        )
+        if locator:
+            next_actions.append(
+                "Latest over-budget AI Trading agent context locator: "
+                f"{locator}. Clean this session without reading summary text."
+            )
     if "agent_session_context:agent_session_context_near_budget_present" in warnings:
         next_actions.append(
             "Review near-budget AI Trading agent session summaries and compress them before adding more "
@@ -502,6 +531,22 @@ def build_report(
             "Review AI Trading agent session summaries with redacted or sensitive-looking context and replace "
             "them with non-secret strategy/risk notes before live model-adjust acceptance."
         )
+        redacted_locator = _format_agent_context_locator(
+            component_reports.get("agent_session_context", {}).get("checks", {}).get("latest_redacted_context")
+        )
+        if redacted_locator:
+            next_actions.append(
+                "Latest redacted AI Trading agent context locator: "
+                f"{redacted_locator}. Replace it with non-secret strategy/risk notes."
+            )
+        sensitive_locator = _format_agent_context_locator(
+            component_reports.get("agent_session_context", {}).get("checks", {}).get("latest_sensitive_context")
+        )
+        if sensitive_locator:
+            next_actions.append(
+                "Latest sensitive-looking AI Trading agent context locator: "
+                f"{sensitive_locator}. Replace it with non-secret strategy/risk notes."
+            )
 
     return {
         "production_ready": not blockers,
