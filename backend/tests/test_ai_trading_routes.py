@@ -286,6 +286,9 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     runtime = client.get("/api/ai-trading/runtime")
     assert runtime.status_code == 200
     assert runtime.json()["gateway"]["url_configured"] is False
+    assert runtime.json()["gateway"]["max_handoff_age_seconds"] == int(
+        strategy_service.SIGNAL_MAX_HANDOFF_AGE_SECONDS
+    )
 
     draft = client.post(
         "/api/ai-trading/strategy-spec/draft",

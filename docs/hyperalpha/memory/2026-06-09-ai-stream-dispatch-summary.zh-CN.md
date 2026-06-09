@@ -34,6 +34,7 @@
 - `/api/ai-trading/signal-events/{id}/handoff` 现在默认限制 signal event 最大 handoff 年龄：`AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS=900`。超过时 `handoff_eligibility.blockers` 包含 `signal_event_stale_for_handoff`，并返回非敏感 `signal_age_seconds` / `max_handoff_age_seconds`；设为 `0` 可关闭年龄 gate。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
+- `/api/ai-trading/runtime` 现在还返回非敏感 `gateway.max_handoff_age_seconds`；Hyper AI Gateway 卡片会显示紧凑 max-age，让运营知道后端当前 stale-signal gate。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
 - Hyper AI AI Trading 面板现在会列出最近保存的 strategy specs 和最近创建的 signal events；用户可以把任一记录详情回填到聊天框，让 agent 做风控/止盈止损/执行边界复核，不会提交订单。
 - Recent signal events 现在有 gateway-gated handoff 按钮：只有 runtime 显示 gateway 已启用且 URL 已配置、事件仍是未提交 `review_candidate` 时才可点；点击仍走后端 `/handoff` 边界，不绕过默认关闭策略。
@@ -200,6 +201,8 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 gateway response status audit 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 failed handoff error sanitization 后通过，16 条 AI Trading route 回归全绿；覆盖 API detail、event error、failed attempt 都不泄露 URL/token/body。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 failed handoff error sanitization 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 runtime max handoff age visibility 后重新通过，16 条 AI Trading route 回归全绿。
+- `cd frontend && npm run build` 已在 Hyper AI Gateway 卡片显示 max-age 后通过。
 
 ## 6. 未验收 / 阻塞
 

@@ -305,6 +305,7 @@ interface AiTradingRuntimeStatus {
     enabled?: boolean
     url_configured?: boolean
     default_handoff_status?: string
+    max_handoff_age_seconds?: number | null
   }
   strategy_specs?: {
     total?: number
@@ -3049,6 +3050,14 @@ export default function HyperAiPage() {
                       : 'text-yellow-600'
                   }`}>
                     {aiTradingRuntime.gateway?.default_handoff_status || 'disabled'}
+                    {aiTradingRuntime.gateway?.max_handoff_age_seconds ? (
+                      <span className="text-muted-foreground">
+                        {' / '}
+                        {formatDurationCompact(aiTradingRuntime.gateway.max_handoff_age_seconds)}
+                        {' '}
+                        {t('hyperAi.aiTradingMaxAge', 'max')}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
                 <div className="min-w-0">

@@ -119,6 +119,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading signal handoff eligibility blocks stale signal events by default after `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS` so old market signals cannot be submitted silently.
 - AI Trading signal gateway environment variables are documented in root and backend `.env.example` templates.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
+- AI Trading runtime status exposes the non-secret signal max handoff age so operators can see the stale-signal gate currently enforced by the backend.
 - Hyper AI AI Trading panel displays gateway/spec/signal runtime counts when the backend is available.
 - Hyper AI AI Trading panel lists recent strategy specs and signal events, and can load saved records into chat for audit review without submitting orders.
 - Hyper AI AI Trading panel exposes a gated signal-event handoff control that stays disabled until the backend reports an enabled/configured gateway and only targets unsubmitted `review_candidate` events.
@@ -313,6 +314,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading stale signal handoff gate | Done | Handoff eligibility blocks signal events older than `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS` and includes non-secret signal age/max-age metadata in preflight responses |
 | AI Trading signal gateway env templates | Done | Root and backend `.env.example` document gateway enablement, URL, timeout, and bearer token without exposing secrets to the AI model |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
+| AI Trading runtime handoff age visibility | Done | Runtime gateway status includes `max_handoff_age_seconds`, and Hyper AI shows the compact max-age value in the Gateway card |
 | AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals and refreshes them after draft save, approval, and signal event creation |
 | AI Trading recent records panel | Done | Hyper AI AI Trading panel lists recent saved specs/signal events and lets users inspect them into chat for audit review |
 | AI Trading signal handoff UI | Done | Recent signal events expose a disabled-by-default, gateway-gated handoff button for unsubmitted `review_candidate` events |
@@ -700,6 +702,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading service/route/test syntax compile after gateway response attempt audit: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: AI Trading route regression after sanitizing failed gateway handoff errors: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 16 passing tests, including no gateway URL/token/body leakage in API detail, signal-event error, or failed attempt audit.
 - Passed: AI Trading service/route/test syntax compile after failed handoff error sanitization: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Passed: AI Trading route regression after exposing runtime max handoff age: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 16 passing tests.
+- Passed: Frontend production build after showing the runtime max handoff age in the Hyper AI Gateway card.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

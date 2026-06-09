@@ -2116,6 +2116,7 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
             "url_configured": bool(SIGNAL_GATEWAY_URL),
             "mode": "http",
             "timeout_seconds": SIGNAL_GATEWAY_TIMEOUT_SECONDS,
+            "max_handoff_age_seconds": int(SIGNAL_MAX_HANDOFF_AGE_SECONDS) if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0 else None,
             "default_handoff_status": "available" if SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL else "disabled",
         },
         "strategy_specs": {
