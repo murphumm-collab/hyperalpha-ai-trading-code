@@ -9,9 +9,9 @@ Run from backend:
 
     uv run python scripts/ai_trading_v1_completion_audit.py --strict-local
 
-Use --strict-production only for a production cutover audit; it intentionally
-fails while real Auth/JWKS, model keys, order backend, and live execution remain
-unverified.
+Use --strict-production only for a production cutover audit. It intentionally
+fails unless a complete sanitized production evidence file is supplied and the
+caller also passes --allow-live-ready-from-evidence.
 """
 
 from __future__ import annotations
@@ -22,6 +22,18 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+
+
+EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION = "hyperalpha.ai_trading.external_acceptance.v1"
+SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
+    re.compile(r"\b(api[_-]?key|password|private[_-]?key|access[_-]?token|refresh[_-]?token)\s*[:=]\s*['\"]?[^'\"\s,}]{4,}", re.IGNORECASE),
+    re.compile(r"\bsecret\s*[:=]\s*['\"]?[^'\"\s,}]{4,}", re.IGNORECASE),
+    re.compile(r"\bpostgres(?:ql)?://[^\s'\"]+", re.IGNORECASE),
+    re.compile(r"\bsk-[A-Za-z0-9]{16,}\b"),
+    re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
+)
 
 
 @dataclass(frozen=True)
@@ -76,9 +88,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local aggregate DB-audit readiness gate as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Completion Boundary Audit Accepted / Remote Push Skipped",
+            "Local V1 Production Evidence Gate Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
+            "| AI Trading production evidence gate | Done |",
             "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
         ),
     ),
@@ -250,11 +263,167 @@ def _latest_memory_report(repo_root: Path) -> dict[str, Any]:
     }
 
 
-def build_completion_report(repo_root: Path | str) -> dict[str, Any]:
+def _secret_pattern_hits(value: Any) -> list[str]:
+    serialized = json.dumps(value, ensure_ascii=False, sort_keys=True)
+    hits: list[str] = []
+    for pattern in SECRET_VALUE_PATTERNS:
+        if pattern.search(serialized):
+            hits.append(pattern.pattern)
+    return hits
+
+
+def _validate_external_evidence_item(item_id: str, item: Any) -> dict[str, Any]:
+    if not isinstance(item, dict):
+        return {
+            "id": item_id,
+            "ready": False,
+            "status": "missing",
+            "blockers": ["external_evidence_item_missing"],
+            "warnings": [],
+        }
+
+    blockers: list[str] = []
+    warnings: list[str] = []
+    status = str(item.get("status") or "")
+    if status != "accepted":
+        blockers.append("external_evidence_item_not_accepted")
+    if not str(item.get("validated_at") or "").strip():
+        blockers.append("external_evidence_validated_at_missing")
+    if not str(item.get("validated_by") or "").strip():
+        blockers.append("external_evidence_validated_by_missing")
+    if not str(item.get("evidence_summary") or "").strip():
+        blockers.append("external_evidence_summary_missing")
+    artifact_refs = item.get("artifact_refs")
+    if artifact_refs is None:
+        blockers.append("external_evidence_artifact_refs_missing")
+    elif not isinstance(artifact_refs, list):
+        blockers.append("external_evidence_artifact_refs_must_be_list")
+    elif not artifact_refs:
+        warnings.append("external_evidence_artifact_refs_empty")
+    if item.get("secret_values_returned") is not False:
+        blockers.append("external_evidence_secret_values_returned_must_be_false")
+
+    secret_hits = _secret_pattern_hits(item)
+    if secret_hits:
+        blockers.append("external_evidence_secret_pattern_detected")
+
+    return {
+        "id": item_id,
+        "ready": not blockers,
+        "status": status or "missing",
+        "blockers": blockers,
+        "warnings": warnings,
+        "artifact_ref_count": len(artifact_refs) if isinstance(artifact_refs, list) else 0,
+        "secret_pattern_count": len(secret_hits),
+    }
+
+
+def _validate_external_evidence_file(production_evidence_file: Path | str | None) -> dict[str, Any]:
+    if production_evidence_file is None:
+        return {
+            "provided": False,
+            "path": None,
+            "ready": False,
+            "version": None,
+            "accepted_count": 0,
+            "required_count": len(EXTERNAL_REQUIREMENTS),
+            "blockers": [],
+            "warnings": [],
+            "items": [],
+        }
+
+    evidence_path = Path(production_evidence_file).resolve()
+    blockers: list[str] = []
+    warnings: list[str] = []
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {
+            "provided": True,
+            "path": str(evidence_path),
+            "ready": False,
+            "version": None,
+            "accepted_count": 0,
+            "required_count": len(EXTERNAL_REQUIREMENTS),
+            "blockers": ["external_evidence_file_missing"],
+            "warnings": [],
+            "items": [],
+        }
+    except json.JSONDecodeError:
+        return {
+            "provided": True,
+            "path": str(evidence_path),
+            "ready": False,
+            "version": None,
+            "accepted_count": 0,
+            "required_count": len(EXTERNAL_REQUIREMENTS),
+            "blockers": ["external_evidence_json_invalid"],
+            "warnings": [],
+            "items": [],
+        }
+
+    if not isinstance(payload, dict):
+        return {
+            "provided": True,
+            "path": str(evidence_path),
+            "ready": False,
+            "version": None,
+            "accepted_count": 0,
+            "required_count": len(EXTERNAL_REQUIREMENTS),
+            "blockers": ["external_evidence_root_must_be_object"],
+            "warnings": [],
+            "items": [],
+        }
+
+    version = payload.get("version")
+    if version != EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION:
+        blockers.append("external_evidence_version_mismatch")
+    if payload.get("secret_values_returned") is not False:
+        blockers.append("external_evidence_secret_values_returned_must_be_false")
+
+    secret_hits = _secret_pattern_hits(payload)
+    if secret_hits:
+        blockers.append("external_evidence_secret_pattern_detected")
+
+    items_payload = payload.get("items")
+    if not isinstance(items_payload, dict):
+        blockers.append("external_evidence_items_must_be_object")
+        items_payload = {}
+
+    required_ids = [requirement.id for requirement in EXTERNAL_REQUIREMENTS]
+    item_reports = [_validate_external_evidence_item(item_id, items_payload.get(item_id)) for item_id in required_ids]
+    accepted_count = sum(1 for item in item_reports if item["ready"])
+    item_blockers = [item["id"] for item in item_reports if not item["ready"]]
+    if item_blockers:
+        blockers.extend([f"external_evidence_item_blocked:{item_id}" for item_id in item_blockers])
+    for item in item_reports:
+        warnings.extend([f"{item['id']}:{warning}" for warning in item["warnings"]])
+
+    return {
+        "provided": True,
+        "path": str(evidence_path),
+        "ready": not blockers,
+        "version": version,
+        "accepted_count": accepted_count,
+        "required_count": len(required_ids),
+        "blockers": blockers,
+        "warnings": warnings,
+        "items": item_reports,
+        "secret_pattern_count": len(secret_hits),
+    }
+
+
+def build_completion_report(
+    repo_root: Path | str,
+    *,
+    production_evidence_file: Path | str | None = None,
+    allow_live_ready_from_evidence: bool = False,
+) -> dict[str, Any]:
     root = Path(repo_root).resolve()
     local_items = [_evaluate_requirement(root, requirement) for requirement in LOCAL_REQUIREMENTS]
     governance_items = [_latest_memory_report(root)]
     external_items = [_evaluate_requirement(root, requirement) for requirement in EXTERNAL_REQUIREMENTS]
+    production_evidence = _validate_external_evidence_file(production_evidence_file)
 
     local_evidence_items = local_items + governance_items
     local_blockers = [
@@ -272,25 +441,40 @@ def build_completion_report(repo_root: Path | str) -> dict[str, Any]:
         for item in external_items
         if item["status"] in {"pending_external_acceptance", "out_of_local_v1_scope"}
     ]
+    local_v1_accepted = not local_blockers and not missing_external_markers
+    ready_for_live_orders = (
+        local_v1_accepted
+        and production_evidence["ready"]
+        and allow_live_ready_from_evidence
+    )
+    if ready_for_live_orders:
+        production_track = "accepted"
+    elif production_evidence["ready"]:
+        production_track = "external_evidence_accepted_pending_explicit_confirmation"
+    else:
+        production_track = "pending_external_acceptance"
 
     return {
-        "local_v1_accepted": not local_blockers and not missing_external_markers,
-        "ready_for_live_orders": False,
+        "local_v1_accepted": local_v1_accepted,
+        "ready_for_live_orders": ready_for_live_orders,
         "github_upload": "deferred_by_user_request",
         "repo_root": str(root),
         "summary": {
             "local_track": "accepted" if not local_blockers and not missing_external_markers else "incomplete",
-            "production_track": "pending_external_acceptance",
+            "production_track": production_track,
             "external_pending_count": len(pending_external_items),
             "local_blockers": local_blockers,
             "missing_external_markers": missing_external_markers,
+            "production_evidence_blockers": list(production_evidence["blockers"]),
         },
         "local_evidence": local_evidence_items,
         "external_acceptance": external_items,
+        "production_evidence": production_evidence,
         "next_actions": [
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
+            "Record external acceptance in a sanitized production evidence JSON file; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 
@@ -308,9 +492,25 @@ def main() -> int:
         action="store_true",
         help="Exit 1 unless production/live-order acceptance has no pending external items.",
     )
+    parser.add_argument(
+        "--production-evidence-file",
+        help="Optional sanitized JSON file with real external production acceptance evidence.",
+    )
+    parser.add_argument(
+        "--allow-live-ready-from-evidence",
+        action="store_true",
+        help=(
+            "Allow ready_for_live_orders=true when local V1 and the production evidence file are both accepted. "
+            "Without this explicit flag, accepted evidence is reported but live-order readiness remains false."
+        ),
+    )
     args = parser.parse_args()
 
-    report = build_completion_report(args.repo_root)
+    report = build_completion_report(
+        args.repo_root,
+        production_evidence_file=args.production_evidence_file,
+        allow_live_ready_from_evidence=args.allow_live_ready_from_evidence,
+    )
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
 
     if args.strict_local and not report["local_v1_accepted"]:

@@ -1,0 +1,68 @@
+{
+  "version": "hyperalpha.ai_trading.external_acceptance.v1",
+  "generated_at": null,
+  "secret_values_returned": false,
+  "notes": [
+    "Copy this file outside the repo or into a private ops evidence location before filling it.",
+    "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
+    "Each item must become status=accepted with validated_at, validated_by, evidence_summary, artifact_refs, and secret_values_returned=false before production cutover audit can pass."
+  ],
+  "items": {
+    "macos_reboot_recovery": {
+      "status": "pending_external_acceptance",
+      "validated_at": null,
+      "validated_by": null,
+      "evidence_summary": "",
+      "artifact_refs": [],
+      "secret_values_returned": false
+    },
+    "real_model_profile_live_acceptance": {
+      "status": "pending_external_acceptance",
+      "validated_at": null,
+      "validated_by": null,
+      "evidence_summary": "",
+      "artifact_refs": [],
+      "secret_values_returned": false
+    },
+    "real_order_backend_handoff": {
+      "status": "pending_external_acceptance",
+      "validated_at": null,
+      "validated_by": null,
+      "evidence_summary": "",
+      "artifact_refs": [],
+      "secret_values_returned": false
+    },
+    "production_auth_hard_risk_readiness": {
+      "status": "pending_external_acceptance",
+      "validated_at": null,
+      "validated_by": null,
+      "evidence_summary": "",
+      "artifact_refs": [],
+      "secret_values_returned": false
+    },
+    "admin_readiness_real_auth_visual": {
+      "status": "pending_external_acceptance",
+      "validated_at": null,
+      "validated_by": null,
+      "evidence_summary": "",
+      "artifact_refs": [],
+      "secret_values_returned": false
+    },
+    "production_agent_session_visual": {
+      "status": "pending_external_acceptance",
+      "validated_at": null,
+      "validated_by": null,
+      "evidence_summary": "",
+      "artifact_refs": [],
+      "secret_values_returned": false
+    },
+    "real_exchange_execution": {
+      "status": "pending_external_acceptance",
+      "validated_at": null,
+      "validated_by": null,
+      "evidence_summary": "",
+      "artifact_refs": [],
+      "secret_values_returned": false
+    }
+  }
+}

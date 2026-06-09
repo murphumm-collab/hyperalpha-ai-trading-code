@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -60,9 +61,10 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
         root / "docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         "\n".join(
             [
-                "Local V1 Completion Boundary Audit Accepted / Remote Push Skipped",
+                "Local V1 Production Evidence Gate Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
+                "| AI Trading production evidence gate | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -111,6 +113,32 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
     )
 
 
+def _write_production_evidence(path: Path, *, include_secret: bool = False, missing_item: str | None = None) -> None:
+    items = {}
+    for requirement in completion_audit.EXTERNAL_REQUIREMENTS:
+        if requirement.id == missing_item:
+            continue
+        items[requirement.id] = {
+            "status": "accepted",
+            "validated_at": "2026-06-10T12:00:00Z",
+            "validated_by": "ops-admin",
+            "evidence_summary": f"{requirement.id} accepted with sanitized operational evidence.",
+            "artifact_refs": [f"ops://ai-trading/{requirement.id}/acceptance"],
+            "secret_values_returned": False,
+        }
+    payload = {
+        "version": completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
+        "generated_at": "2026-06-10T12:05:00Z",
+        "secret_values_returned": False,
+        "items": items,
+    }
+    if include_secret:
+        payload["items"]["real_order_backend_handoff"]["evidence_summary"] = (
+            "accepted with Authorization: Bearer secret-production-token-123456789"
+        )
+    _write(path, json.dumps(payload, indent=2, sort_keys=True))
+
+
 def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
     repo_root = Path(__file__).resolve().parents[2]
 
@@ -124,6 +152,8 @@ def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
     assert report["summary"]["local_blockers"] == []
     assert report["summary"]["missing_external_markers"] == []
     assert report["summary"]["external_pending_count"] >= 6
+    assert report["production_evidence"]["provided"] is False
+    assert report["production_evidence"]["ready"] is False
     statuses = {item["id"]: item["status"] for item in report["external_acceptance"]}
     assert statuses["real_order_backend_handoff"] == "pending_external_acceptance"
     assert statuses["real_exchange_execution"] == "out_of_local_v1_scope"
@@ -149,3 +179,58 @@ def test_completion_audit_requires_external_pending_markers(tmp_path):
     assert report["local_v1_accepted"] is False
     assert "real_model_profile_live_acceptance" in report["summary"]["missing_external_markers"]
     assert "real_order_backend_handoff" in report["summary"]["missing_external_markers"]
+
+
+def test_completion_audit_validates_production_evidence_but_requires_explicit_live_ready_confirmation(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    evidence_path = tmp_path / "production-evidence.json"
+    _write_production_evidence(evidence_path)
+
+    report_without_confirmation = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=evidence_path,
+    )
+
+    assert report_without_confirmation["local_v1_accepted"] is True
+    assert report_without_confirmation["production_evidence"]["ready"] is True
+    assert report_without_confirmation["production_evidence"]["accepted_count"] == len(completion_audit.EXTERNAL_REQUIREMENTS)
+    assert report_without_confirmation["ready_for_live_orders"] is False
+    assert (
+        report_without_confirmation["summary"]["production_track"]
+        == "external_evidence_accepted_pending_explicit_confirmation"
+    )
+
+    report_with_confirmation = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=evidence_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert report_with_confirmation["ready_for_live_orders"] is True
+    assert report_with_confirmation["summary"]["production_track"] == "accepted"
+
+
+def test_completion_audit_rejects_incomplete_or_secret_bearing_production_evidence(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    incomplete_path = tmp_path / "incomplete-production-evidence.json"
+    secret_path = tmp_path / "secret-production-evidence.json"
+    _write_production_evidence(incomplete_path, missing_item="real_order_backend_handoff")
+    _write_production_evidence(secret_path, include_secret=True)
+
+    incomplete_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=incomplete_path,
+        allow_live_ready_from_evidence=True,
+    )
+    secret_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=secret_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert incomplete_report["ready_for_live_orders"] is False
+    assert "external_evidence_item_blocked:real_order_backend_handoff" in incomplete_report["production_evidence"]["blockers"]
+    assert secret_report["ready_for_live_orders"] is False
+    assert "external_evidence_secret_pattern_detected" in secret_report["production_evidence"]["blockers"]
+    secret_item = next(item for item in secret_report["production_evidence"]["items"] if item["id"] == "real_order_backend_handoff")
+    assert "external_evidence_secret_pattern_detected" in secret_item["blockers"]
