@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
+import json
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -87,6 +88,7 @@ def _create_program_backtest_result(
     *,
     username=None,
     status="completed",
+    symbols=None,
     total_trades=12,
     total_pnl_percent=8.5,
     max_drawdown_percent=-2.25,
@@ -97,6 +99,7 @@ def _create_program_backtest_result(
     user_id = user_ids[owner_username]
     session = session_factory()
     try:
+        backtest_symbols = list(symbols or ["BTC"])
         account = Account(
             user_id=user_id,
             name=f"{owner_username} program backtest account",
@@ -135,7 +138,7 @@ def _create_program_backtest_result(
             backtest_type="program",
             binding_id=binding.id,
             user_id=user_id,
-            config='{"symbols":["BTC"],"scheduled_interval_sec":300}',
+            config=json.dumps({"symbols": backtest_symbols, "scheduled_interval_sec": 300}),
             start_time=now - timedelta(days=30),
             end_time=now,
             initial_balance=10000,
@@ -611,6 +614,75 @@ def test_ai_trading_can_attach_owned_program_backtest_result(tmp_path, monkeypat
     enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert enabled_detail.status_code == 200
     assert enabled_detail.json()["signal_event"]["handoff_eligibility"]["eligible"] is True
+
+
+def test_ai_trading_can_attach_latest_matching_program_backtest_result(tmp_path):
+    client = _build_client(tmp_path)
+    _create_program_backtest_result(client, symbols=["ETH"])
+    weak_btc_backtest_id = _create_program_backtest_result(client, symbols=["BTC"], total_trades=0)
+    ready_btc_backtest_id = _create_program_backtest_result(client, symbols=["BTC"])
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert draft.status_code == 200
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": "BTC latest backtest spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    record = saved.json()["spec_record"]
+
+    linked = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/backtest-result/latest",
+        json={"accepted_for_handoff": True},
+    )
+    assert linked.status_code == 200
+    backtest = linked.json()["spec_record"]["spec"]["backtest"]
+    assert backtest["program_backtest_result_id"] == ready_btc_backtest_id
+    assert backtest["program_backtest_result_id"] != weak_btc_backtest_id
+    assert backtest["accepted_for_handoff"] is True
+    assert backtest["metrics"]["trade_count"] == 12
+    assert "strategy_backtest_required_before_handoff" not in linked.json()["spec_record"]["validation"]["warnings"]
+
+    eth_draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "SOL",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert eth_draft.status_code == 200
+    eth_saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": eth_draft.json()["spec"], "name": "SOL no latest spec", "source": "pytest"},
+    )
+    assert eth_saved.status_code == 200
+    missing = client.post(
+        f"/api/ai-trading/strategy-specs/{eth_saved.json()['spec_record']['id']}/backtest-result/latest",
+        json={"accepted_for_handoff": True},
+    )
+    assert missing.status_code == 400
+    assert "No handoff-ready Program BacktestResult" in missing.json()["detail"]
 
 
 def test_ai_trading_program_backtest_result_attachment_is_user_scoped(tmp_path):

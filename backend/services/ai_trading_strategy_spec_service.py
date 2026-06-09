@@ -1049,6 +1049,45 @@ def attach_strategy_backtest_result(
     )
 
 
+def attach_latest_matching_strategy_backtest_result(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+    accepted_for_handoff: bool = True,
+    notes: Optional[str] = None,
+) -> AiTradingStrategySpecRecord:
+    """Attach the newest owned, symbol-matching Program BacktestResult evidence."""
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+
+    spec = _json_loads(record.spec_json, {})
+    symbol = _normalize_symbol(spec.get("symbol") or record.symbol)
+    if not symbol:
+        raise ValueError("Strategy spec symbol is required before attaching backtest evidence")
+
+    candidates = list_program_backtest_result_candidates(
+        db,
+        user_id=user_id,
+        status="completed",
+        symbol=symbol,
+        limit=20,
+    )
+    latest_ready = next((candidate for candidate in candidates if candidate.get("handoff_ready")), None)
+    if not latest_ready:
+        raise ValueError("No handoff-ready Program BacktestResult found for strategy symbol")
+
+    return attach_strategy_backtest_result(
+        db,
+        user_id=user_id,
+        record_id=record_id,
+        backtest_result_id=int(latest_ready["id"]),
+        accepted_for_handoff=accepted_for_handoff,
+        notes=notes or f"Auto-linked latest handoff-ready Program BacktestResult for {symbol}.",
+    )
+
+
 def list_strategy_spec_records(
     db: Session,
     *,

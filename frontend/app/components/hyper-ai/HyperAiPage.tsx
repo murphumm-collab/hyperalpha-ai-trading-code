@@ -801,7 +801,7 @@ export default function HyperAiPage() {
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
-  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | null>(null)
+  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | null>(null)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -1355,6 +1355,51 @@ export default function HyperAiPage() {
     } catch (e) {
       console.error('Failed to attach AI trading Program Backtest result:', e)
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach Program Backtest result')
+    } finally {
+      setStrategyBacktestLoadingId(null)
+      setStrategyBacktestLoadingSource(null)
+    }
+  }
+
+  const handleAttachLatestProgramBacktestResult = async (recordId?: number) => {
+    setStrategyDraftError(null)
+    let targetRecordId = recordId
+    if (!targetRecordId) {
+      const record = strategyDraftRecord || (await persistStrategyDraft())
+      if (!record) {
+        setStrategyDraftError('Save or draft a strategy spec before attaching Program Backtest evidence')
+        return
+      }
+      targetRecordId = record.id
+    }
+
+    setStrategyBacktestLoadingId(targetRecordId)
+    setStrategyBacktestLoadingSource('latest')
+    try {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result/latest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accepted_for_handoff: true }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to attach latest Program Backtest result')
+      }
+      const record = data.spec_record as AiTradingStrategySpecRecord
+      setStrategyDraftRecord(record)
+      if (record.spec) {
+        setStrategyDraft(record.spec)
+      }
+      const backtest = record.spec?.backtest || {}
+      const prompt = currentLang === 'zh'
+        ? `请复核 AI Trading Strategy Spec #${record.id} 自动绑定的最新同标的 Program Backtest evidence：确认 metrics 是否满足 handoff gate、标的是否匹配、是否仍然只是 signal evidence。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(backtest, null, 2)}\n\`\`\``
+        : `Review the latest symbol-matching Program Backtest evidence attached to AI Trading Strategy Spec #${record.id}. Confirm metrics satisfy the handoff gate, the symbol matches, and it remains signal evidence rather than an order. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(backtest, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to attach latest AI trading Program Backtest result:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach latest Program Backtest result')
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -2377,6 +2422,19 @@ export default function HyperAiPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => handleAttachLatestProgramBacktestResult(strategyDraftRecord?.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      title={t('hyperAi.aiTradingAttachLatestProgramBacktest', 'Attach latest matching Program Backtest')}
+                    >
+                      {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'latest' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <History className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleStrategySignalPreview}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                       disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyDraftRecord?.status !== 'approved'}
@@ -2482,6 +2540,19 @@ export default function HyperAiPage() {
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <Link2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAttachLatestProgramBacktestResult(record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={strategyBacktestLoadingId !== null}
+                            title={t('hyperAi.aiTradingAttachLatestProgramBacktest', 'Attach latest matching Program Backtest')}
+                          >
+                            {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'latest' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <History className="h-3.5 w-3.5" />
                             )}
                           </button>
                         </div>

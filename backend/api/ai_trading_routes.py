@@ -12,6 +12,7 @@ from database.models import User
 from services.ai_trading_market_universe_service import get_ai_trading_market_universe
 from services.ai_trading_strategy_spec_service import (
     SignalGatewayDisabledError,
+    attach_latest_matching_strategy_backtest_result,
     attach_strategy_backtest_result,
     attach_strategy_backtest_summary,
     approve_strategy_spec_record,
@@ -85,6 +86,11 @@ class StrategyBacktestSummaryRequest(BaseModel):
 
 class StrategyBacktestResultRequest(BaseModel):
     backtest_result_id: int = Field(..., ge=1)
+    accepted_for_handoff: bool = True
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+
+class StrategyLatestBacktestResultRequest(BaseModel):
     accepted_for_handoff: bool = True
     notes: Optional[str] = Field(default=None, max_length=1000)
 
@@ -304,6 +310,32 @@ def attach_strategy_backtest_result_endpoint(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/backtest-result/latest")
+def attach_latest_strategy_backtest_result_endpoint(
+    spec_id: int,
+    request: StrategyLatestBacktestResultRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Attach newest owned symbol-matching Program BacktestResult evidence."""
+    try:
+        record = attach_latest_matching_strategy_backtest_result(
+            db,
+            user_id=current_user.id,
+            record_id=spec_id,
+            accepted_for_handoff=request.accepted_for_handoff,
+            notes=request.notes,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),
