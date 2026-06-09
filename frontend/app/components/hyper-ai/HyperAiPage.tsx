@@ -167,6 +167,23 @@ interface AiTradingStrategySpecRecord {
   status: string
   approved_at?: string | null
   spec?: AiTradingStrategySpec
+  validation?: {
+    status?: string
+    issues?: string[]
+    warnings?: string[]
+    safe_to_emit_signal?: boolean
+  }
+}
+
+interface AiTradingSignalEventRecord {
+  id: number
+  strategy_spec_id: number
+  symbol: string
+  action: string
+  status: string
+  handoff_status?: string
+  created_at?: string | null
+  signal?: Record<string, unknown>
 }
 
 interface AiTradingRuntimeStatus {
@@ -722,6 +739,8 @@ export default function HyperAiPage() {
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
+  const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
+  const [recentSignalEvents, setRecentSignalEvents] = useState<AiTradingSignalEventRecord[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -739,6 +758,7 @@ export default function HyperAiPage() {
     fetchExternalTools()
     fetchTradingSymbols()
     fetchAiTradingRuntime()
+    fetchAiTradingRecords()
   }, [])
 
   useEffect(() => {
@@ -858,13 +878,33 @@ export default function HyperAiPage() {
   const fetchAiTradingRuntime = async () => {
     try {
       const res = await authFetch('/api/ai-trading/runtime')
-      const data = await res.json()
       if (res.ok) {
+        const data = await res.json()
         setAiTradingRuntime(data)
       }
     } catch (e) {
       console.error('Failed to fetch AI Trading runtime:', e)
     }
+  }
+
+  const fetchAiTradingRecords = async () => {
+    try {
+      const [specRes, signalRes] = await Promise.all([
+        authFetch('/api/ai-trading/strategy-specs?limit=3'),
+        authFetch('/api/ai-trading/signal-events?limit=3'),
+      ])
+      const specData = specRes.ok ? await specRes.json() : {}
+      const signalData = signalRes.ok ? await signalRes.json() : {}
+      setRecentStrategySpecs(Array.isArray(specData.specs) ? specData.specs : [])
+      setRecentSignalEvents(Array.isArray(signalData.signal_events) ? signalData.signal_events : [])
+    } catch (e) {
+      console.error('Failed to fetch AI Trading records:', e)
+    }
+  }
+
+  const refreshAiTradingState = () => {
+    fetchAiTradingRuntime()
+    fetchAiTradingRecords()
   }
 
   const handleTradingSymbolPrompt = (symbol: string) => {
@@ -942,7 +982,7 @@ export default function HyperAiPage() {
       if (record.spec) {
         setStrategyDraft(record.spec)
       }
-      fetchAiTradingRuntime()
+      refreshAiTradingState()
       return record
     } catch (e) {
       console.error('Failed to save AI trading strategy spec:', e)
@@ -977,7 +1017,7 @@ export default function HyperAiPage() {
       if (approved.spec) {
         setStrategyDraft(approved.spec)
       }
-      fetchAiTradingRuntime()
+      refreshAiTradingState()
     } catch (e) {
       console.error('Failed to approve AI trading strategy spec:', e)
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to approve strategy spec')
@@ -1009,13 +1049,59 @@ export default function HyperAiPage() {
         ? `请审核下面这份 AI Trading Signal Event #${signalEvent?.id || '-'}：确认它是否仍然只是 signal candidate、是否满足 approved strategy spec 的风控边界、是否还缺少给订单后端的字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
         : `Review AI Trading Signal Event #${signalEvent?.id || '-'}. Confirm that it is still only a signal candidate, whether it satisfies the approved strategy spec risk boundary, and which fields are still missing before backend handoff. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
-      fetchAiTradingRuntime()
+      refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to build AI trading signal preview:', e)
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to build signal preview')
     } finally {
       setStrategySignalPreviewLoading(false)
+    }
+  }
+
+  const handleInspectStrategySpecRecord = async (recordId: number) => {
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${recordId}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to load strategy spec')
+      }
+      const record = data.spec_record as AiTradingStrategySpecRecord
+      const spec = record.spec || record
+      const prompt = currentLang === 'zh'
+        ? `请审核这份已保存的 AI Trading Strategy Spec #${record.id}，重点检查风控、止盈止损、执行边界和需要补充的问题。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+        : `Review saved AI Trading Strategy Spec #${record.id}. Check risk, take-profit/stop-loss, execution boundaries, and missing questions. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      setStrategyDraftRecord(record)
+      if (record.spec) {
+        setStrategyDraft(record.spec)
+      }
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to load AI trading strategy spec:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load strategy spec')
+    }
+  }
+
+  const handleInspectSignalEventRecord = async (eventId: number) => {
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to load signal event')
+      }
+      const event = data.signal_event as AiTradingSignalEventRecord
+      const signal = event.signal || event
+      const prompt = currentLang === 'zh'
+        ? `请审核这份 AI Trading Signal Event #${event.id}，确认它是否仍然只是候选信号、handoff 状态是否正确、是否缺少订单后端字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signal, null, 2)}\n\`\`\``
+        : `Review AI Trading Signal Event #${event.id}. Confirm it is still only a candidate signal, whether handoff status is correct, and what order-backend fields are missing. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signal, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to load AI trading signal event:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load signal event')
     }
   }
 
@@ -1678,7 +1764,7 @@ export default function HyperAiPage() {
                 className="h-7 w-7 shrink-0"
                 onClick={() => {
                   fetchTradingSymbols()
-                  fetchAiTradingRuntime()
+                  refreshAiTradingState()
                 }}
                 disabled={tradingSymbolsLoading}
                 title={t('common.refresh', 'Refresh')}
@@ -1852,6 +1938,66 @@ export default function HyperAiPage() {
                   <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span className="break-words">{strategyDraft.validation.issues.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(recentStrategySpecs.length > 0 || recentSignalEvents.length > 0) && (
+              <div className="mt-3 space-y-2 text-xs">
+                {recentStrategySpecs.length > 0 && (
+                  <div className="rounded-md border bg-muted/20 p-2">
+                    <div className="mb-1.5 flex items-center gap-1.5 font-medium">
+                      <FileJson className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span>{t('hyperAi.aiTradingRecentSpecs', 'Recent specs')}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {recentStrategySpecs.map(record => (
+                        <div key={record.id} className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">{record.symbol} · {record.name}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">#{record.id} · {record.status}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectStrategySpecRecord(record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            title={t('hyperAi.aiTradingInspectSpec', 'Inspect spec')}
+                          >
+                            <SearchIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {recentSignalEvents.length > 0 && (
+                  <div className="rounded-md border bg-muted/20 p-2">
+                    <div className="mb-1.5 flex items-center gap-1.5 font-medium">
+                      <MessageSquare className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span>{t('hyperAi.aiTradingRecentSignals', 'Recent signals')}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {recentSignalEvents.map(event => (
+                        <div key={event.id} className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">{event.symbol} · {event.action}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              #{event.id} · {event.status} · {event.handoff_status || 'not_submitted'}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectSignalEventRecord(event.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            title={t('hyperAi.aiTradingInspectSignal', 'Inspect signal')}
+                          >
+                            <SearchIcon className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
