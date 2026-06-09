@@ -68,6 +68,7 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
                 "| AI Trading production evidence text quality | Done |",
+                "| AI Trading production evidence text bounds | Done |",
                 "| AI Trading production evidence item IDs | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
@@ -426,6 +427,31 @@ def test_completion_audit_rejects_placeholder_production_evidence_text(tmp_path)
     assert "external_evidence_validated_by_too_short" in short_item["blockers"]
     assert "external_evidence_summary_placeholder" in short_item["blockers"]
     assert "external_evidence_summary_too_short" in short_item["blockers"]
+
+
+def test_completion_audit_rejects_overlong_production_evidence_text(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    evidence_path = tmp_path / "overlong-evidence.json"
+    _write_production_evidence(
+        evidence_path,
+        validated_by="ops-" + ("reviewer" * 20),
+        evidence_summary="sanitized evidence summary " + ("x" * 700),
+    )
+
+    report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=evidence_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert report["ready_for_live_orders"] is False
+    item = next(
+        item
+        for item in report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_validated_by_too_long" in item["blockers"]
+    assert "external_evidence_summary_too_long" in item["blockers"]
 
 
 def test_completion_audit_rejects_unsafe_artifact_refs(tmp_path):

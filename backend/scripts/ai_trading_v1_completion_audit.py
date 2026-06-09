@@ -45,6 +45,8 @@ ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS = {
     "secret_values_returned",
 }
 MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS = 24
+MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS = 600
+MAX_PRODUCTION_EVIDENCE_VALIDATOR_CHARS = 120
 PLACEHOLDER_EVIDENCE_VALUES = {
     "-",
     "accepted",
@@ -135,6 +137,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
             "| AI Trading production evidence text quality | Done |",
+            "| AI Trading production evidence text bounds | Done |",
             "| AI Trading production evidence item IDs | Done |",
             "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
         ),
@@ -370,6 +373,7 @@ def _evidence_text_quality_blockers(
     field_name: str,
     *,
     min_chars: int = 3,
+    max_chars: int | None = None,
 ) -> list[str]:
     if not isinstance(value, str):
         return [f"external_evidence_{field_name}_missing"]
@@ -383,6 +387,8 @@ def _evidence_text_quality_blockers(
         blockers.append(f"external_evidence_{field_name}_placeholder")
     if len(text) < min_chars:
         blockers.append(f"external_evidence_{field_name}_too_short")
+    if max_chars is not None and len(text) > max_chars:
+        blockers.append(f"external_evidence_{field_name}_too_long")
     return blockers
 
 
@@ -413,12 +419,19 @@ def _validate_external_evidence_item(
     blockers.extend(timestamp_blockers)
     if generated_at_utc is not None and validated_at_utc is not None and validated_at_utc > generated_at_utc:
         blockers.append("external_evidence_validated_at_after_generated_at")
-    blockers.extend(_evidence_text_quality_blockers(item.get("validated_by"), "validated_by"))
+    blockers.extend(
+        _evidence_text_quality_blockers(
+            item.get("validated_by"),
+            "validated_by",
+            max_chars=MAX_PRODUCTION_EVIDENCE_VALIDATOR_CHARS,
+        )
+    )
     blockers.extend(
         _evidence_text_quality_blockers(
             item.get("evidence_summary"),
             "summary",
             min_chars=MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
+            max_chars=MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
         )
     )
     artifact_refs = item.get("artifact_refs")
@@ -623,7 +636,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file with documented schema fields/item IDs, non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file with documented schema fields/item IDs, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 
