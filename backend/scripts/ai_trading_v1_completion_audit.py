@@ -47,6 +47,8 @@ ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS = {
 MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS = 24
 MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS = 600
 MAX_PRODUCTION_EVIDENCE_VALIDATOR_CHARS = 120
+MAX_PRODUCTION_EVIDENCE_NOTE_CHARS = 300
+MAX_PRODUCTION_EVIDENCE_NOTES = 12
 PLACEHOLDER_EVIDENCE_VALUES = {
     "-",
     "accepted",
@@ -140,6 +142,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence text bounds | Done |",
             "| AI Trading production evidence item IDs | Done |",
             "| AI Trading production evidence path safety | Done |",
+            "| AI Trading production evidence note safety | Done |",
             "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
         ),
     ),
@@ -369,6 +372,24 @@ def _unexpected_fields(payload: dict[str, Any], allowed_fields: set[str]) -> lis
     return sorted(str(field) for field in payload if field not in allowed_fields)
 
 
+def _evidence_notes_blockers(notes: Any) -> list[str]:
+    if notes is None:
+        return []
+    if not isinstance(notes, list):
+        return ["external_evidence_notes_must_be_list"]
+
+    blockers: list[str] = []
+    if len(notes) > MAX_PRODUCTION_EVIDENCE_NOTES:
+        blockers.append("external_evidence_notes_too_many")
+    for note in notes:
+        if not isinstance(note, str) or not note.strip():
+            blockers.append("external_evidence_note_must_be_non_empty_string")
+            continue
+        if len(note.strip()) > MAX_PRODUCTION_EVIDENCE_NOTE_CHARS:
+            blockers.append("external_evidence_note_too_long")
+    return blockers
+
+
 def _evidence_text_quality_blockers(
     value: Any,
     field_name: str,
@@ -549,6 +570,7 @@ def _validate_external_evidence_file(
     blockers.extend(timestamp_blockers)
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
+    blockers.extend(_evidence_notes_blockers(payload.get("notes")))
 
     secret_hits = _secret_pattern_hits(payload)
     if secret_hits:
@@ -590,6 +612,7 @@ def _validate_external_evidence_file(
         "unexpected_fields": unexpected_root_fields,
         "unexpected_item_ids": unexpected_item_ids,
         "file_inside_repo": evidence_file_inside_repo,
+        "notes_count": len(payload.get("notes")) if isinstance(payload.get("notes"), list) else 0,
     }
 
 
@@ -656,7 +679,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 

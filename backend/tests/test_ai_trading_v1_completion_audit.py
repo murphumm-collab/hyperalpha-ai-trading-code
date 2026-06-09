@@ -71,6 +71,7 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 "| AI Trading production evidence text bounds | Done |",
                 "| AI Trading production evidence item IDs | Done |",
                 "| AI Trading production evidence path safety | Done |",
+                "| AI Trading production evidence note safety | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -402,6 +403,47 @@ def test_completion_audit_rejects_unexpected_production_evidence_item_ids(tmp_pa
     assert report["ready_for_live_orders"] is False
     assert "external_evidence_unexpected_item_ids" in report["production_evidence"]["blockers"]
     assert report["production_evidence"]["unexpected_item_ids"] == ["legacy_manual_acceptance"]
+
+
+def test_completion_audit_rejects_unsafe_production_evidence_notes(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    scalar_notes_path = tmp_path / "scalar-notes-evidence.json"
+    long_note_path = tmp_path / "long-note-evidence.json"
+    too_many_notes_path = tmp_path / "too-many-notes-evidence.json"
+    _write_production_evidence(scalar_notes_path, root_extra={"notes": "raw acceptance log"})
+    _write_production_evidence(long_note_path, root_extra={"notes": ["sanitized note " + ("x" * 400)]})
+    _write_production_evidence(
+        too_many_notes_path,
+        root_extra={
+            "notes": [
+                f"sanitized acceptance note {index}"
+                for index in range(completion_audit.MAX_PRODUCTION_EVIDENCE_NOTES + 1)
+            ]
+        },
+    )
+
+    scalar_notes_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=scalar_notes_path,
+        allow_live_ready_from_evidence=True,
+    )
+    long_note_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=long_note_path,
+        allow_live_ready_from_evidence=True,
+    )
+    too_many_notes_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=too_many_notes_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert scalar_notes_report["ready_for_live_orders"] is False
+    assert "external_evidence_notes_must_be_list" in scalar_notes_report["production_evidence"]["blockers"]
+    assert long_note_report["ready_for_live_orders"] is False
+    assert "external_evidence_note_too_long" in long_note_report["production_evidence"]["blockers"]
+    assert too_many_notes_report["ready_for_live_orders"] is False
+    assert "external_evidence_notes_too_many" in too_many_notes_report["production_evidence"]["blockers"]
 
 
 def test_completion_audit_rejects_placeholder_production_evidence_text(tmp_path):
