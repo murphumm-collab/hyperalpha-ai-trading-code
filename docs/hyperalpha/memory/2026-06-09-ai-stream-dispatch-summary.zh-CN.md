@@ -40,6 +40,7 @@
 - handoff eligibility 现在会要求 persisted signal action 是可交易的 `buy/sell`，并且 nested signal 的 action/symbol 必须和 audit event 的 action/symbol 一致；如果被污染成 `hold` 或其他 symbol，会被 action/symbol blockers 拦截并写 blocked attempt。
 - `/api/ai-trading/signal-events/{id}/handoff` 现在默认限制 signal event 最大 handoff 年龄：`AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS=900`。超过时 `handoff_eligibility.blockers` 包含 `signal_event_stale_for_handoff`，并返回非敏感 `signal_age_seconds` / `max_handoff_age_seconds`；设为 `0` 可关闭年龄 gate。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
+- gateway payload 现在有稳定的 V1 HTTP JSON contract：顶层包含 `contract/version`、event/spec/user IDs、`venue`、`symbol`、`exchange_symbol`、`action`、`idempotency_key`、signal age、用户确认、`market`、`market_context`、`risk`、`backtest`、`execution_boundary`、`validation` 和 redacted full `signal`；契约文档在 `docs/hyperalpha/ai-trading-signal-gateway-contract.md`。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
 - `/api/ai-trading/runtime` 现在还返回非敏感 `gateway.max_handoff_age_seconds`；Hyper AI Gateway 卡片会显示紧凑 max-age，让运营知道后端当前 stale-signal gate。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
@@ -234,14 +235,16 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 event/signal consistency handoff boundary 后通过，24 条 AI Trading route 回归全绿；覆盖 nested signal action 被污染成 non-tradeable 且 action/symbol 与 audit event 不一致时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 event/signal consistency boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI action/symbol blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal gateway contract payload 后通过，25 条 AI Trading route 回归全绿；新增覆盖 mock 订单后端收到稳定 V1 payload，且 payload 保持 signal-only/not-an-order 边界、风险/回测/确认/幂等字段和 token 不泄露。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 gateway contract payload 后通过。
 
 ## 6. 未验收 / 阻塞
 
 - 本地 PostgreSQL 未运行，导致后端 `8000` 未监听；analytics route runtime import 会因 snapshot DB 默认 Postgres 不可达而失败。
-- `git push -u origin codex/ai-agent-multitenant-foundation` 仍被 HTTPS 凭据阻塞：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
+- GitHub 上传按用户要求暂不处理；本地继续开发、测试、验收标记和提交。历史推送失败原因为 HTTPS 凭据不可读：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
-- AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前只做 disabled-by-default 和 mock gateway 验收。
+- AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前已做 disabled-by-default、mock gateway、V1 contract payload 和文档验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
 - 专用 AI Trading full-page rich backtest result route 已实现为只读 evidence 页面；真实登录态下从 saved Strategy Spec/Program Backtest evidence 点击进入并加载 live data 的浏览器验收仍未完成。
 - strategy spec / signal preview / signal event / recent records inspect / signal-event handoff 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols、持久化记录与 gateway readiness；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。

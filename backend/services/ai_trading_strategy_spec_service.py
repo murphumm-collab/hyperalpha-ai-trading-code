@@ -40,6 +40,8 @@ from services.exchanges.symbol_mapper import SymbolMapper
 
 SPEC_VERSION = "hyperalpha.ai_trading.strategy_spec.v1"
 SIGNAL_VERSION = "hyperalpha.ai_trading.signal_candidate.v1"
+SIGNAL_GATEWAY_MESSAGE_TYPE = "AI_TRADING_SIGNAL_CANDIDATE"
+SIGNAL_GATEWAY_MESSAGE_VERSION = "hyperalpha.ai_trading.gateway_message.v1"
 DEFAULT_TIMEFRAME = "15m"
 SUPPORTED_TIMEFRAMES = {
     "1m",
@@ -1887,19 +1889,50 @@ def _build_signal_gateway_payload(
     signal = _json_loads(event.signal_json, {})
     idempotency_key = signal.get("idempotency_key") if isinstance(signal, dict) else None
     signal = _redact_sensitive_payload(signal)
+    if not isinstance(signal, dict):
+        signal = {}
+
+    market = signal.get("market") if isinstance(signal.get("market"), dict) else {}
+    risk = signal.get("risk") if isinstance(signal.get("risk"), dict) else {}
+    backtest = signal.get("backtest") if isinstance(signal.get("backtest"), dict) else {}
+    validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
+    market_context = signal.get("market_context") if isinstance(signal.get("market_context"), dict) else {}
+    execution_boundary = (
+        signal.get("execution_boundary") if isinstance(signal.get("execution_boundary"), dict) else {}
+    )
     return {
-        "type": "AI_TRADING_SIGNAL_CANDIDATE",
-        "version": "hyperalpha.ai_trading.gateway_message.v1",
+        "type": SIGNAL_GATEWAY_MESSAGE_TYPE,
+        "version": SIGNAL_GATEWAY_MESSAGE_VERSION,
+        "contract": {
+            "name": SIGNAL_GATEWAY_MESSAGE_TYPE,
+            "version": SIGNAL_GATEWAY_MESSAGE_VERSION,
+            "signal_version": SIGNAL_VERSION,
+            "delivery": "http_json_post",
+            "order_authority": "order_backend_only",
+        },
         "signal_event_id": event.id,
         "strategy_spec_id": event.strategy_spec_id,
         "user_id": event.user_id,
+        "venue": "hyperliquid",
         "symbol": event.symbol,
+        "exchange_symbol": signal.get("exchange_symbol") or event.symbol,
         "action": event.action,
         "idempotency_key": idempotency_key or f"signal_event:{event.id}",
+        "signal_created_at": _record_timestamp(event.created_at),
+        "signal_age_seconds": _signal_event_age_seconds(event),
+        "max_handoff_age_seconds": int(SIGNAL_MAX_HANDOFF_AGE_SECONDS)
+        if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0
+        else None,
         "user_confirmation": {
             "confirmed": True,
             "source": _clean_text(confirmation_source, 100) or "unspecified",
         },
+        "market": market,
+        "market_context": market_context,
+        "risk": risk,
+        "backtest": backtest,
+        "execution_boundary": execution_boundary,
+        "validation": validation,
         "signal": signal,
     }
 

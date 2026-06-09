@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local Checkpoint Complete / Remote Push Blocked
+Status: Local Checkpoint Complete / Remote Push Deferred
 
 Local checkpoint: current branch `HEAD`
 
@@ -119,6 +119,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI signal preview action now creates an auditable signal event and sends the event payload into chat for review.
 - Hyper AI signal preview control now stays gated until the approved strategy spec also has handoff-ready backtest evidence, matching the user-facing safety path before signal-event creation.
 - AI Trading signal handoff endpoint is present but disabled by default; it only submits audited signal events to a configured external order-backend URL when explicitly enabled.
+- AI Trading signal gateway payload now has a documented V1 HTTP JSON contract with stable top-level fields for contract/version, event/spec/user IDs, venue, market identity, action, idempotency, signal age, user confirmation, risk, backtest evidence, validation, execution boundary, and a redacted full signal copy.
 - AI Trading signal handoff endpoint requires an explicit `confirmed_by_user=true` request before any eligible signal can be submitted to the order backend.
 - AI Trading signal handoff eligibility now requires the persisted signal execution boundary to keep `requires_user_confirmation=true` before any order-backend handoff.
 - AI Trading signal handoff eligibility now requires the persisted signal execution boundary to keep `signal_only=true` before any order-backend handoff.
@@ -744,19 +745,22 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading route regression after enforcing event/signal action-symbol consistency before handoff: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 24 passing tests, including detail/runtime/handoff/attempt blockers when nested signal action becomes non-tradeable and action/symbol diverge from the audit event.
 - Passed: AI Trading service/route/test syntax compile after event/signal consistency boundary: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: Frontend production build after adding readable event/signal action-symbol blocker labels in the Hyper AI recent signal panel: `cd frontend && npm run build`; existing browserslist/baseline and chunk-size warnings remain.
+- Passed: AI Trading signal gateway contract regression after stabilizing the V1 HTTP JSON payload: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 25 passing tests, including `test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only`.
+- Passed: AI Trading service/route/test syntax compile after signal gateway contract fields: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Added: `docs/hyperalpha/ai-trading-signal-gateway-contract.md` documents the disabled-by-default gateway config, required payload, handoff gates, downstream order-backend responsibilities, and test evidence.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
-- Blocked: `git push -u origin codex/ai-agent-multitenant-foundation` failed with `could not read Username for 'https://github.com': Device not configured`.
+- Deferred: GitHub upload is intentionally skipped per user request; previous `git push -u origin codex/ai-agent-multitenant-foundation` attempts failed with `could not read Username for 'https://github.com': Device not configured`.
 
 ## Known Not-Accepted Items
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
 - Redis distributed admission leases, persisted high-risk confirmation responses, runner heartbeats, dispatch queue persistence, and Hyper AI/Prompt/Signal/Program/Attribution serialized worker handlers are implemented for cross-instance capacity/confirmation/routing coordination; live distributed worker acceptance with running Postgres/Redis and real model credentials is still pending.
 - Dedicated full-page AI Trading rich backtest result route is implemented as a read-only evidence route; authenticated click-through acceptance with real saved Strategy Specs and Program Backtest evidence remains pending.
-- AI Trading signal gateway live acceptance with the real HyperAlpha order backend URL/token is still pending; the endpoint is implemented and disabled by default.
+- AI Trading signal gateway live acceptance with the real HyperAlpha order backend URL/token is still pending; the endpoint is implemented, disabled by default, and now has a local V1 contract regression plus contract documentation.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.

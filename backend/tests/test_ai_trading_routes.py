@@ -478,6 +478,109 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
 
 
+def test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client, symbol="BTC")
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 202
+
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest_contract"},
+    )
+
+    assert handoff.status_code == 200
+    assert len(calls) == 1
+    payload = calls[0]["json"]
+    assert set(payload.keys()) == {
+        "type",
+        "version",
+        "contract",
+        "signal_event_id",
+        "strategy_spec_id",
+        "user_id",
+        "venue",
+        "symbol",
+        "exchange_symbol",
+        "action",
+        "idempotency_key",
+        "signal_created_at",
+        "signal_age_seconds",
+        "max_handoff_age_seconds",
+        "user_confirmation",
+        "market",
+        "market_context",
+        "risk",
+        "backtest",
+        "execution_boundary",
+        "validation",
+        "signal",
+    }
+    assert payload["type"] == "AI_TRADING_SIGNAL_CANDIDATE"
+    assert payload["version"] == "hyperalpha.ai_trading.gateway_message.v1"
+    assert payload["contract"] == {
+        "name": "AI_TRADING_SIGNAL_CANDIDATE",
+        "version": "hyperalpha.ai_trading.gateway_message.v1",
+        "signal_version": "hyperalpha.ai_trading.signal_candidate.v1",
+        "delivery": "http_json_post",
+        "order_authority": "order_backend_only",
+    }
+    assert payload["signal_event_id"] == event["id"]
+    assert payload["strategy_spec_id"] == event["strategy_spec_id"]
+    assert payload["user_id"] == event["user_id"]
+    assert payload["venue"] == "hyperliquid"
+    assert payload["symbol"] == "BTC"
+    assert payload["exchange_symbol"] == "BTC"
+    assert payload["action"] in {"buy", "sell"}
+    assert payload["idempotency_key"] == f"signal_event:{event['id']}"
+    assert payload["signal_created_at"]
+    assert isinstance(payload["signal_age_seconds"], int)
+    assert payload["max_handoff_age_seconds"] == int(strategy_service.SIGNAL_MAX_HANDOFF_AGE_SECONDS)
+    assert payload["user_confirmation"] == {"confirmed": True, "source": "pytest_contract"}
+    assert payload["market"] == {
+        "venue": "hyperliquid",
+        "dex": "core",
+        "symbol": "BTC",
+        "exchange_symbol": "BTC",
+        "display_symbol": "BTC",
+        "category": "crypto",
+    }
+    assert payload["market_context"]["mark_price"] == 100000
+    assert payload["market_context"]["source"] == "pytest"
+    assert payload["risk"]["max_loss_pct"] == 1.0
+    assert payload["risk"]["max_leverage"] == 3.0
+    assert payload["backtest"]["accepted_for_handoff"] is True
+    assert payload["backtest"]["metrics"]["trade_count"] == 42
+    assert payload["execution_boundary"]["signal_only"] is True
+    assert payload["execution_boundary"]["not_an_order"] is True
+    assert payload["execution_boundary"]["requires_user_confirmation"] is True
+    assert payload["execution_boundary"]["ai_may_place_orders"] is False
+    assert payload["execution_boundary"]["order_backend_only"] is True
+    assert payload["validation"]["eligible_for_backend_handoff"] is True
+    assert payload["signal"]["idempotency_key"] == payload["idempotency_key"]
+    assert payload["signal"]["execution_boundary"] == payload["execution_boundary"]
+    assert "order_id" not in payload
+    assert "quantity" not in payload
+    assert "size" not in payload
+    assert "test-token" not in str(payload)
+    assert calls[0]["headers"]["Authorization"] == "Bearer test-token"
+
+
 def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)
