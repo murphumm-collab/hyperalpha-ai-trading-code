@@ -833,7 +833,16 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
 
 def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_adjusts(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
-    approved_spec, _ = _create_approved_signal_event(client, symbol="BTC")
+    approved_spec, _ = _create_approved_signal_event(
+        client,
+        symbol="BTC",
+        agent_session_id="session:model-btc",
+        agent_session_name="BTC Model Session",
+        agent_context_summary=(
+            "AI Trading session compressed context v1 | symbols=BTC | "
+            "risk=0.5%; redaction=enabled; ai_order_placement=disallowed"
+        ),
+    )
     spec_id = approved_spec["id"]
     calls = []
 
@@ -893,16 +902,32 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     assert adjusted["backtest"]["source"] == "invalidated_by_strategy_adjustment"
     assert adjusted["metadata"]["model_adjustment"]["provider"] == "qwen"
     assert adjusted["metadata"]["model_adjustment"]["model"] == "qwen-plus"
+    assert adjusted["metadata"]["model_adjustment"]["agent_session_context"] == {
+        "agent_session_id": "session:model-btc",
+        "agent_session_name": "BTC Model Session",
+        "context_summary": (
+            "AI Trading session compressed context v1 | symbols=BTC | "
+            "risk=0.5%; redaction=enabled; ai_order_placement=disallowed"
+        ),
+        "source": "agent_session",
+        "redaction": "enabled",
+        "ai_order_placement": "disallowed",
+    }
     assert payload["model_context"] == {
         "provider": "qwen",
         "model": "qwen-plus",
         "source": "hyper_ai_profile",
+        "agent_session_context": adjusted["metadata"]["model_adjustment"]["agent_session_context"],
     }
     assert payload["model_suggestion"]["risk_notes"] == ["Re-run backtest before signal handoff."]
     assert "secret-model-key" not in str(payload)
     assert calls
     assert calls[0]["headers"]["Authorization"] == "Bearer secret-model-key"
     assert "secret-model-key" not in str(calls[0]["json"])
+    model_prompt = json.dumps(calls[0]["json"], ensure_ascii=False)
+    assert "Current non-secret AI Trading agent session context" in model_prompt
+    assert "session:model-btc" in model_prompt
+    assert "AI Trading session compressed context v1" in model_prompt
 
 
 def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypatch):

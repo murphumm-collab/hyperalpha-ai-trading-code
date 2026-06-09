@@ -89,6 +89,14 @@ class StrategySpecModelAdjustRequest(BaseModel):
     spec: Dict[str, Any]
     instruction: str = Field(..., min_length=1, max_length=4000)
     source: Optional[str] = Field(default="model_adjustment", max_length=50)
+    agent_session_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    )
+    agent_session_name: Optional[str] = Field(default=None, max_length=120)
+    agent_context_summary: Optional[str] = Field(default=None, max_length=2000)
 
 
 class StrategySpecRecordAdjustRequest(BaseModel):
@@ -480,6 +488,9 @@ def model_adjust_strategy_spec_endpoint(
             spec=request.spec,
             instruction=request.instruction,
             source=request.source or "model_adjustment",
+            agent_session_id=request.agent_session_id,
+            agent_session_name=request.agent_session_name,
+            agent_context_summary=request.agent_context_summary,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

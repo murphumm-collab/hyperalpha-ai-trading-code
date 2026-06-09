@@ -2138,6 +2138,17 @@ export default function HyperAiPage() {
     setStrategyDraftError(null)
     try {
       const isPersisted = Boolean(strategyDraftRecord?.id)
+      const selectedSessionContextPayload = (
+        !isPersisted &&
+        selectedAiTradingAgentSession &&
+        selectedAiTradingAgentSessionId !== AI_TRADING_NEW_AGENT_SESSION_VALUE
+      )
+        ? {
+            agent_session_id: selectedAiTradingAgentSession.id,
+            agent_session_name: selectedAiTradingAgentSession.name || undefined,
+            agent_context_summary: agentSessionSummaryDraft || selectedAiTradingAgentSession.context_summary || undefined,
+          }
+        : {}
       const res = await authFetchAiTradingAction(
         isPersisted
           ? `/api/ai-trading/strategy-specs/${strategyDraftRecord?.id}/model-adjust`
@@ -2148,7 +2159,12 @@ export default function HyperAiPage() {
           body: JSON.stringify(
             isPersisted
               ? { instruction, source: 'hyper_ai_panel_model' }
-              : { spec: strategyDraft, instruction, source: 'hyper_ai_panel_model' }
+              : {
+                  spec: strategyDraft,
+                  instruction,
+                  source: 'hyper_ai_panel_model',
+                  ...selectedSessionContextPayload,
+                }
           ),
         }
       )

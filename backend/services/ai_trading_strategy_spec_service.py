@@ -1318,6 +1318,28 @@ def _extract_model_response_text(api_format: str, data: Dict[str, Any]) -> str:
     return _extract_text_from_message(message.get("content"))
 
 
+def _build_model_adjustment_agent_context(
+    *,
+    agent_session_id: Optional[str] = None,
+    agent_session_name: Optional[str] = None,
+    agent_context_summary: Optional[str] = None,
+    source: str = "request",
+) -> Optional[Dict[str, Any]]:
+    resolved_session_id = _clean_agent_session_id(agent_session_id) if agent_session_id else None
+    resolved_name = _clean_text(agent_session_name, 120)
+    resolved_summary = _clean_agent_context_summary(agent_context_summary)
+    if not any([resolved_session_id, resolved_name, resolved_summary]):
+        return None
+    return {
+        "agent_session_id": resolved_session_id,
+        "agent_session_name": resolved_name or None,
+        "context_summary": resolved_summary,
+        "source": _clean_text(source, 50) or "request",
+        "redaction": "enabled",
+        "ai_order_placement": "disallowed",
+    }
+
+
 def adjust_strategy_spec_with_model(
     db: Session,
     *,
@@ -1325,6 +1347,9 @@ def adjust_strategy_spec_with_model(
     spec: Dict[str, Any],
     instruction: str,
     source: str = "model_adjustment",
+    agent_session_id: Optional[str] = None,
+    agent_session_name: Optional[str] = None,
+    agent_context_summary: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Ask the user's configured model for an adjustment instruction, then safely apply it."""
     instruction_text = _clean_text(instruction, 4000)
@@ -1345,6 +1370,12 @@ def adjust_strategy_spec_with_model(
         raise ValueError("LLM model or base URL is missing")
 
     redacted_spec = _redact_sensitive_payload(spec)
+    agent_context = _build_model_adjustment_agent_context(
+        agent_session_id=agent_session_id,
+        agent_session_name=agent_session_name,
+        agent_context_summary=agent_context_summary,
+        source="agent_session",
+    )
     system_prompt = (
         "You are HyperAlpha AI Trading Strategy Editor. "
         "Return JSON only. Do not place orders. Do not suggest direct execution. "
@@ -1355,13 +1386,21 @@ def adjust_strategy_spec_with_model(
         "}. The instruction must be concise and must only describe safe edits to "
         "timeframe, bias, entry, stop-loss, take-profit, risk, leverage, or position notional."
     )
-    user_prompt = (
+    user_prompt_parts = [
         "Current redacted AI Trading strategy spec:\n"
         f"{json.dumps(redacted_spec, ensure_ascii=False, sort_keys=True)[:12000]}\n\n"
+    ]
+    if agent_context:
+        user_prompt_parts.append(
+            "Current non-secret AI Trading agent session context:\n"
+            f"{json.dumps(_redact_sensitive_payload(agent_context), ensure_ascii=False, sort_keys=True)[:3000]}\n\n"
+        )
+    user_prompt_parts.append(
         "User adjustment request:\n"
         f"{instruction_text}\n\n"
         "Return JSON only."
     )
+    user_prompt = "".join(user_prompt_parts)
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": user_prompt},
@@ -1410,6 +1449,7 @@ def adjust_strategy_spec_with_model(
         "provider": provider,
         "model": model,
         "source": "hyper_ai_profile",
+        "agent_session_context": agent_context,
         "rationale": _clean_text(parsed.get("rationale"), 1000),
         "risk_notes": [
             _clean_text(note, 300)
@@ -1424,6 +1464,7 @@ def adjust_strategy_spec_with_model(
             "provider": provider,
             "model": model,
             "source": "hyper_ai_profile",
+            "agent_session_context": agent_context,
         },
         "model_suggestion": {
             "instruction": model_instruction,
@@ -2441,6 +2482,9 @@ def adjust_strategy_spec_record_with_model(
         spec=current_spec,
         instruction=instruction,
         source=source,
+        agent_session_id=record.agent_session_id,
+        agent_session_name=record.agent_session_name,
+        agent_context_summary=record.agent_context_summary,
     )
     adjusted_spec = result["spec"]
     validation = validate_strategy_spec(adjusted_spec, user_id=user_id)
