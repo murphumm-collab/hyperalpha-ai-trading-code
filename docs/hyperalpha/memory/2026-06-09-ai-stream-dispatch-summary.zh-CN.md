@@ -252,6 +252,7 @@
 - `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` 已保存 V1 完成标准、当前已验证项、未验收项和最终通过标准，避免继续无限扩功能。
 - mock signal gateway 已通过轻量验证：`cd backend && uv run python -m py_compile dev_ai_trading_signal_gateway.py`；临时运行 `uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1` 后，`curl http://127.0.0.1:5621/health` 返回 ok，随后已停止服务。
 - `cd backend && uv run pytest tests/test_ai_trading_mock_gateway.py -q` 已通过，2 条 mock gateway 回归全绿；覆盖合格 V1 payload 返回 202 并写审计日志，以及 direct-order boundary 被 400 blocker 拒绝。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py -q` 已通过，当前 AI Trading backend 合并回归为 29 条全绿。
 - Playwright CLI 已打开 `http://127.0.0.1:5174/app/ai-trading`，页面 title 为 `Hyper Alpha Arena`，快照落在 Hyper AI shell/onboarding 状态；控制台错误主要来自本地后端 API/WS 未运行和少量静态资源 404，因此仍不是完整 AI Trading 点击级验收。
 - 临时启动后端 `uv run uvicorn main:app --port 5611 --host 127.0.0.1` 失败：`database.snapshot_connection` import 时连接本地 PostgreSQL `localhost:5432` 被拒，抛出 `psycopg2.OperationalError`。
 - 用 `DATABASE_URL=sqlite:///./tmp_hyperalpha_dev.db SNAPSHOT_DATABASE_URL=sqlite:///./tmp_hyperalpha_snapshot.db` 探测 SQLite fallback 时，uvicorn 启动阶段产生大量 Postgres 专用 migration / model validation SQL 错误，服务没有稳定进入可验收状态；探测生成的临时 SQLite 文件已删除。
