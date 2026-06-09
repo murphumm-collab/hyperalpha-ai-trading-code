@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Admin Handoff Audit Next Actions Gate Complete / Remote Push Skipped
+Status: Local V1 Agent Session Context Limit Metadata Gate Complete / Remote Push Skipped
 
 Local checkpoint: current branch `HEAD`
 
@@ -155,6 +155,7 @@ Local checkpoint: current branch `HEAD`
 - Archived AI Trading agent sessions now also block saved-spec approval, backtest attach/latest/preflight, signal preview/event creation, and signal handoff; signal-event eligibility/audit attempts expose the non-secret `agent_session_archived` blocker while historical reads remain available.
 - AI Trading agent sessions can deterministically compress their current context packet into a persisted non-secret summary without model calls, handoff, or order submission.
 - AI Trading agent session context packets now include current-user, current-session non-secret handoff attempt summaries, covering blocked/failed/submitted result, blockers, retry eligibility, confirmation source, gateway readiness, and sanitized gateway response metadata without gateway URL/token/header exposure.
+- AI Trading agent session context packets now expose requested/effective/max context limits and summary max chars so operators can verify model-context compression stays bounded per session.
 - AI Trading agent session compressed summaries now count handoff attempt results and name the latest handoff attempt so DeepSeek/Qwen strategy adjustment context can avoid repeating prior execution-handoff failures.
 - Hyper AI AI Trading panel can edit the selected session name/context summary, create a new session, archive the selected session, and keep saved drafts attached to the selected session.
 - Hyper AI AI Trading panel can load the selected session context packet into chat review, compress/save the selected session context summary, list archived sessions, and filter visible specs/signals to the selected session for session-scoped audit review.
@@ -396,6 +397,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading production readiness admin UI | Done | Settings Admin tab fetches the readiness API and renders component blockers/warnings/next actions, including readable Handoff Audit and Top Warnings labels; local auth-disabled browser hides admin controls as expected |
 | AI Trading agent-session metadata | Done | Strategy specs, signal events, and handoff attempts persist current-user `agent_session_id`/name metadata so one user can keep multiple AI Trading sessions separated |
 | AI Trading agent-session context API | Done | `/api/ai-trading/agent-sessions` and `/api/ai-trading/agent-sessions/{agent_session_id}/context` return current-user non-secret session summaries/context packets and cross-user context reads return 404 |
+| AI Trading agent-session context limits | Done | Context packets expose requested/effective/max strategy/signal/attempt limits plus `summary_max_chars=2000`; route validation rejects over-limit requests |
 | AI Trading agent-session UI preview | Done | Hyper AI AI Trading runtime shows session count and the Recent area lists recent agent sessions plus session labels on recent specs/signals |
 | AI Trading current agent-session selector | Done | Hyper AI AI Trading has an Agent session selector; saved drafts inherit the selected session, while New agent session lets the backend create a new session id |
 | AI Trading first-class agent sessions | Done | `ai_trading_agent_sessions` stores current-user session records with active/archived status; create/update/archive endpoints preserve audit records and block new specs in archived sessions |
@@ -948,6 +950,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: In-app Browser opened `http://127.0.0.1:5174/#settings`, skipped local onboarding without entering API keys, and confirmed Settings renders without visible errors; local auth-disabled state still hides Admin readiness controls as expected.
 - Passed: Admin readiness handoff audit next-action checks: `cd backend && uv run python -m py_compile services/ai_trading_production_readiness_service.py tests/test_ai_trading_production_readiness_api.py` passed; `cd backend && uv run pytest tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py -q` returned 8 passing tests, including warning-specific next actions and no attempt secret leakage.
 - Passed: aggregate AI Trading regression after Admin readiness handoff audit next actions: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 59 passing tests with 4 existing UTC deprecation warnings.
+- Passed: AI Trading agent-session context limit metadata checks: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` passed; `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 35 passing tests, including requested/effective/max context limits, `summary_max_chars=2000`, compression summary length bound, and 422 rejection for over-limit context/compress requests.
+- Passed: aggregate AI Trading regression after agent-session context limit metadata: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 59 passing tests with 4 existing UTC deprecation warnings.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

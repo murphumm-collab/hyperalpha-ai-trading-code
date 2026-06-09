@@ -2679,6 +2679,13 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     assert context_payload["agent_session"]["id"] == "session:btc-breakout"
     assert context_payload["compression"]["secret_policy"] == "redacted_no_credentials"
     assert context_payload["compression"]["attempt_limit"] == 1
+    assert context_payload["compression"]["strategy_requested_limit"] == 5
+    assert context_payload["compression"]["signal_requested_limit"] == 10
+    assert context_payload["compression"]["attempt_requested_limit"] == 20
+    assert context_payload["compression"]["strategy_max_limit"] == 20
+    assert context_payload["compression"]["signal_max_limit"] == 50
+    assert context_payload["compression"]["attempt_max_limit"] == 100
+    assert context_payload["compression"]["summary_max_chars"] == 2000
     assert context_payload["strategy_specs"][0]["id"] == btc_spec["id"]
     assert context_payload["signal_events"][0]["id"] == btc_event["id"]
     assert context_payload["handoff_attempts"][0]["signal_event_id"] == btc_event["id"]
@@ -2695,6 +2702,12 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     assert "authorization" not in serialized_context_payload
     assert "http://" not in serialized_context_payload
     assert "https://" not in serialized_context_payload
+    assert alice.get(
+        "/api/ai-trading/agent-sessions/session:btc-breakout/context?strategy_limit=21"
+    ).status_code == 422
+    assert alice.post(
+        "/api/ai-trading/agent-sessions/session:btc-breakout/compress-context?attempt_limit=101"
+    ).status_code == 422
 
     eth_filtered_specs = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:eth-mean-reversion")
     assert eth_filtered_specs.status_code == 200
@@ -2808,6 +2821,11 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert "latest_handoff_attempt=#" in context_summary
     assert "redaction=enabled" in context_summary
     assert "ai_order_placement=disallowed" in context_summary
+    assert len(context_summary) <= compressed_payload["context"]["compression"]["summary_max_chars"]
+    assert compressed_payload["context"]["compression"]["summary_max_chars"] == 2000
+    assert compressed_payload["context"]["compression"]["strategy_max_limit"] == 20
+    assert compressed_payload["context"]["compression"]["signal_max_limit"] == 50
+    assert compressed_payload["context"]["compression"]["attempt_max_limit"] == 100
     assert "api_key" not in json.dumps(compressed_payload).lower()
     assert compressed_payload["agent_session"]["context_summary"] == context_summary
     assert compressed_payload["context"]["agent_session"]["context_summary"] == context_summary

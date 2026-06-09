@@ -16,6 +16,9 @@ from services.ai_trading_production_readiness_service import (
     build_report as build_production_readiness_report,
 )
 from services.ai_trading_strategy_spec_service import (
+    AGENT_CONTEXT_ATTEMPT_MAX_LIMIT,
+    AGENT_CONTEXT_SIGNAL_MAX_LIMIT,
+    AGENT_CONTEXT_STRATEGY_MAX_LIMIT,
     SignalGatewayDisabledError,
     attach_latest_matching_strategy_backtest_result,
     attach_strategy_backtest_result,
@@ -346,9 +349,9 @@ def ai_trading_agent_session_context_endpoint(
         max_length=80,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
     ),
-    strategy_limit: int = Query(default=5, ge=1, le=20),
-    signal_limit: int = Query(default=10, ge=1, le=50),
-    attempt_limit: int = Query(default=20, ge=1, le=100),
+    strategy_limit: int = Query(default=5, ge=1, le=AGENT_CONTEXT_STRATEGY_MAX_LIMIT),
+    signal_limit: int = Query(default=10, ge=1, le=AGENT_CONTEXT_SIGNAL_MAX_LIMIT),
+    attempt_limit: int = Query(default=20, ge=1, le=AGENT_CONTEXT_ATTEMPT_MAX_LIMIT),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ):
@@ -380,9 +383,9 @@ def compress_ai_trading_agent_session_context_endpoint(
         max_length=80,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
     ),
-    strategy_limit: int = Query(default=10, ge=1, le=20),
-    signal_limit: int = Query(default=20, ge=1, le=50),
-    attempt_limit: int = Query(default=20, ge=1, le=100),
+    strategy_limit: int = Query(default=10, ge=1, le=AGENT_CONTEXT_STRATEGY_MAX_LIMIT),
+    signal_limit: int = Query(default=20, ge=1, le=AGENT_CONTEXT_SIGNAL_MAX_LIMIT),
+    attempt_limit: int = Query(default=20, ge=1, le=AGENT_CONTEXT_ATTEMPT_MAX_LIMIT),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ):

@@ -119,6 +119,10 @@ DIRECT_ORDER_INTENT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 AGENT_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$")
+AGENT_CONTEXT_SUMMARY_MAX_CHARS = 2000
+AGENT_CONTEXT_STRATEGY_MAX_LIMIT = 20
+AGENT_CONTEXT_SIGNAL_MAX_LIMIT = 50
+AGENT_CONTEXT_ATTEMPT_MAX_LIMIT = 100
 HIP3_INDEX_SYMBOLS = {
     "SP500",
     "SPX",
@@ -553,7 +557,7 @@ def _new_agent_session_id(spec: Dict[str, Any]) -> str:
 
 
 def _clean_agent_context_summary(value: Any) -> Optional[str]:
-    summary = _clean_text(value, 2000)
+    summary = _clean_text(value, AGENT_CONTEXT_SUMMARY_MAX_CHARS)
     if not summary:
         return None
     if SENSITIVE_AI_TRADING_KEY_PATTERN.search(summary):
@@ -3227,6 +3231,13 @@ def build_ai_trading_agent_session_context(
             "strategy_limit": len(strategy_records),
             "signal_limit": len(signal_records),
             "attempt_limit": len(attempt_records),
+            "strategy_requested_limit": strategy_limit,
+            "signal_requested_limit": signal_limit,
+            "attempt_requested_limit": attempt_limit,
+            "strategy_max_limit": AGENT_CONTEXT_STRATEGY_MAX_LIMIT,
+            "signal_max_limit": AGENT_CONTEXT_SIGNAL_MAX_LIMIT,
+            "attempt_max_limit": AGENT_CONTEXT_ATTEMPT_MAX_LIMIT,
+            "summary_max_chars": AGENT_CONTEXT_SUMMARY_MAX_CHARS,
             "scope": "current_user_single_agent_session",
             "secret_policy": "redacted_no_credentials",
         },
