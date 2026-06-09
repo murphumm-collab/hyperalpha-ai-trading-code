@@ -18,6 +18,7 @@ mkdir -p "$HOME/Library/LaunchAgents" "$SUPPORT_DIR" "$TARGET_LOG_DIR" "$RUNTIME
 rsync -a --delete \
   --exclude ".git" \
   --exclude "logs/local-dev" \
+  --exclude "frontend/node_modules/.vite" \
   "$PROJECT_ROOT/" "$RUNTIME_ROOT/"
 
 if [[ -f "$RUNTIME_SITE_PACKAGES/_editable_impl_hyper_alpha_arena_backend.pth" ]]; then

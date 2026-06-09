@@ -1284,6 +1284,7 @@ export default function HyperAiPage() {
       production_signal_max_handoff_age_too_high: t('hyperAi.aiTradingProductionMaxAgeTooHigh', 'Signal age gate too high'),
       event_status_not_review_candidate: t('hyperAi.aiTradingEventNotReviewCandidate', 'Not review candidate'),
       handoff_already_submitted: t('hyperAi.aiTradingHandoffAlreadySubmitted', 'Already submitted'),
+      agent_session_archived: t('hyperAi.aiTradingAgentSessionArchivedBlocker', 'Agent session archived'),
       signal_event_created_at_missing: t('hyperAi.aiTradingSignalCreatedAtMissing', 'Signal time missing'),
     }
     return labels[blocker] || blocker.replace(/_/g, ' ')

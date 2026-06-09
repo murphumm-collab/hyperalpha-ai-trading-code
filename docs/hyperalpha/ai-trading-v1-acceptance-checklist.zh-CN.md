@@ -42,7 +42,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - `cd backend && uv run python scripts/ai_trading_v1_production_readiness_check.py --strict`：当前默认配置应拒绝生产 readiness；真实上线前必须同时通过 Auth/JWKS、真实订单后端 handoff、AI stream 容量隔离、硬风控 TP/SL/notional/杠杆配置，并且不输出 token/API key 原文。
 - `/api/ai-trading/admin/production-readiness`：本地运行时匿名请求返回 401，临时 admin bearer 返回脱敏 readiness；当前本地 mock 配置下 `production_ready=false`，13 个 blockers 覆盖真实 Auth/JWKS、生产 handoff URL、硬风控 TP/SL/notional 等未配置项，且 `token_value_returned=false`。
 - 后端运行时 handoff eligibility 也会拒绝未设置 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的外部订单后端 URL；本地 mock gateway 不要求生产审批。
-- `cd frontend && npm run build`：通过，AI Trading runtime 摘要显示 Sessions 计数，Recent 区块显示 active/archived agent sessions，并能按当前 session 过滤 specs/signals；剩余为既有 browserslist/baseline/chunk-size warning。
+- `cd frontend && npm run build`：通过，AI Trading runtime 摘要显示 Sessions 计数，Recent 区块显示 active/archived agent sessions，并能按当前 session 过滤 specs/signals；`agent_session_archived` blocker 在信号行、handoff title、session detail 和 attempt 审计文案中会显示为可读 `Agent session archived`；剩余为既有 browserslist/baseline/chunk-size warning。
 - `/api/ai-trading/runtime`：已返回 current-user 非敏感 `model_adjustment` readiness；可显示 DeepSeek/Qwen provider/model 是否 ready、credential 是否存在、blockers，且不返回 API key/base URL。前端 AI Trading runtime 摘要新增 `Model` 卡片，model-adjust 按钮优先以后端 `model_adjustment.ready` 为准。
 - DeepSeek/Qwen model-adjust 现在会把当前 agent session 的非敏感 `agent_session_id`、`agent_session_name`、`context_summary` 作为压缩上下文放入模型 prompt 和返回的 `model_context`；敏感上下文会变成 `[redacted_sensitive_context]`，并继续标记 `ai_order_placement=disallowed`，不创建 signal event、不 handoff、不下单。
 - In-app Browser 可以打开 `http://127.0.0.1:5174/#settings`；本地 auth config disabled 时 admin tab 按设计隐藏，普通本地浏览器不能看到 admin readiness 面板。管理员登录态下的 visual check 留到真实 Auth/JWKS 配置后验收。
@@ -59,7 +59,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 - Hyper AI AI Trading 当前策略卡片已改为内联 Backtest ID / Metrics JSON 输入，避免依赖浏览器原生 prompt；recent spec 行仍保留 prompt 兼容入口。
 - Hyper AI AI Trading 用户动作请求已加 45s 超时恢复，避免一次网络/热更新抖动让 draft/save/approve/adjust/backtest/signal/handoff/reject 按钮永久 loading。
 - LaunchAgent 本地后端已加入 `HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true`，本地常驻服务跳过行情/新闻/账户快照等重后台采集，保留 AI Trading API、mock gateway 和前端验收稳定性。
-- LaunchAgent `com.hyperalpha.ai-trading-local` 已固化成本地 runtime mirror 启动方式：安装脚本同步 runtime 副本到 Application Support，launchd 已在本机会话内恢复 frontend `5174`、backend `8802`、mock gateway `5621`，env checker 返回 `ready=true`。
+- LaunchAgent `com.hyperalpha.ai-trading-local` 已固化成本地 runtime mirror 启动方式：安装脚本同步 runtime 副本到 Application Support，并排除 Vite 可变 cache `frontend/node_modules/.vite`，launchd 已在本机会话内恢复 frontend `5174`、backend `8802`、mock gateway `5621`，env checker 返回 `ready=true`。
 
 ## 当前未验收
 
