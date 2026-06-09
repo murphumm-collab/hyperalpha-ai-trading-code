@@ -13,6 +13,7 @@
   - `--strict-local` 现在还要求一键本地验收 runner 包含 production evidence template expected-failure gate。
   - 新增 `--production-evidence-file`，读取 `hyperalpha.ai_trading.external_acceptance.v1` evidence JSON。
   - Evidence 必须覆盖七个外部验收项，且每项都为 `status=accepted`、有 `validated_at`、`validated_by`、`evidence_summary`、`artifact_refs`、`secret_values_returned=false`。
+  - Evidence 根级 `generated_at` 和每项 `validated_at` 必须是可解析 ISO-8601 timestamp，例如 `2026-06-10T12:00:00Z`。
   - Evidence 会扫描 Authorization/Bearer、API key/password/private key/access token、DB URL、OpenAI-style `sk-...`、AWS-style key 等常见密钥模式。
   - Evidence `artifact_refs` 现在必须是非空安全引用，scheme 仅允许 `https` / `ops` / `lark` / `notion`，并拒绝 embedded credentials、localhost、私网/保留 IP、secret-looking value。
   - 即使 evidence 完整，默认仍保持 `ready_for_live_orders=false`；必须显式追加 `--allow-live-ready-from-evidence` 才允许 live-ready 变 true。
@@ -21,33 +22,36 @@
 
 - `docs/hyperalpha/ai-trading-v1-production-evidence.template.json`：
   - 提供七项外部验收的脱敏 evidence 模板。
+  - 模板 notes 明确 `generated_at` 和每项 `validated_at` 必须使用 ISO-8601 timestamp。
   - 模板 notes 明确 `artifact_refs` 必须非空，只能使用 `https://`、`ops://`、`lark://`、`notion://`，不能嵌入 credentials 或指向 localhost/private-network URL。
   - 模板自身全是 pending，不能通过 `--strict-production`。
 - `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh`：
   - 新增 `Production evidence template remains blocked` expected-failure 步骤，显式运行 completion audit 的 `--production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production`。
 
 - `backend/tests/test_ai_trading_v1_completion_audit.py`：
-  - 从 3 条扩展到 6 条。
+  - 从 3 条扩展到 7 条。
   - 覆盖 accepted sanitized production evidence 仍需显式 live-ready confirmation。
   - 覆盖 missing evidence item 不能 live ready。
   - 覆盖 Authorization/Bearer secret-pattern 不能 live ready。
+  - 覆盖缺失 `generated_at` 或 malformed `validated_at` 不能 live ready。
   - 覆盖空 artifact_refs、localhost/private IP、disallowed scheme、embedded credentials 不能 live ready。
 
 ## 已验证
 
 - `cd backend && uv run python -m py_compile scripts/ai_trading_v1_completion_audit.py tests/test_ai_trading_v1_completion_audit.py`：passed。
-- `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py -q`：6 passed。
+- `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py -q`：7 passed。
 - `cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-local`：passed，返回 `local_v1_accepted=true`、`ready_for_live_orders=false`、`production_evidence.provided=false`、`production_track=pending_external_acceptance`。
 - `cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production`：按预期 exit 1，返回 `production_evidence.provided=true`、`production_evidence.ready=false`、`accepted_count=0`、`required_count=7`、`ready_for_live_orders=false`。
 - 临时完整脱敏 accepted evidence CLI 检查：未加 `--allow-live-ready-from-evidence` 时返回 `ready_for_live_orders=false`、`production_track=external_evidence_accepted_pending_explicit_confirmation`、effective/documented pending `0/7`；加 `--allow-live-ready-from-evidence --strict-production` 后返回 `ready_for_live_orders=true`、`production_track=accepted`、effective/documented pending `0/7`。
 - 临时 artifact-ref CLI 检查：完整 evidence 使用安全 `https://ops.hyperalpha.org/...` artifact refs 且带 `--allow-live-ready-from-evidence --strict-production` 时通过；空 artifact refs 或使用 `http://127.0.0.1:8802/internal-proof` 时按预期阻断，后者报告 disallowed scheme、local host、private/reserved IP blockers。
-- `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：69 passed，5 个既有 UTC deprecation warnings。
-- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：passed；一键本地验收覆盖 backend compile、69 条 AI Trading 回归、API smoke、live model-adjust 默认阻断、默认 production handoff/readiness/DB-audit blockers、local V1 completion boundary audit、production completion boundary expected blocker、production evidence template expected blocker、frontend build、runtime readiness 和 live local mock handoff。最新证据为 strategy spec `#45`、signal event `#43`、agent sessions `30`、handoff attempts `41`、gateway response `mock_accepted`、model-adjust blocker `model_profile_not_configured`。
+- 临时 timestamp CLI 检查：完整 evidence 使用 ISO `generated_at` / `validated_at` 且带 `--allow-live-ready-from-evidence --strict-production` 时通过；缺失 `generated_at` 或使用 malformed `validated_at` 时按预期阻断。
+- `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：70 passed，5 个既有 UTC deprecation warnings。
+- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：passed；一键本地验收覆盖 backend compile、70 条 AI Trading 回归、API smoke、live model-adjust 默认阻断、默认 production handoff/readiness/DB-audit blockers、local V1 completion boundary audit、production completion boundary expected blocker、production evidence template expected blocker、frontend build、runtime readiness 和 live local mock handoff。最新证据为 strategy spec `#46`、signal event `#44`、agent sessions `31`、handoff attempts `42`、gateway response `mock_accepted`、model-adjust blocker `model_profile_not_configured`。
 
 ## 下一步注意
 
 - 本切片只增加生产验收 evidence 校验，不改变交易 API、模型调用、handoff 或订单执行。
 - 本地 V1 accepted 不等于 production ready；真实 evidence 未完成时 `ready_for_live_orders=false` 是正确状态。
-- Evidence 文件不能包含 API keys、bearer tokens、DB URLs、private keys、raw Authorization headers、用户 secret，artifact refs 也不能指向本地/私网 URL 或嵌入 credentials。
+- Evidence 文件不能包含 API keys、bearer tokens、DB URLs、private keys、raw Authorization headers、用户 secret；timestamp 必须可解析；artifact refs 也不能指向本地/私网 URL 或嵌入 credentials。
 - 真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key 仍必须在外部环境完成验收后写入脱敏 evidence。
 - AI Trading 仍保持 signal-only；真实订单执行仍必须由 HyperAlpha 订单后端处理。

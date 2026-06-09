@@ -5,6 +5,7 @@
   "notes": [
     "Copy this file outside the repo or into a private ops evidence location before filling it.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
+    "generated_at and every item validated_at must be ISO-8601 timestamps, for example 2026-06-10T12:00:00Z.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, validated_by, evidence_summary, artifact_refs, and secret_values_returned=false before production cutover audit can pass."
   ],

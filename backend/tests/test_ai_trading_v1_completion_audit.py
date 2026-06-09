@@ -122,6 +122,8 @@ def _write_production_evidence(
     missing_item: str | None = None,
     artifact_ref_override: str | None = None,
     empty_artifact_refs: bool = False,
+    generated_at: object = "2026-06-10T12:05:00Z",
+    validated_at: object = "2026-06-10T12:00:00Z",
 ) -> None:
     items = {}
     for requirement in completion_audit.EXTERNAL_REQUIREMENTS:
@@ -129,7 +131,7 @@ def _write_production_evidence(
             continue
         items[requirement.id] = {
             "status": "accepted",
-            "validated_at": "2026-06-10T12:00:00Z",
+            "validated_at": validated_at,
             "validated_by": "ops-admin",
             "evidence_summary": f"{requirement.id} accepted with sanitized operational evidence.",
             "artifact_refs": (
@@ -141,7 +143,7 @@ def _write_production_evidence(
         }
     payload = {
         "version": completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
-        "generated_at": "2026-06-10T12:05:00Z",
+        "generated_at": generated_at,
         "secret_values_returned": False,
         "items": items,
     }
@@ -251,6 +253,35 @@ def test_completion_audit_rejects_incomplete_or_secret_bearing_production_eviden
     assert "external_evidence_secret_pattern_detected" in secret_report["production_evidence"]["blockers"]
     secret_item = next(item for item in secret_report["production_evidence"]["items"] if item["id"] == "real_order_backend_handoff")
     assert "external_evidence_secret_pattern_detected" in secret_item["blockers"]
+
+
+def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    missing_generated_path = tmp_path / "missing-generated-at-evidence.json"
+    invalid_validated_path = tmp_path / "invalid-validated-at-evidence.json"
+    _write_production_evidence(missing_generated_path, generated_at=None)
+    _write_production_evidence(invalid_validated_path, validated_at="2026/06/10 12:00 UTC")
+
+    missing_generated_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=missing_generated_path,
+        allow_live_ready_from_evidence=True,
+    )
+    invalid_validated_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=invalid_validated_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert missing_generated_report["ready_for_live_orders"] is False
+    assert "external_evidence_generated_at_missing" in missing_generated_report["production_evidence"]["blockers"]
+    assert invalid_validated_report["ready_for_live_orders"] is False
+    invalid_item = next(
+        item
+        for item in invalid_validated_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_validated_at_invalid" in invalid_item["blockers"]
 
 
 def test_completion_audit_rejects_unsafe_artifact_refs(tmp_path):

@@ -21,6 +21,7 @@ import ipaddress
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -306,6 +307,20 @@ def _artifact_ref_blockers(ref: Any) -> list[str]:
     return blockers
 
 
+def _iso_timestamp_blockers(value: Any, field_name: str) -> list[str]:
+    if not isinstance(value, str) or not value.strip():
+        return [f"external_evidence_{field_name}_missing"]
+    timestamp = value.strip()
+    if "T" not in timestamp:
+        return [f"external_evidence_{field_name}_invalid"]
+    normalized = timestamp[:-1] + "+00:00" if timestamp.endswith("Z") else timestamp
+    try:
+        datetime.fromisoformat(normalized)
+    except ValueError:
+        return [f"external_evidence_{field_name}_invalid"]
+    return []
+
+
 def _validate_external_evidence_item(item_id: str, item: Any) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {
@@ -321,8 +336,7 @@ def _validate_external_evidence_item(item_id: str, item: Any) -> dict[str, Any]:
     status = str(item.get("status") or "")
     if status != "accepted":
         blockers.append("external_evidence_item_not_accepted")
-    if not str(item.get("validated_at") or "").strip():
-        blockers.append("external_evidence_validated_at_missing")
+    blockers.extend(_iso_timestamp_blockers(item.get("validated_at"), "validated_at"))
     if not str(item.get("validated_by") or "").strip():
         blockers.append("external_evidence_validated_by_missing")
     if not str(item.get("evidence_summary") or "").strip():
@@ -415,6 +429,7 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
     version = payload.get("version")
     if version != EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION:
         blockers.append("external_evidence_version_mismatch")
+    blockers.extend(_iso_timestamp_blockers(payload.get("generated_at"), "generated_at"))
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
 
@@ -513,7 +528,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file with ISO timestamps and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 
