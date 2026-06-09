@@ -308,6 +308,7 @@ interface AiTradingRuntimeStatus {
     enabled?: boolean
     url_configured?: boolean
     default_handoff_status?: string
+    target_kind?: string
     max_handoff_age_seconds?: number | null
     production_handoff_approved?: boolean
     runtime_config_blockers?: string[]
@@ -1192,6 +1193,16 @@ export default function HyperAiPage() {
       ? aiTradingGatewayRuntimeBlockers.map(blocker => signalBlockerLabel(blocker)).join(', ')
       : ''
   )
+  const gatewayTargetLabel = (): string => {
+    const targetKind = aiTradingRuntime?.gateway?.target_kind
+    if (targetKind === 'local_mock') {
+      return t('hyperAi.aiTradingGatewayTargetLocalMock', 'Local mock')
+    }
+    if (targetKind === 'external_order_backend') {
+      return t('hyperAi.aiTradingGatewayTargetExternalBackend', 'External backend')
+    }
+    return t('hyperAi.aiTradingGatewayTargetNotConfigured', 'Not configured')
+  }
   const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
   const currentStrategyBacktestReady = isBacktestReady(currentStrategyBacktest)
   const canBuildStrategySignalPreview = Boolean(
@@ -3295,6 +3306,11 @@ export default function HyperAiPage() {
                   {aiTradingGatewayRuntimeBlockers.length > 0 && (
                     <div className="truncate text-[10px] text-yellow-600" title={gatewayRuntimeBlockerSummary()}>
                       {signalBlockerLabel(aiTradingGatewayRuntimeBlockers[0])}
+                    </div>
+                  )}
+                  {aiTradingGatewayRuntimeBlockers.length === 0 && (
+                    <div className="truncate text-[10px] text-muted-foreground" title={gatewayTargetLabel()}>
+                      {gatewayTargetLabel()}
                     </div>
                   )}
                 </div>

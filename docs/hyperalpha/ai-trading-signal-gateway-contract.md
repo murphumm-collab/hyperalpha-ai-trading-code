@@ -36,6 +36,12 @@ handoff. Local mock gateway URLs are allowed for local acceptance; external
 order-backend URLs are blocked until the runtime sees approved production-like
 config.
 
+Runtime status exposes a non-secret gateway `target_kind` only:
+`disabled_or_unconfigured`, `local_mock`, or `external_order_backend`. The local
+live-stack acceptance script requires `target_kind=local_mock` before it drafts
+or submits a test signal, so local acceptance cannot accidentally target the
+real order backend.
+
 ## HTTP Request
 
 Method: `POST`
@@ -138,6 +144,7 @@ Contract regression is covered by `backend/tests/test_ai_trading_routes.py`:
 - `test_ai_trading_signal_handoff_requires_production_approval_for_external_gateway`
 - `test_ai_trading_signal_handoff_allows_local_mock_gateway_without_production_approval`
 - Redaction, response-summary, and blocker-specific handoff tests
+- `backend/tests/test_ai_trading_live_stack_acceptance.py` covers the local live-stack runner guardrails, including explicit confirmation, local-only URLs, and `target_kind=local_mock`.
 - `backend/tests/test_ai_trading_production_handoff_check.py` covers the production handoff readiness checker, including localhost/mock rejection and token redaction.
 
 ## Local Mock Gateway

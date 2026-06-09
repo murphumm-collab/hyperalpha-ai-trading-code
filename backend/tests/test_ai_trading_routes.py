@@ -293,6 +293,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     runtime = client.get("/api/ai-trading/runtime")
     assert runtime.status_code == 200
     assert runtime.json()["gateway"]["url_configured"] is False
+    assert runtime.json()["gateway"]["target_kind"] == "disabled_or_unconfigured"
     assert runtime.json()["gateway"]["max_handoff_age_seconds"] == int(
         strategy_service.SIGNAL_MAX_HANDOFF_AGE_SECONDS
     )
@@ -526,6 +527,7 @@ def test_ai_trading_signal_handoff_requires_production_approval_for_external_gat
     assert "production_handoff_approval_required" in eligibility["blockers"]
 
     runtime = client.get("/api/ai-trading/runtime").json()
+    assert runtime["gateway"]["target_kind"] == "external_order_backend"
     assert runtime["gateway"]["runtime_config_blockers"] == ["production_handoff_approval_required"]
     handoff_summary = runtime["signal_events"]["handoff_eligibility"]
     assert handoff_summary["eligible"] == 0
@@ -567,6 +569,7 @@ def test_ai_trading_signal_handoff_allows_local_mock_gateway_without_production_
     assert "production_handoff_approval_required" not in eligibility["blockers"]
 
     runtime = client.get("/api/ai-trading/runtime").json()
+    assert runtime["gateway"]["target_kind"] == "local_mock"
     assert runtime["gateway"]["runtime_config_blockers"] == []
     assert runtime["gateway"]["default_handoff_status"] == "available"
 

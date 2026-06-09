@@ -27,15 +27,15 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 
 ## 当前已验证
 
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：36 条 AI Trading/mock gateway/production handoff gate 回归通过。
+- `cd backend && uv run pytest tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q`：39 条 AI Trading/live-stack runner/mock gateway/production handoff gate 回归通过。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`：通过。
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py`：通过，覆盖 draft -> model-adjust -> save -> attach backtest -> approve -> reject signal -> confirmed mock handoff -> runtime。
-- `cd backend && uv run python scripts/ai_trading_v1_env_check.py`：在 Docker/Postgres/mock gateway/backend/frontend 启动后返回 `ready=true`。
-- `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff`：通过，覆盖本地 LaunchAgent/live Postgres 栈 draft -> save -> attach backtest -> approve -> eligible signal -> confirmed mock handoff -> attempt audit -> runtime；最新证据为 spec `#10`、signal event `#8`、gateway response `mock_accepted`。脚本默认拒绝无确认 handoff，且只允许本地 URL。
+- `cd backend && uv run python scripts/ai_trading_v1_env_check.py`：在 Docker/Postgres/mock gateway/backend/frontend 启动后返回 `ready=true`，runtime gateway 显示 `target_kind=local_mock`。
+- `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff`：通过，覆盖本地 LaunchAgent/live Postgres 栈 draft -> save -> attach backtest -> approve -> eligible signal -> confirmed mock handoff -> attempt audit -> runtime；最新证据为 spec `#11`、signal event `#9`、gateway response `mock_accepted`。脚本默认拒绝无确认 handoff，只允许本地 URL，并要求 runtime gateway `target_kind=local_mock`。
 - `cd backend && uv run python scripts/ai_trading_production_handoff_check.py --strict`：当前默认配置应拒绝生产 handoff；真实订单后端验收前必须通过该生产前检查，且不能使用 localhost/mock/placeholder URL。
 - 后端运行时 handoff eligibility 也会拒绝未设置 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 的外部订单后端 URL；本地 mock gateway 不要求生产审批。
 - `cd frontend && npm run build`：通过，剩余为既有 browserslist/baseline/chunk-size warning。
-- In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
+- In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、`Gateway available / 15m max / Local mock`、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
 - In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
 - In-app Browser 已验证 `xyz:NVDA` safe prompt fill 和 strategy draft：UI 显示 `NVDA · 15m`、`ready_for_review`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
 - In-app Browser 已在最终代码验证 BTC 当前卡片完整安全流：draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；证据记录为 spec `#5`、signal `#3 rejected`。

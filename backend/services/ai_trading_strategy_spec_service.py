@@ -2427,6 +2427,15 @@ def _is_local_mock_signal_gateway_url(url: str) -> bool:
     )
 
 
+def _signal_gateway_target_kind() -> str:
+    """Return a non-secret gateway target category for UI and local acceptance checks."""
+    if not SIGNAL_GATEWAY_ENABLED or not SIGNAL_GATEWAY_URL:
+        return "disabled_or_unconfigured"
+    if _is_local_mock_signal_gateway_url(SIGNAL_GATEWAY_URL):
+        return "local_mock"
+    return "external_order_backend"
+
+
 def _signal_gateway_runtime_config_blockers() -> List[str]:
     """Return non-secret runtime blockers for live order-backend gateway config."""
     if not SIGNAL_GATEWAY_ENABLED or not SIGNAL_GATEWAY_URL:
@@ -2759,11 +2768,13 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
     spec_counts = {str(status): int(count) for status, count in spec_rows}
     event_counts = {str(status): int(count) for status, count in event_rows}
     gateway_runtime_config_blockers = _signal_gateway_runtime_config_blockers()
+    gateway_target_kind = _signal_gateway_target_kind()
     return {
         "gateway": {
             "enabled": SIGNAL_GATEWAY_ENABLED,
             "url_configured": bool(SIGNAL_GATEWAY_URL),
             "mode": "http",
+            "target_kind": gateway_target_kind,
             "timeout_seconds": SIGNAL_GATEWAY_TIMEOUT_SECONDS,
             "max_handoff_age_seconds": int(SIGNAL_MAX_HANDOFF_AGE_SECONDS) if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0 else None,
             "production_handoff_approved": SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED,

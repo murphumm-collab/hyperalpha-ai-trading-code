@@ -101,6 +101,14 @@ def run_acceptance(
     _expect(gateway.get("enabled") is True, "AI Trading signal gateway must be enabled")
     _expect(gateway.get("url_configured") is True, "AI Trading signal gateway URL must be configured")
     _expect(gateway.get("default_handoff_status") == "available", "gateway default status must be available")
+    _expect(
+        gateway.get("target_kind") == "local_mock",
+        "local live-stack acceptance requires runtime gateway target_kind=local_mock",
+    )
+    _expect(
+        not gateway.get("runtime_config_blockers"),
+        "runtime gateway config blockers must be empty for local mock acceptance",
+    )
 
     nonce = int(time.time())
     strategy_text = (
