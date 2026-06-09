@@ -262,6 +262,7 @@
 - Gateway runtime-blocker UI 后再次验证：`cd frontend && npm run build` 通过；临时当前源码 Vite `http://127.0.0.1:5175/app/ai-trading` HTTP shell 返回 200；`cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 仍为 36 条全绿。Playwright 未运行，因为 repo 没有安装 `playwright` 包。
 - 提交 `e3d561e` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；约 10 秒冷启动后 `cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
 - 提交 `121272f` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；runtime gateway 返回 `production_handoff_approved=false`、`runtime_config_blockers=[]`、local mock `default_handoff_status=available`，随后 live-stack mock handoff 通过并生成 spec `#10`、signal event `#8`。
+- 提交 `3508242` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 Gateway runtime-blocker UI 到 runtime mirror；`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`，`curl -I http://127.0.0.1:5174/app/ai-trading` 返回 200。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI signal identity blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
