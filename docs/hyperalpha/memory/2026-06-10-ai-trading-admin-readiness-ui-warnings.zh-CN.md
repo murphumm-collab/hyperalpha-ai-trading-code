@@ -24,6 +24,9 @@
 
 - `cd frontend && npm run build`：passed；剩余为既有 browser-baseline/Browserslist/chunk-size warnings。
 - `cd backend && uv run pytest tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py -q`：8 passed，4 个既有 UTC deprecation warnings。
+- `scripts/local-dev/install_launch_agent.sh`：passed；第一次 strict env check 命中 backend 冷启动，重试后 ready。
+- `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict`：`ready=true`，runtime totals 为 strategy specs `35`、signal events `33`、agent sessions `20`、handoff attempts `31`。
+- In-app Browser：打开 `http://127.0.0.1:5174/#settings`，跳过本地 onboarding，不输入 API key；Settings shell 正常渲染，无 visible error，本地 auth-disabled 状态下 Admin readiness 控件隐藏符合预期。
 
 ## 下一步注意
 
