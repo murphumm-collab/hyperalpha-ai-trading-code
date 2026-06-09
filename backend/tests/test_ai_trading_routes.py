@@ -12,7 +12,7 @@ from database.connection import Base, get_db
 from database.models import User
 
 
-def _build_client(tmp_path):
+def _build_clients(tmp_path, usernames=("ai-trading-test-user",)):
     db_path = tmp_path / "ai_trading_routes.db"
     engine = create_engine(f"sqlite:///{db_path}")
     Base.metadata.drop_all(engine)
@@ -20,11 +20,13 @@ def _build_client(tmp_path):
     Session = sessionmaker(bind=engine)
 
     session = Session()
-    user = User(username="ai-trading-test-user", is_active="true")
-    session.add(user)
+    user_ids = {}
+    for username in usernames:
+        user = User(username=username, is_active="true")
+        session.add(user)
+        session.flush()
+        user_ids[username] = user.id
     session.commit()
-    session.refresh(user)
-    user_id = user.id
     session.close()
 
     def override_db():
@@ -34,11 +36,53 @@ def _build_client(tmp_path):
         finally:
             db.close()
 
-    app = FastAPI()
-    app.include_router(router)
-    app.dependency_overrides[get_current_user_dependency] = lambda: SimpleNamespace(id=user_id)
-    app.dependency_overrides[get_db] = override_db
-    return TestClient(app)
+    clients = {}
+    for username, user_id in user_ids.items():
+        app = FastAPI()
+        app.include_router(router)
+        app.dependency_overrides[get_current_user_dependency] = (
+            lambda resolved_user_id=user_id: SimpleNamespace(id=resolved_user_id)
+        )
+        app.dependency_overrides[get_db] = override_db
+        clients[username] = TestClient(app)
+    return clients
+
+
+def _build_client(tmp_path):
+    return _build_clients(tmp_path)["ai-trading-test-user"]
+
+
+def _create_approved_signal_event(client, *, symbol="BTC"):
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": symbol,
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+        },
+    )
+    assert draft.status_code == 200
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": f"{symbol} review spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    record = saved.json()["spec_record"]
+
+    approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
+    assert approved.status_code == 200
+
+    event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest"}},
+    )
+    assert event_response.status_code == 200
+    return approved.json()["spec_record"], event_response.json()["signal_event"]
 
 
 def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
@@ -193,3 +237,59 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert final_runtime["signal_events"]["by_status"]["rejected"] == 1
     assert final_runtime["signal_events"]["handoff_eligibility"]["review_candidates"] == 0
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
+
+
+def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+
+    alice_spec, alice_event = _create_approved_signal_event(alice, symbol="ETH")
+
+    disabled_handoff = alice.post(f"/api/ai-trading/signal-events/{alice_event['id']}/handoff")
+    assert disabled_handoff.status_code == 409
+    alice_attempts = alice.get(
+        f"/api/ai-trading/signal-events/{alice_event['id']}/handoff-attempts"
+    )
+    assert alice_attempts.status_code == 200
+    assert alice_attempts.json()["attempts"][0]["result"] == "blocked"
+
+    assert bob.get("/api/ai-trading/strategy-specs").json()["specs"] == []
+    assert bob.get("/api/ai-trading/signal-events").json()["signal_events"] == []
+
+    assert bob.get(f"/api/ai-trading/strategy-specs/{alice_spec['id']}").status_code == 404
+    assert bob.post(f"/api/ai-trading/strategy-specs/{alice_spec['id']}/approve").status_code == 404
+    assert bob.delete(f"/api/ai-trading/strategy-specs/{alice_spec['id']}").status_code == 404
+    assert (
+        bob.post(
+            f"/api/ai-trading/strategy-specs/{alice_spec['id']}/signal-preview",
+            json={"market_context": {}},
+        ).status_code
+        == 404
+    )
+    assert (
+        bob.post(
+            f"/api/ai-trading/strategy-specs/{alice_spec['id']}/signal-events",
+            json={"market_context": {}},
+        ).status_code
+        == 404
+    )
+
+    assert bob.get(f"/api/ai-trading/signal-events/{alice_event['id']}").status_code == 404
+    assert (
+        bob.post(
+            f"/api/ai-trading/signal-events/{alice_event['id']}/reject",
+            json={"reason": "bob cannot reject alice event"},
+        ).status_code
+        == 404
+    )
+    assert bob.post(f"/api/ai-trading/signal-events/{alice_event['id']}/handoff").status_code == 404
+    assert (
+        bob.get(
+            f"/api/ai-trading/signal-events/{alice_event['id']}/handoff-attempts"
+        ).status_code
+        == 404
+    )
+
+    assert alice.get("/api/ai-trading/strategy-specs").json()["specs"][0]["id"] == alice_spec["id"]
+    assert alice.get("/api/ai-trading/signal-events").json()["signal_events"][0]["id"] == alice_event["id"]

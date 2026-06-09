@@ -41,6 +41,7 @@
 - 新增 signal event reject 流程：`POST /api/ai-trading/signal-events/{id}/reject` 只允许拒绝 `review_candidate`，会把 signal JSON 标为 `rejected_by_user`、`eligible_for_backend_handoff=false`、`handoff_status=rejected`；Hyper AI recent signals 行有拒绝按钮，拒绝后回填聊天框供 agent 复核。
 - 持久化 signal event 时会把 signal JSON 的 `idempotency_key` 改成事件级 `signal_event:{id}`，并写入 `signal_event_id`；gateway payload 顶层 idempotency key 复用同一个值，避免同一 strategy spec 生成多个候选信号时共享 preview key。
 - Hyper AI recent signals 行现在显示 Ready / Blocked / Rejected / Submitted 状态 badge；blocked 时会展示第一条 blocker，减少用户盲点操作。
+- AI Trading FastAPI route 回归现在覆盖 Alice/Bob 两个用户共享同一数据库时的隔离：Bob 不能 list/read/approve/archive/preview/create/reject/handoff Alice 的 strategy spec、signal event 或 handoff attempt。
 
 ## 3. AI Stream / Worker 现状
 
@@ -117,6 +118,9 @@
 - `backend/tests/test_ai_trading_routes.py` 已覆盖同一 strategy spec 的多个 persisted signal events 使用不同 event-scoped idempotency key，gateway payload 和 signal JSON key 一致。
 - Frontend production build 已通过，recent signal 状态 badge 和 blocker 摘要编译成功。
 - `backend/tests/test_ai_trading_routes.py` 在 recent signal 状态 UI 后重新通过。
+- `backend/tests/test_ai_trading_routes.py` 已新增多用户隔离回归：同一 SQLite DB 下 Alice/Bob 的 strategy specs、signal events、signal previews、reject、handoff 和 handoff-attempt audit reads 均按当前用户 404/空列表隔离。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 2 条 AI Trading route 回归全绿。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已通过。
 
 ## 6. 未验收 / 阻塞
 

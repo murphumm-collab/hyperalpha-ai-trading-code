@@ -106,6 +106,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading signal events can be explicitly rejected by the user before handoff; rejection updates the persisted signal review state and makes the event ineligible for backend handoff.
 - Persisted AI Trading signal events rewrite signal payload idempotency keys to event-scoped values so multiple candidates from one strategy spec do not collide at handoff.
 - Hyper AI recent signal rows show readable Ready/Blocked/Rejected/Submitted status badges plus the first blocker reason when handoff is blocked.
+- AI Trading route regression now covers two-user isolation for strategy specs, signal events, signal previews, rejection, handoff, and handoff-attempt audit reads.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -270,6 +271,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading signal idempotency | Done | Persisted signal events carry event-scoped `signal_event:{id}` idempotency keys, and gateway payloads reuse the same key |
 | AI Trading signal status UI | Done | Recent signal rows display readable handoff/review status badges and first-blocker summaries for blocked candidates |
 | AI Trading API regression test | Done | `backend/tests/test_ai_trading_routes.py` covers strategy draft/save/approve, signal event creation, disabled/enabled handoff, and runtime counts with SQLite |
+| AI Trading user isolation regression | Done | `backend/tests/test_ai_trading_routes.py` now creates Alice/Bob clients on one SQLite DB and verifies Bob cannot list/read/approve/archive/preview/create/reject/handoff Alice's records or attempts |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
@@ -574,6 +576,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Hyper AI memory trading-category compile in both system Python and `uv run` backend environment for memory service and tool schema.
 - Passed: Hyper AI memory trading-category smoke test in `uv run` with SQLite: `strategy_memory`, `risk_memory`, `performance_memory`, and `execution_memory` are accepted categories and user-scoped reads return the expected entries.
 - Passed: AI Trading route regression test: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed cleanly, covering draft/save/approve, signal event audit, disabled gateway 409, monkeypatched enabled handoff, and runtime counts.
+- Passed: AI Trading route multi-user isolation regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed with Alice/Bob coverage for strategy specs, signal events, handoff, rejection, and attempt audit reads.
+- Passed: AI Trading route/service/test syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
