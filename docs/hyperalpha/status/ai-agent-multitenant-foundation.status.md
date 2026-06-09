@@ -140,6 +140,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading runtime handoff eligibility now enforces the production handoff approval boundary for external order-backend URLs and blocks them with `production_handoff_approval_required` unless `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`; local mock gateway URLs remain allowed for local acceptance.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
 - AI Trading runtime status exposes the non-secret signal max handoff age so operators can see the stale-signal gate currently enforced by the backend.
+- Hyper AI AI Trading Gateway card now treats runtime `default_handoff_status` and `runtime_config_blockers` as authoritative, so production handoff blockers show as yellow disabled state with readable labels instead of a misleading green enabled URL state.
 - Hyper AI AI Trading panel displays gateway/spec/signal runtime counts when the backend is available.
 - Hyper AI AI Trading panel lists recent strategy specs and signal events, and can load saved records into chat for audit review without submitting orders.
 - Hyper AI AI Trading panel exposes a gated signal-event handoff control that stays disabled until the backend reports an enabled/configured gateway and only targets unsubmitted `review_candidate` events.
@@ -353,7 +354,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading production handoff readiness gate | Done | `backend/scripts/ai_trading_production_handoff_check.py` checks live gateway config without network calls or token output, and runtime handoff eligibility blocks external order-backend URLs unless production handoff is explicitly approved |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
 | AI Trading runtime handoff age visibility | Done | Runtime gateway status includes `max_handoff_age_seconds`, and Hyper AI shows the compact max-age value in the Gateway card |
-| AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals and refreshes them after draft save, approval, and signal event creation |
+| AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals, uses runtime gateway blockers for the Gateway card state, and refreshes after draft save, approval, and signal event creation |
 | AI Trading recent records panel | Done | Hyper AI AI Trading panel lists recent saved specs/signal events and lets users inspect them into chat for audit review |
 | AI Trading signal handoff UI | Done | Recent signal events expose a disabled-by-default, gateway-gated handoff button for unsubmitted `review_candidate` events |
 | AI Trading signal handoff confirmation | Done | Eligible recent signal handoff requires an explicit confirmation dialog before POSTing to the order backend |
@@ -808,6 +809,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: frontend production build after the production handoff checker docs/env slice: `cd frontend && npm run build`; existing browserslist/baseline/chunk-size warnings remain.
 - Passed: LaunchAgent runtime mirror was resynced after commit `e3d561e` with `scripts/local-dev/install_launch_agent.sh`; after a short backend cold start, `cd backend && uv run python scripts/ai_trading_v1_env_check.py` returned `ready=true`.
 - Passed: LaunchAgent runtime mirror was resynced after commit `121272f` with `scripts/local-dev/install_launch_agent.sh`; runtime now reports `production_handoff_approved=false`, `runtime_config_blockers=[]`, and local mock gateway `default_handoff_status=available`; `ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff` returned `success=true` with spec `#10`, signal event `#8`, and gateway response `mock_accepted`.
+- Passed: frontend production build after Gateway runtime-blocker UI: `cd frontend && npm run build`; existing browserslist/baseline/chunk-size warnings remain.
+- Passed: current-source HTTP shell check after Gateway runtime-blocker UI: temporary Vite server on `http://127.0.0.1:5175/app/ai-trading` returned 200. Browser automation was not run because `playwright` is not installed in the repo.
+- Passed: AI Trading backend combined regression after Gateway runtime-blocker UI: `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 36 passing tests.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

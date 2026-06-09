@@ -309,6 +309,8 @@ interface AiTradingRuntimeStatus {
     url_configured?: boolean
     default_handoff_status?: string
     max_handoff_age_seconds?: number | null
+    production_handoff_approved?: boolean
+    runtime_config_blockers?: string[]
   }
   strategy_specs?: {
     total?: number
@@ -966,8 +968,12 @@ export default function HyperAiPage() {
   const [recentBacktestResults, setRecentBacktestResults] = useState<AiTradingBacktestResultRecord[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const aiTradingGatewayRuntimeBlockers = aiTradingRuntime?.gateway?.runtime_config_blockers || []
   const aiTradingGatewayReady = Boolean(
-    aiTradingRuntime?.gateway?.enabled && aiTradingRuntime.gateway?.url_configured
+    aiTradingRuntime?.gateway?.enabled &&
+    aiTradingRuntime.gateway?.url_configured &&
+    (aiTradingRuntime.gateway?.default_handoff_status || 'available') === 'available' &&
+    aiTradingGatewayRuntimeBlockers.length === 0
   )
   const backtestMetricValue = (metrics: Record<string, unknown> | undefined, keys: string[]): number | null => {
     if (!metrics) {
@@ -1124,6 +1130,16 @@ export default function HyperAiPage() {
       signal_missing_user_confirmation_boundary: t('hyperAi.aiTradingUserConfirmationBoundaryMissing', 'User confirmation missing'),
       signal_allows_direct_ai_order_placement: t('hyperAi.aiTradingDirectAiOrderBlocked', 'Direct AI order not allowed'),
       signal_missing_order_backend_only_boundary: t('hyperAi.aiTradingOrderBackendOnlyMissing', 'Order backend boundary missing'),
+      production_handoff_approval_required: t('hyperAi.aiTradingProductionApprovalRequired', 'Production approval required'),
+      production_gateway_url_must_be_https: t('hyperAi.aiTradingProductionGatewayHttpsRequired', 'HTTPS gateway required'),
+      production_gateway_url_must_not_be_local_or_private: t('hyperAi.aiTradingProductionGatewayPublicRequired', 'Public gateway required'),
+      production_gateway_url_must_not_be_placeholder: t('hyperAi.aiTradingProductionGatewayPlaceholderBlocked', 'Placeholder gateway blocked'),
+      production_gateway_url_must_not_embed_credentials_or_query: t('hyperAi.aiTradingProductionGatewayUrlSecretBlocked', 'Gateway URL contains secrets'),
+      production_gateway_token_required: t('hyperAi.aiTradingProductionGatewayTokenRequired', 'Gateway token required'),
+      production_gateway_timeout_invalid: t('hyperAi.aiTradingProductionGatewayTimeoutInvalid', 'Gateway timeout invalid'),
+      production_gateway_timeout_too_high: t('hyperAi.aiTradingProductionGatewayTimeoutTooHigh', 'Gateway timeout too high'),
+      production_signal_max_handoff_age_required: t('hyperAi.aiTradingProductionMaxAgeRequired', 'Signal age gate required'),
+      production_signal_max_handoff_age_too_high: t('hyperAi.aiTradingProductionMaxAgeTooHigh', 'Signal age gate too high'),
       event_status_not_review_candidate: t('hyperAi.aiTradingEventNotReviewCandidate', 'Not review candidate'),
       handoff_already_submitted: t('hyperAi.aiTradingHandoffAlreadySubmitted', 'Already submitted'),
       signal_event_created_at_missing: t('hyperAi.aiTradingSignalCreatedAtMissing', 'Signal time missing'),
@@ -1171,6 +1187,11 @@ export default function HyperAiPage() {
     }
     return signalBlockerLabel(blockers[0], event)
   }
+  const gatewayRuntimeBlockerSummary = (): string => (
+    aiTradingGatewayRuntimeBlockers.length > 0
+      ? aiTradingGatewayRuntimeBlockers.map(blocker => signalBlockerLabel(blocker)).join(', ')
+      : ''
+  )
   const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
   const currentStrategyBacktestReady = isBacktestReady(currentStrategyBacktest)
   const canBuildStrategySignalPreview = Boolean(
@@ -3257,7 +3278,7 @@ export default function HyperAiPage() {
                 <div className="min-w-0">
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingGateway', 'Gateway')}</div>
                   <div className={`truncate font-medium ${
-                    aiTradingRuntime.gateway?.enabled && aiTradingRuntime.gateway?.url_configured
+                    aiTradingGatewayReady
                       ? 'text-green-600'
                       : 'text-yellow-600'
                   }`}>
@@ -3271,6 +3292,11 @@ export default function HyperAiPage() {
                       </span>
                     ) : null}
                   </div>
+                  {aiTradingGatewayRuntimeBlockers.length > 0 && (
+                    <div className="truncate text-[10px] text-yellow-600" title={gatewayRuntimeBlockerSummary()}>
+                      {signalBlockerLabel(aiTradingGatewayRuntimeBlockers[0])}
+                    </div>
+                  )}
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSpecs', 'Specs')}</div>

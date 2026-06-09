@@ -51,6 +51,7 @@
 - 后端运行时 handoff eligibility 现在也执行生产审批边界：外部订单后端 URL 缺 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 会被 `production_handoff_approval_required` blocker 拦截并写 blocked attempt；本地 mock gateway URL 仍可用于本地验收，不要求生产审批。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
 - `/api/ai-trading/runtime` 现在还返回非敏感 `gateway.max_handoff_age_seconds`；Hyper AI Gateway 卡片会显示紧凑 max-age，让运营知道后端当前 stale-signal gate。
+- Hyper AI AI Trading Gateway 卡片现在以 runtime `default_handoff_status` 和 `runtime_config_blockers` 为准：外部订单后端生产 gate blocker 会让 Gateway 显示黄色禁用态和可读安全标签，不再只因 enabled+URL configured 就显示绿色。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
 - Hyper AI AI Trading 面板现在会列出最近保存的 strategy specs 和最近创建的 signal events；用户可以把任一记录详情回填到聊天框，让 agent 做风控/止盈止损/执行边界复核，不会提交订单。
 - Recent signal events 现在有 gateway-gated handoff 按钮：只有 runtime 显示 gateway 已启用且 URL 已配置、事件仍是未提交 `review_candidate` 时才可点；点击仍走后端 `/handoff` 边界，不绕过默认关闭策略。
@@ -258,6 +259,7 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 已通过，当前 AI Trading 合并回归为 36 条全绿。
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` 已在运行时生产 handoff gate 后返回 `success=true`，证明本地 mock gateway 不被生产审批阻断。
 - 生产 handoff checker 后再次验证本地栈和前端：`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`；`cd frontend && npm run build` 通过，剩余为既有 browserslist/baseline/chunk-size 警告。
+- Gateway runtime-blocker UI 后再次验证：`cd frontend && npm run build` 通过；临时当前源码 Vite `http://127.0.0.1:5175/app/ai-trading` HTTP shell 返回 200；`cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 仍为 36 条全绿。Playwright 未运行，因为 repo 没有安装 `playwright` 包。
 - 提交 `e3d561e` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；约 10 秒冷启动后 `cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
 - 提交 `121272f` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；runtime gateway 返回 `production_handoff_approved=false`、`runtime_config_blockers=[]`、local mock `default_handoff_status=available`，随后 live-stack mock handoff 通过并生成 spec `#10`、signal event `#8`。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
