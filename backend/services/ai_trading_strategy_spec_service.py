@@ -1957,6 +1957,8 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
     execution_boundary = signal.get("execution_boundary") if isinstance(signal.get("execution_boundary"), dict) else {}
     if not execution_boundary:
         blockers.append("execution_boundary_missing")
+    if execution_boundary.get("signal_only") is not True:
+        blockers.append("signal_missing_signal_only_boundary")
     if execution_boundary.get("not_an_order") is not True:
         blockers.append("signal_missing_not_an_order_boundary")
     if execution_boundary.get("ai_may_place_orders") is not False:

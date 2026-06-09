@@ -34,6 +34,7 @@
 - Hyper AI signal preview 按钮现在也要求 approved strategy spec 已有 handoff-ready backtest evidence；否则按钮禁用并在策略卡片显示 blocker，避免普通 UI 生成明显不可 handoff 的候选信号。
 - `/api/ai-trading/signal-events/{id}/handoff` 已实现外部订单后端 handoff 边界，但默认 `AI_TRADING_SIGNAL_GATEWAY_ENABLED=false`，未配置时返回 409 不发送。
 - `/api/ai-trading/signal-events/{id}/handoff` 现在要求请求体 `confirmed_by_user=true`；未确认时直接 400，不调用订单后端、不写 handoff attempt。Hyper AI 确认弹窗通过后会发送 `confirmed_by_user=true` 和 `confirmation_source=hyper_ai_recent_signal_panel`。
+- handoff eligibility 现在会要求 persisted signal execution boundary 保持 `signal_only=true`；如果信号 JSON 被污染成 `signal_only=false`，即使 gateway enabled 也会被 `signal_missing_signal_only_boundary` blocker 拦截，并写 blocked attempt。
 - `/api/ai-trading/signal-events/{id}/handoff` 现在默认限制 signal event 最大 handoff 年龄：`AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS=900`。超过时 `handoff_eligibility.blockers` 包含 `signal_event_stale_for_handoff`，并返回非敏感 `signal_age_seconds` / `max_handoff_age_seconds`；设为 `0` 可关闭年龄 gate。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
@@ -218,6 +219,9 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 handoff attempt response redaction 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal-preview response redaction 后通过，20 条 AI Trading route 回归全绿；覆盖直接 signal preview response 会 mask 已绑定 backtest config 中的敏感字段。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal-preview response redaction 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal-only handoff boundary 后通过，21 条 AI Trading route 回归全绿；覆盖 detail/runtime/handoff/attempt 都会拦截 `signal_only=false` 的持久化候选信号。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal-only handoff boundary 后通过。
+- `cd frontend && npm run build` 已在 Hyper AI signal-only blocker label 后通过；首次因为本机 `spawn sh EAGAIN` 进程资源问题失败，等待后重试成功，剩余为既有 browserslist/baseline/chunk-size 警告。
 
 ## 6. 未验收 / 阻塞
 

@@ -1068,6 +1068,7 @@ export default function HyperAiPage() {
       signal_not_eligible_for_backend_handoff: t('hyperAi.aiTradingSignalNotEligible', 'Signal not eligible'),
       signal_payload_missing: t('hyperAi.aiTradingSignalPayloadMissing', 'Signal payload missing'),
       execution_boundary_missing: t('hyperAi.aiTradingExecutionBoundaryMissing', 'Execution boundary missing'),
+      signal_missing_signal_only_boundary: t('hyperAi.aiTradingSignalOnlyBoundaryMissing', 'signal_only missing'),
       signal_missing_not_an_order_boundary: t('hyperAi.aiTradingNotAnOrderBoundaryMissing', 'not_an_order missing'),
       signal_allows_direct_ai_order_placement: t('hyperAi.aiTradingDirectAiOrderBlocked', 'Direct AI order not allowed'),
       signal_missing_order_backend_only_boundary: t('hyperAi.aiTradingOrderBackendOnlyMissing', 'Order backend boundary missing'),
