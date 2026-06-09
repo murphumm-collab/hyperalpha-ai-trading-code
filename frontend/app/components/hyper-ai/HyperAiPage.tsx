@@ -3464,6 +3464,27 @@ export default function HyperAiPage() {
       return counts
     }, {})
   ).sort(([a], [b]) => a.localeCompare(b))
+  const agentSessionDetailCompression = asRecord(agentSessionDetailContext?.compression)
+  const agentSessionDetailLimitRows = [
+    {
+      label: t('hyperAi.aiTradingSpecsShort', 'Specs'),
+      returned: textValue(agentSessionDetailCompression.strategy_limit, '0'),
+      requested: textValue(agentSessionDetailCompression.strategy_requested_limit),
+      max: textValue(agentSessionDetailCompression.strategy_max_limit),
+    },
+    {
+      label: t('hyperAi.aiTradingSignals', 'Signals'),
+      returned: textValue(agentSessionDetailCompression.signal_limit, '0'),
+      requested: textValue(agentSessionDetailCompression.signal_requested_limit),
+      max: textValue(agentSessionDetailCompression.signal_max_limit),
+    },
+    {
+      label: t('hyperAi.aiTradingAttempts', 'Attempts'),
+      returned: textValue(agentSessionDetailCompression.attempt_limit, '0'),
+      requested: textValue(agentSessionDetailCompression.attempt_requested_limit),
+      max: textValue(agentSessionDetailCompression.attempt_max_limit),
+    },
+  ]
 
   if (agentSessionDetailPageId) {
     return (
@@ -3598,6 +3619,37 @@ export default function HyperAiPage() {
                   </div>
                   <div className="mt-1 truncate text-xs text-muted-foreground">
                     {agentSessionDetailAttemptCounts.map(([status, count]) => `${status}:${count}`).join(', ') || '-'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-md border bg-muted/10 p-4">
+                <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                  <Brain className="h-4 w-4 text-primary" />
+                  {t('hyperAi.aiTradingAgentSessionContextLimits', 'Context limits')}
+                </div>
+                <div className="grid gap-2 md:grid-cols-4">
+                  {agentSessionDetailLimitRows.map((row) => (
+                    <div key={row.label} className="rounded border bg-background/70 px-3 py-2 text-xs">
+                      <div className="text-muted-foreground">{row.label}</div>
+                      <div className="mt-1 font-medium">
+                        {row.returned} / {row.requested} / {row.max}
+                      </div>
+                      <div className="mt-0.5 text-[10px] text-muted-foreground">
+                        {t('hyperAi.aiTradingReturnedRequestedMax', 'returned / requested / max')}
+                      </div>
+                    </div>
+                  ))}
+                  <div className="rounded border bg-background/70 px-3 py-2 text-xs">
+                    <div className="text-muted-foreground">
+                      {t('hyperAi.aiTradingSummaryMaxChars', 'Summary max chars')}
+                    </div>
+                    <div className="mt-1 font-medium">
+                      {textValue(agentSessionDetailCompression.summary_max_chars)}
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      {t('hyperAi.aiTradingRedactedNoCredentials', 'redacted, no credentials')}
+                    </div>
                   </div>
                 </div>
               </div>

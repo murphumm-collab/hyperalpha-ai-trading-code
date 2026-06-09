@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Agent Session Context Limit Metadata Gate Complete / Remote Push Skipped
+Status: Local V1 Agent Session Context Limit UI Gate Complete / Remote Push Skipped
 
 Local checkpoint: current branch `HEAD`
 
@@ -160,6 +160,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel can edit the selected session name/context summary, create a new session, archive the selected session, and keep saved drafts attached to the selected session.
 - Hyper AI AI Trading panel can load the selected session context packet into chat review, compress/save the selected session context summary, list archived sessions, and filter visible specs/signals to the selected session for session-scoped audit review.
 - Hyper AI AI Trading has a deep-linkable read-only agent-session detail page at `/app/ai-trading/sessions/{agent_session_id}` for current-user session context, specs, signals, handoff attempts, blockers, and compressed summary review.
+- Hyper AI AI Trading agent-session detail page displays context returned/requested/max limits plus summary max chars so users can see the DeepSeek/Qwen context boundary before compression or model-adjust reuse.
 - Hyper AI AI Trading disables archived-session strategy write/action controls before submission, while leaving read-only inspect/detail/audit controls available.
 - AI Trading strategy spec, signal event, and handoff-attempt responses now include current-user `agent_session.status`, so archived-session UI gates and audit review do not depend on whether the archived session list is currently loaded.
 - AI Trading runtime handoff eligibility now enforces the production handoff approval boundary for external order-backend URLs and blocks them with `production_handoff_approval_required` unless `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`; local mock gateway URLs remain allowed for local acceptance.
@@ -410,7 +411,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading agent-session history UI | Done | Hyper AI AI Trading lists archived sessions, fetches a selected session context packet into chat, and filters specs/signals to the selected session using existing current-user query guards |
 | AI Trading agent-session context compression | Done | `/api/ai-trading/agent-sessions/{id}/compress-context` builds a deterministic non-secret summary from context packet counts/latest records/blockers, persists it to session/spec metadata, and rejects cross-user compression |
 | AI Trading agent-session handoff context | Done | Session context/compression now includes current-user handoff attempt summaries and result counts without gateway URL/token/header exposure |
-| AI Trading agent-session detail page | Done | `/app/ai-trading/sessions/{agent_session_id}` renders a read-only current-user session audit page with context summary, specs, signals, handoff attempts, blocker labels, refresh, and deterministic context compression |
+| AI Trading agent-session detail page | Done | `/app/ai-trading/sessions/{agent_session_id}` renders a read-only current-user session audit page with context summary, context limit metadata, specs, signals, handoff attempts, blocker labels, refresh, and deterministic context compression |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
 | AI Trading runtime handoff attempt observability | Done | `/api/ai-trading/runtime` exposes current-user handoff attempt totals, by-result counts, gateway-ready counts, and latest non-secret attempt metadata; Hyper AI runtime summary shows Attempts |
 | AI Trading runtime handoff age visibility | Done | Runtime gateway status includes `max_handoff_age_seconds`, and Hyper AI shows the compact max-age value in the Gateway card |
@@ -952,6 +953,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: aggregate AI Trading regression after Admin readiness handoff audit next actions: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 59 passing tests with 4 existing UTC deprecation warnings.
 - Passed: AI Trading agent-session context limit metadata checks: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` passed; `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 35 passing tests, including requested/effective/max context limits, `summary_max_chars=2000`, compression summary length bound, and 422 rejection for over-limit context/compress requests.
 - Passed: aggregate AI Trading regression after agent-session context limit metadata: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 59 passing tests with 4 existing UTC deprecation warnings.
+- Passed: frontend production build after agent-session context limit UI: `cd frontend && npm run build` passed with only existing browser-baseline/Browserslist/chunk-size warnings.
+- Passed: LaunchAgent runtime mirror was resynced after agent-session context limit UI with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true` with runtime totals strategy specs `35`, signal events `33`, agent sessions `20`, and handoff attempts `31`.
+- Passed: In-app Browser opened `/app/ai-trading/sessions/ait%3Abtc%3A4d53a40f6789`, skipped local onboarding without entering API keys, and confirmed the detail page shows `Context limits`, `returned / requested / max`, `Summary max chars`, `2000`, specs/signals/attempts, and no visible error.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
