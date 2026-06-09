@@ -255,6 +255,7 @@
 - `cd backend && uv run python scripts/ai_trading_production_handoff_check.py --strict` 在当前默认配置下正确失败，blockers 为 gateway disabled、URL missing、token missing、approval missing；使用假生产 HTTPS URL/token/`AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 时返回 `production_handoff_ready=true` 且不输出 token 原文。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 已通过，当前 AI Trading 合并回归为 34 条全绿。
 - 生产 handoff checker 后再次验证本地栈和前端：`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`；`cd frontend && npm run build` 通过，剩余为既有 browserslist/baseline/chunk-size 警告。
+- 提交 `e3d561e` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；约 10 秒冷启动后 `cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI signal identity blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。

@@ -803,6 +803,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: combined AI Trading regression with production handoff checker: `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 34 passing tests.
 - Passed: local runtime readiness after the production handoff checker slice: `cd backend && uv run python scripts/ai_trading_v1_env_check.py` returned `ready=true`.
 - Passed: frontend production build after the production handoff checker docs/env slice: `cd frontend && npm run build`; existing browserslist/baseline/chunk-size warnings remain.
+- Passed: LaunchAgent runtime mirror was resynced after commit `e3d561e` with `scripts/local-dev/install_launch_agent.sh`; after a short backend cold start, `cd backend && uv run python scripts/ai_trading_v1_env_check.py` returned `ready=true`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
