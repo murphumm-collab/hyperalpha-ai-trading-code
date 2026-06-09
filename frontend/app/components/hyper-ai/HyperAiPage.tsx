@@ -703,6 +703,7 @@ export default function HyperAiPage() {
   const [strategyDraftLoadingSymbol, setStrategyDraftLoadingSymbol] = useState<string | null>(null)
   const [strategyDraftSaving, setStrategyDraftSaving] = useState(false)
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
+  const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -950,6 +951,37 @@ export default function HyperAiPage() {
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to approve strategy spec')
     } finally {
       setStrategyDraftApproving(false)
+    }
+  }
+
+  const handleStrategySignalPreview = async () => {
+    if (!strategyDraftRecord || strategyDraftRecord.status !== 'approved') {
+      setStrategyDraftError('Approve the strategy spec before building a signal preview')
+      return
+    }
+    setStrategySignalPreviewLoading(true)
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${strategyDraftRecord.id}/signal-preview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ market_context: {} }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to build signal preview')
+      }
+      const signalPreview = data.signal_preview
+      const reviewPrompt = currentLang === 'zh'
+        ? `请审核下面这份 AI Trading Signal Preview：确认它是否仍然只是 signal candidate、是否满足 approved strategy spec 的风控边界、是否还缺少给订单后端的字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
+        : `Review this AI Trading Signal Preview. Confirm that it is still only a signal candidate, whether it satisfies the approved strategy spec risk boundary, and which fields are still missing before backend handoff. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
+      setInputValue(reviewPrompt)
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to build AI trading signal preview:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to build signal preview')
+    } finally {
+      setStrategySignalPreviewLoading(false)
     }
   }
 
@@ -1729,13 +1761,26 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={handleApproveStrategyDraft}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyDraftRecord?.status === 'approved'}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyDraftRecord?.status === 'approved'}
                       title={t('hyperAi.aiTradingApproveDraft', 'Approve draft')}
                     >
                       {strategyDraftApproving ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <CheckCircle2 className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleStrategySignalPreview}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyDraftRecord?.status !== 'approved'}
+                      title={t('hyperAi.aiTradingSignalPreview', 'Signal preview')}
+                    >
+                      {strategySignalPreviewLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <MessageSquare className="h-3.5 w-3.5" />
                       )}
                     </button>
                   </div>

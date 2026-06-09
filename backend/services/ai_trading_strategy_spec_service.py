@@ -26,6 +26,7 @@ from services.exchanges.symbol_mapper import SymbolMapper
 
 
 SPEC_VERSION = "hyperalpha.ai_trading.strategy_spec.v1"
+SIGNAL_VERSION = "hyperalpha.ai_trading.signal_candidate.v1"
 DEFAULT_TIMEFRAME = "15m"
 SUPPORTED_TIMEFRAMES = {
     "1m",
@@ -126,6 +127,15 @@ def _detect_bias(text: str) -> str:
     if has_long:
         return "long"
     return "undecided"
+
+
+def _bias_to_action(bias: Any) -> str:
+    normalized = str(bias or "").lower()
+    if normalized == "long":
+        return "buy"
+    if normalized == "short":
+        return "sell"
+    return "hold"
 
 
 def _extract_stop_loss_rule(text: str) -> Optional[str]:
@@ -572,3 +582,89 @@ def archive_strategy_spec_record(
     db.commit()
     db.refresh(record)
     return record
+
+
+def build_signal_preview_from_strategy_spec_record(
+    record: AiTradingStrategySpecRecord,
+    *,
+    user_id: int,
+    market_context: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Build a non-executable signal candidate from an approved strategy spec."""
+    if int(record.user_id) != int(user_id):
+        raise ValueError("Strategy spec not found")
+    if record.status != "approved":
+        raise ValueError("Strategy spec must be approved before signal preview")
+
+    spec = _json_loads(record.spec_json, {})
+    validation = validate_strategy_spec(spec, user_id=user_id)
+    if not validation.get("valid") or not validation.get("safe_to_emit_signal"):
+        raise ValueError("Strategy spec is not valid for signal preview")
+
+    market_context = market_context or {}
+    entry = spec.get("entry") if isinstance(spec.get("entry"), dict) else {}
+    exit_rules = spec.get("exit") if isinstance(spec.get("exit"), dict) else {}
+    risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
+    action = _bias_to_action(entry.get("bias"))
+    symbol = _normalize_symbol(spec.get("symbol"))
+
+    signal = {
+        "version": SIGNAL_VERSION,
+        "candidate_type": "review_signal_candidate",
+        "strategy_spec_id": record.id,
+        "strategy_spec_version": spec.get("version"),
+        "venue": "hyperliquid",
+        "symbol": symbol,
+        "action": action,
+        "timeframe": spec.get("timeframe") or DEFAULT_TIMEFRAME,
+        "confidence": None,
+        "market_context": {
+            "mark_price": market_context.get("mark_price"),
+            "open_interest": market_context.get("open_interest"),
+            "volume_24h_usd": market_context.get("volume_24h_usd"),
+            "regime": market_context.get("regime"),
+            "source": market_context.get("source") or "user_or_runtime_supplied",
+        },
+        "risk": {
+            "max_loss_pct": risk.get("max_loss_pct"),
+            "max_loss_usd": risk.get("max_loss_usd"),
+            "max_leverage": risk.get("max_leverage"),
+            "position_notional_usd": risk.get("position_notional_usd"),
+            "stop_loss": exit_rules.get("stop_loss") if isinstance(exit_rules.get("stop_loss"), dict) else {},
+            "take_profit": exit_rules.get("take_profit") if isinstance(exit_rules.get("take_profit"), dict) else {},
+            "constraints": risk.get("constraints") or [],
+        },
+        "decision": {
+            "rationale": spec.get("intent") or "",
+            "entry_triggers": entry.get("triggers") or [],
+            "invalidation": exit_rules.get("invalidation") or [],
+            "hold_when": [
+                "Current market data is missing or stale.",
+                "Stop-loss or take-profit cannot be translated into concrete backend constraints.",
+                "The downstream order backend rejects risk or account constraints.",
+            ],
+        },
+        "execution_boundary": {
+            "signal_only": True,
+            "not_an_order": True,
+            "ai_may_place_orders": False,
+            "order_backend_only": True,
+            "handoff_status": "not_submitted",
+            "requires_user_confirmation": True,
+        },
+        "validation": {
+            "status": "ready_for_signal_review",
+            "issues": [],
+            "warnings": validation.get("warnings", []),
+            "eligible_for_backend_handoff": True,
+        },
+        "idempotency_key": f"strategy_spec:{record.id}:signal_preview",
+    }
+
+    if action == "hold":
+        signal["validation"]["eligible_for_backend_handoff"] = False
+        signal["validation"]["warnings"] = list(signal["validation"]["warnings"]) + [
+            "entry_bias_does_not_map_to_trade_action"
+        ]
+
+    return signal

@@ -88,6 +88,8 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
+- Approved AI Trading strategy specs can produce a non-executable signal preview candidate with `not_an_order`, no direct AI order placement, and backend-handoff eligibility metadata.
+- Hyper AI can load approved strategy signal previews into chat for review without submitting them to an execution gateway.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -232,6 +234,8 @@ Local checkpoint: current branch `HEAD`
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
 | AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
 | AI Trading strategy spec approval UI | Done | Hyper AI strategy draft summaries expose save and approve controls without connecting to order execution |
+| AI Trading signal preview API | Done | Approved specs can build `hyperalpha.ai_trading.signal_candidate.v1` review candidates; unapproved specs are rejected and previews are marked `not_an_order` |
+| AI Trading signal preview UI | Done | Hyper AI approved strategy draft summaries can load signal previews into chat for review without submitting to order execution |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
@@ -491,6 +495,10 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading strategy spec HTTP CRUD smoke test in `uv run` with FastAPI TestClient and SQLite: save/list/detail/approve/archive endpoints stayed user-scoped and preserved approval state.
 - Passed: Frontend production build after adding Hyper AI strategy spec save/approval controls.
 - Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; full save/approve click acceptance still needs local backend/Postgres and loaded Hyperliquid symbols.
+- Passed: AI Trading signal preview compile in both system Python and `uv run` backend environment for service and route changes.
+- Passed: AI Trading signal preview HTTP smoke test in `uv run` with FastAPI TestClient and SQLite: unapproved specs returned 400; approved specs produced `not_an_order` signal candidates with `ai_may_place_orders=false`.
+- Passed: Frontend production build after adding Hyper AI signal preview controls for approved strategy specs.
+- Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; full signal-preview click acceptance still needs local backend/Postgres and loaded Hyperliquid symbols.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

@@ -12,6 +12,7 @@ from database.models import User
 from services.ai_trading_strategy_spec_service import (
     approve_strategy_spec_record,
     archive_strategy_spec_record,
+    build_signal_preview_from_strategy_spec_record,
     draft_strategy_spec,
     get_strategy_spec_record,
     get_strategy_spec_schema,
@@ -48,6 +49,10 @@ class StrategySpecSaveRequest(BaseModel):
     spec: Dict[str, Any]
     name: Optional[str] = Field(default=None, max_length=120)
     source: Optional[str] = Field(default="manual", max_length=50)
+
+
+class StrategySignalPreviewRequest(BaseModel):
+    market_context: Dict[str, Any] = Field(default_factory=dict)
 
 
 def _model_dump(model: BaseModel) -> Dict[str, Any]:
@@ -187,4 +192,31 @@ def archive_strategy_spec_endpoint(
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=False),
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/signal-preview")
+def strategy_signal_preview_endpoint(
+    spec_id: int,
+    request: StrategySignalPreviewRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Build a non-executable signal candidate from an approved strategy spec."""
+    record = get_strategy_spec_record(db, user_id=current_user.id, record_id=spec_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Strategy spec not found")
+    try:
+        signal_preview = build_signal_preview_from_strategy_spec_record(
+            record,
+            user_id=current_user.id,
+            market_context=request.market_context,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "signal_preview": signal_preview,
     }
