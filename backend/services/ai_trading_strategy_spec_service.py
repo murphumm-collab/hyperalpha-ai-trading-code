@@ -53,6 +53,12 @@ AI_TRADING_V1_MODEL_PROVIDERS = {
     "deepseek",
     "qwen",
 }
+BACKTEST_HANDOFF_READY_STATUSES = {
+    "passed",
+    "accepted",
+    "approved",
+}
+BACKTEST_REQUIRED_BLOCKER = "strategy_backtest_required_before_handoff"
 HIP3_INDEX_SYMBOLS = {
     "SP500",
     "SPX",
@@ -139,6 +145,52 @@ def _build_ai_model_config(payload: Dict[str, Any]) -> Dict[str, Any]:
         "v1_allowed_provider": provider in AI_TRADING_V1_MODEL_PROVIDERS if provider else False,
         "allowed_providers": sorted(AI_TRADING_V1_MODEL_PROVIDERS),
     }
+
+
+def _default_backtest_gate() -> Dict[str, Any]:
+    return {
+        "required_before_handoff": True,
+        "status": "not_run",
+        "accepted_for_handoff": False,
+        "backtest_id": None,
+        "source": "not_connected",
+        "metrics": {},
+        "period": {},
+        "updated_at": None,
+    }
+
+
+def _normalize_backtest_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
+    metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
+    period = payload.get("period") if isinstance(payload.get("period"), dict) else {}
+    backtest_id = _clean_text(payload.get("backtest_id") or payload.get("run_id"), 120) or None
+    return {
+        "required_before_handoff": True,
+        "status": _clean_text(payload.get("status"), 50).lower() or "unknown",
+        "accepted_for_handoff": bool(payload.get("accepted_for_handoff") or payload.get("accepted")),
+        "backtest_id": backtest_id,
+        "source": _clean_text(payload.get("source"), 50) or "manual",
+        "metrics": metrics,
+        "period": period,
+        "notes": _clean_text(payload.get("notes"), 1000) if payload.get("notes") else None,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+def _is_backtest_ready_for_handoff(backtest: Any) -> bool:
+    if not isinstance(backtest, dict):
+        return False
+    if backtest.get("required_before_handoff") is False:
+        return True
+    status = _clean_text(backtest.get("status"), 50).lower()
+    backtest_id = _clean_text(backtest.get("backtest_id") or backtest.get("run_id"), 120)
+    metrics = backtest.get("metrics") if isinstance(backtest.get("metrics"), dict) else {}
+    return (
+        bool(backtest.get("accepted_for_handoff"))
+        and status in BACKTEST_HANDOFF_READY_STATUSES
+        and bool(backtest_id)
+        and bool(metrics)
+    )
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -394,6 +446,11 @@ def get_strategy_spec_schema() -> Dict[str, Any]:
             "stored_fields": ["provider", "model", "source"],
             "secrets_allowed": False,
         },
+        "backtest_gate": {
+            "required_before_handoff": True,
+            "handoff_ready_statuses": sorted(BACKTEST_HANDOFF_READY_STATUSES),
+            "required_fields": ["backtest_id", "status", "accepted_for_handoff", "metrics"],
+        },
     }
 
 
@@ -428,6 +485,7 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
         "symbol": symbol,
         "market": market_identity,
         "ai_model": ai_model,
+        "backtest": _default_backtest_gate(),
         "mode": "live_signal_draft",
         "intent": text,
         "timeframe": timeframe,
@@ -541,6 +599,10 @@ def validate_strategy_spec(spec: Dict[str, Any], *, user_id: int) -> Dict[str, A
     if any(key in ai_model for key in {"api_key", "secret", "token", "private_key", "password"}):
         issues.append("ai_model_config_must_not_include_secrets")
 
+    backtest = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else _default_backtest_gate()
+    if not _is_backtest_ready_for_handoff(backtest):
+        warnings.append(BACKTEST_REQUIRED_BLOCKER)
+
     risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
     max_leverage = _as_int(risk.get("max_leverage"))
     if max_leverage is None or max_leverage < 1:
@@ -628,6 +690,7 @@ def save_strategy_spec_record(
     spec_copy["owner_user_id"] = user_id
     spec_copy.setdefault("version", SPEC_VERSION)
     spec_copy.setdefault("venue", "hyperliquid")
+    spec_copy.setdefault("backtest", _default_backtest_gate())
 
     validation = validate_strategy_spec(spec_copy, user_id=user_id)
     spec_copy["validation"] = {
@@ -647,6 +710,41 @@ def save_strategy_spec_record(
         validation_json=_json_dumps(validation),
     )
     db.add(record)
+    db.commit()
+    db.refresh(record)
+    return record
+
+
+def attach_strategy_backtest_summary(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+    summary: Dict[str, Any],
+) -> AiTradingStrategySpecRecord:
+    """Attach a non-executable backtest summary to a current-user strategy spec."""
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+
+    spec = _json_loads(record.spec_json, {})
+    spec["owner_user_id"] = user_id
+    spec.setdefault("version", SPEC_VERSION)
+    spec.setdefault("venue", "hyperliquid")
+    spec["backtest"] = _normalize_backtest_summary(summary or {})
+
+    validation = validate_strategy_spec(spec, user_id=user_id)
+    validation_status = "approved" if record.status == "approved" and validation.get("valid") else validation["status"]
+    spec["validation"] = {
+        "status": validation_status,
+        "issues": validation["issues"],
+        "warnings": validation["warnings"],
+        "safe_to_emit_signal": validation["safe_to_emit_signal"],
+    }
+    record.spec_json = _json_dumps(spec)
+    record.validation_json = _json_dumps({**validation, "status": validation_status})
+    if record.status != "approved" or not validation.get("valid"):
+        record.status = validation["status"]
     db.commit()
     db.refresh(record)
     return record
@@ -760,6 +858,8 @@ def build_signal_preview_from_strategy_spec_record(
     entry = spec.get("entry") if isinstance(spec.get("entry"), dict) else {}
     exit_rules = spec.get("exit") if isinstance(spec.get("exit"), dict) else {}
     risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
+    backtest = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else _default_backtest_gate()
+    backtest_ready = _is_backtest_ready_for_handoff(backtest)
     action = _bias_to_action(entry.get("bias"))
     symbol = _normalize_symbol(spec.get("symbol"))
 
@@ -773,6 +873,7 @@ def build_signal_preview_from_strategy_spec_record(
         "exchange_symbol": market_identity.get("exchange_symbol") or symbol,
         "market": market_identity,
         "ai_model": spec.get("ai_model") if isinstance(spec.get("ai_model"), dict) else {},
+        "backtest": backtest,
         "action": action,
         "timeframe": spec.get("timeframe") or DEFAULT_TIMEFRAME,
         "confidence": None,
@@ -814,10 +915,15 @@ def build_signal_preview_from_strategy_spec_record(
             "status": "ready_for_signal_review",
             "issues": [],
             "warnings": validation.get("warnings", []),
-            "eligible_for_backend_handoff": True,
+            "eligible_for_backend_handoff": backtest_ready,
         },
         "idempotency_key": f"strategy_spec:{record.id}:signal_preview",
     }
+
+    if not backtest_ready:
+        signal["validation"]["warnings"] = list(dict.fromkeys(
+            list(signal["validation"]["warnings"]) + [BACKTEST_REQUIRED_BLOCKER]
+        ))
 
     if action == "hold":
         signal["validation"]["eligible_for_backend_handoff"] = False
@@ -1030,6 +1136,8 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         signal = {}
 
     validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
+    if not _is_backtest_ready_for_handoff(signal.get("backtest")):
+        blockers.append(BACKTEST_REQUIRED_BLOCKER)
     if validation.get("eligible_for_backend_handoff") is not True:
         blockers.append("signal_not_eligible_for_backend_handoff")
 

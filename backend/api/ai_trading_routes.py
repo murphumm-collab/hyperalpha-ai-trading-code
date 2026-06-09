@@ -12,6 +12,7 @@ from database.models import User
 from services.ai_trading_market_universe_service import get_ai_trading_market_universe
 from services.ai_trading_strategy_spec_service import (
     SignalGatewayDisabledError,
+    attach_strategy_backtest_summary,
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_signal_preview_from_strategy_spec_record,
@@ -67,6 +68,17 @@ class StrategySpecSaveRequest(BaseModel):
 
 class StrategySignalPreviewRequest(BaseModel):
     market_context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class StrategyBacktestSummaryRequest(BaseModel):
+    backtest_id: Optional[str] = Field(default=None, max_length=120)
+    run_id: Optional[str] = Field(default=None, max_length=120)
+    status: str = Field(default="unknown", max_length=50)
+    accepted_for_handoff: bool = False
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    period: Dict[str, Any] = Field(default_factory=dict)
+    source: Optional[str] = Field(default="manual", max_length=50)
+    notes: Optional[str] = Field(default=None, max_length=1000)
 
 
 class SignalEventRejectRequest(BaseModel):
@@ -215,6 +227,29 @@ def approve_strategy_spec_endpoint(
         detail = str(exc)
         status_code = 404 if "not found" in detail.lower() else 400
         raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/backtest-summary")
+def attach_strategy_backtest_summary_endpoint(
+    spec_id: int,
+    request: StrategyBacktestSummaryRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Attach a current-user backtest summary without emitting signals or orders."""
+    try:
+        record = attach_strategy_backtest_summary(
+            db,
+            user_id=current_user.id,
+            record_id=spec_id,
+            summary=_model_dump(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),

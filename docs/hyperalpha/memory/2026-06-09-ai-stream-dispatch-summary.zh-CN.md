@@ -47,6 +47,8 @@
 - Strategy spec 和 signal candidate 现在保留 HIP-3 market identity：`market.dex`、`market.exchange_symbol`（如 `xyz:NVDA`）、`market.display_symbol`、category；内部 `symbol` 仍可保持 `NVDA` 用于既有记录索引。
 - Strategy spec 和 signal candidate 现在记录非敏感 `ai_model` 上下文：`provider`、`model`、`source`、是否为 V1 DeepSeek/Qwen provider；校验会 warning 缺失/非 V1 provider，并 reject `api_key`、`token`、`secret` 等字段进入 `ai_model`。
 - Hyper AI AI Trading strategy draft 请求现在携带当前 profile 的 `llm_provider/llm_model`，来源标记为 `hyper_ai_profile`；不携带 base URL、API key 或 token。
+- 新增 `/api/ai-trading/strategy-specs/{id}/backtest-summary`，用于把当前用户的 backtest summary 绑定到 strategy spec；这不是完整回测引擎，只是把外部/未来 Backtest Service 的结果作为 handoff 前置证据落库。
+- Signal candidate 会复制生成当时的 `backtest` 摘要；handoff eligibility 要求 passing/accepted backtest summary，否则即使 gateway enabled 也 blocked。事后补回测不会改变旧 signal event，必须重新生成候选信号。
 
 ## 3. AI Stream / Worker 现状
 
@@ -129,7 +131,8 @@
 - `backend/tests/test_ai_trading_routes.py` 已新增 market-universe 回归：fake Hyperliquid core/HIP-3 metadata 下，crypto 按成交量排序、delisted 被过滤、HIP-3 返回 `xyz:` exchange symbol，并生成 top presets。
 - `backend/tests/test_ai_trading_routes.py` 已新增 HIP-3 market identity 回归：`xyz:NVDA` draft/save/approve/signal-event 后，signal payload 保留 `exchange_symbol=xyz:NVDA` 和 `market.dex=xyz`。
 - `backend/tests/test_ai_trading_routes.py` 已新增 model-context 回归：DeepSeek/Qwen provider/model 写入 spec/signal；`ai_model.api_key` 这类敏感字段会让 validation invalid。
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 5 条 AI Trading route 回归全绿。
+- `backend/tests/test_ai_trading_routes.py` 已新增 backtest gate 回归：missing backtest 的 signal event 在 gateway enabled 下仍 blocked；补 passing backtest 后旧事件仍 blocked，新事件才 eligible；Bob 不能给 Alice spec 挂 backtest summary。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 6 条 AI Trading route 回归全绿。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
 - `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。
 
@@ -141,6 +144,7 @@
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前只做 disabled-by-default 和 mock gateway 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
+- 完整 AI Trading Hyperliquid backtest engine 和 backtest result UI 仍未实现；当前只实现 backtest summary handoff gate。
 - strategy spec / signal preview / signal event / recent records inspect / signal-event handoff 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols、持久化记录与 gateway readiness；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。
 
 ## 7. 当前提交锚点

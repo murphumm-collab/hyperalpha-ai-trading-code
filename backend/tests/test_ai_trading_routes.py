@@ -53,6 +53,30 @@ def _build_client(tmp_path):
     return _build_clients(tmp_path)["ai-trading-test-user"]
 
 
+def _attach_passing_backtest(client, spec_id):
+    response = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/backtest-summary",
+        json={
+            "backtest_id": f"bt_pytest_{spec_id}",
+            "status": "passed",
+            "accepted_for_handoff": True,
+            "metrics": {
+                "total_return": 0.12,
+                "max_drawdown": -0.03,
+                "sharpe": 1.6,
+                "trade_count": 42,
+            },
+            "period": {
+                "start": "2026-01-01",
+                "end": "2026-06-01",
+            },
+            "source": "pytest",
+        },
+    )
+    assert response.status_code == 200
+    return response.json()["spec_record"]
+
+
 def _create_approved_signal_event(client, *, symbol="BTC"):
     draft = client.post(
         "/api/ai-trading/strategy-spec/draft",
@@ -77,6 +101,7 @@ def _create_approved_signal_event(client, *, symbol="BTC"):
     )
     assert saved.status_code == 200
     record = saved.json()["spec_record"]
+    record = _attach_passing_backtest(client, record["id"])
 
     approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
     assert approved.status_code == 200
@@ -122,12 +147,18 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert saved.status_code == 200
     record = saved.json()["spec_record"]
     assert record["status"] == "ready_for_review"
+    assert record["spec"]["backtest"]["status"] == "not_run"
+    assert "strategy_backtest_required_before_handoff" in record["validation"]["warnings"]
 
     pre_approval_event = client.post(
         f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
         json={"market_context": {}},
     )
     assert pre_approval_event.status_code == 400
+
+    record = _attach_passing_backtest(client, record["id"])
+    assert record["spec"]["backtest"]["accepted_for_handoff"] is True
+    assert record["spec"]["backtest"]["backtest_id"] == f"bt_pytest_{record['id']}"
 
     approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
     assert approved.status_code == 200
@@ -144,6 +175,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert event["signal"]["execution_boundary"]["ai_may_place_orders"] is False
     assert event["signal"]["signal_event_id"] == event["id"]
     assert event["signal"]["idempotency_key"] == f"signal_event:{event['id']}"
+    assert event["signal"]["backtest"]["accepted_for_handoff"] is True
     assert event["handoff_eligibility"]["eligible"] is False
     assert "gateway_disabled" in event["handoff_eligibility"]["blockers"]
 
@@ -245,6 +277,82 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
 
 
+def test_ai_trading_signal_handoff_requires_accepted_backtest_summary(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert draft.status_code == 200
+    spec = draft.json()["spec"]
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": spec, "name": "BTC no backtest spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    record = saved.json()["spec_record"]
+    approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
+    assert approved.status_code == 200
+
+    event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest-missing-backtest"}},
+    )
+    assert event_response.status_code == 200
+    event = event_response.json()["signal_event"]
+    assert event["signal"]["backtest"]["accepted_for_handoff"] is False
+    assert event["signal"]["validation"]["eligible_for_backend_handoff"] is False
+    assert "strategy_backtest_required_before_handoff" in event["handoff_eligibility"]["blockers"]
+
+    calls = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        raise AssertionError("gateway should not be called without an accepted backtest")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert enabled_detail.status_code == 200
+    blockers = enabled_detail.json()["signal_event"]["handoff_eligibility"]["blockers"]
+    assert "strategy_backtest_required_before_handoff" in blockers
+
+    blocked_handoff = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
+    assert blocked_handoff.status_code == 400
+    assert calls == []
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    assert attempts.json()["attempts"][0]["result"] == "blocked"
+    assert "strategy_backtest_required_before_handoff" in attempts.json()["attempts"][0]["blockers"]
+
+    _attach_passing_backtest(client, record["id"])
+    old_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}").json()["signal_event"]
+    assert "strategy_backtest_required_before_handoff" in old_detail["handoff_eligibility"]["blockers"]
+
+    new_event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 101000, "source": "pytest-passed-backtest"}},
+    )
+    assert new_event_response.status_code == 200
+    new_event = new_event_response.json()["signal_event"]
+    assert new_event["signal"]["backtest"]["accepted_for_handoff"] is True
+    assert new_event["handoff_eligibility"]["eligible"] is True
+
+
 def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_path):
     clients = _build_clients(tmp_path, usernames=("alice", "bob"))
     alice = clients["alice"]
@@ -265,6 +373,13 @@ def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_
 
     assert bob.get(f"/api/ai-trading/strategy-specs/{alice_spec['id']}").status_code == 404
     assert bob.post(f"/api/ai-trading/strategy-specs/{alice_spec['id']}/approve").status_code == 404
+    assert (
+        bob.post(
+            f"/api/ai-trading/strategy-specs/{alice_spec['id']}/backtest-summary",
+            json={"backtest_id": "bt_bob_cross_user", "status": "passed", "accepted_for_handoff": True},
+        ).status_code
+        == 404
+    )
     assert bob.delete(f"/api/ai-trading/strategy-specs/{alice_spec['id']}").status_code == 404
     assert (
         bob.post(
