@@ -41,12 +41,19 @@ def _http_probe(url: str, timeout: float = 3.0) -> Dict[str, Any]:
     try:
         request = urllib.request.Request(url, method="GET", headers={"Accept": "*/*"})
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read(512).decode("utf-8", errors="replace")
-            return {
+            body = response.read(8192).decode("utf-8", errors="replace")
+            result: Dict[str, Any] = {
                 "ok": 200 <= int(response.status) < 400,
                 "status": int(response.status),
                 "body_sample": body[:160],
             }
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                result["json"] = parsed
+            return result
     except urllib.error.HTTPError as exc:
         return {"ok": False, "status": int(exc.code), "body_sample": exc.read(160).decode("utf-8", errors="replace")}
     except Exception as exc:
@@ -95,6 +102,8 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
         "ok": False,
         "message": "mock gateway port 5621 is not listening",
     }
+    runtime_payload = backend_runtime.get("json") if isinstance(backend_runtime.get("json"), dict) else {}
+    runtime_gateway = runtime_payload.get("gateway") if isinstance(runtime_payload.get("gateway"), dict) else {}
 
     blockers: List[str] = []
     if not frontend.get("ok"):
@@ -105,6 +114,11 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
         blockers.append("docker_daemon_not_ready")
     if not backend_runtime.get("ok"):
         blockers.append("backend_ai_trading_runtime_unreachable")
+    else:
+        if runtime_gateway.get("target_kind") != "local_mock":
+            blockers.append("backend_gateway_target_not_local_mock")
+        if runtime_gateway.get("runtime_config_blockers"):
+            blockers.append("backend_gateway_runtime_config_blocked")
     if not mock_gateway.get("ok"):
         blockers.append("mock_signal_gateway_unreachable")
 
@@ -120,7 +134,11 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
             "docker": docker,
             "postgres_5432": {"tcp_open": postgres_open},
             "frontend": frontend,
-            f"backend_{backend_port}": {"tcp_open": backend_open, "runtime": backend_runtime},
+            f"backend_{backend_port}": {
+                "tcp_open": backend_open,
+                "runtime": backend_runtime,
+                "runtime_gateway": runtime_gateway,
+            },
             "mock_gateway_5621": {"tcp_open": mock_gateway_open, "health": mock_gateway},
         },
         "next_actions": [
