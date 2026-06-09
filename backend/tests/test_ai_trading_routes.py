@@ -912,6 +912,65 @@ def test_ai_trading_signal_handoff_requires_accepted_backtest_summary(tmp_path, 
     assert new_event["handoff_eligibility"]["eligible"] is True
 
 
+def test_ai_trading_signal_preview_response_redacts_attached_backtest_sensitive_fields(tmp_path):
+    client = _build_client(tmp_path)
+    backtest_result_id = _create_program_backtest_result(
+        client,
+        symbols=["BTC"],
+        config_extra={
+            "api_key": "secret-preview-key",
+            "nested": {
+                "access_token": "secret-preview-token",
+                "authorization": "bearer secret-preview-header",
+            },
+        },
+    )
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert draft.status_code == 200
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": "BTC preview redaction spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    spec_id = saved.json()["spec_record"]["id"]
+    linked = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/backtest-result",
+        json={"backtest_result_id": backtest_result_id, "accepted_for_handoff": True},
+    )
+    assert linked.status_code == 200
+    approved = client.post(f"/api/ai-trading/strategy-specs/{spec_id}/approve")
+    assert approved.status_code == 200
+
+    preview_response = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/signal-preview",
+        json={"market_context": {"mark_price": 100000, "source": "pytest-preview"}},
+    )
+    assert preview_response.status_code == 200
+    signal_preview = preview_response.json()["signal_preview"]
+    backtest_config = signal_preview["backtest"]["program_backtest_config"]
+    assert backtest_config["api_key"] == "***"
+    assert backtest_config["nested"]["access_token"] == "***"
+    assert backtest_config["nested"]["authorization"] == "***"
+    serialized = json.dumps(signal_preview)
+    assert "secret-preview-key" not in serialized
+    assert "secret-preview-token" not in serialized
+    assert "secret-preview-header" not in serialized
+
+
 def test_ai_trading_backtest_summary_requires_quality_metrics(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
 

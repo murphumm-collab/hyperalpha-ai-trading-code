@@ -537,6 +537,10 @@ def serialize_signal_event_record(
     return payload
 
 
+def serialize_signal_preview_payload(signal_preview: Dict[str, Any]) -> Dict[str, Any]:
+    return _redact_sensitive_payload(signal_preview if isinstance(signal_preview, dict) else {})
+
+
 def serialize_signal_handoff_attempt_record(
     record: AiTradingSignalHandoffAttemptRecord,
 ) -> Dict[str, Any]:

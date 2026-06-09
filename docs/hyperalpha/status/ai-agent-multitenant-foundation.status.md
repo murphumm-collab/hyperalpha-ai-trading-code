@@ -111,6 +111,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
 - Approved AI Trading strategy specs can produce a non-executable signal preview candidate with `not_an_order`, no direct AI order placement, and backend-handoff eligibility metadata.
+- AI Trading signal preview responses recursively redact sensitive keys before returning data, matching persisted signal-event response boundaries.
 - Hyper AI can load approved strategy signal previews into chat for review without submitting them to an execution gateway.
 - AI Trading signal candidates are persisted as current-user audit events with review status, handoff status, and full signal JSON before any future execution gateway integration.
 - AI Trading signal event detail responses and gateway payloads recursively redact sensitive keys from signal JSON before returning or submitting data.
@@ -310,6 +311,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
 | AI Trading strategy spec approval UI | Done | Hyper AI strategy draft summaries expose save and approve controls without connecting to order execution |
 | AI Trading signal preview API | Done | Approved specs can build `hyperalpha.ai_trading.signal_candidate.v1` review candidates; unapproved specs are rejected and previews are marked `not_an_order` |
+| AI Trading signal preview response redaction | Done | Direct signal-preview responses recursively mask sensitive keys before returning candidates to clients |
 | AI Trading signal preview UI | Done | Hyper AI approved strategy draft summaries can load signal previews into chat for review without submitting to order execution |
 | AI Trading signal event audit | Done | `ai_trading_signal_events` stores current-user review candidates with signal JSON and `not_submitted` handoff state |
 | AI Trading signal payload redaction | Done | Signal detail responses and gateway payloads recursively mask sensitive keys such as API keys, tokens, secrets, passwords, and private keys |
@@ -720,6 +722,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading service/route/test syntax compile after evidence detail redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: AI Trading route regression after handoff attempt response redaction: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 19 passing tests, including polluted blockers/eligibility audit JSON responses without leaking raw secrets.
 - Passed: AI Trading service/route/test syntax compile after handoff attempt response redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Passed: AI Trading route regression after signal-preview response redaction: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 20 passing tests, including attached backtest config secrets masked in direct signal preview responses.
+- Passed: AI Trading service/route/test syntax compile after signal-preview response redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

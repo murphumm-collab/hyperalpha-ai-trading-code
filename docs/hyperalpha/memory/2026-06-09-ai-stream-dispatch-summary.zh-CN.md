@@ -26,6 +26,7 @@
 - Hyper AI 策略草案摘要已提供保存和审批按钮，仍只操作 review 状态。
 - 已审批 strategy spec 可生成 `hyperalpha.ai_trading.signal_candidate.v1` 信号预览；该 preview 明确 `not_an_order=true`、`ai_may_place_orders=false`，只供聊天审核和后端 handoff 前检查。
 - Hyper AI 已审批草案摘要可把 signal preview 回填到聊天框，不会提交执行网关。
+- 直接 `/api/ai-trading/strategy-specs/{id}/signal-preview` response 现在也会递归 mask 敏感 key，避免绕过 persisted signal event serializer 泄露已绑定 backtest config 中的 key/token/header。
 - `ai_trading_signal_events` 已持久化当前用户的信号候选审计记录，默认 `status=review_candidate`、`handoff_status=not_submitted`。
 - signal event detail response 和 gateway payload 现在会对 signal JSON 递归脱敏敏感 key，例如 API key、token、secret、password、private key；数据库仍保留审计原始结构，但出站数据不暴露这些值。
 - strategy spec save/detail/approval response 现在也会对 spec JSON 递归脱敏敏感 key；数据库仍保留原始审计 JSON，但 API 出站不会暴露用户误塞进策略 spec 的 key/token/private key。
@@ -215,6 +216,8 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 evidence detail redaction 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff attempt response redaction 后通过，19 条 AI Trading route 回归全绿；覆盖被污染的 blockers/eligibility audit JSON 不会通过 `/handoff-attempts` 泄露原始 secret。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 handoff attempt response redaction 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal-preview response redaction 后通过，20 条 AI Trading route 回归全绿；覆盖直接 signal preview response 会 mask 已绑定 backtest config 中的敏感字段。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal-preview response redaction 后通过。
 
 ## 6. 未验收 / 阻塞
 

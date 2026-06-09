@@ -34,6 +34,7 @@ from services.ai_trading_strategy_spec_service import (
     save_strategy_spec_record,
     serialize_signal_handoff_attempt_record,
     serialize_signal_event_record,
+    serialize_signal_preview_payload,
     serialize_strategy_spec_record,
     submit_signal_event_to_gateway,
     validate_strategy_spec,
@@ -447,7 +448,7 @@ def strategy_signal_preview_endpoint(
         raise HTTPException(status_code=status_code, detail=detail) from exc
     return {
         "success": True,
-        "signal_preview": signal_preview,
+        "signal_preview": serialize_signal_preview_payload(signal_preview),
     }
 
 
