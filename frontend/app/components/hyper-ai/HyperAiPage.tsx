@@ -792,6 +792,37 @@ export default function HyperAiPage() {
     }
     return t('hyperAi.aiTradingGatewayDisabled', 'Gateway disabled')
   }
+  const signalStatusLabel = (event: AiTradingSignalEventRecord): string => {
+    if (event.status === 'submitted' || event.handoff_status === 'submitted') {
+      return t('hyperAi.aiTradingStatusSubmitted', 'Submitted')
+    }
+    if (event.status === 'rejected' || event.handoff_status === 'rejected') {
+      return t('hyperAi.aiTradingStatusRejected', 'Rejected')
+    }
+    if (isSignalHandoffEligible(event)) {
+      return t('hyperAi.aiTradingStatusReady', 'Ready')
+    }
+    return t('hyperAi.aiTradingStatusBlocked', 'Blocked')
+  }
+  const signalStatusClassName = (event: AiTradingSignalEventRecord): string => {
+    if (event.status === 'submitted' || event.handoff_status === 'submitted') {
+      return 'bg-blue-500/10 text-blue-600'
+    }
+    if (event.status === 'rejected' || event.handoff_status === 'rejected') {
+      return 'bg-red-500/10 text-red-600'
+    }
+    if (isSignalHandoffEligible(event)) {
+      return 'bg-green-500/10 text-green-600'
+    }
+    return 'bg-yellow-500/10 text-yellow-600'
+  }
+  const signalBlockerSummary = (event: AiTradingSignalEventRecord): string => {
+    const blockers = event.handoff_eligibility?.blockers || []
+    if (blockers.length === 0) {
+      return event.handoff_status || 'not_submitted'
+    }
+    return blockers[0]
+  }
 
   // Get current language
   const currentLang = i18n.language?.startsWith('zh') ? 'zh' : 'en'
@@ -2122,9 +2153,14 @@ export default function HyperAiPage() {
                       {recentSignalEvents.map(event => (
                         <div key={event.id} className="flex items-center gap-2">
                           <div className="min-w-0 flex-1">
-                            <div className="truncate font-medium">{event.symbol} · {event.action}</div>
+                            <div className="flex min-w-0 items-center gap-1.5">
+                              <span className="truncate font-medium">{event.symbol} · {event.action}</span>
+                              <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${signalStatusClassName(event)}`}>
+                                {signalStatusLabel(event)}
+                              </span>
+                            </div>
                             <div className="truncate text-[11px] text-muted-foreground">
-                              #{event.id} · {event.status} · {event.handoff_status || 'not_submitted'}
+                              #{event.id} · {event.status} · {signalBlockerSummary(event)}
                             </div>
                           </div>
                           <button

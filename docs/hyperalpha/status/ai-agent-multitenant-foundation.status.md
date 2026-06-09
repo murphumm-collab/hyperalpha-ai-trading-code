@@ -105,6 +105,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel can load signal handoff attempt history into chat for audit review without triggering execution.
 - AI Trading signal events can be explicitly rejected by the user before handoff; rejection updates the persisted signal review state and makes the event ineligible for backend handoff.
 - Persisted AI Trading signal events rewrite signal payload idempotency keys to event-scoped values so multiple candidates from one strategy spec do not collide at handoff.
+- Hyper AI recent signal rows show readable Ready/Blocked/Rejected/Submitted status badges plus the first blocker reason when handoff is blocked.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -267,6 +268,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading handoff attempt UI | Done | Recent signal events expose a read-only handoff history button that loads non-secret attempts into chat for audit review |
 | AI Trading signal rejection | Done | Review candidate signal events can be rejected before handoff; rejected events store review reason, become ineligible, and are visible in runtime status |
 | AI Trading signal idempotency | Done | Persisted signal events carry event-scoped `signal_event:{id}` idempotency keys, and gateway payloads reuse the same key |
+| AI Trading signal status UI | Done | Recent signal rows display readable handoff/review status badges and first-blocker summaries for blocked candidates |
 | AI Trading API regression test | Done | `backend/tests/test_ai_trading_routes.py` covers strategy draft/save/approve, signal event creation, disabled/enabled handoff, and runtime counts with SQLite |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
@@ -566,6 +568,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after adding the recent signal reject control.
 - Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading`, waited beyond the splash fallback, and confirmed the Hyper AI / AI Trading shell rendered; reject button click acceptance still needs local backend/Postgres and persisted signal events.
 - Passed: AI Trading route regression test after asserting persisted signal events use event-scoped idempotency keys and gateway payloads reuse the same key.
+- Passed: Frontend production build after adding readable Ready/Blocked/Rejected/Submitted badges and first-blocker summaries to recent signal rows.
+- Passed: AI Trading route regression test after the recent signal status UI change.
+- Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading`, waited beyond the splash fallback, and confirmed the Hyper AI / AI Trading shell rendered; live signal badge rendering still needs local backend/Postgres and persisted signal events.
 - Passed: Hyper AI memory trading-category compile in both system Python and `uv run` backend environment for memory service and tool schema.
 - Passed: Hyper AI memory trading-category smoke test in `uv run` with SQLite: `strategy_memory`, `risk_memory`, `performance_memory`, and `execution_memory` are accepted categories and user-scoped reads return the expected entries.
 - Passed: AI Trading route regression test: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed cleanly, covering draft/save/approve, signal event audit, disabled gateway 409, monkeypatched enabled handoff, and runtime counts.
