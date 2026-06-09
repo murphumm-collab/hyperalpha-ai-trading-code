@@ -24,12 +24,17 @@ Before any production-like order-backend acceptance, run:
 ```bash
 cd backend
 uv run python scripts/ai_trading_production_handoff_check.py --strict
+uv run python scripts/ai_trading_v1_production_readiness_check.py --strict
 ```
 
-The check requires a real HTTPS non-local/non-mock gateway URL, a bearer token,
+The handoff check requires a real HTTPS non-local/non-mock gateway URL, a bearer token,
 a bounded timeout, a positive handoff-age gate, and
 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`. It prints only sanitized URL
 parts and token presence, never the token value.
+
+The aggregate readiness check additionally requires verified Auth/JWKS config,
+safe AI stream capacity posture, production hard-risk caps, and user-profile
+DeepSeek/Qwen key policy. It is also no-network and no-submit.
 
 The backend runtime also enforces the same production approval boundary before
 handoff. Local mock gateway URLs are allowed for local acceptance; external
@@ -146,6 +151,7 @@ Contract regression is covered by `backend/tests/test_ai_trading_routes.py`:
 - Redaction, response-summary, and blocker-specific handoff tests
 - `backend/tests/test_ai_trading_live_stack_acceptance.py` covers the local live-stack runner guardrails, including explicit confirmation, local-only URLs, and `target_kind=local_mock`.
 - `backend/tests/test_ai_trading_production_handoff_check.py` covers the production handoff readiness checker, including localhost/mock rejection and token redaction.
+- `backend/tests/test_ai_trading_production_readiness_check.py` covers the aggregate production readiness checker, including Auth/JWKS, Redis posture, hard-risk caps, and secret redaction.
 
 ## Local Mock Gateway
 

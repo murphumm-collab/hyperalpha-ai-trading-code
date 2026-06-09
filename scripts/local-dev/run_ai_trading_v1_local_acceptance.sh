@@ -15,6 +15,7 @@ Runs the AI Trading V1 local acceptance gate:
   - AI Trading pytest regression
   - API-level V1 smoke runner
   - default production handoff gate must stay blocked
+  - default production readiness gate must stay blocked
   - frontend production build
   - local runtime readiness check
   - live LaunchAgent/mock-gateway handoff acceptance
@@ -77,16 +78,19 @@ run_expected_failure() {
 cd "$REPO_ROOT"
 
 run_step "Backend compile check" \
-  bash -lc "cd backend && uv run python -m py_compile services/ai_trading_strategy_spec_service.py scripts/ai_trading_v1_live_stack_acceptance.py scripts/ai_trading_v1_acceptance_smoke.py scripts/ai_trading_v1_env_check.py tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_routes.py"
+  bash -lc "cd backend && uv run python -m py_compile services/ai_trading_strategy_spec_service.py scripts/ai_trading_v1_live_stack_acceptance.py scripts/ai_trading_v1_acceptance_smoke.py scripts/ai_trading_v1_env_check.py scripts/ai_trading_v1_production_readiness_check.py tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_routes.py"
 
 run_step "AI Trading backend regression" \
-  bash -lc "cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q"
+  bash -lc "cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q"
 
 run_step "API-level V1 smoke" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py"
 
 run_expected_failure "Default production handoff gate remains blocked" \
   bash -lc "cd backend && env -u AI_TRADING_SIGNAL_GATEWAY_ENABLED -u AI_TRADING_SIGNAL_GATEWAY_URL -u AI_TRADING_SIGNAL_GATEWAY_TOKEN -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED uv run python scripts/ai_trading_production_handoff_check.py --strict"
+
+run_expected_failure "Default production readiness gate remains blocked" \
+  bash -lc "cd backend && env -u AUTH_REQUIRE_VERIFIED_BEARER -u AUTH_JWKS_URL -u AUTH_JWT_ISSUER -u AUTH_JWT_AUDIENCE -u AUTH_JWT_ALGORITHMS -u AUTH_ADMIN_USERNAMES -u AI_TRADING_SIGNAL_GATEWAY_ENABLED -u AI_TRADING_SIGNAL_GATEWAY_URL -u AI_TRADING_SIGNAL_GATEWAY_TOKEN -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED -u AI_HARD_MAX_ORDER_NOTIONAL_USD -u AI_HARD_REQUIRE_STOP_LOSS -u AI_HARD_REQUIRE_TAKE_PROFIT uv run python scripts/ai_trading_v1_production_readiness_check.py --strict"
 
 run_step "Frontend build" \
   bash -lc "cd frontend && npm run build"
