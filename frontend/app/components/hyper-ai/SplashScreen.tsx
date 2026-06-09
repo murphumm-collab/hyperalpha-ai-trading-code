@@ -53,9 +53,15 @@ interface SplashScreenProps {
   onComplete: () => void
   minDuration?: number
   isReady?: boolean
+  maxWaitMs?: number
 }
 
-export default function SplashScreen({ onComplete, minDuration = 1500, isReady = false }: SplashScreenProps) {
+export default function SplashScreen({
+  onComplete,
+  minDuration = 1500,
+  isReady = false,
+  maxWaitMs = 8000,
+}: SplashScreenProps) {
   const [progress, setProgress] = useState(0)
   const [animationDone, setAnimationDone] = useState(false)
   const completedRef = useRef(false)
@@ -88,13 +94,26 @@ export default function SplashScreen({ onComplete, minDuration = 1500, isReady =
     return () => clearInterval(interval)
   }, [minDuration])
 
-  // Complete when both animation done AND data ready
+  // Complete when data is ready, or after a bounded wait so backend issues do not trap the UI.
   useEffect(() => {
-    if (animationDone && isReady && !completedRef.current) {
+    if (!animationDone || completedRef.current) {
+      return
+    }
+    if (isReady) {
       completedRef.current = true
       onCompleteRef.current()
+      return
     }
-  }, [animationDone, isReady])
+
+    const fallbackTimer = window.setTimeout(() => {
+      if (!completedRef.current) {
+        completedRef.current = true
+        onCompleteRef.current()
+      }
+    }, maxWaitMs)
+
+    return () => window.clearTimeout(fallbackTimer)
+  }, [animationDone, isReady, maxWaitMs])
 
   return (
     <div className="fixed inset-0 bg-background flex flex-col items-center justify-center z-50">
