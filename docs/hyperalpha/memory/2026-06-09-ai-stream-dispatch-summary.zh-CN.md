@@ -72,6 +72,7 @@
 - Hyper AI AI Trading strategy 卡片和 recent spec 行现在有 shield 图标 action，可保存草案后生成 Program Backtest preflight，并把推荐 binding、default request、blockers 回填到聊天框给 agent/用户复核。
 - Hyper AI AI Trading strategy 卡片和 recent spec 行现在有 run/play action：先请求 preflight，再要求用户确认，随后流式调用现有 `/api/programs/backtest`；完成后自动把 Program BacktestResult 绑定成 strategy evidence，不触发订单网关。
 - 新增 `/api/ai-trading/strategy-specs/{id}/backtest-evidence`：按当前用户读取已绑定 Program BacktestResult detail，返回 metrics、equity_curve_sample、trigger/action counts、trigger summaries、markers 和 leakage_guard；不返回 Program code、API key、decision_input/output。
+- Program Backtest evidence detail 现在会在出站前剔除 attached_summary、evidence_summary 和返回 config 里的敏感 key，例如 api_key、access_token、private_key；BacktestResult/config 和 strategy spec audit 原文仍保留在数据库。
 - Hyper AI AI Trading strategy 卡片和 recent spec 行现在有只读 evidence inspect action，可把 attached Program Backtest evidence detail 回填到聊天框给 agent 复盘，不启动回测、不绑定新 evidence、不提交订单。
 - Hyper AI AI Trading 右侧面板现在会把 inspected attached backtest evidence 渲染成紧凑复盘面板：handoff ready/blocked、return、drawdown、trade count、action counts、quality issues 和前三条 trigger summary。
 - Hyper AI AI Trading 现在有 expanded attached-backtest evidence dialog：展示 metric cards、equity curve sample SVG、action distribution、quality issues、trigger review table；仍然只读，不启动回测/不 handoff/不下单。
@@ -209,6 +210,8 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal payload recursive redaction 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 strategy spec response redaction 后通过，18 条 AI Trading route 回归全绿；覆盖 save/detail/approval 出站脱敏，同时确认数据库审计 JSON 仍保留原文。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 strategy spec response redaction 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 Program Backtest evidence detail redaction 后通过，18 条 AI Trading route 回归全绿；覆盖被污染的 BacktestResult config 不会通过 evidence detail 泄露敏感字段名或字段值。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 evidence detail redaction 后通过。
 
 ## 6. 未验收 / 阻塞
 

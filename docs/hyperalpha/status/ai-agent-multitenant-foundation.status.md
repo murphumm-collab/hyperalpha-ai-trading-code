@@ -100,6 +100,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel lists recent completed Program Backtests with symbols and key metrics, and can attach a listed result to the current strategy spec without manual ID entry.
 - Hyper AI AI Trading panel can attach the latest matching Program Backtest evidence from a strategy spec card without manual ID entry.
 - AI Trading can return a current-user attached Program Backtest evidence detail packet with metrics, equity-curve sample, trigger/action summaries, and leakage guards without returning Program code, decision snapshots, or credentials.
+- AI Trading Program Backtest evidence detail strips sensitive keys from attached summary, evidence summary, and returned config views before returning data.
 - Hyper AI AI Trading panel can load a Program Backtest preflight into chat from strategy cards and recent spec rows via a shield action.
 - Hyper AI AI Trading panel can run the preflighted current-user Program Backtest SSE flow, then auto-attach the completed Program BacktestResult as strategy evidence without touching the order gateway.
 - Hyper AI AI Trading panel can load attached Program Backtest evidence detail into chat for agent review without starting a backtest, attaching new evidence, or submitting orders.
@@ -291,6 +292,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading Program Backtest evidence list | Done | `/api/ai-trading/backtest-results` lists current-user completed Program BacktestResult candidates with symbol/status/limit filters, key metrics, and no strategy code or credentials |
 | AI Trading latest backtest evidence attach | Done | `/api/ai-trading/strategy-specs/{id}/backtest-result/latest` auto-links the newest current-user, same-symbol, handoff-ready Program BacktestResult and rejects missing/weak/mismatched evidence |
 | AI Trading Program Backtest evidence detail | Done | `/api/ai-trading/strategy-specs/{id}/backtest-evidence` returns attached current-user Program Backtest metrics, sampled equity curve, trigger/action summaries, markers, and leakage guards without Program code, full decision snapshots, or credentials |
+| AI Trading Program Backtest evidence detail redaction | Done | Attached summary, evidence summary, and returned config views strip sensitive keys such as API keys, access tokens, and private keys |
 | AI Trading Program Backtest preflight | Done | `/api/ai-trading/strategy-specs/{id}/backtest-preflight` inspects current-user Hyperliquid account-program bindings, signal pools, and strategy symbol, then returns blockers or a default `/api/programs/backtest` request without executing it |
 | AI Trading backtest summary UI | Done | Hyper AI strategy cards display backtest readiness and expose a chart-icon action to attach an external backtest summary JSON to a saved strategy spec |
 | AI Trading Program Backtest UI bridge | Done | Hyper AI strategy cards and recent spec rows expose a link-icon action to attach an existing Program Backtest result ID without manual metric entry |
@@ -712,6 +714,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading service/route/test syntax compile after signal payload redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: AI Trading route regression after strategy spec response redaction: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 18 passing tests, including save/detail/approval response redaction while preserving original database audit JSON.
 - Passed: AI Trading service/route/test syntax compile after strategy spec response redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Passed: AI Trading route regression after Program Backtest evidence detail redaction: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 18 passing tests, including config-polluted evidence detail responses without sensitive key names or values.
+- Passed: AI Trading service/route/test syntax compile after evidence detail redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

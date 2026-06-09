@@ -102,6 +102,7 @@ def _create_program_backtest_result(
     total_pnl_percent=8.5,
     max_drawdown_percent=-2.25,
     with_trigger_logs=False,
+    config_extra=None,
 ):
     session_factory = client._ai_trading_session_factory
     user_ids = client._ai_trading_user_ids
@@ -144,11 +145,15 @@ def _create_program_backtest_result(
         session.flush()
 
         now = datetime.now(timezone.utc)
+        backtest_config = {"symbols": backtest_symbols, "scheduled_interval_sec": 300}
+        if config_extra:
+            backtest_config.update(config_extra)
+
         backtest = BacktestResult(
             backtest_type="program",
             binding_id=binding.id,
             user_id=user_id,
-            config=json.dumps({"symbols": backtest_symbols, "scheduled_interval_sec": 300}),
+            config=json.dumps(backtest_config),
             start_time=now - timedelta(days=30),
             end_time=now,
             initial_balance=10000,
@@ -1042,6 +1047,13 @@ def test_ai_trading_backtest_evidence_detail_is_non_secret_and_user_scoped(tmp_p
         username="alice",
         symbols=["BTC"],
         with_trigger_logs=True,
+        config_extra={
+            "api_key": "not-returned-config-key",
+            "nested": {
+                "access_token": "not-returned-config-token",
+                "private_key": "not-returned-config-private-key",
+            },
+        },
     )
 
     draft = alice.post(
@@ -1080,6 +1092,11 @@ def test_ai_trading_backtest_evidence_detail_is_non_secret_and_user_scoped(tmp_p
     assert evidence["quality_issues"] == []
     assert evidence["backtest_result"]["id"] == backtest_result_id
     assert evidence["backtest_result"]["symbols"] == ["BTC"]
+    assert "api_key" not in evidence["attached_summary"]["program_backtest_config"]
+    assert "nested" in evidence["attached_summary"]["program_backtest_config"]
+    assert "access_token" not in evidence["attached_summary"]["program_backtest_config"]["nested"]
+    assert "private_key" not in evidence["evidence_summary"]["program_backtest_config"]["nested"]
+    assert "api_key" not in evidence["backtest_result"]["config"]
     assert len(evidence["backtest_result"]["equity_curve_sample"]) == 3
     assert evidence["trigger_summary"]["total"] == 3
     assert evidence["trigger_summary"]["returned"] == 2
@@ -1092,6 +1109,8 @@ def test_ai_trading_backtest_evidence_detail_is_non_secret_and_user_scoped(tmp_p
     assert "def run" not in serialized
     assert "not-returned" not in serialized
     assert "api_key" not in serialized
+    assert "access_token" not in serialized
+    assert "private_key" not in serialized
     assert "decision_input" not in serialized
     assert "decision_output" not in serialized
 

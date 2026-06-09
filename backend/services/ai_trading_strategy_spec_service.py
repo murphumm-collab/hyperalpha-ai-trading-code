@@ -435,6 +435,19 @@ def _redact_sensitive_payload(value: Any) -> Any:
     return value
 
 
+def _strip_sensitive_payload(value: Any) -> Any:
+    if isinstance(value, dict):
+        stripped: Dict[str, Any] = {}
+        for key, child in value.items():
+            if SENSITIVE_AI_TRADING_KEY_PATTERN.search(str(key)):
+                continue
+            stripped[key] = _strip_sensitive_payload(child)
+        return stripped
+    if isinstance(value, list):
+        return [_strip_sensitive_payload(item) for item in value]
+    return value
+
+
 def _record_timestamp(value: Any) -> Optional[str]:
     if not value:
         return None
@@ -1151,6 +1164,15 @@ def build_strategy_backtest_evidence_detail(
         accepted_for_handoff=bool(backtest_summary.get("accepted_for_handoff")),
         notes=backtest_summary.get("notes"),
     )
+    safe_backtest_summary = _strip_sensitive_payload(backtest_summary)
+    safe_evidence_summary = _strip_sensitive_payload(evidence_summary)
+    safe_backtest_config = _strip_sensitive_payload({
+        "symbols": config.get("symbols") if isinstance(config, dict) else [],
+        "signal_pool_ids": config.get("signal_pool_ids") if isinstance(config, dict) else [],
+        "scheduled_interval_sec": config.get("scheduled_interval_sec") if isinstance(config, dict) else None,
+        "slippage_percent": config.get("slippage_percent") if isinstance(config, dict) else None,
+        "fee_rate": config.get("fee_rate") if isinstance(config, dict) else None,
+    })
 
     clamped_limit = max(1, min(int(trigger_limit or 25), 100))
     trigger_query = db.query(BacktestTriggerLog).filter(
@@ -1178,21 +1200,15 @@ def build_strategy_backtest_evidence_detail(
         "strategy_symbol": _normalize_symbol(spec.get("symbol") or record.symbol),
         "handoff_ready": _is_backtest_ready_for_handoff(evidence_summary),
         "quality_issues": _backtest_metrics_quality_issues(evidence_summary),
-        "attached_summary": backtest_summary,
-        "evidence_summary": evidence_summary,
+        "attached_summary": safe_backtest_summary,
+        "evidence_summary": safe_evidence_summary,
         "backtest_result": {
             "id": backtest.id,
             "status": backtest.status,
             "binding_id": backtest.binding_id,
             "exchange": backtest.exchange or "hyperliquid",
             "symbols": _program_backtest_symbols(config),
-            "config": {
-                "symbols": config.get("symbols") if isinstance(config, dict) else [],
-                "signal_pool_ids": config.get("signal_pool_ids") if isinstance(config, dict) else [],
-                "scheduled_interval_sec": config.get("scheduled_interval_sec") if isinstance(config, dict) else None,
-                "slippage_percent": config.get("slippage_percent") if isinstance(config, dict) else None,
-                "fee_rate": config.get("fee_rate") if isinstance(config, dict) else None,
-            },
+            "config": safe_backtest_config,
             "period": {
                 "start": backtest.start_time.isoformat() if backtest.start_time else None,
                 "end": backtest.end_time.isoformat() if backtest.end_time else None,
