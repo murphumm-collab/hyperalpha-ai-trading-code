@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Dict, List, Optional
+import os
+import time
+from typing import Any, Dict, List, Optional
 
 import requests
 from sqlalchemy.orm import Session
@@ -27,6 +29,7 @@ SELECTED_SYMBOLS_KEY = "hyperliquid_selected_symbols"
 WATCHLIST_EXCHANGE = "hyperliquid"
 MAX_WATCHLIST_SYMBOLS = 10
 SYMBOL_REFRESH_TASK_ID = "hyperliquid_symbol_refresh"
+RANKED_SYMBOL_CACHE_SECONDS = int(os.getenv("HYPERLIQUID_RANKED_SYMBOL_CACHE_SECONDS", "300"))
 
 DEFAULT_SYMBOLS: List[Dict[str, str]] = [
     {"symbol": "BTC", "name": "Bitcoin"},
@@ -35,6 +38,13 @@ DEFAULT_SYMBOLS: List[Dict[str, str]] = [
 META_ENDPOINTS = {
     "testnet": "https://api.hyperliquid-testnet.xyz/info",
     "mainnet": "https://api.hyperliquid.xyz/info",
+}
+
+_ranked_symbol_cache: Dict[str, Any] = {
+    "environment": None,
+    "updated_at": 0.0,
+    "symbols": [],
+    "source": None,
 }
 
 
@@ -430,6 +440,99 @@ def get_available_symbols_info() -> Dict[str, Optional[str]]:
             symbols = DEFAULT_SYMBOLS.copy()
         _restore_hip3_mappings(symbols)
         return {"symbols": symbols, "updated_at": updated_at}
+
+
+def _safe_float(value: Any) -> Optional[float]:
+    try:
+        if value is None or value == "":
+            return None
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_ranked_symbols(limit: int = 50, environment: str = "mainnet") -> Dict[str, Any]:
+    """Return Hyperliquid symbols ranked by 24h notional volume."""
+    limit = max(1, min(int(limit or 50), 100))
+    now = time.time()
+    if (
+        _ranked_symbol_cache["environment"] == environment
+        and
+        _ranked_symbol_cache["symbols"]
+        and now - float(_ranked_symbol_cache["updated_at"] or 0) < RANKED_SYMBOL_CACHE_SECONDS
+    ):
+        return {
+            "symbols": _ranked_symbol_cache["symbols"][:limit],
+            "updated_at": _ranked_symbol_cache["updated_at"],
+            "source": _ranked_symbol_cache["source"],
+        }
+
+    endpoint = META_ENDPOINTS.get(environment, META_ENDPOINTS["mainnet"])
+    try:
+        response = requests.post(endpoint, json={"type": "metaAndAssetCtxs"}, timeout=10)
+        response.raise_for_status()
+        payload = response.json()
+        if not isinstance(payload, list) or len(payload) < 2:
+            raise ValueError("Unexpected Hyperliquid metaAndAssetCtxs response")
+
+        meta, asset_contexts = payload[0], payload[1]
+        universe = meta.get("universe") if isinstance(meta, dict) else []
+        if not isinstance(universe, list) or not isinstance(asset_contexts, list):
+            raise ValueError("Missing Hyperliquid universe or asset context list")
+
+        ranked: List[Dict[str, Any]] = []
+        for entry, context in zip(universe, asset_contexts):
+            if not isinstance(entry, dict) or not isinstance(context, dict):
+                continue
+            if entry.get("isDelisted"):
+                continue
+
+            raw_symbol = entry.get("name") or entry.get("symbol")
+            symbol = SymbolMapper.to_internal(str(raw_symbol or ""), "hyperliquid")
+            if not symbol:
+                continue
+
+            ranked.append({
+                "symbol": symbol,
+                "name": entry.get("displayName") or entry.get("name") or symbol,
+                "type": entry.get("type") or entry.get("szType") or entry.get("assetType") or "perp",
+                "volume_24h_usd": _safe_float(context.get("dayNtlVlm")),
+                "volume_24h_base": _safe_float(context.get("dayBaseVlm")),
+                "mark_price": _safe_float(context.get("markPx") or context.get("midPx") or context.get("oraclePx")),
+                "open_interest": _safe_float(context.get("openInterest")),
+                "max_leverage": entry.get("maxLeverage"),
+            })
+
+        ranked.sort(key=lambda item: item.get("volume_24h_usd") or 0, reverse=True)
+        _ranked_symbol_cache.update({
+            "environment": environment,
+            "updated_at": now,
+            "symbols": ranked,
+            "source": "hyperliquid_meta_and_asset_contexts",
+        })
+        return {
+            "symbols": ranked[:limit],
+            "updated_at": now,
+            "source": "hyperliquid_meta_and_asset_contexts",
+        }
+    except Exception as err:
+        logger.warning("Failed to fetch Hyperliquid ranked symbols: %s", err)
+        fallback = [
+            {
+                **entry,
+                "volume_24h_usd": None,
+                "volume_24h_base": None,
+                "mark_price": None,
+                "open_interest": None,
+            }
+            for entry in get_available_symbols()[:limit]
+        ]
+        return {
+            "symbols": fallback,
+            "updated_at": None,
+            "source": "available_symbol_cache",
+            "error": str(err),
+        }
 
 
 def get_available_symbol_map() -> Dict[str, Dict[str, str]]:

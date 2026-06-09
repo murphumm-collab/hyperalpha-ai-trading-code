@@ -30,6 +30,7 @@ from services.hyperliquid_environment import (
 from services.hyperliquid_trading_client import clear_trading_client_cache
 from services.hyperliquid_symbol_service import (
     get_available_symbols_info,
+    get_ranked_symbols,
     get_selected_symbols,
     update_selected_symbols,
     MAX_WATCHLIST_SYMBOLS,
@@ -635,6 +636,22 @@ def list_available_symbols():
     return {
         "symbols": info.get("symbols", []),
         "updated_at": info.get("updated_at"),
+        "max_symbols": MAX_WATCHLIST_SYMBOLS,
+    }
+
+
+@router.get("/symbols/ranked")
+def list_ranked_symbols(
+    limit: int = Query(50, ge=1, le=100),
+    environment: str = Query("mainnet", pattern="^(mainnet|testnet)$"),
+):
+    """Return Hyperliquid tradable symbols ranked by 24h notional volume."""
+    ranked = get_ranked_symbols(limit=limit, environment=environment)
+    return {
+        "symbols": ranked.get("symbols", []),
+        "updated_at": ranked.get("updated_at"),
+        "source": ranked.get("source"),
+        "error": ranked.get("error"),
         "max_symbols": MAX_WATCHLIST_SYMBOLS,
     }
 
