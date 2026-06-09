@@ -29,6 +29,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q`：27 条 AI Trading route 回归通过。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`：通过。
+- `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py`：通过，覆盖 draft -> model-adjust -> save -> attach backtest -> approve -> reject signal -> confirmed mock handoff -> runtime。
 - `cd frontend && npm run build`：通过，剩余为既有 browserslist/baseline/chunk-size warning。
 - Playwright CLI 可以打开 `http://127.0.0.1:5174/app/ai-trading` 并渲染 Hyper AI shell。
 
@@ -43,6 +44,7 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 ## V1 通过标准
 
 - 后端 AI Trading 回归通过。
+- API-level V1 smoke runner 通过：`cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py`。
 - 前端 build 通过。
 - Postgres/Snapshot DB 启动后，后端 `/api/ai-trading/runtime` 可响应。
 - 浏览器从 `/app/ai-trading` 完成至少一条测试策略流：draft -> adjust -> save -> approve -> attach/run backtest evidence -> create signal event -> reject 一条 signal -> confirm handoff 一条 eligible mock gateway signal。

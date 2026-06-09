@@ -250,6 +250,8 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 model-adjust bridge 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI DeepSeek/Qwen Brain 调整按钮后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
 - `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` 已保存 V1 完成标准、当前已验证项、未验收项和最终通过标准，避免继续无限扩功能。
+- 新增 `backend/scripts/ai_trading_v1_acceptance_smoke.py`：用 FastAPI TestClient、临时 SQLite、mock Qwen adjustment response、mock order backend gateway 跑 API-level V1 验收剧本，不依赖本地 Postgres/browser。
+- `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` 已通过，输出 `success=true`；流程覆盖 draft -> model_adjust -> save -> attach_backtest -> approve -> create/reject signal -> create/confirm handoff signal -> handoff attempt -> runtime，gateway contract 保持 `signal_only=true`、`not_an_order=true`、`ai_may_place_orders=false`。
 - mock signal gateway 已通过轻量验证：`cd backend && uv run python -m py_compile dev_ai_trading_signal_gateway.py`；临时运行 `uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1` 后，`curl http://127.0.0.1:5621/health` 返回 ok，随后已停止服务。
 - `cd backend && uv run pytest tests/test_ai_trading_mock_gateway.py -q` 已通过，2 条 mock gateway 回归全绿；覆盖合格 V1 payload 返回 202 并写审计日志，以及 direct-order boundary 被 400 blocker 拒绝。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py -q` 已通过，当前 AI Trading backend 合并回归为 29 条全绿。
