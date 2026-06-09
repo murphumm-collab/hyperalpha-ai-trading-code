@@ -113,6 +113,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI can load approved strategy signal previews into chat for review without submitting them to an execution gateway.
 - AI Trading signal candidates are persisted as current-user audit events with review status, handoff status, and full signal JSON before any future execution gateway integration.
 - Hyper AI signal preview action now creates an auditable signal event and sends the event payload into chat for review.
+- Hyper AI signal preview control now stays gated until the approved strategy spec also has handoff-ready backtest evidence, matching the user-facing safety path before signal-event creation.
 - AI Trading signal handoff endpoint is present but disabled by default; it only submits audited signal events to a configured external order-backend URL when explicitly enabled.
 - AI Trading signal gateway environment variables are documented in root and backend `.env.example` templates.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
@@ -299,6 +300,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading signal preview UI | Done | Hyper AI approved strategy draft summaries can load signal previews into chat for review without submitting to order execution |
 | AI Trading signal event audit | Done | `ai_trading_signal_events` stores current-user review candidates with signal JSON and `not_submitted` handoff state |
 | AI Trading audited signal preview UI | Done | Hyper AI signal preview control creates a signal event record before loading the candidate JSON into chat |
+| AI Trading signal preview backtest UI gate | Done | Hyper AI disables signal preview until an approved strategy has handoff-ready backtest evidence and shows the same blocker message in the strategy card |
 | AI Trading signal gateway boundary | Done | `/api/ai-trading/signal-events/{id}/handoff` defaults to 409 disabled; when configured it submits only audited `not_an_order` events to the external order backend |
 | AI Trading signal gateway env templates | Done | Root and backend `.env.example` document gateway enablement, URL, timeout, and bearer token without exposing secrets to the AI model |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
@@ -668,6 +670,8 @@ Local checkpoint: current branch `HEAD`
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading/backtests/1` returned 200; authenticated click-through/live evidence acceptance remains pending.
 - Passed: AI Trading route regression after strategy backtest runtime summary: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 14 passing tests, covering missing, weak, passing, and cross-user-empty evidence readiness counts.
 - Passed: Frontend production build after showing total specs versus backtest-ready specs in the AI Trading runtime panel.
+- Passed: Frontend production build after gating Hyper AI signal preview on handoff-ready backtest evidence.
+- Passed: AI Trading route regression re-run after the frontend signal-preview gate: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 14 passing tests.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

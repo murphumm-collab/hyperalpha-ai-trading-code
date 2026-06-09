@@ -28,6 +28,7 @@
 - Hyper AI 已审批草案摘要可把 signal preview 回填到聊天框，不会提交执行网关。
 - `ai_trading_signal_events` 已持久化当前用户的信号候选审计记录，默认 `status=review_candidate`、`handoff_status=not_submitted`。
 - Hyper AI signal preview 按钮现在会先创建 signal event，再把候选 JSON 回填聊天框。
+- Hyper AI signal preview 按钮现在也要求 approved strategy spec 已有 handoff-ready backtest evidence；否则按钮禁用并在策略卡片显示 blocker，避免普通 UI 生成明显不可 handoff 的候选信号。
 - `/api/ai-trading/signal-events/{id}/handoff` 已实现外部订单后端 handoff 边界，但默认 `AI_TRADING_SIGNAL_GATEWAY_ENABLED=false`，未配置时返回 409 不发送。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
@@ -176,6 +177,8 @@
 - `curl -I --max-time 3 http://127.0.0.1:5174/app/ai-trading/backtests/1` 返回 200；authenticated click-through/live evidence acceptance 仍需本地 backend/Postgres 和真实登录态。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 strategy backtest runtime summary 后通过，14 条 AI Trading route 回归全绿，覆盖 missing/weak/passing/cross-user-empty readiness counts。
 - `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI runtime Specs 卡片显示 total / backtest ready 后。
+- `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI signal preview 按钮前端回测 gate 后。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal preview 前端回测 gate 后重新通过，14 条 AI Trading route 回归全绿。
 
 ## 6. 未验收 / 阻塞
 

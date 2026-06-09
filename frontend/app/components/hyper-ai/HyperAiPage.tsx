@@ -1076,6 +1076,18 @@ export default function HyperAiPage() {
     }
     return blockers[0]
   }
+  const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
+  const currentStrategyBacktestReady = isBacktestReady(currentStrategyBacktest)
+  const canBuildStrategySignalPreview = Boolean(
+    strategyDraftRecord?.status === 'approved' && currentStrategyBacktestReady
+  )
+  const strategySignalPreviewTitle = !strategyDraftRecord
+    ? t('hyperAi.aiTradingSaveBeforeSignalPreview', 'Save and approve the strategy spec before signal preview')
+    : strategyDraftRecord.status !== 'approved'
+      ? t('hyperAi.aiTradingApproveBeforeSignalPreview', 'Approve the strategy spec before signal preview')
+      : !currentStrategyBacktestReady
+        ? t('hyperAi.aiTradingBacktestBeforeSignalPreview', 'Attach or run a handoff-ready backtest before signal preview')
+        : t('hyperAi.aiTradingSignalPreview', 'Signal preview')
 
   // Get current language
   const currentLang = i18n.language?.startsWith('zh') ? 'zh' : 'en'
@@ -1862,6 +1874,10 @@ export default function HyperAiPage() {
   const handleStrategySignalPreview = async () => {
     if (!strategyDraftRecord || strategyDraftRecord.status !== 'approved') {
       setStrategyDraftError('Approve the strategy spec before building a signal preview')
+      return
+    }
+    if (!currentStrategyBacktestReady) {
+      setStrategyDraftError('Attach or run a handoff-ready backtest before building a signal preview')
       return
     }
     setStrategySignalPreviewLoading(true)
@@ -3201,8 +3217,8 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={handleStrategySignalPreview}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyDraftRecord?.status !== 'approved'}
-                      title={t('hyperAi.aiTradingSignalPreview', 'Signal preview')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || !canBuildStrategySignalPreview}
+                      title={strategySignalPreviewTitle}
                     >
                       {strategySignalPreviewLoading ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -3227,6 +3243,12 @@ export default function HyperAiPage() {
                   <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span className="break-words">{strategyDraft.validation.issues.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+                {strategyDraftRecord?.status === 'approved' && !currentStrategyBacktestReady && (
+                  <div className="mt-2 flex items-start gap-1.5 rounded bg-yellow-500/10 px-2 py-1 text-[11px] text-yellow-700 dark:text-yellow-300">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span>{t('hyperAi.aiTradingBacktestBeforeSignalPreview', 'Attach or run a handoff-ready backtest before signal preview')}</span>
                   </div>
                 )}
               </div>
