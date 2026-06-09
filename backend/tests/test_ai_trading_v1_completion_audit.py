@@ -259,8 +259,16 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
     _write_minimal_acceptance_repo(tmp_path)
     missing_generated_path = tmp_path / "missing-generated-at-evidence.json"
     invalid_validated_path = tmp_path / "invalid-validated-at-evidence.json"
+    timezone_missing_path = tmp_path / "timezone-missing-evidence.json"
+    generated_before_validated_path = tmp_path / "generated-before-validated-evidence.json"
     _write_production_evidence(missing_generated_path, generated_at=None)
     _write_production_evidence(invalid_validated_path, validated_at="2026/06/10 12:00 UTC")
+    _write_production_evidence(timezone_missing_path, generated_at="2026-06-10T12:05:00")
+    _write_production_evidence(
+        generated_before_validated_path,
+        generated_at="2026-06-10T12:00:00Z",
+        validated_at="2026-06-10T12:05:00Z",
+    )
 
     missing_generated_report = completion_audit.build_completion_report(
         tmp_path,
@@ -270,6 +278,16 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
     invalid_validated_report = completion_audit.build_completion_report(
         tmp_path,
         production_evidence_file=invalid_validated_path,
+        allow_live_ready_from_evidence=True,
+    )
+    timezone_missing_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=timezone_missing_path,
+        allow_live_ready_from_evidence=True,
+    )
+    generated_before_validated_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=generated_before_validated_path,
         allow_live_ready_from_evidence=True,
     )
 
@@ -282,6 +300,15 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
         if item["id"] == "real_order_backend_handoff"
     )
     assert "external_evidence_validated_at_invalid" in invalid_item["blockers"]
+    assert timezone_missing_report["ready_for_live_orders"] is False
+    assert "external_evidence_generated_at_timezone_missing" in timezone_missing_report["production_evidence"]["blockers"]
+    assert generated_before_validated_report["ready_for_live_orders"] is False
+    generated_before_validated_item = next(
+        item
+        for item in generated_before_validated_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_validated_at_after_generated_at" in generated_before_validated_item["blockers"]
 
 
 def test_completion_audit_rejects_unsafe_artifact_refs(tmp_path):

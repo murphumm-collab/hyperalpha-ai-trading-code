@@ -21,7 +21,7 @@ import ipaddress
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -307,21 +307,28 @@ def _artifact_ref_blockers(ref: Any) -> list[str]:
     return blockers
 
 
-def _iso_timestamp_blockers(value: Any, field_name: str) -> list[str]:
+def _parse_iso_timestamp(value: Any, field_name: str) -> tuple[datetime | None, list[str]]:
     if not isinstance(value, str) or not value.strip():
-        return [f"external_evidence_{field_name}_missing"]
+        return None, [f"external_evidence_{field_name}_missing"]
     timestamp = value.strip()
     if "T" not in timestamp:
-        return [f"external_evidence_{field_name}_invalid"]
+        return None, [f"external_evidence_{field_name}_invalid"]
     normalized = timestamp[:-1] + "+00:00" if timestamp.endswith("Z") else timestamp
     try:
-        datetime.fromisoformat(normalized)
+        parsed = datetime.fromisoformat(normalized)
     except ValueError:
-        return [f"external_evidence_{field_name}_invalid"]
-    return []
+        return None, [f"external_evidence_{field_name}_invalid"]
+    if parsed.tzinfo is None or parsed.utcoffset() is None:
+        return None, [f"external_evidence_{field_name}_timezone_missing"]
+    return parsed.astimezone(timezone.utc), []
 
 
-def _validate_external_evidence_item(item_id: str, item: Any) -> dict[str, Any]:
+def _validate_external_evidence_item(
+    item_id: str,
+    item: Any,
+    *,
+    generated_at_utc: datetime | None = None,
+) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {
             "id": item_id,
@@ -336,7 +343,10 @@ def _validate_external_evidence_item(item_id: str, item: Any) -> dict[str, Any]:
     status = str(item.get("status") or "")
     if status != "accepted":
         blockers.append("external_evidence_item_not_accepted")
-    blockers.extend(_iso_timestamp_blockers(item.get("validated_at"), "validated_at"))
+    validated_at_utc, timestamp_blockers = _parse_iso_timestamp(item.get("validated_at"), "validated_at")
+    blockers.extend(timestamp_blockers)
+    if generated_at_utc is not None and validated_at_utc is not None and validated_at_utc > generated_at_utc:
+        blockers.append("external_evidence_validated_at_after_generated_at")
     if not str(item.get("validated_by") or "").strip():
         blockers.append("external_evidence_validated_by_missing")
     if not str(item.get("evidence_summary") or "").strip():
@@ -429,7 +439,8 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
     version = payload.get("version")
     if version != EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION:
         blockers.append("external_evidence_version_mismatch")
-    blockers.extend(_iso_timestamp_blockers(payload.get("generated_at"), "generated_at"))
+    generated_at_utc, timestamp_blockers = _parse_iso_timestamp(payload.get("generated_at"), "generated_at")
+    blockers.extend(timestamp_blockers)
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
 
@@ -443,7 +454,10 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
         items_payload = {}
 
     required_ids = [requirement.id for requirement in EXTERNAL_REQUIREMENTS]
-    item_reports = [_validate_external_evidence_item(item_id, items_payload.get(item_id)) for item_id in required_ids]
+    item_reports = [
+        _validate_external_evidence_item(item_id, items_payload.get(item_id), generated_at_utc=generated_at_utc)
+        for item_id in required_ids
+    ]
     accepted_count = sum(1 for item in item_reports if item["ready"])
     item_blockers = [item["id"] for item in item_reports if not item["ready"]]
     if item_blockers:
