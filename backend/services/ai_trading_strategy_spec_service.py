@@ -496,7 +496,7 @@ def serialize_strategy_spec_record(
         "updated_at": _record_timestamp(record.updated_at),
     }
     if include_spec:
-        payload["spec"] = _json_loads(record.spec_json, {})
+        payload["spec"] = _redact_sensitive_payload(_json_loads(record.spec_json, {}))
     return payload
 
 

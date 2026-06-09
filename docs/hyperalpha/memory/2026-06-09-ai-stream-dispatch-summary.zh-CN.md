@@ -28,6 +28,7 @@
 - Hyper AI 已审批草案摘要可把 signal preview 回填到聊天框，不会提交执行网关。
 - `ai_trading_signal_events` 已持久化当前用户的信号候选审计记录，默认 `status=review_candidate`、`handoff_status=not_submitted`。
 - signal event detail response 和 gateway payload 现在会对 signal JSON 递归脱敏敏感 key，例如 API key、token、secret、password、private key；数据库仍保留审计原始结构，但出站数据不暴露这些值。
+- strategy spec save/detail/approval response 现在也会对 spec JSON 递归脱敏敏感 key；数据库仍保留原始审计 JSON，但 API 出站不会暴露用户误塞进策略 spec 的 key/token/private key。
 - Hyper AI signal preview 按钮现在会先创建 signal event，再把候选 JSON 回填聊天框。
 - Hyper AI signal preview 按钮现在也要求 approved strategy spec 已有 handoff-ready backtest evidence；否则按钮禁用并在策略卡片显示 blocker，避免普通 UI 生成明显不可 handoff 的候选信号。
 - `/api/ai-trading/signal-events/{id}/handoff` 已实现外部订单后端 handoff 边界，但默认 `AI_TRADING_SIGNAL_GATEWAY_ENABLED=false`，未配置时返回 409 不发送。
@@ -206,6 +207,8 @@
 - `cd frontend && npm run build` 已在 Hyper AI Gateway 卡片显示 max-age 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal payload recursive redaction 后通过，17 条 AI Trading route 回归全绿；覆盖 signal detail 和 gateway payload 都不泄露敏感字段。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal payload recursive redaction 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 strategy spec response redaction 后通过，18 条 AI Trading route 回归全绿；覆盖 save/detail/approval 出站脱敏，同时确认数据库审计 JSON 仍保留原文。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 strategy spec response redaction 后通过。
 
 ## 6. 未验收 / 阻塞
 

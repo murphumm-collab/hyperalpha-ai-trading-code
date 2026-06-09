@@ -16,6 +16,7 @@ from database.models import (
     Account,
     AccountProgramBinding,
     AiTradingSignalEventRecord,
+    AiTradingStrategySpecRecord,
     BacktestResult,
     BacktestTriggerLog,
     TradingProgram,
@@ -642,6 +643,79 @@ def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tm
     assert "secret-key" not in str(calls[0]["json"])
     assert "secret-token" not in str(calls[0]["json"])
     assert "secret-private-key" not in str(calls[0]["json"])
+
+
+def test_ai_trading_strategy_spec_detail_redacts_sensitive_fields_without_mutating_audit_json(tmp_path):
+    client = _build_client(tmp_path)
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at prior high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert draft.status_code == 200
+    spec = draft.json()["spec"]
+    spec["api_key"] = "secret-key"
+    spec["risk"]["access_token"] = "secret-token"
+    spec["execution"]["nested"] = {"private_key": "secret-private-key"}
+    spec["metadata"]["password"] = "secret-password"
+    spec["watchers"] = [{"authorization": "bearer secret-header"}]
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": spec, "name": "BTC polluted spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    saved_record = saved.json()["spec_record"]
+    serialized_spec = saved_record["spec"]
+    assert serialized_spec["api_key"] == "***"
+    assert serialized_spec["risk"]["access_token"] == "***"
+    assert serialized_spec["execution"]["nested"]["private_key"] == "***"
+    assert serialized_spec["metadata"]["password"] == "***"
+    assert serialized_spec["watchers"][0]["authorization"] == "***"
+    assert "secret-key" not in str(serialized_spec)
+    assert "secret-token" not in str(serialized_spec)
+    assert "secret-private-key" not in str(serialized_spec)
+    assert "secret-password" not in str(serialized_spec)
+    assert "bearer secret-header" not in str(serialized_spec)
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingStrategySpecRecord).filter(
+            AiTradingStrategySpecRecord.id == saved_record["id"]
+        ).one()
+        assert "secret-key" in row.spec_json
+        assert "secret-token" in row.spec_json
+        assert "secret-private-key" in row.spec_json
+    finally:
+        session.close()
+
+    detail = client.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
+    assert detail.status_code == 200
+    detail_spec = detail.json()["spec_record"]["spec"]
+    assert detail_spec["api_key"] == "***"
+    assert detail_spec["risk"]["access_token"] == "***"
+    assert "secret-key" not in str(detail_spec)
+
+    listed = client.get("/api/ai-trading/strategy-specs")
+    assert listed.status_code == 200
+    assert "spec" not in listed.json()["specs"][0]
+
+    approved = client.post(f"/api/ai-trading/strategy-specs/{saved_record['id']}/approve")
+    assert approved.status_code == 200
+    approved_spec = approved.json()["spec_record"]["spec"]
+    assert approved_spec["api_key"] == "***"
+    assert approved_spec["risk"]["access_token"] == "***"
+    assert "secret-key" not in str(approved_spec)
 
 
 def test_ai_trading_runtime_summarizes_strategy_backtest_evidence(tmp_path):
