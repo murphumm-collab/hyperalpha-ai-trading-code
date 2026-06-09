@@ -70,6 +70,9 @@ def test_env_check_ready_requires_local_mock_gateway(monkeypatch):
         report["checks"]["backend_8802"]["runtime_model_adjustment"]["blockers"]
         == ["model_profile_not_configured"]
     )
+    assert report["next_actions"] == [
+        "Local AI Trading V1 runtime is ready; continue with browser acceptance or the aggregate V1 local acceptance runner."
+    ]
 
 
 def test_env_check_blocks_external_runtime_gateway(monkeypatch):
@@ -91,6 +94,9 @@ def test_env_check_blocks_external_runtime_gateway(monkeypatch):
 
     assert report["ready"] is False
     assert "backend_gateway_target_not_local_mock" in report["blockers"]
+    assert report["next_actions"] == [
+        "Point local backend AI_TRADING_SIGNAL_GATEWAY_URL at the local mock gateway before V1 local acceptance."
+    ]
 
 
 def test_env_check_blocks_runtime_gateway_config_blockers(monkeypatch):
@@ -112,3 +118,40 @@ def test_env_check_blocks_runtime_gateway_config_blockers(monkeypatch):
 
     assert report["ready"] is False
     assert "backend_gateway_runtime_config_blocked" in report["blockers"]
+    assert report["next_actions"] == [
+        "Clear backend runtime gateway blockers before submitting a local mock handoff acceptance."
+    ]
+
+
+def test_env_check_next_actions_match_missing_dependencies(monkeypatch):
+    monkeypatch.setattr(env_check, "_docker_ready", lambda: {"installed": True, "daemon_ready": False})
+
+    def fake_tcp_open(host, port, timeout=1.0):
+        return False
+
+    def fake_http_probe(url, timeout=3.0):
+        return {"ok": False, "status": 503, "body_sample": ""}
+
+    monkeypatch.setattr(env_check, "_tcp_open", fake_tcp_open)
+    monkeypatch.setattr(env_check, "_http_probe", fake_http_probe)
+
+    report = env_check.build_report(
+        frontend_url="http://127.0.0.1:5174/app/ai-trading",
+        backend_url="http://127.0.0.1:8802",
+        mock_gateway_url="http://127.0.0.1:5621",
+    )
+
+    assert report["ready"] is False
+    assert report["blockers"] == [
+        "frontend_ai_trading_page_unreachable",
+        "postgres_5432_not_listening",
+        "docker_daemon_not_ready",
+        "backend_ai_trading_runtime_unreachable",
+        "mock_signal_gateway_unreachable",
+    ]
+    assert report["next_actions"] == [
+        "Start Docker Desktop/daemon, then run `docker compose up -d postgres` from repo root.",
+        "Start mock gateway: `cd backend && uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1`.",
+        "Start backend with AI_TRADING_SIGNAL_GATEWAY_URL pointing at the mock gateway.",
+        "Start the frontend and open `/app/ai-trading` for browser acceptance.",
+    ]

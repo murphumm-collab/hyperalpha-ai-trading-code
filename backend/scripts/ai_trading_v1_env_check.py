@@ -19,7 +19,7 @@ import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 
 def _tcp_open(host: str, port: int, timeout: float = 1.0) -> bool:
@@ -86,6 +86,32 @@ def _docker_ready() -> Dict[str, Any]:
     }
 
 
+def _next_actions_for_blockers(blockers: List[str]) -> List[str]:
+    actions: List[str] = []
+    blocker_set = set(blockers)
+    if "docker_daemon_not_ready" in blocker_set or "postgres_5432_not_listening" in blocker_set:
+        actions.append("Start Docker Desktop/daemon, then run `docker compose up -d postgres` from repo root.")
+    if "mock_signal_gateway_unreachable" in blocker_set:
+        actions.append(
+            "Start mock gateway: `cd backend && uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1`."
+        )
+    if "backend_ai_trading_runtime_unreachable" in blocker_set:
+        actions.append("Start backend with AI_TRADING_SIGNAL_GATEWAY_URL pointing at the mock gateway.")
+    if "backend_gateway_target_not_local_mock" in blocker_set:
+        actions.append(
+            "Point local backend AI_TRADING_SIGNAL_GATEWAY_URL at the local mock gateway before V1 local acceptance."
+        )
+    if "backend_gateway_runtime_config_blocked" in blocker_set:
+        actions.append("Clear backend runtime gateway blockers before submitting a local mock handoff acceptance.")
+    if "frontend_ai_trading_page_unreachable" in blocker_set:
+        actions.append("Start the frontend and open `/app/ai-trading` for browser acceptance.")
+    if not actions:
+        actions.append(
+            "Local AI Trading V1 runtime is ready; continue with browser acceptance or the aggregate V1 local acceptance runner."
+        )
+    return actions
+
+
 def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> Dict[str, Any]:
     docker = _docker_ready()
     postgres_open = _tcp_open("127.0.0.1", 5432)
@@ -147,12 +173,7 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
             },
             "mock_gateway_5621": {"tcp_open": mock_gateway_open, "health": mock_gateway},
         },
-        "next_actions": [
-            "Start Docker Desktop/daemon, then run `docker compose up -d postgres` from repo root.",
-            "Start mock gateway: `cd backend && uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1`.",
-            "Start backend with AI_TRADING_SIGNAL_GATEWAY_URL pointing at the mock gateway.",
-            "Open `/app/ai-trading` and run the browser acceptance flow from the V1 checklist.",
-        ],
+        "next_actions": _next_actions_for_blockers(blockers),
     }
 
 
