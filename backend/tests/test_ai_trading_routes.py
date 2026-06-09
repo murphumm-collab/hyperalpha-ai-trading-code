@@ -102,6 +102,12 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
 
     disabled_handoff = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
     assert disabled_handoff.status_code == 409
+    disabled_runtime = client.get("/api/ai-trading/runtime").json()
+    disabled_handoff_summary = disabled_runtime["signal_events"]["handoff_eligibility"]
+    assert disabled_handoff_summary["review_candidates"] == 1
+    assert disabled_handoff_summary["eligible"] == 0
+    assert disabled_handoff_summary["blocked"] == 1
+    assert disabled_handoff_summary["by_blocker"]["gateway_disabled"] == 1
 
     calls = []
 
@@ -121,6 +127,11 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert enabled_detail.status_code == 200
     assert enabled_detail.json()["signal_event"]["handoff_eligibility"]["eligible"] is True
+    enabled_runtime = client.get("/api/ai-trading/runtime").json()
+    enabled_handoff_summary = enabled_runtime["signal_events"]["handoff_eligibility"]
+    assert enabled_handoff_summary["review_candidates"] == 1
+    assert enabled_handoff_summary["eligible"] == 1
+    assert enabled_handoff_summary["blocked"] == 0
 
     submitted = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
     assert submitted.status_code == 200
@@ -139,3 +150,5 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     final_runtime = client.get("/api/ai-trading/runtime").json()
     assert final_runtime["strategy_specs"]["by_status"]["approved"] == 1
     assert final_runtime["signal_events"]["by_status"]["submitted"] == 1
+    assert final_runtime["signal_events"]["handoff_eligibility"]["review_candidates"] == 0
+    assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0

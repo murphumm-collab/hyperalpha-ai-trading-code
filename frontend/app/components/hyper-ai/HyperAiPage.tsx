@@ -206,6 +206,12 @@ interface AiTradingRuntimeStatus {
   signal_events?: {
     total?: number
     by_status?: Record<string, number>
+    handoff_eligibility?: {
+      review_candidates?: number
+      eligible?: number
+      blocked?: number
+      by_blocker?: Record<string, number>
+    }
   }
 }
 
@@ -1861,6 +1867,12 @@ export default function HyperAiPage() {
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSignals', 'Signals')}</div>
                   <div className="truncate font-medium text-foreground">
                     {aiTradingRuntime.signal_events?.total ?? 0}
+                    <span className="text-muted-foreground">
+                      {' / '}
+                      {aiTradingRuntime.signal_events?.handoff_eligibility?.eligible ?? 0}
+                      {' '}
+                      {t('hyperAi.aiTradingReady', 'ready')}
+                    </span>
                   </div>
                 </div>
               </div>

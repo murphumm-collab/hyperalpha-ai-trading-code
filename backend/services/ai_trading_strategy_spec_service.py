@@ -890,6 +890,27 @@ def submit_signal_event_to_gateway(
     return event
 
 
+def _summarize_handoff_eligibility(
+    events: List[AiTradingSignalEventRecord],
+) -> Dict[str, Any]:
+    summary = {
+        "review_candidates": len(events),
+        "eligible": 0,
+        "blocked": 0,
+        "by_blocker": {},
+    }
+    for event in events:
+        eligibility = build_signal_event_handoff_eligibility(event)
+        if eligibility.get("eligible"):
+            summary["eligible"] += 1
+            continue
+
+        summary["blocked"] += 1
+        for blocker in eligibility.get("blockers") or ["unknown_blocker"]:
+            summary["by_blocker"][blocker] = summary["by_blocker"].get(blocker, 0) + 1
+    return summary
+
+
 def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any]:
     """Return non-sensitive AI Trading runtime status for the current user."""
     spec_rows = db.query(
@@ -904,6 +925,10 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
     ).filter(
         AiTradingSignalEventRecord.user_id == user_id,
     ).group_by(AiTradingSignalEventRecord.status).all()
+    review_candidate_events = db.query(AiTradingSignalEventRecord).filter(
+        AiTradingSignalEventRecord.user_id == user_id,
+        AiTradingSignalEventRecord.status == "review_candidate",
+    ).all()
 
     spec_counts = {str(status): int(count) for status, count in spec_rows}
     event_counts = {str(status): int(count) for status, count in event_rows}
@@ -922,5 +947,6 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
         "signal_events": {
             "total": sum(event_counts.values()),
             "by_status": event_counts,
+            "handoff_eligibility": _summarize_handoff_eligibility(review_candidate_events),
         },
     }

@@ -35,6 +35,7 @@
 - Hyper AI AI Trading 面板现在会列出最近保存的 strategy specs 和最近创建的 signal events；用户可以把任一记录详情回填到聊天框，让 agent 做风控/止盈止损/执行边界复核，不会提交订单。
 - Recent signal events 现在有 gateway-gated handoff 按钮：只有 runtime 显示 gateway 已启用且 URL 已配置、事件仍是未提交 `review_candidate` 时才可点；点击仍走后端 `/handoff` 边界，不绕过默认关闭策略。
 - Signal event list/detail responses 现在包含非敏感 `handoff_eligibility`：会说明 gateway 未启用、URL 未配置、事件状态不对、已提交、signal 不适合 handoff、或缺少 `not_an_order` / `order_backend_only` 等 blocker；前端按钮优先使用这个 preflight。
+- `/api/ai-trading/runtime` 现在汇总 review-candidate handoff readiness：`review_candidates`、`eligible`、`blocked` 和 `by_blocker`；Hyper AI 面板的 Signals 卡片显示 total / ready。
 
 ## 3. AI Stream / Worker 现状
 
@@ -99,6 +100,8 @@
 - `backend/tests/test_ai_trading_routes.py` 已覆盖 disabled gateway blocker、gateway enabled 后 eligible、submitted 后重复 handoff 被 blocker 禁止。
 - Frontend production build 已通过，recent signal handoff 按钮已改为优先使用后端 `handoff_eligibility`。
 - Playwright 已再次确认 `http://127.0.0.1:5174/app/ai-trading` 可过 splash fallback 渲染到 Hyper AI / AI Trading shell；preflight UI 点击验收仍待本地 backend/Postgres 和持久化 signal events。
+- `backend/tests/test_ai_trading_routes.py` 已覆盖 runtime readiness：gateway disabled 时 0 ready/1 blocked，gateway enabled 后 1 ready，submitted 后 review candidates 归零。
+- Frontend production build 已通过，Signals runtime 卡片显示 total / ready 编译成功。
 
 ## 6. 未验收 / 阻塞
 
