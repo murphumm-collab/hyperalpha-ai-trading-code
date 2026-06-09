@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from config.settings import (
     AI_HARD_MAX_LEVERAGE,
@@ -842,3 +843,39 @@ def submit_signal_event_to_gateway(
     db.commit()
     db.refresh(event)
     return event
+
+
+def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any]:
+    """Return non-sensitive AI Trading runtime status for the current user."""
+    spec_rows = db.query(
+        AiTradingStrategySpecRecord.status,
+        func.count(AiTradingStrategySpecRecord.id),
+    ).filter(
+        AiTradingStrategySpecRecord.user_id == user_id,
+    ).group_by(AiTradingStrategySpecRecord.status).all()
+    event_rows = db.query(
+        AiTradingSignalEventRecord.status,
+        func.count(AiTradingSignalEventRecord.id),
+    ).filter(
+        AiTradingSignalEventRecord.user_id == user_id,
+    ).group_by(AiTradingSignalEventRecord.status).all()
+
+    spec_counts = {str(status): int(count) for status, count in spec_rows}
+    event_counts = {str(status): int(count) for status, count in event_rows}
+    return {
+        "gateway": {
+            "enabled": SIGNAL_GATEWAY_ENABLED,
+            "url_configured": bool(SIGNAL_GATEWAY_URL),
+            "mode": "http",
+            "timeout_seconds": SIGNAL_GATEWAY_TIMEOUT_SECONDS,
+            "default_handoff_status": "available" if SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL else "disabled",
+        },
+        "strategy_specs": {
+            "total": sum(spec_counts.values()),
+            "by_status": spec_counts,
+        },
+        "signal_events": {
+            "total": sum(event_counts.values()),
+            "by_status": event_counts,
+        },
+    }

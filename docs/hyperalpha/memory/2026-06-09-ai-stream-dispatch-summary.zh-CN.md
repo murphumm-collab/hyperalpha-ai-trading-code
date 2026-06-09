@@ -30,6 +30,8 @@
 - Hyper AI signal preview 按钮现在会先创建 signal event，再把候选 JSON 回填聊天框。
 - `/api/ai-trading/signal-events/{id}/handoff` 已实现外部订单后端 handoff 边界，但默认 `AI_TRADING_SIGNAL_GATEWAY_ENABLED=false`，未配置时返回 409 不发送。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
+- `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
+- Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
 
 ## 3. AI Stream / Worker 现状
 
@@ -79,6 +81,8 @@
 - AI Trading signal event route smoke：未审批 spec 不能创建 event，审批后可创建/list/detail 当前用户 review candidate，signal JSON 保持 not-an-order。
 - Frontend production build 已通过，Hyper AI signal preview 控件已改为 auditable signal-event endpoint。
 - AI Trading signal handoff route smoke：默认关闭返回 409；mock enabled gateway 后提交 `AI_TRADING_SIGNAL_CANDIDATE`，event 状态变为 submitted，并携带 bearer token 给 gateway。
+- AI Trading runtime route smoke：空状态不泄露 URL/token；创建 approved spec 和 review signal event 后计数正确。
+- Frontend production build 已通过，Hyper AI AI Trading runtime status 面板编译成功。
 
 ## 6. 未验收 / 阻塞
 

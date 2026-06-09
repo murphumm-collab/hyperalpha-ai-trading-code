@@ -94,6 +94,8 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI signal preview action now creates an auditable signal event and sends the event payload into chat for review.
 - AI Trading signal handoff endpoint is present but disabled by default; it only submits audited signal events to a configured external order-backend URL when explicitly enabled.
 - AI Trading signal gateway environment variables are documented in root and backend `.env.example` templates.
+- AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
+- Hyper AI AI Trading panel displays gateway/spec/signal runtime counts when the backend is available.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -244,6 +246,8 @@ Local checkpoint: current branch `HEAD`
 | AI Trading audited signal preview UI | Done | Hyper AI signal preview control creates a signal event record before loading the candidate JSON into chat |
 | AI Trading signal gateway boundary | Done | `/api/ai-trading/signal-events/{id}/handoff` defaults to 409 disabled; when configured it submits only audited `not_an_order` events to the external order backend |
 | AI Trading signal gateway env templates | Done | Root and backend `.env.example` document gateway enablement, URL, timeout, and bearer token without exposing secrets to the AI model |
+| AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
+| AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals and refreshes them after draft save, approval, and signal event creation |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
@@ -514,6 +518,10 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading signal handoff compile in both system Python and `uv run` backend environment for service and route changes.
 - Passed: AI Trading signal handoff HTTP smoke test in `uv run` with FastAPI TestClient and SQLite: disabled gateway returns 409; monkeypatched enabled gateway submits `AI_TRADING_SIGNAL_CANDIDATE`, sets event `submitted`, stores `handoff_status=submitted`, and sends bearer auth only to the gateway.
 - Passed: Root and backend env templates updated with disabled-by-default AI Trading signal gateway settings.
+- Passed: AI Trading runtime status compile in both system Python and `uv run` backend environment for service and route changes.
+- Passed: AI Trading runtime status HTTP smoke test in `uv run` with FastAPI TestClient and SQLite: empty runtime hides secrets, then approved specs and review signal events appear in current-user counts.
+- Passed: Frontend production build after adding the Hyper AI AI Trading gateway/spec/signal runtime status panel.
+- Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; runtime panel data requires local backend/Postgres availability.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

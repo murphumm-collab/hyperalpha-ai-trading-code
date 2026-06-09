@@ -169,6 +169,22 @@ interface AiTradingStrategySpecRecord {
   spec?: AiTradingStrategySpec
 }
 
+interface AiTradingRuntimeStatus {
+  gateway?: {
+    enabled?: boolean
+    url_configured?: boolean
+    default_handoff_status?: string
+  }
+  strategy_specs?: {
+    total?: number
+    by_status?: Record<string, number>
+  }
+  signal_events?: {
+    total?: number
+    by_status?: Record<string, number>
+  }
+}
+
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
 
 function maskToolArgValue(key: string, value: unknown): unknown {
@@ -705,6 +721,7 @@ export default function HyperAiPage() {
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
+  const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -721,6 +738,7 @@ export default function HyperAiPage() {
     fetchNotificationConfig()
     fetchExternalTools()
     fetchTradingSymbols()
+    fetchAiTradingRuntime()
   }, [])
 
   useEffect(() => {
@@ -837,6 +855,18 @@ export default function HyperAiPage() {
     }
   }
 
+  const fetchAiTradingRuntime = async () => {
+    try {
+      const res = await authFetch('/api/ai-trading/runtime')
+      const data = await res.json()
+      if (res.ok) {
+        setAiTradingRuntime(data)
+      }
+    } catch (e) {
+      console.error('Failed to fetch AI Trading runtime:', e)
+    }
+  }
+
   const handleTradingSymbolPrompt = (symbol: string) => {
     const prompt = currentLang === 'zh'
       ? `请作为 Hyperliquid AI Trading Agent，针对 ${symbol} 做一版可执行前的策略分析：先检查该标的的数据可用性、当前市场状态、入场/出场逻辑、仓位和杠杆约束、最大亏损限制、是否需要止盈止损或替代风控；如果策略不满足风控，请明确给出 HOLD。先给出方案和需要我确认的约束，不要直接下单。`
@@ -912,6 +942,7 @@ export default function HyperAiPage() {
       if (record.spec) {
         setStrategyDraft(record.spec)
       }
+      fetchAiTradingRuntime()
       return record
     } catch (e) {
       console.error('Failed to save AI trading strategy spec:', e)
@@ -946,6 +977,7 @@ export default function HyperAiPage() {
       if (approved.spec) {
         setStrategyDraft(approved.spec)
       }
+      fetchAiTradingRuntime()
     } catch (e) {
       console.error('Failed to approve AI trading strategy spec:', e)
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to approve strategy spec')
@@ -977,6 +1009,7 @@ export default function HyperAiPage() {
         ? `请审核下面这份 AI Trading Signal Event #${signalEvent?.id || '-'}：确认它是否仍然只是 signal candidate、是否满足 approved strategy spec 的风控边界、是否还缺少给订单后端的字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
         : `Review AI Trading Signal Event #${signalEvent?.id || '-'}. Confirm that it is still only a signal candidate, whether it satisfies the approved strategy spec risk boundary, and which fields are still missing before backend handoff. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
+      fetchAiTradingRuntime()
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to build AI trading signal preview:', e)
@@ -1643,7 +1676,10 @@ export default function HyperAiPage() {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 shrink-0"
-                onClick={fetchTradingSymbols}
+                onClick={() => {
+                  fetchTradingSymbols()
+                  fetchAiTradingRuntime()
+                }}
                 disabled={tradingSymbolsLoading}
                 title={t('common.refresh', 'Refresh')}
               >
@@ -1660,6 +1696,32 @@ export default function HyperAiPage() {
             )}
             {strategyDraftError && (
               <div className="mb-2 text-xs text-red-500">{strategyDraftError}</div>
+            )}
+            {aiTradingRuntime && (
+              <div className="mb-2 grid grid-cols-3 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px]">
+                <div className="min-w-0">
+                  <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingGateway', 'Gateway')}</div>
+                  <div className={`truncate font-medium ${
+                    aiTradingRuntime.gateway?.enabled && aiTradingRuntime.gateway?.url_configured
+                      ? 'text-green-600'
+                      : 'text-yellow-600'
+                  }`}>
+                    {aiTradingRuntime.gateway?.default_handoff_status || 'disabled'}
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSpecs', 'Specs')}</div>
+                  <div className="truncate font-medium text-foreground">
+                    {aiTradingRuntime.strategy_specs?.total ?? 0}
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSignals', 'Signals')}</div>
+                  <div className="truncate font-medium text-foreground">
+                    {aiTradingRuntime.signal_events?.total ?? 0}
+                  </div>
+                </div>
+              </div>
             )}
 
             {tradingSymbols.length > 0 ? (

@@ -16,6 +16,7 @@ from services.ai_trading_strategy_spec_service import (
     build_signal_preview_from_strategy_spec_record,
     create_signal_event_record,
     draft_strategy_spec,
+    get_ai_trading_runtime_status,
     get_signal_event_record,
     get_strategy_spec_record,
     get_strategy_spec_schema,
@@ -74,6 +75,15 @@ def strategy_spec_schema(
     """Return the AI Trading strategy-spec schema and safety boundary."""
     _ = current_user
     return get_strategy_spec_schema()
+
+
+@router.get("/runtime")
+def ai_trading_runtime_endpoint(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Return current-user AI Trading runtime status without secrets."""
+    return get_ai_trading_runtime_status(db, user_id=current_user.id)
 
 
 @router.post("/strategy-spec/draft")
