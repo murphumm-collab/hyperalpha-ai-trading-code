@@ -35,6 +35,7 @@
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
 - Hyper AI AI Trading 面板现在会列出最近保存的 strategy specs 和最近创建的 signal events；用户可以把任一记录详情回填到聊天框，让 agent 做风控/止盈止损/执行边界复核，不会提交订单。
 - Recent signal events 现在有 gateway-gated handoff 按钮：只有 runtime 显示 gateway 已启用且 URL 已配置、事件仍是未提交 `review_candidate` 时才可点；点击仍走后端 `/handoff` 边界，不绕过默认关闭策略。
+- Recent signal events 的 handoff 按钮现在会先弹出确认；用户取消时不会 POST 到订单后端，也不会写 handoff attempt。
 - Signal event list/detail responses 现在包含非敏感 `handoff_eligibility`：会说明 gateway 未启用、URL 未配置、事件状态不对、已提交、signal 不适合 handoff、或缺少 `not_an_order` / `order_backend_only` 等 blocker；前端按钮优先使用这个 preflight。
 - `/api/ai-trading/runtime` 现在汇总 review-candidate handoff readiness：`review_candidates`、`eligible`、`blocked` 和 `by_blocker`；Hyper AI 面板的 Signals 卡片显示 total / ready。
 - `/api/ai-trading/runtime` 现在也汇总 strategy spec backtest evidence readiness：`total`、`ready`、`blocked`、`missing` 和 `by_blocker`；Hyper AI 面板的 Specs 卡片显示 total / backtest ready。
@@ -179,6 +180,8 @@
 - `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI runtime Specs 卡片显示 total / backtest ready 后。
 - `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI signal preview 按钮前端回测 gate 后。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal preview 前端回测 gate 后重新通过，14 条 AI Trading route 回归全绿。
+- `cd frontend && npm run build` 已通过；最近一次通过是在 signal-event handoff 二次确认后。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff 二次确认 UI 后重新通过，14 条 AI Trading route 回归全绿。
 
 ## 6. 未验收 / 阻塞
 

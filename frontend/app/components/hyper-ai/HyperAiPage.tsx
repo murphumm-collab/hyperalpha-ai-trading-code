@@ -1955,6 +1955,16 @@ export default function HyperAiPage() {
   }
 
   const handleSubmitSignalEventHandoff = async (eventId: number) => {
+    const event = recentSignalEvents.find(item => item.id === eventId)
+    const confirmed = window.confirm(
+      currentLang === 'zh'
+        ? `确认把 AI Trading Signal Event #${eventId}${event ? ` (${event.symbol} · ${event.action})` : ''} 提交给订单后端？这可能进入实盘执行流程。`
+        : `Submit AI Trading Signal Event #${eventId}${event ? ` (${event.symbol} · ${event.action})` : ''} to the order backend? This can enter the live execution flow.`
+    )
+    if (!confirmed) {
+      return
+    }
+
     setSignalHandoffLoadingId(eventId)
     setStrategyDraftError(null)
     try {

@@ -120,6 +120,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel displays gateway/spec/signal runtime counts when the backend is available.
 - Hyper AI AI Trading panel lists recent strategy specs and signal events, and can load saved records into chat for audit review without submitting orders.
 - Hyper AI AI Trading panel exposes a gated signal-event handoff control that stays disabled until the backend reports an enabled/configured gateway and only targets unsubmitted `review_candidate` events.
+- Hyper AI AI Trading signal-event handoff asks for explicit user confirmation before submitting an eligible signal to the order backend.
 - AI Trading signal-event API responses include non-secret `handoff_eligibility` blockers so the frontend and backend share the same handoff preflight decision.
 - AI Trading runtime status summarizes review-candidate handoff readiness counts so operators can see ready versus blocked signal events without reading secrets.
 - AI Trading runtime status summarizes strategy-spec backtest evidence readiness counts so operators can see ready, blocked, missing, and blocker categories without reading full specs.
@@ -307,6 +308,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals and refreshes them after draft save, approval, and signal event creation |
 | AI Trading recent records panel | Done | Hyper AI AI Trading panel lists recent saved specs/signal events and lets users inspect them into chat for audit review |
 | AI Trading signal handoff UI | Done | Recent signal events expose a disabled-by-default, gateway-gated handoff button for unsubmitted `review_candidate` events |
+| AI Trading signal handoff confirmation | Done | Eligible recent signal handoff requires an explicit confirmation dialog before POSTing to the order backend |
 | AI Trading handoff preflight | Done | Signal event list/detail/submit share non-secret `handoff_eligibility` blockers for gateway readiness, event state, and signal-only boundaries |
 | AI Trading handoff runtime summary | Done | Runtime status includes review-candidate handoff readiness counts and blocker counts; Hyper AI panel shows total signals versus ready candidates |
 | AI Trading strategy backtest runtime summary | Done | Runtime status includes strategy-spec backtest evidence ready/blocked/missing counts and blocker counts; Hyper AI panel shows total specs versus backtest-ready specs |
@@ -672,6 +674,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after showing total specs versus backtest-ready specs in the AI Trading runtime panel.
 - Passed: Frontend production build after gating Hyper AI signal preview on handoff-ready backtest evidence.
 - Passed: AI Trading route regression re-run after the frontend signal-preview gate: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 14 passing tests.
+- Passed: Frontend production build after adding explicit signal handoff confirmation before order-backend submission.
+- Passed: AI Trading route regression re-run after the handoff confirmation UI: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 14 passing tests.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
