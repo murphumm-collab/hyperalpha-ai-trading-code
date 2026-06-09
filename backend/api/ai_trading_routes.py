@@ -10,6 +10,7 @@ from api.auth_utils import get_current_user_dependency
 from database.connection import get_db
 from database.models import User
 from services.ai_trading_strategy_spec_service import (
+    SignalGatewayDisabledError,
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_signal_preview_from_strategy_spec_record,
@@ -23,6 +24,7 @@ from services.ai_trading_strategy_spec_service import (
     save_strategy_spec_record,
     serialize_signal_event_record,
     serialize_strategy_spec_record,
+    submit_signal_event_to_gateway,
     validate_strategy_spec,
 )
 
@@ -286,5 +288,26 @@ def get_signal_event_endpoint(
     if not event:
         raise HTTPException(status_code=404, detail="Signal event not found")
     return {
+        "signal_event": serialize_signal_event_record(event, include_signal=True),
+    }
+
+
+@router.post("/signal-events/{event_id}/handoff")
+def submit_signal_event_handoff_endpoint(
+    event_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Submit a reviewed signal event to the configured external order backend."""
+    try:
+        event = submit_signal_event_to_gateway(db, user_id=current_user.id, event_id=event_id)
+    except SignalGatewayDisabledError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
         "signal_event": serialize_signal_event_record(event, include_signal=True),
     }

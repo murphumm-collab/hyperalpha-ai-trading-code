@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import re
 import json
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import requests
 from sqlalchemy.orm import Session
 
 from config.settings import (
@@ -42,6 +44,14 @@ SUPPORTED_TIMEFRAMES = {
     "1d",
 }
 ARCHIVED_STATUS = "archived"
+SIGNAL_GATEWAY_ENABLED = os.getenv("AI_TRADING_SIGNAL_GATEWAY_ENABLED", "false").lower() == "true"
+SIGNAL_GATEWAY_URL = os.getenv("AI_TRADING_SIGNAL_GATEWAY_URL", "").strip()
+SIGNAL_GATEWAY_TIMEOUT_SECONDS = float(os.getenv("AI_TRADING_SIGNAL_GATEWAY_TIMEOUT_SECONDS", "10"))
+SIGNAL_GATEWAY_TOKEN = os.getenv("AI_TRADING_SIGNAL_GATEWAY_TOKEN", "").strip()
+
+
+class SignalGatewayDisabledError(RuntimeError):
+    """Raised when signal handoff is requested but the gateway is disabled."""
 
 
 def _normalize_symbol(symbol: Any) -> str:
@@ -757,3 +767,78 @@ def get_signal_event_record(
         AiTradingSignalEventRecord.id == event_id,
         AiTradingSignalEventRecord.user_id == user_id,
     ).first()
+
+
+def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
+    signal = _json_loads(event.signal_json, {})
+    return {
+        "type": "AI_TRADING_SIGNAL_CANDIDATE",
+        "version": "hyperalpha.ai_trading.gateway_message.v1",
+        "signal_event_id": event.id,
+        "strategy_spec_id": event.strategy_spec_id,
+        "user_id": event.user_id,
+        "symbol": event.symbol,
+        "action": event.action,
+        "idempotency_key": f"signal_event:{event.id}",
+        "signal": signal,
+    }
+
+
+def submit_signal_event_to_gateway(
+    db: Session,
+    *,
+    user_id: int,
+    event_id: int,
+) -> AiTradingSignalEventRecord:
+    """Submit a reviewed signal event to the configured order backend gateway."""
+    event = get_signal_event_record(db, user_id=user_id, event_id=event_id)
+    if not event:
+        raise ValueError("Signal event not found")
+    if event.status != "review_candidate":
+        raise ValueError("Signal event is not in review_candidate status")
+    if not SIGNAL_GATEWAY_ENABLED or not SIGNAL_GATEWAY_URL:
+        raise SignalGatewayDisabledError("AI Trading signal gateway is disabled")
+
+    signal = _json_loads(event.signal_json, {})
+    execution_boundary = signal.get("execution_boundary") if isinstance(signal, dict) else {}
+    if not isinstance(execution_boundary, dict):
+        execution_boundary = {}
+    if execution_boundary.get("not_an_order") is not True:
+        raise ValueError("Signal event is missing not_an_order boundary")
+    if execution_boundary.get("ai_may_place_orders") is not False:
+        raise ValueError("Signal event allows direct AI order placement")
+    if execution_boundary.get("order_backend_only") is not True:
+        raise ValueError("Signal event is missing order_backend_only boundary")
+
+    payload = _build_signal_gateway_payload(event)
+    headers = {"Content-Type": "application/json"}
+    if SIGNAL_GATEWAY_TOKEN:
+        headers["Authorization"] = f"Bearer {SIGNAL_GATEWAY_TOKEN}"
+
+    try:
+        response = requests.post(
+            SIGNAL_GATEWAY_URL,
+            json=payload,
+            headers=headers,
+            timeout=SIGNAL_GATEWAY_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+    except Exception as exc:
+        event.handoff_status = "failed"
+        event.error_message = str(exc)
+        db.commit()
+        db.refresh(event)
+        raise ValueError(f"Signal gateway handoff failed: {exc}") from exc
+
+    signal["execution_boundary"] = {
+        **execution_boundary,
+        "handoff_status": "submitted",
+    }
+    event.status = "submitted"
+    event.handoff_status = "submitted"
+    event.signal_json = _json_dumps(signal)
+    event.error_message = None
+    event.submitted_at = datetime.utcnow()
+    db.commit()
+    db.refresh(event)
+    return event

@@ -92,6 +92,8 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI can load approved strategy signal previews into chat for review without submitting them to an execution gateway.
 - AI Trading signal candidates are persisted as current-user audit events with review status, handoff status, and full signal JSON before any future execution gateway integration.
 - Hyper AI signal preview action now creates an auditable signal event and sends the event payload into chat for review.
+- AI Trading signal handoff endpoint is present but disabled by default; it only submits audited signal events to a configured external order-backend URL when explicitly enabled.
+- AI Trading signal gateway environment variables are documented in root and backend `.env.example` templates.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -240,6 +242,8 @@ Local checkpoint: current branch `HEAD`
 | AI Trading signal preview UI | Done | Hyper AI approved strategy draft summaries can load signal previews into chat for review without submitting to order execution |
 | AI Trading signal event audit | Done | `ai_trading_signal_events` stores current-user review candidates with signal JSON and `not_submitted` handoff state |
 | AI Trading audited signal preview UI | Done | Hyper AI signal preview control creates a signal event record before loading the candidate JSON into chat |
+| AI Trading signal gateway boundary | Done | `/api/ai-trading/signal-events/{id}/handoff` defaults to 409 disabled; when configured it submits only audited `not_an_order` events to the external order backend |
+| AI Trading signal gateway env templates | Done | Root and backend `.env.example` document gateway enablement, URL, timeout, and bearer token without exposing secrets to the AI model |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
@@ -507,6 +511,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading signal event HTTP smoke test in `uv run` with FastAPI TestClient and SQLite: unapproved specs cannot create events, approved specs create `review_candidate` events, list/detail stay current-user scoped, and stored signal JSON remains `not_an_order`.
 - Passed: Frontend production build after routing Hyper AI signal preview control through the auditable signal-event endpoint.
 - Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; full audited signal event click acceptance still needs local backend/Postgres and loaded Hyperliquid symbols.
+- Passed: AI Trading signal handoff compile in both system Python and `uv run` backend environment for service and route changes.
+- Passed: AI Trading signal handoff HTTP smoke test in `uv run` with FastAPI TestClient and SQLite: disabled gateway returns 409; monkeypatched enabled gateway submits `AI_TRADING_SIGNAL_CANDIDATE`, sets event `submitted`, stores `handoff_status=submitted`, and sends bearer auth only to the gateway.
+- Passed: Root and backend env templates updated with disabled-by-default AI Trading signal gateway settings.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
@@ -516,6 +523,7 @@ Local checkpoint: current branch `HEAD`
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
 - Redis distributed admission leases, persisted high-risk confirmation responses, runner heartbeats, dispatch queue persistence, and Hyper AI/Prompt/Signal/Program/Attribution serialized worker handlers are implemented for cross-instance capacity/confirmation/routing coordination; live distributed worker acceptance with running Postgres/Redis and real model credentials is still pending.
+- AI Trading signal gateway live acceptance with the real HyperAlpha order backend URL/token is still pending; the endpoint is implemented and disabled by default.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
 - Live Discord Gateway acceptance with real Discord bot credentials is still pending; backend runtime is now per-user but only fake-client lifecycle was tested locally.

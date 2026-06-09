@@ -28,6 +28,8 @@
 - Hyper AI 已审批草案摘要可把 signal preview 回填到聊天框，不会提交执行网关。
 - `ai_trading_signal_events` 已持久化当前用户的信号候选审计记录，默认 `status=review_candidate`、`handoff_status=not_submitted`。
 - Hyper AI signal preview 按钮现在会先创建 signal event，再把候选 JSON 回填聊天框。
+- `/api/ai-trading/signal-events/{id}/handoff` 已实现外部订单后端 handoff 边界，但默认 `AI_TRADING_SIGNAL_GATEWAY_ENABLED=false`，未配置时返回 409 不发送。
+- gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 
 ## 3. AI Stream / Worker 现状
 
@@ -76,6 +78,7 @@
 - Frontend production build 已通过，Hyper AI signal preview 控件编译成功。
 - AI Trading signal event route smoke：未审批 spec 不能创建 event，审批后可创建/list/detail 当前用户 review candidate，signal JSON 保持 not-an-order。
 - Frontend production build 已通过，Hyper AI signal preview 控件已改为 auditable signal-event endpoint。
+- AI Trading signal handoff route smoke：默认关闭返回 409；mock enabled gateway 后提交 `AI_TRADING_SIGNAL_CANDIDATE`，event 状态变为 submitted，并携带 bearer token 给 gateway。
 
 ## 6. 未验收 / 阻塞
 
@@ -83,6 +86,7 @@
 - `git push -u origin codex/ai-agent-multitenant-foundation` 仍被 HTTPS 凭据阻塞：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
+- AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前只做 disabled-by-default 和 mock gateway 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
 - strategy spec / signal preview / signal event 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols；当前只做了页面 shell、service、persistence 和 FastAPI route 烟测。
 
