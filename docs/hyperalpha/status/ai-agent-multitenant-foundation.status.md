@@ -69,7 +69,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI memory categories now include AI Trading-specific strategy, risk, performance, and execution memories for safer long-term context reuse.
 - Development compressed memory now has a `docs/hyperalpha/memory/latest.md` pointer for continuation handoff.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
-- Hyper AI exposes a Hyperliquid AI Trading focus strip using the user's watchlist, then 24h volume-ranked Hyperliquid symbols, then available-symbol fallback to prefill safe strategy prompts.
+- Hyper AI exposes a Hyperliquid AI Trading focus strip using the user's watchlist, then AI Trading Crypto/HIP-3 market-universe presets, then available-symbol fallback to prefill safe strategy prompts.
 - User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
 - Hyperliquid account, wallet, manual order, action summary, and wallet upgrade APIs validate current-user account ownership.
 - Hyperliquid execution environment defaults to account-level settings for setup, switching, AI decisions, Program Trader, and trading commands.
@@ -86,6 +86,8 @@ Local checkpoint: current branch `HEAD`
 - `/app/ai-trading` and `#ai-trading` route aliases resolve to the existing Hyper AI trading agent page.
 - Hyper AI startup splash has a bounded fallback so backend/API startup failures surface the app shell instead of trapping users on the loading screen.
 - AI Trading strategy-spec API drafts and validates structured, signal-only Hyperliquid strategy plans with explicit risk, TP/SL, user-approval, and no-direct-order boundaries.
+- AI Trading market-universe API exposes Hyperliquid Crypto Top 20/50 and HIP-3 Top 20/50 presets with dex, exchange symbol, category, volume, open interest, leverage, isolated-only, and source metadata.
+- AI Trading strategy specs and signal candidates preserve HIP-3 market identity with internal symbol, dex, exchange symbol such as `xyz:NVDA`, display symbol, and category metadata.
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
@@ -233,7 +235,8 @@ Local checkpoint: current branch `HEAD`
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
 | Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
 | Hyperliquid ranked symbols API | Done | `/api/hyperliquid/symbols/ranked` reads public Hyperliquid `metaAndAssetCtxs`, ranks by 24h notional volume, caches briefly, and falls back to cached available symbols |
-| Hyper AI trading focus UI | Done | Hyper AI config panel loads the current user's Hyperliquid watchlist, falls back to volume-ranked then available symbols, and pre-fills no-auto-order strategy prompts per symbol |
+| Market universe symbol source | Done | `/api/ai-trading/market-universe` returns Crypto Top 20/50 and HIP-3 Top 20/50 presets for Hyperliquid with non-secret market metadata and delisted-market filtering |
+| Hyper AI trading focus UI | Done | Hyper AI config panel loads the current user's Hyperliquid watchlist, falls back to AI Trading Crypto/HIP-3 market-universe presets then available symbols, and pre-fills no-auto-order strategy prompts per symbol |
 | Exchange preference ownership | Done | `/api/users/exchange-config` reads/writes `UserExchangeConfig` by resolved request user; frontend `ExchangeContext` uses `authFetch` |
 | Trading command watchlist isolation | Done | Hyperliquid/Binance AI prompts use each account owner's watchlist while price collectors use the union |
 | Hyperliquid API ownership guard | Done | Account-level Hyperliquid config, balance, positions, manual order, wallet, agent wallet, actions summary, and upgrade-check APIs validate current user |
@@ -249,6 +252,8 @@ Local checkpoint: current branch `HEAD`
 | Frontend token propagation | Done | `authFetch`/auth-aware `apiRequest` used by Hyper AI, onboarding, Signal AI, Prompt AI, Program AI, Attribution AI chat, Program Trader, Program Backtest, Kline AI, Prompt Manager, Signal Manager, and polling |
 | AI Trading route alias | Done | `/app/ai-trading`, `/ai-trading`, and `#ai-trading` resolve to the Hyper AI page without duplicating UI state |
 | Hyper AI startup fallback | Done | Splash completes after a bounded wait even if initial backend data is unavailable, allowing the AI Trading shell to render API/connectivity errors |
+| AI Trading market universe API | Done | `/api/ai-trading/market-universe` exposes `crypto_top_20`, `crypto_top_50`, `hip3_top_20`, and `hip3_top_50` presets for the To C market selector |
+| AI Trading HIP-3 market identity | Done | Strategy drafts and signal candidates keep `market.dex`, `market.exchange_symbol`, `market.display_symbol`, and category metadata so `xyz:NVDA` is not flattened before order-backend handoff |
 | AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
 | AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
@@ -578,6 +583,11 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading route regression test: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed cleanly, covering draft/save/approve, signal event audit, disabled gateway 409, monkeypatched enabled handoff, and runtime counts.
 - Passed: AI Trading route multi-user isolation regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed with Alice/Bob coverage for strategy specs, signal events, handoff, rejection, and attempt audit reads.
 - Passed: AI Trading route/service/test syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Passed: AI Trading market-universe route regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed with fake Hyperliquid core/HIP-3 metadata covering volume sorting, delisted filtering, `xyz:` HIP-3 exchange symbols, and top presets.
+- Passed: AI Trading market-universe Python syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py`.
+- Passed: Frontend production build after Hyper AI symbol loading switched from generic ranked symbols to AI Trading market-universe presets.
+- Passed: AI Trading HIP-3 identity route regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed with `xyz:NVDA` draft/save/approve/signal-event coverage and signal payload preserving `exchange_symbol=xyz:NVDA`.
+- Passed: AI Trading route/service/test syntax compile after HIP-3 identity preservation.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

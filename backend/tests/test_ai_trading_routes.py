@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+import services.ai_trading_market_universe_service as market_universe_service
 import services.ai_trading_strategy_spec_service as strategy_service
 from api.ai_trading_routes import router
 from api.auth_utils import get_current_user_dependency
@@ -293,3 +294,123 @@ def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_
 
     assert alice.get("/api/ai-trading/strategy-specs").json()["specs"][0]["id"] == alice_spec["id"]
     assert alice.get("/api/ai-trading/signal-events").json()["signal_events"][0]["id"] == alice_event["id"]
+
+
+def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    market_universe_service.clear_ai_trading_market_universe_cache()
+
+    class FakeResponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self.payload
+
+    def fake_post(url, json=None, timeout=None):
+        if json and json.get("dex") == "xyz":
+            return FakeResponse(
+                [
+                    {
+                        "universe": [
+                            {"name": "NVDA", "maxLeverage": 5, "onlyIsolated": True},
+                            {"name": "SP500", "maxLeverage": 10},
+                        ]
+                    },
+                    [
+                        {"dayNtlVlm": "900", "dayBaseVlm": "3", "markPx": "300", "openInterest": "30"},
+                        {"dayNtlVlm": "1200", "dayBaseVlm": "2", "markPx": "6000", "openInterest": "20"},
+                    ],
+                ]
+            )
+        return FakeResponse(
+            [
+                {
+                    "universe": [
+                        {"name": "BTC", "maxLeverage": 40, "szDecimals": 5},
+                        {"name": "ETH", "maxLeverage": 25, "isDelisted": True},
+                        {"name": "SOL", "maxLeverage": 20},
+                    ]
+                },
+                [
+                    {"dayNtlVlm": "1000", "dayBaseVlm": "10", "markPx": "100", "openInterest": "10"},
+                    {"dayNtlVlm": "999999", "dayBaseVlm": "1", "markPx": "1", "openInterest": "1"},
+                    {"dayNtlVlm": "500", "dayBaseVlm": "5", "markPx": "50", "openInterest": "5"},
+                ],
+            ]
+        )
+
+    monkeypatch.setattr(market_universe_service.requests, "post", fake_post)
+
+    response = client.get("/api/ai-trading/market-universe?limit=50&hip3_dex=xyz")
+    assert response.status_code == 200
+    universe = response.json()
+
+    assert universe["venue"] == "hyperliquid"
+    assert universe["environment"] == "mainnet"
+    assert universe["counts"] == {"crypto": 2, "hip3": 2, "total": 4}
+    assert universe["source"]["crypto"] == "hyperliquid_meta_and_asset_contexts"
+    assert universe["source"]["hip3"] == "hyperliquid_meta_and_asset_contexts:xyz"
+    assert universe["errors"] == {}
+
+    crypto = universe["presets"]["crypto_top_20"]
+    assert [market["symbol"] for market in crypto] == ["BTC", "SOL"]
+    assert crypto[0]["category"] == "crypto"
+    assert crypto[0]["asset_id"] == 0
+    assert crypto[0]["volume_24h_usd"] == 1000
+
+    hip3 = universe["presets"]["hip3_top_20"]
+    assert [market["coin"] for market in hip3] == ["xyz:SP500", "xyz:NVDA"]
+    assert hip3[0]["category"] == "us_index"
+    assert hip3[0]["asset_id"] is None
+    assert hip3[1]["category"] == "us_stock"
+    assert hip3[1]["only_isolated"] is True
+    assert hip3[1]["exchange_symbol"] == "xyz:NVDA"
+
+
+def test_ai_trading_strategy_spec_preserves_hip3_market_identity(tmp_path):
+    client = _build_client(tmp_path)
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "xyz:NVDA",
+            "strategy_text": (
+                "15m long breakout on NVDA with stop-loss below invalidation "
+                "and take-profit at prior high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 2,
+        },
+    )
+    assert draft.status_code == 200
+    spec = draft.json()["spec"]
+    assert spec["symbol"] == "NVDA"
+    assert spec["market"]["dex"] == "xyz"
+    assert spec["market"]["exchange_symbol"] == "xyz:NVDA"
+    assert spec["market"]["display_symbol"] == "NVDA"
+    assert spec["market"]["category"] == "us_stock"
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": spec, "name": "NVDA HIP-3 review spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    record = saved.json()["spec_record"]
+
+    approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
+    assert approved.status_code == 200
+
+    event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 900, "source": "pytest-hip3"}},
+    )
+    assert event_response.status_code == 200
+    signal = event_response.json()["signal_event"]["signal"]
+    assert signal["symbol"] == "NVDA"
+    assert signal["exchange_symbol"] == "xyz:NVDA"
+    assert signal["market"]["dex"] == "xyz"
+    assert signal["market"]["category"] == "us_stock"

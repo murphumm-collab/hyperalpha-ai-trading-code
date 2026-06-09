@@ -49,6 +49,17 @@ SUPPORTED_TIMEFRAMES = {
     "1d",
 }
 ARCHIVED_STATUS = "archived"
+HIP3_INDEX_SYMBOLS = {
+    "SP500",
+    "SPX",
+    "NASDAQ",
+    "NDX",
+    "DOW",
+    "DJI",
+    "XYZ100",
+    "GOLD",
+    "SILVER",
+}
 SIGNAL_GATEWAY_ENABLED = os.getenv("AI_TRADING_SIGNAL_GATEWAY_ENABLED", "false").lower() == "true"
 SIGNAL_GATEWAY_URL = os.getenv("AI_TRADING_SIGNAL_GATEWAY_URL", "").strip()
 SIGNAL_GATEWAY_TIMEOUT_SECONDS = float(os.getenv("AI_TRADING_SIGNAL_GATEWAY_TIMEOUT_SECONDS", "10"))
@@ -61,6 +72,43 @@ class SignalGatewayDisabledError(RuntimeError):
 
 def _normalize_symbol(symbol: Any) -> str:
     return SymbolMapper.to_internal(str(symbol or "").strip(), "hyperliquid").upper()
+
+
+def _build_market_identity(symbol: Any) -> Dict[str, Any]:
+    raw = str(symbol or "").strip()
+    internal_symbol = _normalize_symbol(raw)
+    exchange_symbol = SymbolMapper.to_exchange(internal_symbol, "hyperliquid") if internal_symbol else ""
+
+    if ":" in raw:
+        dex, display = raw.split(":", 1)
+        dex = dex.lower()
+        display_symbol = display.upper()
+        exchange_symbol = f"{dex}:{display_symbol}"
+    elif ":" in exchange_symbol:
+        dex, display = exchange_symbol.split(":", 1)
+        dex = dex.lower()
+        display_symbol = display.upper()
+        exchange_symbol = f"{dex}:{display_symbol}"
+    else:
+        dex = "core"
+        display_symbol = internal_symbol
+        exchange_symbol = internal_symbol
+
+    if dex == "core":
+        category = "crypto"
+    elif display_symbol in HIP3_INDEX_SYMBOLS:
+        category = "us_index"
+    else:
+        category = "us_stock"
+
+    return {
+        "venue": "hyperliquid",
+        "dex": dex,
+        "symbol": internal_symbol,
+        "exchange_symbol": exchange_symbol,
+        "display_symbol": display_symbol,
+        "category": category,
+    }
 
 
 def _clean_text(value: Any, max_length: int = 4000) -> str:
@@ -323,6 +371,7 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
     """Build a deterministic structured draft from a user's natural-language idea."""
     text = _clean_text(payload.get("strategy_text") or payload.get("message"))
     symbol = _normalize_symbol(payload.get("symbol"))
+    market_identity = _build_market_identity(payload.get("symbol"))
     risk_defaults = _risk_profile_defaults(str(payload.get("risk_profile") or "balanced"))
 
     requested_leverage = _as_int(payload.get("max_leverage"))
@@ -346,6 +395,7 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
         "venue": "hyperliquid",
         "owner_user_id": user_id,
         "symbol": symbol,
+        "market": market_identity,
         "mode": "live_signal_draft",
         "intent": text,
         "timeframe": timeframe,
@@ -660,6 +710,9 @@ def build_signal_preview_from_strategy_spec_record(
         raise ValueError("Strategy spec is not valid for signal preview")
 
     market_context = market_context or {}
+    market_identity = (
+        spec.get("market") if isinstance(spec.get("market"), dict) else _build_market_identity(spec.get("symbol"))
+    )
     entry = spec.get("entry") if isinstance(spec.get("entry"), dict) else {}
     exit_rules = spec.get("exit") if isinstance(spec.get("exit"), dict) else {}
     risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
@@ -673,6 +726,8 @@ def build_signal_preview_from_strategy_spec_record(
         "strategy_spec_version": spec.get("version"),
         "venue": "hyperliquid",
         "symbol": symbol,
+        "exchange_symbol": market_identity.get("exchange_symbol") or symbol,
+        "market": market_identity,
         "action": action,
         "timeframe": spec.get("timeframe") or DEFAULT_TIMEFRAME,
         "confidence": None,

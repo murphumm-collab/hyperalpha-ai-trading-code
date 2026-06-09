@@ -42,6 +42,9 @@
 - 持久化 signal event 时会把 signal JSON 的 `idempotency_key` 改成事件级 `signal_event:{id}`，并写入 `signal_event_id`；gateway payload 顶层 idempotency key 复用同一个值，避免同一 strategy spec 生成多个候选信号时共享 preview key。
 - Hyper AI recent signals 行现在显示 Ready / Blocked / Rejected / Submitted 状态 badge；blocked 时会展示第一条 blocker，减少用户盲点操作。
 - AI Trading FastAPI route 回归现在覆盖 Alice/Bob 两个用户共享同一数据库时的隔离：Bob 不能 list/read/approve/archive/preview/create/reject/handoff Alice 的 strategy spec、signal event 或 handoff attempt。
+- 新增 `/api/ai-trading/market-universe`：返回 Hyperliquid Crypto Top 20/50 和 HIP-3 Top 20/50 presets，包含 dex、`coin`/`exchange_symbol`、category、24h volume、OI、max leverage、only-isolated、source/errors 等非敏感市场元数据。
+- Hyper AI AI Trading 标的加载逻辑现在优先使用用户 watchlist；没有 watchlist 时使用 AI Trading market universe 的 crypto + HIP-3 presets；最后才 fallback 到 available symbols。
+- Strategy spec 和 signal candidate 现在保留 HIP-3 market identity：`market.dex`、`market.exchange_symbol`（如 `xyz:NVDA`）、`market.display_symbol`、category；内部 `symbol` 仍可保持 `NVDA` 用于既有记录索引。
 
 ## 3. AI Stream / Worker 现状
 
@@ -119,8 +122,13 @@
 - Frontend production build 已通过，recent signal 状态 badge 和 blocker 摘要编译成功。
 - `backend/tests/test_ai_trading_routes.py` 在 recent signal 状态 UI 后重新通过。
 - `backend/tests/test_ai_trading_routes.py` 已新增多用户隔离回归：同一 SQLite DB 下 Alice/Bob 的 strategy specs、signal events、signal previews、reject、handoff 和 handoff-attempt audit reads 均按当前用户 404/空列表隔离。
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 2 条 AI Trading route 回归全绿。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 曾在多用户隔离切片后通过。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已通过。
+- `backend/tests/test_ai_trading_routes.py` 已新增 market-universe 回归：fake Hyperliquid core/HIP-3 metadata 下，crypto 按成交量排序、delisted 被过滤、HIP-3 返回 `xyz:` exchange symbol，并生成 top presets。
+- `backend/tests/test_ai_trading_routes.py` 已新增 HIP-3 market identity 回归：`xyz:NVDA` draft/save/approve/signal-event 后，signal payload 保留 `exchange_symbol=xyz:NVDA` 和 `market.dex=xyz`。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 4 条 AI Trading route 回归全绿。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
+- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。
 
 ## 6. 未验收 / 阻塞
 

@@ -205,6 +205,15 @@ interface AiTradingSignalHandoffAttemptRecord {
   created_at?: string | null
 }
 
+interface AiTradingMarket {
+  symbol?: string
+  coin?: string
+  exchange_symbol?: string
+  display_symbol?: string
+  category?: string
+  dex?: string
+}
+
 interface AiTradingRuntimeStatus {
   gateway?: {
     enabled?: boolean
@@ -753,7 +762,7 @@ export default function HyperAiPage() {
   const [showToolModal, setShowToolModal] = useState(false)
   const [selectedTool, setSelectedTool] = useState<ToolInfo | null>(null)
   const [tradingSymbols, setTradingSymbols] = useState<string[]>([])
-  const [tradingSymbolSource, setTradingSymbolSource] = useState<'watchlist' | 'ranked' | 'available' | 'none'>('none')
+  const [tradingSymbolSource, setTradingSymbolSource] = useState<'watchlist' | 'universe' | 'available' | 'none'>('none')
   const [tradingSymbolsLoading, setTradingSymbolsLoading] = useState(false)
   const [tradingSymbolsError, setTradingSymbolsError] = useState<string | null>(null)
   const [strategyDraft, setStrategyDraft] = useState<AiTradingStrategySpec | null>(null)
@@ -912,20 +921,28 @@ export default function HyperAiPage() {
     setTradingSymbolsLoading(true)
     setTradingSymbolsError(null)
     try {
-      const [watchlistRes, rankedRes, availableRes] = await Promise.all([
+      const [watchlistRes, universeRes, availableRes] = await Promise.all([
         authFetch('/api/hyperliquid/symbols/watchlist'),
-        authFetch('/api/hyperliquid/symbols/ranked?limit=20'),
+        authFetch('/api/ai-trading/market-universe?limit=50'),
         authFetch('/api/hyperliquid/symbols/available'),
       ])
       const watchlistData = watchlistRes.ok ? await watchlistRes.json() : {}
-      const rankedData = rankedRes.ok ? await rankedRes.json() : {}
+      const universeData = universeRes.ok ? await universeRes.json() : {}
       const availableData = availableRes.ok ? await availableRes.json() : {}
       const watchlist = Array.isArray(watchlistData.symbols) ? watchlistData.symbols : []
-      const ranked = Array.isArray(rankedData.symbols)
-        ? rankedData.symbols.map((entry: { symbol?: string } | string) => (
-            typeof entry === 'string' ? entry : entry.symbol
-          )).filter((symbol: string | undefined): symbol is string => Boolean(symbol))
+      const cryptoPreset = Array.isArray(universeData.presets?.crypto_top_20)
+        ? universeData.presets.crypto_top_20
         : []
+      const hip3Preset = Array.isArray(universeData.presets?.hip3_top_20)
+        ? universeData.presets.hip3_top_20
+        : []
+      const universe = [...cryptoPreset, ...hip3Preset]
+        .map((entry: AiTradingMarket | string) => (
+          typeof entry === 'string'
+            ? entry
+            : entry.coin || entry.exchange_symbol || entry.symbol || entry.display_symbol
+        ))
+        .filter((symbol: string | undefined): symbol is string => Boolean(symbol))
       const available = Array.isArray(availableData.symbols)
         ? availableData.symbols.map((entry: { symbol?: string } | string) => (
             typeof entry === 'string' ? entry : entry.symbol
@@ -935,9 +952,9 @@ export default function HyperAiPage() {
       if (watchlist.length > 0) {
         setTradingSymbols(watchlist.slice(0, 20))
         setTradingSymbolSource('watchlist')
-      } else if (ranked.length > 0) {
-        setTradingSymbols(ranked.slice(0, 20))
-        setTradingSymbolSource('ranked')
+      } else if (universe.length > 0) {
+        setTradingSymbols(Array.from(new Set(universe)).slice(0, 20))
+        setTradingSymbolSource('universe')
       } else if (available.length > 0) {
         setTradingSymbols(available.slice(0, 20))
         setTradingSymbolSource('available')
@@ -1916,8 +1933,8 @@ export default function HyperAiPage() {
                 <p className="mt-0.5 text-xs text-muted-foreground">
                   {tradingSymbolSource === 'watchlist'
                     ? t('hyperAi.aiTradingWatchlist', 'Hyperliquid watchlist')
-                    : tradingSymbolSource === 'ranked'
-                      ? t('hyperAi.aiTradingRanked', '24h volume-ranked Hyperliquid symbols')
+                    : tradingSymbolSource === 'universe'
+                      ? t('hyperAi.aiTradingUniverse', 'AI Trading market universe')
                     : tradingSymbolSource === 'available'
                       ? t('hyperAi.aiTradingAvailable', 'Available Hyperliquid symbols')
                       : t('hyperAi.aiTradingNoSymbols', 'No Hyperliquid symbols loaded')}

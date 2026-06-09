@@ -2,13 +2,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from api.auth_utils import get_current_user_dependency
 from database.connection import get_db
 from database.models import User
+from services.ai_trading_market_universe_service import get_ai_trading_market_universe
 from services.ai_trading_strategy_spec_service import (
     SignalGatewayDisabledError,
     approve_strategy_spec_record,
@@ -82,6 +83,22 @@ def strategy_spec_schema(
     """Return the AI Trading strategy-spec schema and safety boundary."""
     _ = current_user
     return get_strategy_spec_schema()
+
+
+@router.get("/market-universe")
+def ai_trading_market_universe_endpoint(
+    environment: str = Query("mainnet", pattern="^(mainnet|testnet)$"),
+    limit: int = Query(50, ge=1, le=50),
+    hip3_dex: str = Query("xyz", min_length=1, max_length=32, pattern=r"^[A-Za-z0-9_-]+$"),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Return AI Trading Crypto and HIP-3 market-universe presets."""
+    _ = current_user
+    return get_ai_trading_market_universe(
+        environment=environment,
+        limit=limit,
+        hip3_dex=hip3_dex,
+    )
 
 
 @router.get("/runtime")
