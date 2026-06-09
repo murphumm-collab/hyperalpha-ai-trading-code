@@ -2644,9 +2644,23 @@ def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_pat
     context_payload = context.json()["context"]
     assert context_payload["agent_session"]["id"] == "session:btc-breakout"
     assert context_payload["compression"]["secret_policy"] == "redacted_no_credentials"
+    assert context_payload["compression"]["attempt_limit"] == 1
     assert context_payload["strategy_specs"][0]["id"] == btc_spec["id"]
     assert context_payload["signal_events"][0]["id"] == btc_event["id"]
-    assert "api_key" not in json.dumps(context_payload).lower()
+    assert context_payload["handoff_attempts"][0]["signal_event_id"] == btc_event["id"]
+    assert context_payload["handoff_attempts"][0]["strategy_spec_id"] == btc_spec["id"]
+    assert context_payload["handoff_attempts"][0]["result"] == "blocked"
+    assert context_payload["handoff_attempts"][0]["gateway_ready"] is False
+    assert "gateway_disabled" in context_payload["handoff_attempts"][0]["blockers"]
+    assert context_payload["handoff_attempts"][0]["eligibility"]["user_confirmation"] == {
+        "confirmed": True,
+        "source": "pytest",
+    }
+    serialized_context_payload = json.dumps(context_payload).lower()
+    assert "api_key" not in serialized_context_payload
+    assert "authorization" not in serialized_context_payload
+    assert "http://" not in serialized_context_payload
+    assert "https://" not in serialized_context_payload
 
     eth_filtered_specs = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:eth-mean-reversion")
     assert eth_filtered_specs.status_code == 200
@@ -2681,6 +2695,7 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert empty_context.status_code == 200
     assert empty_context.json()["context"]["strategy_specs"] == []
     assert empty_context.json()["context"]["signal_events"] == []
+    assert empty_context.json()["context"]["handoff_attempts"] == []
 
     draft = alice.post(
         "/api/ai-trading/strategy-spec/draft",
@@ -2754,11 +2769,16 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert "AI Trading session compressed context v1" in context_summary
     assert "strategy_specs=1" in context_summary
     assert "signal_events=1" in context_summary
+    assert "handoff_attempts=1" in context_summary
+    assert "blocked:1" in context_summary
+    assert "latest_handoff_attempt=#" in context_summary
     assert "redaction=enabled" in context_summary
     assert "ai_order_placement=disallowed" in context_summary
     assert "api_key" not in json.dumps(compressed_payload).lower()
     assert compressed_payload["agent_session"]["context_summary"] == context_summary
     assert compressed_payload["context"]["agent_session"]["context_summary"] == context_summary
+    assert compressed_payload["context"]["handoff_attempts"][0]["result"] == "blocked"
+    assert compressed_payload["context"]["handoff_attempts"][0]["signal_event_id"] == event["id"]
 
     detail_after_compress = alice.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
     assert detail_after_compress.status_code == 200

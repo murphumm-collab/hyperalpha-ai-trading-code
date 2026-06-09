@@ -792,15 +792,17 @@ def _build_agent_session_context_summary(context: Dict[str, Any]) -> str:
     session = context.get("agent_session") if isinstance(context.get("agent_session"), dict) else {}
     specs = context.get("strategy_specs") if isinstance(context.get("strategy_specs"), list) else []
     signals = context.get("signal_events") if isinstance(context.get("signal_events"), list) else []
+    attempts = context.get("handoff_attempts") if isinstance(context.get("handoff_attempts"), list) else []
 
     symbols = sorted({
         str(item.get("symbol")).upper()
-        for item in [*specs, *signals]
+        for item in [*specs, *signals, *attempts]
         if isinstance(item, dict) and item.get("symbol")
     })
     strategy_status_counts: Dict[str, int] = {}
     signal_status_counts: Dict[str, int] = {}
     handoff_counts: Dict[str, int] = {}
+    attempt_result_counts: Dict[str, int] = {}
     backtest_ready = 0
     missing_or_blocked_backtests = 0
 
@@ -823,8 +825,15 @@ def _build_agent_session_context_summary(context: Dict[str, Any]) -> str:
         handoff_status = str(signal.get("handoff_status") or "unknown")
         handoff_counts[handoff_status] = handoff_counts.get(handoff_status, 0) + 1
 
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        result = str(attempt.get("result") or "unknown")
+        attempt_result_counts[result] = attempt_result_counts.get(result, 0) + 1
+
     latest_spec = specs[0] if specs and isinstance(specs[0], dict) else {}
     latest_signal = signals[0] if signals and isinstance(signals[0], dict) else {}
+    latest_attempt = attempts[0] if attempts and isinstance(attempts[0], dict) else {}
     latest_spec_line = (
         f"latest_spec=#{latest_spec.get('id')} {latest_spec.get('symbol')} "
         f"{latest_spec.get('status')} {latest_spec.get('timeframe')}"
@@ -836,6 +845,12 @@ def _build_agent_session_context_summary(context: Dict[str, Any]) -> str:
         f"{latest_signal.get('action')} {latest_signal.get('status')}/{latest_signal.get('handoff_status')}"
         if latest_signal
         else "latest_signal=none"
+    )
+    latest_attempt_line = (
+        f"latest_handoff_attempt=#{latest_attempt.get('id')} {latest_attempt.get('symbol')} "
+        f"{latest_attempt.get('action')} {latest_attempt.get('result')} gateway_ready={bool(latest_attempt.get('gateway_ready'))}"
+        if latest_attempt
+        else "latest_handoff_attempt=none"
     )
     open_blockers: List[str] = []
     if missing_or_blocked_backtests:
@@ -852,6 +867,17 @@ def _build_agent_session_context_summary(context: Dict[str, Any]) -> str:
                 break
         if len(open_blockers) >= 5:
             break
+    for attempt in attempts:
+        if not isinstance(attempt, dict):
+            continue
+        blockers = attempt.get("blockers") if isinstance(attempt.get("blockers"), list) else []
+        for blocker in blockers:
+            if blocker and blocker not in open_blockers:
+                open_blockers.append(str(blocker))
+            if len(open_blockers) >= 5:
+                break
+        if len(open_blockers) >= 5:
+            break
 
     lines = [
         "AI Trading session compressed context v1",
@@ -860,9 +886,11 @@ def _build_agent_session_context_summary(context: Dict[str, Any]) -> str:
         f"symbols={', '.join(symbols[:8]) if symbols else 'none'}",
         f"strategy_specs={len(specs)} ({_format_agent_session_counts(strategy_status_counts)})",
         f"signal_events={len(signals)} ({_format_agent_session_counts(signal_status_counts)}); handoff={_format_agent_session_counts(handoff_counts)}",
+        f"handoff_attempts={len(attempts)} ({_format_agent_session_counts(attempt_result_counts)})",
         f"backtest_ready={backtest_ready}; backtest_missing_or_blocked={missing_or_blocked_backtests}",
         latest_spec_line,
         latest_signal_line,
+        latest_attempt_line,
         f"open_blockers={'; '.join(open_blockers[:5]) if open_blockers else 'none'}",
         "redaction=enabled; ai_order_placement=disallowed",
     ]
@@ -876,6 +904,7 @@ def compress_ai_trading_agent_session_context(
     agent_session_id: str,
     strategy_limit: int = 10,
     signal_limit: int = 20,
+    attempt_limit: int = 20,
 ) -> Dict[str, Any]:
     """Build and persist a deterministic, non-secret summary for one current-user session."""
     context = build_ai_trading_agent_session_context(
@@ -884,6 +913,7 @@ def compress_ai_trading_agent_session_context(
         agent_session_id=agent_session_id,
         strategy_limit=strategy_limit,
         signal_limit=signal_limit,
+        attempt_limit=attempt_limit,
     )
     session = context.get("agent_session") if isinstance(context.get("agent_session"), dict) else {}
     summary = _build_agent_session_context_summary(context)
@@ -2856,6 +2886,31 @@ def list_signal_handoff_attempt_records(
     )
 
 
+def list_signal_handoff_attempt_records_for_agent_session(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: str,
+    limit: int = 20,
+) -> List[AiTradingSignalHandoffAttemptRecord]:
+    resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
+    if not resolved_agent_session_id:
+        return []
+    return (
+        db.query(AiTradingSignalHandoffAttemptRecord)
+        .filter(
+            AiTradingSignalHandoffAttemptRecord.user_id == user_id,
+            AiTradingSignalHandoffAttemptRecord.agent_session_id == resolved_agent_session_id,
+        )
+        .order_by(
+            AiTradingSignalHandoffAttemptRecord.created_at.desc(),
+            AiTradingSignalHandoffAttemptRecord.id.desc(),
+        )
+        .limit(max(1, min(int(limit or 20), 100)))
+        .all()
+    )
+
+
 def _agent_session_sort_key(value: Any) -> datetime:
     parsed = _as_utc_datetime(value)
     return parsed or datetime.fromtimestamp(0, tz=timezone.utc)
@@ -2934,6 +2989,42 @@ def _minimal_signal_event_context(
         "created_at": _record_timestamp(record.created_at),
         "updated_at": _record_timestamp(record.updated_at),
     })
+
+
+def _minimal_signal_handoff_attempt_context(
+    record: AiTradingSignalHandoffAttemptRecord,
+) -> Dict[str, Any]:
+    eligibility = _json_loads(record.eligibility_json, {})
+    if not isinstance(eligibility, dict):
+        eligibility = {}
+    gateway_response = eligibility.get("gateway_response") if isinstance(eligibility.get("gateway_response"), dict) else {}
+    user_confirmation = (
+        eligibility.get("user_confirmation")
+        if isinstance(eligibility.get("user_confirmation"), dict)
+        else {}
+    )
+    payload = {
+        "id": record.id,
+        "signal_event_id": record.signal_event_id,
+        "strategy_spec_id": record.strategy_spec_id,
+        "symbol": record.symbol,
+        "action": record.action,
+        "result": record.result,
+        "gateway_ready": bool(record.gateway_ready),
+        "blockers": _json_loads(record.blockers_json, []),
+        "eligibility": {
+            "eligible": bool(eligibility.get("eligible")),
+            "can_retry": bool(eligibility.get("can_retry")),
+            "default_handoff_status": eligibility.get("default_handoff_status"),
+            "signal_age_seconds": eligibility.get("signal_age_seconds"),
+            "max_handoff_age_seconds": eligibility.get("max_handoff_age_seconds"),
+            "user_confirmation": user_confirmation or None,
+        },
+        "gateway_response": gateway_response or None,
+        "error_message": record.error_message,
+        "created_at": _record_timestamp(record.created_at),
+    }
+    return _redact_sensitive_payload(payload)
 
 
 def list_ai_trading_agent_sessions(
@@ -3075,6 +3166,7 @@ def build_ai_trading_agent_session_context(
     agent_session_id: str,
     strategy_limit: int = 5,
     signal_limit: int = 10,
+    attempt_limit: int = 20,
 ) -> Dict[str, Any]:
     """Build a compact, non-secret AI Trading context packet for one current-user session."""
     resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
@@ -3098,7 +3190,13 @@ def build_ai_trading_agent_session_context(
         agent_session_id=resolved_agent_session_id,
         limit=max(1, min(int(signal_limit or 10), 50)),
     )
-    if not session_record and not strategy_records and not signal_records:
+    attempt_records = list_signal_handoff_attempt_records_for_agent_session(
+        db,
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+        limit=max(1, min(int(attempt_limit or 20), 100)),
+    )
+    if not session_record and not strategy_records and not signal_records and not attempt_records:
         raise ValueError("AI Trading agent session not found")
 
     if session_record:
@@ -3128,6 +3226,7 @@ def build_ai_trading_agent_session_context(
             "format": "ai_trading_agent_session_context.v1",
             "strategy_limit": len(strategy_records),
             "signal_limit": len(signal_records),
+            "attempt_limit": len(attempt_records),
             "scope": "current_user_single_agent_session",
             "secret_policy": "redacted_no_credentials",
         },
@@ -3138,6 +3237,10 @@ def build_ai_trading_agent_session_context(
         "signal_events": [
             _minimal_signal_event_context(record, db=db, user_id=user_id)
             for record in signal_records
+        ],
+        "handoff_attempts": [
+            _minimal_signal_handoff_attempt_context(record)
+            for record in attempt_records
         ],
     }
 

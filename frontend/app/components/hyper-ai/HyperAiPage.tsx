@@ -392,6 +392,7 @@ interface AiTradingAgentSessionContext {
   compression?: Record<string, unknown>
   strategy_specs?: Array<Record<string, unknown>>
   signal_events?: Array<Record<string, unknown>>
+  handoff_attempts?: Array<Record<string, unknown>>
 }
 
 const AI_TRADING_BACKTEST_DEFAULTS = {
@@ -3411,9 +3412,13 @@ export default function HyperAiPage() {
   const agentSessionDetailSignals = Array.isArray(agentSessionDetailContext?.signal_events)
     ? agentSessionDetailContext.signal_events
     : []
+  const agentSessionDetailAttempts = Array.isArray(agentSessionDetailContext?.handoff_attempts)
+    ? agentSessionDetailContext.handoff_attempts
+    : []
   const agentSessionDetailSymbols = Array.from(new Set([
     ...agentSessionDetailSpecs.map(spec => textValue(asRecord(spec).symbol, '')),
     ...agentSessionDetailSignals.map(signal => textValue(asRecord(signal).symbol, '')),
+    ...agentSessionDetailAttempts.map(attempt => textValue(asRecord(attempt).symbol, '')),
   ].filter(Boolean))).slice(0, 12)
   const agentSessionDetailStrategyStatusCounts = Object.entries(
     agentSessionDetailSpecs.reduce<Record<string, number>>((counts, spec) => {
@@ -3433,6 +3438,13 @@ export default function HyperAiPage() {
     agentSessionDetailSignals.reduce<Record<string, number>>((counts, signal) => {
       const handoff = textValue(asRecord(signal).handoff_status, 'unknown')
       counts[handoff] = (counts[handoff] || 0) + 1
+      return counts
+    }, {})
+  ).sort(([a], [b]) => a.localeCompare(b))
+  const agentSessionDetailAttemptCounts = Object.entries(
+    agentSessionDetailAttempts.reduce<Record<string, number>>((counts, attempt) => {
+      const result = textValue(asRecord(attempt).result, 'unknown')
+      counts[result] = (counts[result] || 0) + 1
       return counts
     }, {})
   ).sort(([a], [b]) => a.localeCompare(b))
@@ -3517,7 +3529,7 @@ export default function HyperAiPage() {
             </div>
           ) : agentSessionDetailContext ? (
             <div className="mx-auto max-w-6xl space-y-4">
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
                 <div className="rounded-md border bg-muted/20 p-3">
                   <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingStatus', 'Status')}</div>
                   <div className="mt-1 truncate text-lg font-semibold">
@@ -3563,6 +3575,15 @@ export default function HyperAiPage() {
                     {t('hyperAi.aiTradingSignalOnly', 'Signal only')}
                   </div>
                 </div>
+                <div className="rounded-md border bg-muted/20 p-3">
+                  <div className="text-xs text-muted-foreground">{t('hyperAi.aiTradingAttempts', 'Attempts')}</div>
+                  <div className="mt-1 text-lg font-semibold">
+                    {agentSessionDetailAttempts.length}
+                  </div>
+                  <div className="mt-1 truncate text-xs text-muted-foreground">
+                    {agentSessionDetailAttemptCounts.map(([status, count]) => `${status}:${count}`).join(', ') || '-'}
+                  </div>
+                </div>
               </div>
 
               <div className="rounded-md border bg-muted/10 p-4">
@@ -3575,7 +3596,7 @@ export default function HyperAiPage() {
                 </div>
               </div>
 
-              <div className="grid gap-4 xl:grid-cols-2">
+              <div className="grid gap-4 xl:grid-cols-3">
                 <div className="rounded-md border bg-muted/10 p-4">
                   <div className="mb-3 flex items-center gap-2 text-sm font-medium">
                     <FileJson className="h-4 w-4 text-primary" />
@@ -3677,6 +3698,64 @@ export default function HyperAiPage() {
                     {agentSessionDetailSignals.length === 0 && (
                       <div className="rounded-md border bg-background/70 p-4 text-sm text-muted-foreground">
                         {t('hyperAi.aiTradingNoSessionSignals', 'No signal events in this session')}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="rounded-md border bg-muted/10 p-4">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-medium">
+                    <ShieldCheck className="h-4 w-4 text-primary" />
+                    {t('hyperAi.aiTradingSessionHandoffAttempts', 'Handoff attempts')}
+                  </div>
+                  <div className="space-y-2">
+                    {agentSessionDetailAttempts.map((item) => {
+                      const attempt = asRecord(item)
+                      const blockers = Array.isArray(attempt.blockers) ? attempt.blockers.map(String) : []
+                      const result = textValue(attempt.result, 'unknown')
+                      const resultClassName = result === 'submitted'
+                        ? 'bg-green-500/10 text-green-600'
+                        : result === 'failed'
+                          ? 'bg-red-500/10 text-red-600'
+                          : result === 'blocked'
+                            ? 'bg-yellow-500/10 text-yellow-600'
+                            : 'bg-muted text-muted-foreground'
+                      return (
+                        <div key={`detail-attempt-${textValue(attempt.id)}`} className="rounded-md border bg-background/70 p-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="truncate text-sm font-medium">
+                                {textValue(attempt.symbol)} · {textValue(attempt.action)}
+                              </div>
+                              <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                #{textValue(attempt.id)} · signal #{textValue(attempt.signal_event_id)}
+                              </div>
+                            </div>
+                            <span className={`shrink-0 rounded px-2 py-1 text-[11px] ${resultClassName}`}>
+                              {result}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                            <span className="rounded bg-muted/40 px-2 py-1">
+                              {textValue(attempt.gateway_ready) === 'true'
+                                ? t('hyperAi.aiTradingGatewayReady', 'Gateway ready')
+                                : t('hyperAi.aiTradingGatewayNotReady', 'Gateway not ready')}
+                            </span>
+                            <span className="truncate">
+                              {textValue(attempt.created_at, '-')}
+                            </span>
+                          </div>
+                          <div className="mt-2 text-xs text-muted-foreground">
+                            {blockers.length > 0
+                              ? blockers.slice(0, 4).map(blocker => signalBlockerLabel(blocker)).join(', ')
+                              : t('hyperAi.aiTradingNoHandoffBlockers', 'No handoff blockers in context')}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {agentSessionDetailAttempts.length === 0 && (
+                      <div className="rounded-md border bg-background/70 p-4 text-sm text-muted-foreground">
+                        {t('hyperAi.aiTradingNoSessionHandoffAttempts', 'No handoff attempts in this session')}
                       </div>
                     )}
                   </div>

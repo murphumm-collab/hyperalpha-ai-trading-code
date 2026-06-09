@@ -341,6 +341,7 @@ def ai_trading_agent_session_context_endpoint(
     ),
     strategy_limit: int = Query(default=5, ge=1, le=20),
     signal_limit: int = Query(default=10, ge=1, le=50),
+    attempt_limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ):
@@ -352,6 +353,7 @@ def ai_trading_agent_session_context_endpoint(
             agent_session_id=agent_session_id,
             strategy_limit=strategy_limit,
             signal_limit=signal_limit,
+            attempt_limit=attempt_limit,
         )
     except ValueError as exc:
         detail = str(exc)
@@ -373,6 +375,7 @@ def compress_ai_trading_agent_session_context_endpoint(
     ),
     strategy_limit: int = Query(default=10, ge=1, le=20),
     signal_limit: int = Query(default=20, ge=1, le=50),
+    attempt_limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ):
@@ -384,6 +387,7 @@ def compress_ai_trading_agent_session_context_endpoint(
             agent_session_id=agent_session_id,
             strategy_limit=strategy_limit,
             signal_limit=signal_limit,
+            attempt_limit=attempt_limit,
         )
     except ValueError as exc:
         detail = str(exc)
