@@ -44,6 +44,7 @@
 - 新增 `ai_trading_signal_handoff_attempts`：每次 handoff 尝试如果 blocked、failed 或 submitted 都会写非敏感审计记录，包含 blockers、eligibility、gateway_ready、result，但不包含 gateway URL/token 或交易凭据；`GET /api/ai-trading/signal-events/{id}/handoff-attempts` 可按当前用户读取。
 - Hyper AI AI Trading recent signals 行现在有只读 handoff history 按钮，会读取 `/handoff-attempts` 并把 attempts JSON 回填聊天框给 agent 做审计复核，不会触发执行。
 - handoff attempts 的 `eligibility_json` 现在会在已确认的 blocked/failed/submitted attempt 中记录非敏感 `user_confirmation`，例如 `confirmed=true` 和确认来源；未确认请求仍不写 attempt。
+- submitted handoff attempts 的 `eligibility_json` 现在会记录非敏感 `gateway_response.status_code`，不记录 gateway URL/token 或响应 body，避免订单后端误回敏感内容被持久化。
 - 新增 signal event reject 流程：`POST /api/ai-trading/signal-events/{id}/reject` 只允许拒绝 `review_candidate`，会把 signal JSON 标为 `rejected_by_user`、`eligible_for_backend_handoff=false`、`handoff_status=rejected`；Hyper AI recent signals 行有拒绝按钮，拒绝后回填聊天框供 agent 复核。
 - 持久化 signal event 时会把 signal JSON 的 `idempotency_key` 改成事件级 `signal_event:{id}`，并写入 `signal_event_id`；gateway payload 顶层 idempotency key 复用同一个值，避免同一 strategy spec 生成多个候选信号时共享 preview key。
 - Hyper AI recent signals 行现在显示 Ready / Blocked / Rejected / Submitted 状态 badge；blocked 时会展示第一条 blocker，减少用户盲点操作。
@@ -194,6 +195,8 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff blocker 可读化后重新通过，15 条 AI Trading route 回归全绿。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff confirmation audit metadata 后重新通过，15 条 AI Trading route 回归全绿。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 handoff confirmation audit metadata 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 gateway response status audit 后重新通过，15 条 AI Trading route 回归全绿。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 gateway response status audit 后通过。
 
 ## 6. 未验收 / 阻塞
 

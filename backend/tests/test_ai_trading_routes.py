@@ -397,6 +397,8 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     calls = []
 
     class FakeResponse:
+        status_code = 202
+
         def raise_for_status(self):
             return None
 
@@ -448,6 +450,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert attempt_rows[0]["gateway_ready"] is True
     assert attempt_rows[0]["eligibility"]["eligible"] is True
     assert attempt_rows[0]["eligibility"]["user_confirmation"] == {"confirmed": True, "source": "pytest"}
+    assert attempt_rows[0]["eligibility"]["gateway_response"] == {"status_code": 202}
     assert "test-token" not in str(attempt_rows)
     assert "order-backend.test" not in str(attempt_rows)
 

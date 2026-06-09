@@ -1865,6 +1865,13 @@ def _build_signal_gateway_payload(
     }
 
 
+def _gateway_response_audit(response: Any) -> Dict[str, Any]:
+    status_code = getattr(response, "status_code", None)
+    return {
+        "status_code": int(status_code) if isinstance(status_code, int) else None,
+    }
+
+
 def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
     """Return a non-secret preflight result for a signal event handoff."""
     blockers: List[str] = []
@@ -2004,7 +2011,10 @@ def submit_signal_event_to_gateway(
         db,
         event,
         result="submitted",
-        eligibility=attempt_eligibility,
+        eligibility={
+            **attempt_eligibility,
+            "gateway_response": _gateway_response_audit(response),
+        },
     )
     db.commit()
     db.refresh(event)

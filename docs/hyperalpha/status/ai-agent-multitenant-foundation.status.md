@@ -128,6 +128,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading runtime status summarizes strategy-spec backtest evidence readiness counts so operators can see ready, blocked, missing, and blocker categories without reading full specs.
 - AI Trading signal handoff attempts are persisted as non-secret per-user audit records for blocked, failed, and submitted handoff attempts.
 - AI Trading signal handoff attempt audit records include non-secret user-confirmation metadata for confirmed blocked, failed, and submitted handoff attempts.
+- Submitted AI Trading signal handoff attempts include a non-secret gateway response summary with HTTP status code, without storing gateway URL/token or response body.
 - Hyper AI AI Trading panel can load signal handoff attempt history into chat for audit review without triggering execution.
 - AI Trading signal events can be explicitly rejected by the user before handoff; rejection updates the persisted signal review state and makes the event ineligible for backend handoff.
 - Persisted AI Trading signal events rewrite signal payload idempotency keys to event-scoped values so multiple candidates from one strategy spec do not collide at handoff.
@@ -320,6 +321,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading strategy backtest runtime summary | Done | Runtime status includes strategy-spec backtest evidence ready/blocked/missing counts and blocker counts; Hyper AI panel shows total specs versus backtest-ready specs |
 | AI Trading handoff attempt audit | Done | `ai_trading_signal_handoff_attempts` stores blocked/failed/submitted handoff attempts without gateway URL/token or trading credentials |
 | AI Trading handoff confirmation audit | Done | Confirmed handoff attempts persist non-secret `user_confirmation` metadata inside eligibility audit JSON, while unconfirmed handoff requests still write no attempt |
+| AI Trading handoff gateway response audit | Done | Submitted handoff attempts persist only non-secret gateway response status metadata inside eligibility audit JSON |
 | AI Trading handoff attempt UI | Done | Recent signal events expose a read-only handoff history button that loads non-secret attempts into chat for audit review |
 | AI Trading signal rejection | Done | Review candidate signal events can be rejected before handoff; rejected events store review reason, become ineligible, and are visible in runtime status |
 | AI Trading signal idempotency | Done | Persisted signal events carry event-scoped `signal_event:{id}` idempotency keys, and gateway payloads reuse the same key |
@@ -692,6 +694,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading route regression re-run after readable handoff blocker labels: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 15 passing tests.
 - Passed: AI Trading route regression after adding handoff confirmation metadata to attempt audits: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 15 passing tests.
 - Passed: AI Trading service/route/test syntax compile after handoff confirmation audit: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Passed: AI Trading route regression after adding non-secret gateway response status to submitted handoff attempts: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 15 passing tests.
+- Passed: AI Trading service/route/test syntax compile after gateway response attempt audit: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
