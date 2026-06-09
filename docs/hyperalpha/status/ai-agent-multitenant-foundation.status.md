@@ -99,8 +99,10 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel can attach an existing Program Backtest result ID to a saved strategy spec and load the mapped evidence into chat for review without running orders.
 - Hyper AI AI Trading panel lists recent completed Program Backtests with symbols and key metrics, and can attach a listed result to the current strategy spec without manual ID entry.
 - Hyper AI AI Trading panel can attach the latest matching Program Backtest evidence from a strategy spec card without manual ID entry.
+- AI Trading can return a current-user attached Program Backtest evidence detail packet with metrics, equity-curve sample, trigger/action summaries, and leakage guards without returning Program code, decision snapshots, or credentials.
 - Hyper AI AI Trading panel can load a Program Backtest preflight into chat from strategy cards and recent spec rows via a shield action.
 - Hyper AI AI Trading panel can run the preflighted current-user Program Backtest SSE flow, then auto-attach the completed Program BacktestResult as strategy evidence without touching the order gateway.
+- Hyper AI AI Trading panel can load attached Program Backtest evidence detail into chat for agent review without starting a backtest, attaching new evidence, or submitting orders.
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
@@ -273,6 +275,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading Program Backtest bridge | Done | `/api/ai-trading/strategy-specs/{id}/backtest-result` attaches current-user Program BacktestResult evidence via account/program owner guards and maps persisted metrics into the AI Trading backtest gate |
 | AI Trading Program Backtest evidence list | Done | `/api/ai-trading/backtest-results` lists current-user completed Program BacktestResult candidates with symbol/status/limit filters, key metrics, and no strategy code or credentials |
 | AI Trading latest backtest evidence attach | Done | `/api/ai-trading/strategy-specs/{id}/backtest-result/latest` auto-links the newest current-user, same-symbol, handoff-ready Program BacktestResult and rejects missing/weak/mismatched evidence |
+| AI Trading Program Backtest evidence detail | Done | `/api/ai-trading/strategy-specs/{id}/backtest-evidence` returns attached current-user Program Backtest metrics, sampled equity curve, trigger/action summaries, markers, and leakage guards without Program code, full decision snapshots, or credentials |
 | AI Trading Program Backtest preflight | Done | `/api/ai-trading/strategy-specs/{id}/backtest-preflight` inspects current-user Hyperliquid account-program bindings, signal pools, and strategy symbol, then returns blockers or a default `/api/programs/backtest` request without executing it |
 | AI Trading backtest summary UI | Done | Hyper AI strategy cards display backtest readiness and expose a chart-icon action to attach an external backtest summary JSON to a saved strategy spec |
 | AI Trading Program Backtest UI bridge | Done | Hyper AI strategy cards and recent spec rows expose a link-icon action to attach an existing Program Backtest result ID without manual metric entry |
@@ -280,6 +283,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading latest backtest evidence UI | Done | Hyper AI strategy cards and recent spec rows expose a history-icon action to attach the latest same-symbol handoff-ready Program Backtest evidence |
 | AI Trading Program Backtest preflight UI | Done | Hyper AI strategy cards and recent spec rows expose a shield-icon action to save the draft if needed, request preflight, and load the non-executing recommendation into chat |
 | AI Trading Program Backtest run UI | Done | Hyper AI strategy cards and recent spec rows expose a run action that requests preflight, asks for user confirmation, streams `/api/programs/backtest`, then attaches the completed Program BacktestResult as non-order evidence |
+| AI Trading Program Backtest evidence detail UI | Done | Hyper AI strategy cards and recent spec rows expose a read-only inspect action that loads attached evidence detail into chat for agent review |
 | AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
 | AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
@@ -641,6 +645,10 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after adding the Program Backtest run action that streams `/api/programs/backtest` and auto-attaches the completed result.
 - Passed: AI Trading route regression re-run after Program Backtest run UI: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 12 passing tests.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned 200 after the Program Backtest run UI; in-app Browser navigation to the local URL was blocked by Browser URL policy, so click-through acceptance remains pending.
+- Passed: AI Trading Program Backtest evidence-detail regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 13 passing tests, covering current-user evidence detail, trigger/action summaries, cross-user rejection, missing-evidence blocker, and no Program code/API-key/decision snapshot leakage.
+- Passed: AI Trading Program Backtest evidence-detail syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py`.
+- Passed: Frontend production build after adding the read-only attached backtest evidence inspect action.
+- Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned 200 after the evidence detail UI; click-through acceptance remains pending because the in-app Browser local URL policy blocked navigation in this session.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
@@ -652,7 +660,7 @@ Local checkpoint: current branch `HEAD`
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
 - Redis distributed admission leases, persisted high-risk confirmation responses, runner heartbeats, dispatch queue persistence, and Hyper AI/Prompt/Signal/Program/Attribution serialized worker handlers are implemented for cross-instance capacity/confirmation/routing coordination; live distributed worker acceptance with running Postgres/Redis and real model credentials is still pending.
-- Dedicated AI Trading rich backtest result page is still pending; the current slice stores manual/external summaries, links existing current-user Program BacktestResult evidence, produces a non-executing Program Backtest preflight request, and can launch the existing Program Backtest SSE flow from the Hyper AI panel.
+- Dedicated AI Trading rich backtest result page is still pending; the current slice stores manual/external summaries, links existing current-user Program BacktestResult evidence, produces a non-executing Program Backtest preflight request, can launch the existing Program Backtest SSE flow from the Hyper AI panel, and can load a non-secret evidence detail packet into chat.
 - AI Trading signal gateway live acceptance with the real HyperAlpha order backend URL/token is still pending; the endpoint is implemented and disabled by default.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.

@@ -31,6 +31,7 @@ from database.models import (
     AiTradingSignalHandoffAttemptRecord,
     AiTradingStrategySpecRecord,
     BacktestResult,
+    BacktestTriggerLog,
     SignalPool,
     TradingProgram,
 )
@@ -929,6 +930,33 @@ def _program_backtest_symbols(config: Any) -> List[str]:
     ]
 
 
+def _sample_backtest_equity_curve(equity_curve: Any, *, max_points: int = 100) -> List[Dict[str, Any]]:
+    curve = _json_loads(equity_curve, []) if isinstance(equity_curve, str) else (equity_curve or [])
+    if not isinstance(curve, list):
+        return []
+
+    normalized = [point for point in curve if isinstance(point, dict)]
+    if len(normalized) <= max_points:
+        return normalized
+
+    step = max(1, len(normalized) // max_points)
+    sampled = normalized[::step][:max_points]
+    if sampled and sampled[-1] != normalized[-1]:
+        sampled[-1] = normalized[-1]
+    return sampled
+
+
+def _program_backtest_result_id_from_summary(backtest: Dict[str, Any]) -> Optional[int]:
+    explicit_id = _as_int(backtest.get("program_backtest_result_id"))
+    if explicit_id:
+        return explicit_id
+
+    raw_backtest_id = _clean_text(backtest.get("backtest_id"), 120)
+    if raw_backtest_id.startswith("program_backtest:"):
+        return _as_int(raw_backtest_id.split(":", 1)[1])
+    return None
+
+
 def _json_int_list(value: Any) -> List[int]:
     parsed = _json_loads(value, []) if isinstance(value, str) else (value or [])
     if not isinstance(parsed, list):
@@ -1022,6 +1050,159 @@ def _serialize_backtest_binding_candidate(
         "matches_strategy_symbol": bool(normalized_symbol and normalized_symbol in symbols),
         "eligible": not blockers,
         "blockers": list(dict.fromkeys(blockers)),
+    }
+
+
+def build_strategy_backtest_evidence_detail(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+    trigger_limit: int = 25,
+) -> Dict[str, Any]:
+    """Return non-secret attached Program Backtest evidence for a strategy spec."""
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+
+    spec = _json_loads(record.spec_json, {})
+    backtest_summary = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else {}
+    backtest_result_id = _program_backtest_result_id_from_summary(backtest_summary)
+    if not backtest_result_id:
+        raise ValueError("No Program Backtest evidence attached")
+
+    backtest = _get_owned_program_backtest_result(
+        db,
+        user_id=user_id,
+        backtest_result_id=backtest_result_id,
+    )
+    if not backtest:
+        raise ValueError("Backtest result not found")
+
+    config = _json_loads(backtest.config, {}) if isinstance(backtest.config, str) else (backtest.config or {})
+    metrics = {
+        "total_return": backtest.total_pnl_percent,
+        "return_pct": backtest.total_pnl_percent,
+        "net_pnl": backtest.total_pnl,
+        "max_drawdown": (
+            backtest.max_drawdown_percent
+            if backtest.max_drawdown_percent is not None
+            else backtest.max_drawdown
+        ),
+        "max_drawdown_percent": backtest.max_drawdown_percent,
+        "sharpe": backtest.sharpe_ratio,
+        "win_rate": backtest.win_rate,
+        "profit_factor": backtest.profit_factor,
+        "trade_count": backtest.total_trades,
+        "total_trades": backtest.total_trades,
+        "winning_trades": backtest.winning_trades,
+        "losing_trades": backtest.losing_trades,
+        "total_triggers": backtest.total_triggers,
+        "initial_balance": backtest.initial_balance,
+        "final_equity": backtest.final_equity,
+    }
+    evidence_summary = _program_backtest_result_summary(
+        backtest,
+        accepted_for_handoff=bool(backtest_summary.get("accepted_for_handoff")),
+        notes=backtest_summary.get("notes"),
+    )
+
+    clamped_limit = max(1, min(int(trigger_limit or 25), 100))
+    trigger_query = db.query(BacktestTriggerLog).filter(
+        BacktestTriggerLog.backtest_id == backtest.id
+    )
+    trigger_total = trigger_query.count()
+    trigger_rows = trigger_query.order_by(BacktestTriggerLog.trigger_index).limit(clamped_limit).all()
+    action_counts = db.query(
+        BacktestTriggerLog.decision_action,
+        func.count(BacktestTriggerLog.id),
+    ).filter(
+        BacktestTriggerLog.backtest_id == backtest.id
+    ).group_by(BacktestTriggerLog.decision_action).all()
+    marker_rows = db.query(
+        BacktestTriggerLog.trigger_index,
+        BacktestTriggerLog.decision_action,
+        BacktestTriggerLog.trigger_type,
+    ).filter(
+        BacktestTriggerLog.backtest_id == backtest.id,
+        BacktestTriggerLog.decision_action != "hold",
+    ).order_by(BacktestTriggerLog.trigger_index).limit(clamped_limit).all()
+
+    return {
+        "strategy_spec_id": record.id,
+        "strategy_symbol": _normalize_symbol(spec.get("symbol") or record.symbol),
+        "handoff_ready": _is_backtest_ready_for_handoff(evidence_summary),
+        "quality_issues": _backtest_metrics_quality_issues(evidence_summary),
+        "attached_summary": backtest_summary,
+        "evidence_summary": evidence_summary,
+        "backtest_result": {
+            "id": backtest.id,
+            "status": backtest.status,
+            "binding_id": backtest.binding_id,
+            "exchange": backtest.exchange or "hyperliquid",
+            "symbols": _program_backtest_symbols(config),
+            "config": {
+                "symbols": config.get("symbols") if isinstance(config, dict) else [],
+                "signal_pool_ids": config.get("signal_pool_ids") if isinstance(config, dict) else [],
+                "scheduled_interval_sec": config.get("scheduled_interval_sec") if isinstance(config, dict) else None,
+                "slippage_percent": config.get("slippage_percent") if isinstance(config, dict) else None,
+                "fee_rate": config.get("fee_rate") if isinstance(config, dict) else None,
+            },
+            "period": {
+                "start": backtest.start_time.isoformat() if backtest.start_time else None,
+                "end": backtest.end_time.isoformat() if backtest.end_time else None,
+            },
+            "metrics": metrics,
+            "equity_curve_sample": _sample_backtest_equity_curve(backtest.equity_curve),
+            "execution_time_ms": backtest.execution_time_ms,
+            "created_at": backtest.created_at.isoformat() if backtest.created_at else None,
+            "completed_at": backtest.completed_at.isoformat() if backtest.completed_at else None,
+        },
+        "trigger_summary": {
+            "total": trigger_total,
+            "returned": len(trigger_rows),
+            "limit": clamped_limit,
+            "action_counts": {
+                str(action or "unknown"): int(count or 0)
+                for action, count in action_counts
+            },
+            "triggers": [
+                {
+                    "id": trigger.id,
+                    "trigger_index": trigger.trigger_index,
+                    "trigger_type": trigger.trigger_type,
+                    "trigger_time": trigger.trigger_time.isoformat() + "Z" if trigger.trigger_time else None,
+                    "symbol": trigger.symbol,
+                    "decision_action": trigger.decision_action,
+                    "decision_symbol": trigger.decision_symbol,
+                    "decision_side": trigger.decision_side,
+                    "decision_size": trigger.decision_size,
+                    "decision_reason": _clean_text(trigger.decision_reason, 1000),
+                    "entry_price": trigger.entry_price,
+                    "exit_price": trigger.exit_price,
+                    "fee": trigger.fee,
+                    "unrealized_pnl": trigger.unrealized_pnl,
+                    "realized_pnl": trigger.realized_pnl,
+                    "equity_before": trigger.equity_before,
+                    "equity_after": trigger.equity_after,
+                    "execution_error": _clean_text(trigger.execution_error, 1000) if trigger.execution_error else None,
+                }
+                for trigger in trigger_rows
+            ],
+            "markers": [
+                {
+                    "index": marker.trigger_index,
+                    "action": marker.decision_action,
+                    "trigger_type": marker.trigger_type,
+                }
+                for marker in marker_rows
+            ],
+        },
+        "leakage_guard": {
+            "program_code_returned": False,
+            "credential_fields_returned": False,
+            "order_execution_triggered": False,
+        },
     }
 
 

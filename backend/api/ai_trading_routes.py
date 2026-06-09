@@ -18,6 +18,7 @@ from services.ai_trading_strategy_spec_service import (
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_signal_preview_from_strategy_spec_record,
+    build_strategy_backtest_evidence_detail,
     build_strategy_backtest_preflight,
     create_signal_event_record,
     draft_strategy_spec,
@@ -373,6 +374,31 @@ def strategy_backtest_preflight_endpoint(
     return {
         "success": preflight.get("ready", False),
         "preflight": preflight,
+    }
+
+
+@router.get("/strategy-specs/{spec_id}/backtest-evidence")
+def strategy_backtest_evidence_endpoint(
+    spec_id: int,
+    trigger_limit: int = Query(default=25, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Return non-secret attached Program Backtest evidence for strategy review."""
+    try:
+        evidence = build_strategy_backtest_evidence_detail(
+            db,
+            user_id=current_user.id,
+            record_id=spec_id,
+            trigger_limit=trigger_limit,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "evidence": evidence,
     }
 
 

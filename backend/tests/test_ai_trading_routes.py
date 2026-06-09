@@ -12,7 +12,7 @@ import services.ai_trading_strategy_spec_service as strategy_service
 from api.ai_trading_routes import router
 from api.auth_utils import get_current_user_dependency
 from database.connection import Base, get_db
-from database.models import Account, AccountProgramBinding, BacktestResult, TradingProgram, User
+from database.models import Account, AccountProgramBinding, BacktestResult, BacktestTriggerLog, TradingProgram, User
 
 
 def _build_clients(tmp_path, usernames=("ai-trading-test-user",)):
@@ -92,6 +92,7 @@ def _create_program_backtest_result(
     total_trades=12,
     total_pnl_percent=8.5,
     max_drawdown_percent=-2.25,
+    with_trigger_logs=False,
 ):
     session_factory = client._ai_trading_session_factory
     user_ids = client._ai_trading_user_ids
@@ -154,13 +155,80 @@ def _create_program_backtest_result(
             win_rate=66.67,
             profit_factor=1.8,
             sharpe_ratio=1.4,
-            equity_curve="[]",
+            equity_curve=json.dumps([
+                {"timestamp": int((now - timedelta(days=30)).timestamp() * 1000), "equity": 10000},
+                {"timestamp": int((now - timedelta(days=15)).timestamp() * 1000), "equity": 10420},
+                {"timestamp": int(now.timestamp() * 1000), "equity": 10850},
+            ]),
             execution_time_ms=1234,
             status=status,
             exchange="hyperliquid",
             completed_at=now if status == "completed" else None,
         )
         session.add(backtest)
+        session.flush()
+
+        if with_trigger_logs:
+            session.add_all([
+                BacktestTriggerLog(
+                    backtest_id=backtest.id,
+                    trigger_index=0,
+                    trigger_type="scheduled",
+                    trigger_time=now - timedelta(days=2),
+                    symbol=backtest_symbols[0],
+                    decision_type="program",
+                    decision_action="open_long",
+                    decision_symbol=backtest_symbols[0],
+                    decision_side="long",
+                    decision_size=0.1,
+                    decision_reason="breakout confirmed",
+                    entry_price=100000,
+                    fee=3.5,
+                    unrealized_pnl=0,
+                    realized_pnl=0,
+                    equity_before=10000,
+                    equity_after=10010,
+                    decision_input=json.dumps({"balance": 10000, "api_key": "not-returned"}),
+                    decision_output=json.dumps({"operation": "open_long", "reason": "pytest"}),
+                ),
+                BacktestTriggerLog(
+                    backtest_id=backtest.id,
+                    trigger_index=1,
+                    trigger_type="scheduled",
+                    trigger_time=now - timedelta(days=1),
+                    symbol=backtest_symbols[0],
+                    decision_type="program",
+                    decision_action="hold",
+                    decision_symbol=backtest_symbols[0],
+                    decision_reason="risk unchanged",
+                    entry_price=101000,
+                    fee=0,
+                    unrealized_pnl=42,
+                    realized_pnl=0,
+                    equity_before=10010,
+                    equity_after=10052,
+                ),
+                BacktestTriggerLog(
+                    backtest_id=backtest.id,
+                    trigger_index=2,
+                    trigger_type="tp",
+                    trigger_time=now,
+                    symbol=backtest_symbols[0],
+                    decision_type="program",
+                    decision_action="close",
+                    decision_symbol=backtest_symbols[0],
+                    decision_side="long",
+                    decision_size=0.1,
+                    decision_reason="take profit",
+                    entry_price=100000,
+                    exit_price=108500,
+                    fee=3.5,
+                    unrealized_pnl=0,
+                    realized_pnl=850,
+                    equity_before=10052,
+                    equity_after=10850,
+                ),
+            ])
         session.commit()
         return backtest.id
     finally:
@@ -614,6 +682,98 @@ def test_ai_trading_can_attach_owned_program_backtest_result(tmp_path, monkeypat
     enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert enabled_detail.status_code == 200
     assert enabled_detail.json()["signal_event"]["handoff_eligibility"]["eligible"] is True
+
+
+def test_ai_trading_backtest_evidence_detail_is_non_secret_and_user_scoped(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+    backtest_result_id = _create_program_backtest_result(
+        alice,
+        username="alice",
+        symbols=["BTC"],
+        with_trigger_logs=True,
+    )
+
+    draft = alice.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert draft.status_code == 200
+    saved = alice.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": "BTC evidence detail spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    spec_id = saved.json()["spec_record"]["id"]
+    linked = alice.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/backtest-result",
+        json={"backtest_result_id": backtest_result_id, "accepted_for_handoff": True},
+    )
+    assert linked.status_code == 200
+
+    evidence_response = alice.get(f"/api/ai-trading/strategy-specs/{spec_id}/backtest-evidence?trigger_limit=2")
+    assert evidence_response.status_code == 200
+    evidence = evidence_response.json()["evidence"]
+    assert evidence["strategy_spec_id"] == spec_id
+    assert evidence["strategy_symbol"] == "BTC"
+    assert evidence["handoff_ready"] is True
+    assert evidence["quality_issues"] == []
+    assert evidence["backtest_result"]["id"] == backtest_result_id
+    assert evidence["backtest_result"]["symbols"] == ["BTC"]
+    assert len(evidence["backtest_result"]["equity_curve_sample"]) == 3
+    assert evidence["trigger_summary"]["total"] == 3
+    assert evidence["trigger_summary"]["returned"] == 2
+    assert evidence["trigger_summary"]["action_counts"]["open_long"] == 1
+    assert evidence["trigger_summary"]["action_counts"]["hold"] == 1
+    assert len(evidence["trigger_summary"]["markers"]) == 2
+    assert evidence["leakage_guard"]["program_code_returned"] is False
+    assert evidence["leakage_guard"]["credential_fields_returned"] is False
+    serialized = json.dumps(evidence)
+    assert "def run" not in serialized
+    assert "not-returned" not in serialized
+    assert "api_key" not in serialized
+    assert "decision_input" not in serialized
+    assert "decision_output" not in serialized
+
+    bob_cross_user = bob.get(f"/api/ai-trading/strategy-specs/{spec_id}/backtest-evidence")
+    assert bob_cross_user.status_code == 404
+
+    bob_draft = bob.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert bob_draft.status_code == 200
+    bob_saved = bob.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": bob_draft.json()["spec"], "name": "Bob no evidence spec", "source": "pytest"},
+    )
+    assert bob_saved.status_code == 200
+    missing = bob.get(
+        f"/api/ai-trading/strategy-specs/{bob_saved.json()['spec_record']['id']}/backtest-evidence"
+    )
+    assert missing.status_code == 400
+    assert "No Program Backtest evidence" in missing.json()["detail"]
 
 
 def test_ai_trading_can_attach_latest_matching_program_backtest_result(tmp_path):

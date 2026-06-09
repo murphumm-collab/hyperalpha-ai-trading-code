@@ -831,7 +831,7 @@ export default function HyperAiPage() {
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
-  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | null>(null)
+  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | 'evidence' | null>(null)
   const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
@@ -1632,6 +1632,40 @@ export default function HyperAiPage() {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
       setStrategyBacktestRunStatus(null)
+    }
+  }
+
+  const handleInspectStrategyBacktestEvidence = async (recordId?: number) => {
+    setStrategyDraftError(null)
+    const targetRecordId = await resolveStrategyRecordIdForBacktest(
+      recordId,
+      'Save or draft a strategy spec before inspecting backtest evidence'
+    )
+    if (!targetRecordId) {
+      return
+    }
+
+    setStrategyBacktestLoadingId(targetRecordId)
+    setStrategyBacktestLoadingSource('evidence')
+    try {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-evidence?trigger_limit=25`)
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to load backtest evidence')
+      }
+      const evidence = data.evidence || {}
+      const prompt = currentLang === 'zh'
+        ? `请复核 AI Trading Strategy Spec #${targetRecordId} 绑定的 Program Backtest evidence：重点检查 metrics、equity curve sample、trigger/action 分布、quality_issues 和 handoff_ready；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
+        : `Review the Program Backtest evidence attached to AI Trading Strategy Spec #${targetRecordId}. Focus on metrics, equity curve sample, trigger/action distribution, quality_issues, and handoff_ready. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to inspect AI trading backtest evidence:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load backtest evidence')
+    } finally {
+      setStrategyBacktestLoadingId(null)
+      setStrategyBacktestLoadingSource(null)
     }
   }
 
@@ -2596,7 +2630,7 @@ export default function HyperAiPage() {
                       ? `#${strategyDraftRecord.id} · ${strategyDraftRecord.status}`
                       : t('hyperAi.aiTradingUnsavedDraft', 'Unsaved draft')}
                   </span>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
                     <button
                       type="button"
                       onClick={handleSaveStrategyDraft}
@@ -2686,6 +2720,19 @@ export default function HyperAiPage() {
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <Play className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleInspectStrategyBacktestEvidence(strategyDraftRecord?.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      title={t('hyperAi.aiTradingInspectBacktestEvidence', 'Inspect backtest evidence')}
+                    >
+                      {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'evidence' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <SearchIcon className="h-3.5 w-3.5" />
                       )}
                     </button>
                     <button
@@ -2845,6 +2892,19 @@ export default function HyperAiPage() {
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <Play className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleInspectStrategyBacktestEvidence(record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={strategyBacktestLoadingId !== null}
+                            title={t('hyperAi.aiTradingInspectBacktestEvidence', 'Inspect backtest evidence')}
+                          >
+                            {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'evidence' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <SearchIcon className="h-3.5 w-3.5" />
                             )}
                           </button>
                         </div>
