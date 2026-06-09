@@ -945,6 +945,15 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
         },
     )
     assert draft.status_code == 200
+    created_session = client.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": "session:sensitive-btc",
+            "name": "Sensitive BTC Session",
+            "context_summary": "Safe persisted context.",
+        },
+    )
+    assert created_session.status_code == 200
 
     calls = []
 
@@ -1090,6 +1099,79 @@ def test_ai_trading_saved_spec_model_adjustment_redacts_sensitive_agent_session_
     assert "secret-saved-session-token" not in model_prompt
     assert "secret-private-key" not in model_prompt
     assert "secret-model-key" not in model_prompt
+
+
+def test_ai_trading_unsaved_model_adjustment_requires_current_user_active_agent_session(tmp_path, monkeypatch):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+
+    created = alice.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": "session:alice-model-adjust",
+            "name": "Alice Model Adjust Session",
+            "context_summary": "Alice-only BTC context.",
+        },
+    )
+    assert created.status_code == 200
+
+    bob_draft = bob.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m breakout with strict stop loss and staged take profit",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+        },
+    )
+    assert bob_draft.status_code == 200
+
+    def fail_if_model_config_is_read(db, user_id=None):
+        raise AssertionError("model config should not be read before agent-session ownership validation")
+
+    monkeypatch.setattr(strategy_service, "get_llm_config", fail_if_model_config_is_read)
+
+    cross_user = bob.post(
+        "/api/ai-trading/strategy-spec/model-adjust",
+        json={
+            "spec": bob_draft.json()["spec"],
+            "instruction": "Use this agent session context",
+            "source": "pytest_cross_user_session",
+            "agent_session_id": "session:alice-model-adjust",
+        },
+    )
+    assert cross_user.status_code == 404
+    assert "not found" in cross_user.json()["detail"].lower()
+
+    archived = alice.delete("/api/ai-trading/agent-sessions/session:alice-model-adjust")
+    assert archived.status_code == 200
+
+    alice_draft = alice.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m breakout with strict stop loss and staged take profit",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+        },
+    )
+    assert alice_draft.status_code == 200
+    archived_session = alice.post(
+        "/api/ai-trading/strategy-spec/model-adjust",
+        json={
+            "spec": alice_draft.json()["spec"],
+            "instruction": "Use the archived agent session context",
+            "source": "pytest_archived_session",
+            "agent_session_id": "session:alice-model-adjust",
+        },
+    )
+    assert archived_session.status_code == 400
+    assert "archived" in archived_session.json()["detail"].lower()
 
 
 def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypatch):

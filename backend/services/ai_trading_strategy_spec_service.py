@@ -1340,6 +1340,46 @@ def _build_model_adjustment_agent_context(
     }
 
 
+def _resolve_model_adjustment_agent_context(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: Optional[str] = None,
+    agent_session_name: Optional[str] = None,
+    agent_context_summary: Optional[str] = None,
+    require_current_user_session: bool = False,
+) -> Optional[Dict[str, Any]]:
+    resolved_session_id = _clean_agent_session_id(agent_session_id) if agent_session_id else None
+    session_record: Optional[AiTradingAgentSessionRecord] = None
+    if resolved_session_id:
+        session_record = _get_agent_session_record(
+            db,
+            user_id=user_id,
+            agent_session_id=resolved_session_id,
+        )
+        if not session_record and require_current_user_session:
+            raise ValueError("AI Trading agent session not found")
+        if (
+            session_record
+            and session_record.status == AGENT_SESSION_ARCHIVED_STATUS
+            and require_current_user_session
+        ):
+            raise ValueError("AI Trading agent session is archived")
+
+    resolved_name = _clean_text(agent_session_name, 120)
+    if not resolved_name and session_record:
+        resolved_name = _clean_text(session_record.name, 120)
+    resolved_summary = _clean_agent_context_summary(agent_context_summary)
+    if not resolved_summary and session_record:
+        resolved_summary = _clean_agent_context_summary(session_record.context_summary)
+    return _build_model_adjustment_agent_context(
+        agent_session_id=resolved_session_id,
+        agent_session_name=resolved_name,
+        agent_context_summary=resolved_summary,
+        source="agent_session",
+    )
+
+
 def adjust_strategy_spec_with_model(
     db: Session,
     *,
@@ -1350,11 +1390,21 @@ def adjust_strategy_spec_with_model(
     agent_session_id: Optional[str] = None,
     agent_session_name: Optional[str] = None,
     agent_context_summary: Optional[str] = None,
+    require_current_user_agent_session: bool = False,
 ) -> Dict[str, Any]:
     """Ask the user's configured model for an adjustment instruction, then safely apply it."""
     instruction_text = _clean_text(instruction, 4000)
     if not instruction_text:
         raise ValueError("Adjustment instruction is required")
+
+    agent_context = _resolve_model_adjustment_agent_context(
+        db,
+        user_id=user_id,
+        agent_session_id=agent_session_id,
+        agent_session_name=agent_session_name,
+        agent_context_summary=agent_context_summary,
+        require_current_user_session=require_current_user_agent_session,
+    )
 
     llm_config = get_llm_config(db, user_id=user_id)
     if not llm_config.get("configured") or not llm_config.get("api_key"):
@@ -1370,12 +1420,6 @@ def adjust_strategy_spec_with_model(
         raise ValueError("LLM model or base URL is missing")
 
     redacted_spec = _redact_sensitive_payload(spec)
-    agent_context = _build_model_adjustment_agent_context(
-        agent_session_id=agent_session_id,
-        agent_session_name=agent_session_name,
-        agent_context_summary=agent_context_summary,
-        source="agent_session",
-    )
     system_prompt = (
         "You are HyperAlpha AI Trading Strategy Editor. "
         "Return JSON only. Do not place orders. Do not suggest direct execution. "

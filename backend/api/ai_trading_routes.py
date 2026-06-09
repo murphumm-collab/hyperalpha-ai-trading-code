@@ -491,9 +491,12 @@ def model_adjust_strategy_spec_endpoint(
             agent_session_id=request.agent_session_id,
             agent_session_name=request.agent_session_name,
             agent_context_summary=request.agent_context_summary,
+            require_current_user_agent_session=bool(request.agent_session_id),
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
 
     spec = result["spec"]
     return {
