@@ -737,12 +737,16 @@ export default function HyperAiPage() {
   const [strategyDraftSaving, setStrategyDraftSaving] = useState(false)
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
+  const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
   const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
   const [recentSignalEvents, setRecentSignalEvents] = useState<AiTradingSignalEventRecord[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const aiTradingGatewayReady = Boolean(
+    aiTradingRuntime?.gateway?.enabled && aiTradingRuntime.gateway?.url_configured
+  )
 
   // Get current language
   const currentLang = i18n.language?.startsWith('zh') ? 'zh' : 'en'
@@ -1102,6 +1106,33 @@ export default function HyperAiPage() {
     } catch (e) {
       console.error('Failed to load AI trading signal event:', e)
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load signal event')
+    }
+  }
+
+  const handleSubmitSignalEventHandoff = async (eventId: number) => {
+    setSignalHandoffLoadingId(eventId)
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetch(`/api/ai-trading/signal-events/${eventId}/handoff`, {
+        method: 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const detail = data.detail
+        throw new Error(typeof detail === 'string' ? detail : 'Failed to submit signal handoff')
+      }
+      const event = data.signal_event as AiTradingSignalEventRecord
+      const prompt = currentLang === 'zh'
+        ? `请复核 AI Trading Signal Event #${event.id} 的 handoff 结果：确认订单后端接收状态、handoff 状态、以及是否仍满足 signal-only 审计边界。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
+        : `Review the handoff result for AI Trading Signal Event #${event.id}. Confirm order-backend receipt status, handoff status, and whether the signal-only audit boundary still holds. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to submit AI trading signal handoff:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to submit signal handoff')
+    } finally {
+      setSignalHandoffLoadingId(null)
     }
   }
 
@@ -1994,6 +2025,28 @@ export default function HyperAiPage() {
                             title={t('hyperAi.aiTradingInspectSignal', 'Inspect signal')}
                           >
                             <SearchIcon className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleSubmitSignalEventHandoff(event.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+                            disabled={
+                              !aiTradingGatewayReady ||
+                              signalHandoffLoadingId !== null ||
+                              event.status !== 'review_candidate' ||
+                              event.handoff_status === 'submitted'
+                            }
+                            title={
+                              aiTradingGatewayReady
+                                ? t('hyperAi.aiTradingSubmitHandoff', 'Submit handoff')
+                                : t('hyperAi.aiTradingGatewayDisabled', 'Gateway disabled')
+                            }
+                          >
+                            {signalHandoffLoadingId === event.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Play className="h-3.5 w-3.5" />
+                            )}
                           </button>
                         </div>
                       ))}

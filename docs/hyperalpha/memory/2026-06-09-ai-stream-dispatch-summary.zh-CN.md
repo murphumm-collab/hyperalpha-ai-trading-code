@@ -33,6 +33,7 @@
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
 - Hyper AI AI Trading 面板现在会列出最近保存的 strategy specs 和最近创建的 signal events；用户可以把任一记录详情回填到聊天框，让 agent 做风控/止盈止损/执行边界复核，不会提交订单。
+- Recent signal events 现在有 gateway-gated handoff 按钮：只有 runtime 显示 gateway 已启用且 URL 已配置、事件仍是未提交 `review_candidate` 时才可点；点击仍走后端 `/handoff` 边界，不绕过默认关闭策略。
 
 ## 3. AI Stream / Worker 现状
 
@@ -90,6 +91,9 @@
 - Frontend production build 已通过，Hyper AI AI Trading recent specs/signals 审计面板编译成功。
 - `backend/tests/test_ai_trading_routes.py` 在 recent records UI 后重新通过。
 - Playwright 已打开 `http://127.0.0.1:5174/app/ai-trading`，等待 splash fallback 后确认 Hyper AI / AI Trading shell 可渲染；因为本地 backend/Postgres 未运行，最近记录列表和 inspect 点击只能等 live API 恢复后验收。
+- Frontend production build 已通过，recent signal events 的 handoff 按钮编译成功。
+- `backend/tests/test_ai_trading_routes.py` 在 handoff UI 后重新通过。
+- Playwright 已再次打开 `http://127.0.0.1:5174/app/ai-trading`，确认 Hyper AI / AI Trading shell 可渲染；因为本地 backend/Postgres/gateway 未运行，handoff 按钮点击验收仍待 live API。
 
 ## 6. 未验收 / 阻塞
 
@@ -99,7 +103,7 @@
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前只做 disabled-by-default 和 mock gateway 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
-- strategy spec / signal preview / signal event / recent records inspect 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols 与持久化记录；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。
+- strategy spec / signal preview / signal event / recent records inspect / signal-event handoff 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols、持久化记录与 gateway readiness；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。
 
 ## 7. 当前提交锚点
 
