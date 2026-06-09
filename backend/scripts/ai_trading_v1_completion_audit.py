@@ -49,6 +49,8 @@ MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS = 600
 MAX_PRODUCTION_EVIDENCE_VALIDATOR_CHARS = 120
 MAX_PRODUCTION_EVIDENCE_NOTE_CHARS = 300
 MAX_PRODUCTION_EVIDENCE_NOTES = 12
+MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS = 300
+MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS = 5
 PLACEHOLDER_EVIDENCE_VALUES = {
     "-",
     "accepted",
@@ -140,6 +142,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence gate | Done |",
             "| AI Trading production evidence text quality | Done |",
             "| AI Trading production evidence text bounds | Done |",
+            "| AI Trading production evidence artifact-ref bounds | Done |",
             "| AI Trading production evidence item IDs | Done |",
             "| AI Trading production evidence path safety | Done |",
             "| AI Trading production evidence note safety | Done |",
@@ -326,6 +329,8 @@ def _secret_pattern_hits(value: Any) -> list[str]:
 def _artifact_ref_blockers(ref: Any) -> list[str]:
     if not isinstance(ref, str) or not ref.strip():
         return ["external_evidence_artifact_ref_must_be_non_empty_string"]
+    if len(ref.strip()) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS:
+        return ["external_evidence_artifact_ref_too_long"]
     if _secret_pattern_hits(ref):
         return ["external_evidence_artifact_ref_secret_pattern_detected"]
 
@@ -464,6 +469,8 @@ def _validate_external_evidence_item(
     elif not artifact_refs:
         blockers.append("external_evidence_artifact_refs_empty")
     else:
+        if len(artifact_refs) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS:
+            blockers.append("external_evidence_artifact_refs_too_many")
         for ref in artifact_refs:
             blockers.extend(_artifact_ref_blockers(ref))
     if item.get("secret_values_returned") is not False:
@@ -679,7 +686,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and bounded safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 

@@ -69,6 +69,7 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 "| AI Trading production evidence gate | Done |",
                 "| AI Trading production evidence text quality | Done |",
                 "| AI Trading production evidence text bounds | Done |",
+                "| AI Trading production evidence artifact-ref bounds | Done |",
                 "| AI Trading production evidence item IDs | Done |",
                 "| AI Trading production evidence path safety | Done |",
                 "| AI Trading production evidence note safety | Done |",
@@ -565,3 +566,46 @@ def test_completion_audit_rejects_unsafe_artifact_refs(tmp_path):
         if item["id"] == "real_order_backend_handoff"
     )
     assert "external_evidence_artifact_ref_credentials_embedded" in credentials_item["blockers"]
+
+
+def test_completion_audit_rejects_overlong_or_too_many_artifact_refs(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    overlong_ref_path = tmp_path / "overlong-artifact-ref-evidence.json"
+    too_many_refs_path = tmp_path / "too-many-artifact-refs-evidence.json"
+    _write_production_evidence(
+        overlong_ref_path,
+        artifact_ref_override="ops://ai-trading/" + ("x" * 400),
+    )
+    _write_production_evidence(too_many_refs_path)
+    payload = json.loads(too_many_refs_path.read_text(encoding="utf-8"))
+    payload["items"]["real_order_backend_handoff"]["artifact_refs"] = [
+        f"ops://ai-trading/real-order-backend-handoff/{index}"
+        for index in range(completion_audit.MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS + 1)
+    ]
+    _write(too_many_refs_path, json.dumps(payload, indent=2, sort_keys=True))
+
+    overlong_ref_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=overlong_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+    too_many_refs_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=too_many_refs_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert overlong_ref_report["ready_for_live_orders"] is False
+    overlong_item = next(
+        item
+        for item in overlong_ref_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_artifact_ref_too_long" in overlong_item["blockers"]
+    assert too_many_refs_report["ready_for_live_orders"] is False
+    too_many_item = next(
+        item
+        for item in too_many_refs_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_artifact_refs_too_many" in too_many_item["blockers"]
