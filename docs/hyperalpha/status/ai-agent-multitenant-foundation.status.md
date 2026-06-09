@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Agent-Session Handoff Context Gate Complete / Remote Push Skipped
+Status: Local V1 Runtime Handoff Attempt Observability Gate Complete / Remote Push Skipped
 
 Local checkpoint: current branch `HEAD`
 
@@ -161,6 +161,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading strategy spec, signal event, and handoff-attempt responses now include current-user `agent_session.status`, so archived-session UI gates and audit review do not depend on whether the archived session list is currently loaded.
 - AI Trading runtime handoff eligibility now enforces the production handoff approval boundary for external order-backend URLs and blocks them with `production_handoff_approval_required` unless `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`; local mock gateway URLs remain allowed for local acceptance.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
+- AI Trading runtime status exposes current-user handoff attempt totals, result distribution, gateway-ready counts, and latest non-secret attempt metadata so operators can spot blocked/failed/submitted handoff health without reading gateway secrets.
 - AI Trading runtime status exposes the non-secret signal max handoff age so operators can see the stale-signal gate currently enforced by the backend.
 - AI Trading runtime status exposes a non-secret gateway `target_kind` (`disabled_or_unconfigured`, `local_mock`, or `external_order_backend`) so local acceptance and UI can distinguish mock handoff from real order-backend handoff without leaking URLs or tokens.
 - Hyper AI AI Trading Gateway card now treats runtime `default_handoff_status` and `runtime_config_blockers` as authoritative, so production handoff blockers show as yellow disabled state with readable labels instead of a misleading green enabled URL state.
@@ -405,6 +406,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading agent-session handoff context | Done | Session context/compression now includes current-user handoff attempt summaries and result counts without gateway URL/token/header exposure |
 | AI Trading agent-session detail page | Done | `/app/ai-trading/sessions/{agent_session_id}` renders a read-only current-user session audit page with context summary, specs, signals, handoff attempts, blocker labels, refresh, and deterministic context compression |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
+| AI Trading runtime handoff attempt observability | Done | `/api/ai-trading/runtime` exposes current-user handoff attempt totals, by-result counts, gateway-ready counts, and latest non-secret attempt metadata; Hyper AI runtime summary shows Attempts |
 | AI Trading runtime handoff age visibility | Done | Runtime gateway status includes `max_handoff_age_seconds`, and Hyper AI shows the compact max-age value in the Gateway card |
 | AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals, uses runtime gateway blockers for the Gateway card state, and refreshes after draft save, approval, and signal event creation |
 | Local LaunchAgent runtime sync | Done | `scripts/local-dev/install_launch_agent.sh` syncs the runtime mirror while excluding Vite's mutable `.vite` dependency cache, then restarts `com.hyperalpha.ai-trading-local` |
@@ -926,6 +928,12 @@ Local checkpoint: current branch `HEAD`
 - Passed: frontend production build after session-detail handoff attempt context UI: `cd frontend && npm run build` passed with only existing baseline/browserlist/chunk-size warnings; agent-session detail now displays attempt totals and read-only attempt audit rows.
 - Passed: LaunchAgent runtime mirror was resynced after agent-session handoff context with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true`.
 - Passed: aggregate AI Trading V1 local acceptance runner after agent-session handoff context: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 58 AI Trading regressions, API-level smoke, live model-adjust default blocker, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#33`, signal event `#31`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, and `agent_sessions.total=18`.
+- Passed: AI Trading runtime handoff attempt observability checks: `cd backend && uv run python -m py_compile services/ai_trading_strategy_spec_service.py api/ai_trading_routes.py tests/test_ai_trading_routes.py` passed; `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 35 passing tests, including current-user runtime `handoff_attempts` totals, `by_result`, gateway-ready counts, latest attempt metadata, secret-value redaction, and Bob seeing zero Alice attempts.
+- Passed: aggregate AI Trading regression after runtime handoff attempt observability: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 58 passing tests with 3 existing UTC deprecation warnings.
+- Passed: frontend production build after adding the runtime Attempts summary: `cd frontend && npm run build` passed with only existing baseline/browserlist/chunk-size warnings.
+- Passed: LaunchAgent runtime mirror was resynced after runtime handoff attempt observability with `scripts/local-dev/install_launch_agent.sh`; `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict` returned `ready=true` and runtime exposed `handoff_attempts.total=29` before the latest local acceptance run.
+- Passed: In-app Browser verified `/app/ai-trading` after local onboarding skip; the AI Trading runtime summary displayed `Attempts`, `29 / 29 submitted`, and `submitted:29` without entering API keys or triggering handoff.
+- Passed: aggregate AI Trading V1 local acceptance runner after runtime handoff attempt observability: `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed backend compile, 58 AI Trading regressions, API-level smoke with runtime `handoff_attempts`, live model-adjust default blocker, default production handoff/readiness blocker checks, frontend build, runtime readiness, and live local mock handoff; latest evidence is spec `#34`, signal event `#32`, gateway response `mock_accepted`, runtime `target_kind=local_mock`, `agent_sessions.total=19`, and `handoff_attempts.total=30`.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

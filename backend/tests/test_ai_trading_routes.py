@@ -315,6 +315,13 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     )
     assert runtime.json()["model_adjustment"]["ready"] is False
     assert runtime.json()["model_adjustment"]["blockers"] == ["model_profile_not_configured"]
+    assert runtime.json()["handoff_attempts"] == {
+        "total": 0,
+        "by_result": {},
+        "gateway_ready": 0,
+        "gateway_not_ready": 0,
+        "latest": None,
+    }
 
     draft = client.post(
         "/api/ai-trading/strategy-spec/draft",
@@ -398,6 +405,12 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert disabled_handoff_summary["eligible"] == 0
     assert disabled_handoff_summary["blocked"] == 1
     assert disabled_handoff_summary["by_blocker"]["gateway_disabled"] == 1
+    assert disabled_runtime["handoff_attempts"]["total"] == 1
+    assert disabled_runtime["handoff_attempts"]["by_result"] == {"blocked": 1}
+    assert disabled_runtime["handoff_attempts"]["gateway_ready"] == 0
+    assert disabled_runtime["handoff_attempts"]["gateway_not_ready"] == 1
+    assert disabled_runtime["handoff_attempts"]["latest"]["result"] == "blocked"
+    assert disabled_runtime["handoff_attempts"]["latest"]["signal_event_id"] == event["id"]
 
     reject_event_response = client.post(
         f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
@@ -462,6 +475,9 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert enabled_handoff_summary["review_candidates"] == 1
     assert enabled_handoff_summary["eligible"] == 1
     assert enabled_handoff_summary["blocked"] == 0
+    assert enabled_runtime["handoff_attempts"]["total"] == 2
+    assert enabled_runtime["handoff_attempts"]["by_result"] == {"blocked": 2}
+    assert enabled_runtime["handoff_attempts"]["gateway_ready"] == 0
 
     unconfirmed = client.post(
         f"/api/ai-trading/signal-events/{event['id']}/handoff",
@@ -519,6 +535,15 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert final_runtime["signal_events"]["by_status"]["rejected"] == 1
     assert final_runtime["signal_events"]["handoff_eligibility"]["review_candidates"] == 0
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
+    assert final_runtime["handoff_attempts"]["total"] == 3
+    assert final_runtime["handoff_attempts"]["by_result"] == {"blocked": 2, "submitted": 1}
+    assert final_runtime["handoff_attempts"]["gateway_ready"] == 1
+    assert final_runtime["handoff_attempts"]["gateway_not_ready"] == 2
+    assert final_runtime["handoff_attempts"]["latest"]["result"] == "submitted"
+    assert final_runtime["handoff_attempts"]["latest"]["signal_event_id"] == event["id"]
+    assert final_runtime["handoff_attempts"]["latest"]["strategy_spec_id"] == record["id"]
+    assert "test-token" not in str(final_runtime)
+    assert "order-backend.test" not in str(final_runtime)
 
 
 def test_ai_trading_signal_handoff_requires_production_approval_for_external_gateway(tmp_path, monkeypatch):
@@ -2522,6 +2547,15 @@ def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_
 
     assert bob.get("/api/ai-trading/strategy-specs").json()["specs"] == []
     assert bob.get("/api/ai-trading/signal-events").json()["signal_events"] == []
+    bob_runtime = bob.get("/api/ai-trading/runtime")
+    assert bob_runtime.status_code == 200
+    assert bob_runtime.json()["handoff_attempts"] == {
+        "total": 0,
+        "by_result": {},
+        "gateway_ready": 0,
+        "gateway_not_ready": 0,
+        "latest": None,
+    }
 
     assert bob.get(f"/api/ai-trading/strategy-specs/{alice_spec['id']}").status_code == 404
     assert bob.post(f"/api/ai-trading/strategy-specs/{alice_spec['id']}/approve").status_code == 404

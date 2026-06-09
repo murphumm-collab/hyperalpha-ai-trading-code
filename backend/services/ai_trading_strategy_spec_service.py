@@ -3684,6 +3684,46 @@ def _summarize_handoff_eligibility(
     return summary
 
 
+def _summarize_signal_handoff_attempts(db: Session, *, user_id: int) -> Dict[str, Any]:
+    rows = db.query(
+        AiTradingSignalHandoffAttemptRecord.result,
+        func.count(AiTradingSignalHandoffAttemptRecord.id),
+    ).filter(
+        AiTradingSignalHandoffAttemptRecord.user_id == user_id,
+    ).group_by(AiTradingSignalHandoffAttemptRecord.result).all()
+    by_result = {str(result or "unknown"): int(count) for result, count in rows}
+    total = sum(by_result.values())
+    gateway_ready = int(db.query(AiTradingSignalHandoffAttemptRecord).filter(
+        AiTradingSignalHandoffAttemptRecord.user_id == user_id,
+        AiTradingSignalHandoffAttemptRecord.gateway_ready.is_(True),
+    ).count())
+    latest = db.query(AiTradingSignalHandoffAttemptRecord).filter(
+        AiTradingSignalHandoffAttemptRecord.user_id == user_id,
+    ).order_by(
+        AiTradingSignalHandoffAttemptRecord.created_at.desc(),
+        AiTradingSignalHandoffAttemptRecord.id.desc(),
+    ).first()
+    latest_payload = None
+    if latest:
+        latest_payload = {
+            "id": latest.id,
+            "signal_event_id": latest.signal_event_id,
+            "strategy_spec_id": latest.strategy_spec_id,
+            "symbol": latest.symbol,
+            "action": latest.action,
+            "result": latest.result,
+            "gateway_ready": bool(latest.gateway_ready),
+            "created_at": _record_timestamp(latest.created_at),
+        }
+    return {
+        "total": total,
+        "by_result": by_result,
+        "gateway_ready": gateway_ready,
+        "gateway_not_ready": max(0, total - gateway_ready),
+        "latest": latest_payload,
+    }
+
+
 def _summarize_strategy_backtest_evidence(
     records: List[AiTradingStrategySpecRecord],
 ) -> Dict[str, Any]:
@@ -3840,4 +3880,5 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
                 user_id=user_id,
             ),
         },
+        "handoff_attempts": _summarize_signal_handoff_attempts(db, user_id=user_id),
     }

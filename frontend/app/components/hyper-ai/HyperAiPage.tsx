@@ -365,6 +365,22 @@ interface AiTradingRuntimeStatus {
       by_blocker?: Record<string, number>
     }
   }
+  handoff_attempts?: {
+    total?: number
+    by_result?: Record<string, number>
+    gateway_ready?: number
+    gateway_not_ready?: number
+    latest?: {
+      id?: number
+      signal_event_id?: number
+      strategy_spec_id?: number
+      symbol?: string
+      action?: string
+      result?: string
+      gateway_ready?: boolean
+      created_at?: string | null
+    } | null
+  }
 }
 
 interface AiTradingAgentSessionRecord {
@@ -4262,7 +4278,7 @@ export default function HyperAiPage() {
               <div className="mb-2 text-xs text-red-500">{strategyDraftError}</div>
             )}
             {aiTradingRuntime && (
-              <div className="mb-2 grid grid-cols-2 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px] xl:grid-cols-5">
+              <div className="mb-2 grid grid-cols-2 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px] xl:grid-cols-6">
                 <div className="min-w-0">
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingGateway', 'Gateway')}</div>
                   <div className={`truncate font-medium ${
@@ -4336,6 +4352,21 @@ export default function HyperAiPage() {
                       {' '}
                       {t('hyperAi.aiTradingReady', 'ready')}
                     </span>
+                  </div>
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingAttempts', 'Attempts')}</div>
+                  <div className="truncate font-medium text-foreground">
+                    {aiTradingRuntime.handoff_attempts?.total ?? 0}
+                    <span className="text-muted-foreground">
+                      {' / '}
+                      {aiTradingRuntime.handoff_attempts?.by_result?.submitted ?? 0}
+                      {' '}
+                      {t('hyperAi.aiTradingSubmitted', 'submitted')}
+                    </span>
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground" title={Object.entries(aiTradingRuntime.handoff_attempts?.by_result || {}).map(([status, count]) => `${status}:${count}`).join(', ') || '-'}>
+                    {Object.entries(aiTradingRuntime.handoff_attempts?.by_result || {}).map(([status, count]) => `${status}:${count}`).join(', ') || '-'}
                   </div>
                 </div>
               </div>
