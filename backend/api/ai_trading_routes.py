@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -23,6 +23,7 @@ from services.ai_trading_strategy_spec_service import (
     adjust_strategy_spec_with_model,
     approve_strategy_spec_record,
     archive_strategy_spec_record,
+    build_ai_trading_agent_session_context,
     build_signal_preview_from_strategy_spec_record,
     build_strategy_backtest_evidence_detail,
     build_strategy_backtest_preflight,
@@ -32,6 +33,7 @@ from services.ai_trading_strategy_spec_service import (
     get_signal_event_record,
     get_strategy_spec_record,
     get_strategy_spec_schema,
+    list_ai_trading_agent_sessions,
     list_program_backtest_result_candidates,
     list_signal_handoff_attempt_records,
     list_signal_event_records,
@@ -98,6 +100,14 @@ class StrategySpecSaveRequest(BaseModel):
     spec: Dict[str, Any]
     name: Optional[str] = Field(default=None, max_length=120)
     source: Optional[str] = Field(default="manual", max_length=50)
+    agent_session_id: Optional[str] = Field(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    )
+    agent_session_name: Optional[str] = Field(default=None, max_length=120)
+    agent_context_summary: Optional[str] = Field(default=None, max_length=2000)
 
 
 class StrategySignalPreviewRequest(BaseModel):
@@ -191,6 +201,54 @@ def ai_trading_production_readiness_endpoint(
         "success": True,
         "requested_by_user_id": current_user.id,
         "readiness": build_production_readiness_report(dict(os.environ)),
+    }
+
+
+@router.get("/agent-sessions")
+def list_ai_trading_agent_sessions_endpoint(
+    limit: int = Query(default=50, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """List current-user AI Trading agent-session partitions."""
+    return {
+        "agent_sessions": list_ai_trading_agent_sessions(
+            db,
+            user_id=current_user.id,
+            limit=limit,
+        ),
+    }
+
+
+@router.get("/agent-sessions/{agent_session_id}/context")
+def ai_trading_agent_session_context_endpoint(
+    agent_session_id: str = Path(
+        ...,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    ),
+    strategy_limit: int = Query(default=5, ge=1, le=20),
+    signal_limit: int = Query(default=10, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Return a compact, non-secret context packet for one current-user AI Trading session."""
+    try:
+        context = build_ai_trading_agent_session_context(
+            db,
+            user_id=current_user.id,
+            agent_session_id=agent_session_id,
+            strategy_limit=strategy_limit,
+            signal_limit=signal_limit,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "context": context,
     }
 
 
@@ -303,6 +361,12 @@ def model_adjust_strategy_spec_endpoint(
 @router.get("/strategy-specs")
 def list_strategy_specs_endpoint(
     status: Optional[str] = None,
+    agent_session_id: Optional[str] = Query(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    ),
     limit: int = 50,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
@@ -312,6 +376,7 @@ def list_strategy_specs_endpoint(
         db,
         user_id=current_user.id,
         status=status,
+        agent_session_id=agent_session_id,
         limit=limit,
     )
     return {
@@ -335,6 +400,9 @@ def save_strategy_spec_endpoint(
         spec=request.spec,
         name=request.name,
         source=request.source or "manual",
+        agent_session_id=request.agent_session_id,
+        agent_session_name=request.agent_session_name,
+        agent_context_summary=request.agent_context_summary,
     )
     return {
         "success": True,
@@ -629,6 +697,12 @@ def create_strategy_signal_event_endpoint(
 @router.get("/signal-events")
 def list_signal_events_endpoint(
     strategy_spec_id: Optional[int] = None,
+    agent_session_id: Optional[str] = Query(
+        default=None,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    ),
     status: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db),
@@ -639,6 +713,7 @@ def list_signal_events_endpoint(
         db,
         user_id=current_user.id,
         strategy_spec_id=strategy_spec_id,
+        agent_session_id=agent_session_id,
         status=status,
         limit=limit,
     )

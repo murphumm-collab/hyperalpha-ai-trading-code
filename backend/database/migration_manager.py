@@ -75,6 +75,7 @@ MIGRATIONS = [
     "add_ai_trading_strategy_specs.py",
     "add_ai_trading_signal_events.py",
     "add_ai_trading_signal_handoff_attempts.py",
+    "add_ai_trading_agent_session_fields.py",
     "add_kline_task_user_scope.py",
     "add_ai_stream_persistence.py",
     "add_ai_stream_confirmations.py",

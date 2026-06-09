@@ -190,6 +190,11 @@ interface AiTradingStrategySpecRecord {
   symbol: string
   status: string
   approved_at?: string | null
+  agent_session?: {
+    id?: string | null
+    name?: string | null
+    context_summary?: string | null
+  }
   spec?: AiTradingStrategySpec
   validation?: {
     status?: string
@@ -206,6 +211,10 @@ interface AiTradingSignalEventRecord {
   action: string
   status: string
   handoff_status?: string
+  agent_session?: {
+    id?: string | null
+    name?: string | null
+  }
   handoff_eligibility?: {
     eligible?: boolean
     blockers?: string[]
@@ -224,6 +233,10 @@ interface AiTradingSignalHandoffAttemptRecord {
   signal_event_id: number
   result: string
   gateway_ready?: boolean
+  agent_session?: {
+    id?: string | null
+    name?: string | null
+  }
   blockers?: string[]
   eligibility?: Record<string, unknown>
   error_message?: string | null
@@ -324,6 +337,9 @@ interface AiTradingRuntimeStatus {
       by_blocker?: Record<string, number>
     }
   }
+  agent_sessions?: {
+    total?: number
+  }
   signal_events?: {
     total?: number
     by_status?: Record<string, number>
@@ -334,6 +350,20 @@ interface AiTradingRuntimeStatus {
       by_blocker?: Record<string, number>
     }
   }
+}
+
+interface AiTradingAgentSessionRecord {
+  id: string
+  name?: string | null
+  context_summary?: string | null
+  strategy_spec_count?: number
+  signal_event_count?: number
+  symbols?: string[]
+  by_strategy_status?: Record<string, number>
+  by_signal_status?: Record<string, number>
+  latest_strategy_spec_id?: number | null
+  latest_signal_event_id?: number | null
+  updated_at?: string | null
 }
 
 const AI_TRADING_BACKTEST_DEFAULTS = {
@@ -964,6 +994,7 @@ export default function HyperAiPage() {
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
+  const [recentAgentSessions, setRecentAgentSessions] = useState<AiTradingAgentSessionRecord[]>([])
   const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
   const [recentSignalEvents, setRecentSignalEvents] = useState<AiTradingSignalEventRecord[]>([])
   const [recentBacktestResults, setRecentBacktestResults] = useState<AiTradingBacktestResultRecord[]>([])
@@ -1464,14 +1495,17 @@ export default function HyperAiPage() {
 
   const fetchAiTradingRecords = async () => {
     try {
-      const [specRes, signalRes, backtestRes] = await Promise.all([
+      const [sessionRes, specRes, signalRes, backtestRes] = await Promise.all([
+        authFetch('/api/ai-trading/agent-sessions?limit=3'),
         authFetch('/api/ai-trading/strategy-specs?limit=3'),
         authFetch('/api/ai-trading/signal-events?limit=3'),
         authFetch('/api/ai-trading/backtest-results?status=completed&limit=3'),
       ])
+      const sessionData = sessionRes.ok ? await sessionRes.json() : {}
       const specData = specRes.ok ? await specRes.json() : {}
       const signalData = signalRes.ok ? await signalRes.json() : {}
       const backtestData = backtestRes.ok ? await backtestRes.json() : {}
+      setRecentAgentSessions(Array.isArray(sessionData.agent_sessions) ? sessionData.agent_sessions : [])
       setRecentStrategySpecs(Array.isArray(specData.specs) ? specData.specs : [])
       setRecentSignalEvents(Array.isArray(signalData.signal_events) ? signalData.signal_events : [])
       setRecentBacktestResults(Array.isArray(backtestData.backtest_results) ? backtestData.backtest_results : [])
@@ -3285,7 +3319,7 @@ export default function HyperAiPage() {
               <div className="mb-2 text-xs text-red-500">{strategyDraftError}</div>
             )}
             {aiTradingRuntime && (
-              <div className="mb-2 grid grid-cols-3 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px]">
+              <div className="mb-2 grid grid-cols-2 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px] xl:grid-cols-4">
                 <div className="min-w-0">
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingGateway', 'Gateway')}</div>
                   <div className={`truncate font-medium ${
@@ -3313,6 +3347,16 @@ export default function HyperAiPage() {
                       {gatewayTargetLabel()}
                     </div>
                   )}
+                </div>
+                <div className="min-w-0">
+                  <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSessions', 'Sessions')}</div>
+                  <div className="truncate font-medium text-foreground">
+                    {aiTradingRuntime.agent_sessions?.total ?? recentAgentSessions.length}
+                    <span className="text-muted-foreground">
+                      {' '}
+                      {t('hyperAi.aiTradingActive', 'active')}
+                    </span>
+                  </div>
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingSpecs', 'Specs')}</div>
@@ -3784,7 +3828,7 @@ export default function HyperAiPage() {
               </div>
             )}
 
-            {(recentBacktestResults.length > 0 || recentStrategySpecs.length > 0 || recentSignalEvents.length > 0) && (
+            {(recentBacktestResults.length > 0 || recentAgentSessions.length > 0 || recentStrategySpecs.length > 0 || recentSignalEvents.length > 0) && (
               <div className="mt-3 space-y-2 text-xs">
                 {recentBacktestResults.length > 0 && (
                   <div className="rounded-md border bg-muted/20 p-2">
@@ -3822,6 +3866,36 @@ export default function HyperAiPage() {
                   </div>
                 )}
 
+                {recentAgentSessions.length > 0 && (
+                  <div className="rounded-md border bg-muted/20 p-2">
+                    <div className="mb-1.5 flex items-center gap-1.5 font-medium">
+                      <Blocks className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span>{t('hyperAi.aiTradingRecentSessions', 'Recent agent sessions')}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {recentAgentSessions.map(session => (
+                        <div key={session.id} className="min-w-0 rounded border bg-background/60 px-2 py-1.5">
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <div className="truncate font-medium">{session.name || session.id}</div>
+                            <div className="shrink-0 text-[11px] text-muted-foreground">
+                              {(session.strategy_spec_count ?? 0)}
+                              {' '}
+                              {t('hyperAi.aiTradingSpecsShort', 'specs')}
+                              {' / '}
+                              {(session.signal_event_count ?? 0)}
+                              {' '}
+                              {t('hyperAi.aiTradingSignalsShort', 'signals')}
+                            </div>
+                          </div>
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {(session.symbols || []).slice(0, 4).join(', ') || t('hyperAi.aiTradingNoSymbols', 'No symbols')}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {recentStrategySpecs.length > 0 && (
                   <div className="rounded-md border bg-muted/20 p-2">
                     <div className="mb-1.5 flex items-center gap-1.5 font-medium">
@@ -3833,7 +3907,12 @@ export default function HyperAiPage() {
                         <div key={record.id} className="flex items-center gap-2">
                           <div className="min-w-0 flex-1">
                             <div className="truncate font-medium">{record.symbol} · {record.name}</div>
-                            <div className="truncate text-[11px] text-muted-foreground">#{record.id} · {record.status}</div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              #{record.id}
+                              {' · '}
+                              {record.status}
+                              {record.agent_session?.name ? ` · ${record.agent_session.name}` : ''}
+                            </div>
                           </div>
                           <button
                             type="button"
@@ -3945,6 +4024,7 @@ export default function HyperAiPage() {
                             </div>
                             <div className="truncate text-[11px] text-muted-foreground">
                               #{event.id} · {event.status} · {signalBlockerSummary(event)}
+                              {event.agent_session?.name ? ` · ${event.agent_session.name}` : ''}
                             </div>
                           </div>
                           <button

@@ -250,7 +250,14 @@ def _create_program_backtest_result(
         session.close()
 
 
-def _create_approved_signal_event(client, *, symbol="BTC"):
+def _create_approved_signal_event(
+    client,
+    *,
+    symbol="BTC",
+    agent_session_id=None,
+    agent_session_name=None,
+    agent_context_summary=None,
+):
     draft = client.post(
         "/api/ai-trading/strategy-spec/draft",
         json={
@@ -268,9 +275,17 @@ def _create_approved_signal_event(client, *, symbol="BTC"):
     )
     assert draft.status_code == 200
 
+    save_payload = {"spec": draft.json()["spec"], "name": f"{symbol} review spec", "source": "pytest"}
+    if agent_session_id:
+        save_payload["agent_session_id"] = agent_session_id
+    if agent_session_name:
+        save_payload["agent_session_name"] = agent_session_name
+    if agent_context_summary:
+        save_payload["agent_context_summary"] = agent_context_summary
+
     saved = client.post(
         "/api/ai-trading/strategy-specs",
-        json={"spec": draft.json()["spec"], "name": f"{symbol} review spec", "source": "pytest"},
+        json=save_payload,
     )
     assert saved.status_code == 200
     record = saved.json()["spec_record"]
@@ -2157,6 +2172,83 @@ def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_
 
     assert alice.get("/api/ai-trading/strategy-specs").json()["specs"][0]["id"] == alice_spec["id"]
     assert alice.get("/api/ai-trading/signal-events").json()["signal_events"][0]["id"] == alice_event["id"]
+
+
+def test_ai_trading_agent_sessions_partition_context_by_user_and_session(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+
+    btc_spec, btc_event = _create_approved_signal_event(
+        alice,
+        symbol="BTC",
+        agent_session_id="session:btc-breakout",
+        agent_session_name="BTC Breakout Agent",
+        agent_context_summary="User prefers BTC 15m breakout with strict risk caps.",
+    )
+    eth_spec, _ = _create_approved_signal_event(
+        alice,
+        symbol="ETH",
+        agent_session_id="session:eth-mean-reversion",
+        agent_session_name="ETH Mean Reversion Agent",
+    )
+
+    sessions = alice.get("/api/ai-trading/agent-sessions")
+    assert sessions.status_code == 200
+    session_rows = sessions.json()["agent_sessions"]
+    session_ids = {row["id"] for row in session_rows}
+    assert {"session:btc-breakout", "session:eth-mean-reversion"} <= session_ids
+
+    btc_session = next(row for row in session_rows if row["id"] == "session:btc-breakout")
+    assert btc_session["name"] == "BTC Breakout Agent"
+    assert btc_session["strategy_spec_count"] == 1
+    assert btc_session["signal_event_count"] == 1
+    assert btc_session["by_strategy_status"]["approved"] == 1
+    assert btc_session["by_signal_status"]["review_candidate"] == 1
+    assert btc_session["symbols"] == ["BTC"]
+    assert "strict risk caps" in btc_session["context_summary"]
+
+    filtered_specs = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:btc-breakout")
+    assert filtered_specs.status_code == 200
+    assert [row["id"] for row in filtered_specs.json()["specs"]] == [btc_spec["id"]]
+    assert filtered_specs.json()["specs"][0]["agent_session"]["id"] == "session:btc-breakout"
+
+    filtered_events = alice.get("/api/ai-trading/signal-events?agent_session_id=session:btc-breakout")
+    assert filtered_events.status_code == 200
+    assert [row["id"] for row in filtered_events.json()["signal_events"]] == [btc_event["id"]]
+    assert filtered_events.json()["signal_events"][0]["agent_session"]["id"] == "session:btc-breakout"
+
+    detail = alice.get(f"/api/ai-trading/signal-events/{btc_event['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["signal_event"]["signal"]["agent_session"]["id"] == "session:btc-breakout"
+
+    blocked_handoff = alice.post(
+        f"/api/ai-trading/signal-events/{btc_event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert blocked_handoff.status_code == 409
+    attempts = alice.get(f"/api/ai-trading/signal-events/{btc_event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    assert attempts.json()["attempts"][0]["agent_session"]["id"] == "session:btc-breakout"
+
+    context = alice.get("/api/ai-trading/agent-sessions/session:btc-breakout/context")
+    assert context.status_code == 200
+    context_payload = context.json()["context"]
+    assert context_payload["agent_session"]["id"] == "session:btc-breakout"
+    assert context_payload["compression"]["secret_policy"] == "redacted_no_credentials"
+    assert context_payload["strategy_specs"][0]["id"] == btc_spec["id"]
+    assert context_payload["signal_events"][0]["id"] == btc_event["id"]
+    assert "api_key" not in json.dumps(context_payload).lower()
+
+    eth_filtered_specs = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:eth-mean-reversion")
+    assert eth_filtered_specs.status_code == 200
+    assert [row["id"] for row in eth_filtered_specs.json()["specs"]] == [eth_spec["id"]]
+    assert alice.get("/api/ai-trading/signal-events?agent_session_id=session:eth-mean-reversion").json()["signal_events"]
+
+    assert bob.get("/api/ai-trading/agent-sessions").json()["agent_sessions"] == []
+    assert bob.get("/api/ai-trading/agent-sessions/session:btc-breakout/context").status_code == 404
+    assert bob.get("/api/ai-trading/strategy-specs?agent_session_id=session:btc-breakout").json()["specs"] == []
+    assert bob.get("/api/ai-trading/signal-events?agent_session_id=session:btc-breakout").json()["signal_events"] == []
 
 
 def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, monkeypatch):

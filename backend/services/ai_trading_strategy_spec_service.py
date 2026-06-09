@@ -11,6 +11,7 @@ import json
 import os
 import copy
 import ipaddress
+import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib import parse
@@ -111,6 +112,7 @@ DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"direct\s+order|立即下单|直接下单|市价单|限价单)",
     re.IGNORECASE,
 )
+AGENT_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$")
 HIP3_INDEX_SYMBOLS = {
     "SP500",
     "SPX",
@@ -526,6 +528,41 @@ def _derive_record_name(spec: Dict[str, Any], name: Optional[str] = None) -> str
     return f"{symbol} {timeframe} AI Trading Spec"[:120]
 
 
+def _clean_agent_session_id(value: Any) -> Optional[str]:
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    raw = raw[:80]
+    if not AGENT_SESSION_ID_PATTERN.match(raw):
+        raise ValueError(
+            "agent_session_id must be 1-80 chars of letters, numbers, "
+            "colon, dot, underscore, or dash"
+        )
+    return raw
+
+
+def _new_agent_session_id(spec: Dict[str, Any]) -> str:
+    symbol = (_normalize_symbol(spec.get("symbol")) or "strategy").lower()
+    return f"ait:{symbol}:{uuid.uuid4().hex[:12]}"
+
+
+def _clean_agent_context_summary(value: Any) -> Optional[str]:
+    summary = _clean_text(value, 2000)
+    if not summary:
+        return None
+    if SENSITIVE_AI_TRADING_KEY_PATTERN.search(summary):
+        return "[redacted_sensitive_context]"
+    return summary
+
+
+def _record_agent_session_payload(record: Any) -> Dict[str, Any]:
+    return {
+        "id": getattr(record, "agent_session_id", None),
+        "name": getattr(record, "agent_session_name", None),
+        "context_summary": getattr(record, "agent_context_summary", None),
+    }
+
+
 def serialize_strategy_spec_record(
     record: AiTradingStrategySpecRecord,
     *,
@@ -538,6 +575,7 @@ def serialize_strategy_spec_record(
         "symbol": record.symbol,
         "status": record.status,
         "source": record.source,
+        "agent_session": _record_agent_session_payload(record),
         "validation": _json_loads(record.validation_json, {}),
         "approved_at": _record_timestamp(record.approved_at),
         "created_at": _record_timestamp(record.created_at),
@@ -561,6 +599,7 @@ def serialize_signal_event_record(
         "action": record.action,
         "status": record.status,
         "handoff_status": record.handoff_status,
+        "agent_session": _record_agent_session_payload(record),
         "error_message": record.error_message,
         "submitted_at": _record_timestamp(record.submitted_at),
         "created_at": _record_timestamp(record.created_at),
@@ -586,6 +625,7 @@ def serialize_signal_handoff_attempt_record(
         "strategy_spec_id": record.strategy_spec_id,
         "symbol": record.symbol,
         "action": record.action,
+        "agent_session": _record_agent_session_payload(record),
         "result": record.result,
         "gateway_ready": bool(record.gateway_ready),
         "blockers": _redact_sensitive_payload(_json_loads(record.blockers_json, [])),
@@ -1220,6 +1260,9 @@ def save_strategy_spec_record(
     spec: Dict[str, Any],
     name: Optional[str] = None,
     source: str = "manual",
+    agent_session_id: Optional[str] = None,
+    agent_session_name: Optional[str] = None,
+    agent_context_summary: Optional[str] = None,
 ) -> AiTradingStrategySpecRecord:
     """Persist a user-owned strategy spec draft/review record."""
     spec_copy = dict(spec or {})
@@ -1227,6 +1270,27 @@ def save_strategy_spec_record(
     spec_copy.setdefault("version", SPEC_VERSION)
     spec_copy.setdefault("venue", "hyperliquid")
     spec_copy.setdefault("backtest", _default_backtest_gate())
+    resolved_agent_session_id = (
+        _clean_agent_session_id(agent_session_id)
+        or _clean_agent_session_id(spec_copy.get("agent_session_id"))
+        or _new_agent_session_id(spec_copy)
+    )
+    resolved_agent_session_name = (
+        _clean_text(agent_session_name, 120)
+        or _clean_text(spec_copy.get("agent_session_name"), 120)
+        or _derive_record_name(spec_copy, name)
+    )
+    resolved_context_summary = _clean_agent_context_summary(
+        agent_context_summary or spec_copy.get("agent_context_summary")
+    )
+    spec_copy["agent_session"] = {
+        "id": resolved_agent_session_id,
+        "name": resolved_agent_session_name,
+        "context_summary": resolved_context_summary,
+    }
+    spec_copy.pop("agent_session_id", None)
+    spec_copy.pop("agent_session_name", None)
+    spec_copy.pop("agent_context_summary", None)
 
     validation = validate_strategy_spec(spec_copy, user_id=user_id)
     spec_copy["validation"] = {
@@ -1238,6 +1302,9 @@ def save_strategy_spec_record(
 
     record = AiTradingStrategySpecRecord(
         user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+        agent_session_name=resolved_agent_session_name,
+        agent_context_summary=resolved_context_summary,
         name=_derive_record_name(spec_copy, name),
         symbol=_normalize_symbol(spec_copy.get("symbol")),
         status=validation["status"],
@@ -1921,11 +1988,15 @@ def list_strategy_spec_records(
     *,
     user_id: int,
     status: Optional[str] = None,
+    agent_session_id: Optional[str] = None,
     limit: int = 50,
 ) -> List[AiTradingStrategySpecRecord]:
     query = db.query(AiTradingStrategySpecRecord).filter(
         AiTradingStrategySpecRecord.user_id == user_id,
     )
+    resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
+    if resolved_agent_session_id:
+        query = query.filter(AiTradingStrategySpecRecord.agent_session_id == resolved_agent_session_id)
     if status:
         query = query.filter(AiTradingStrategySpecRecord.status == status)
     else:
@@ -2111,6 +2182,10 @@ def build_signal_preview_from_strategy_spec_record(
         "candidate_type": "review_signal_candidate",
         "strategy_spec_id": record.id,
         "strategy_spec_version": spec.get("version"),
+        "agent_session": {
+            "id": record.agent_session_id,
+            "name": record.agent_session_name,
+        },
         "venue": "hyperliquid",
         "symbol": symbol,
         "exchange_symbol": market_identity.get("exchange_symbol") or symbol,
@@ -2196,6 +2271,8 @@ def create_signal_event_record(
     event = AiTradingSignalEventRecord(
         user_id=user_id,
         strategy_spec_id=record.id,
+        agent_session_id=record.agent_session_id,
+        agent_session_name=record.agent_session_name,
         symbol=signal.get("symbol") or record.symbol,
         action=signal.get("action") or "hold",
         status="review_candidate",
@@ -2218,12 +2295,16 @@ def list_signal_event_records(
     *,
     user_id: int,
     strategy_spec_id: Optional[int] = None,
+    agent_session_id: Optional[str] = None,
     status: Optional[str] = None,
     limit: int = 50,
 ) -> List[AiTradingSignalEventRecord]:
     query = db.query(AiTradingSignalEventRecord).filter(
         AiTradingSignalEventRecord.user_id == user_id,
     )
+    resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
+    if resolved_agent_session_id:
+        query = query.filter(AiTradingSignalEventRecord.agent_session_id == resolved_agent_session_id)
     if strategy_spec_id is not None:
         query = query.filter(AiTradingSignalEventRecord.strategy_spec_id == strategy_spec_id)
     if status:
@@ -2261,6 +2342,8 @@ def _add_signal_handoff_attempt(
         user_id=event.user_id,
         signal_event_id=event.id,
         strategy_spec_id=event.strategy_spec_id,
+        agent_session_id=event.agent_session_id,
+        agent_session_name=event.agent_session_name,
         symbol=event.symbol,
         action=event.action,
         result=_clean_text(result, 30) or "unknown",
@@ -2293,6 +2376,234 @@ def list_signal_handoff_attempt_records(
         .limit(max(1, min(int(limit or 20), 100)))
         .all()
     )
+
+
+def _agent_session_sort_key(value: Any) -> datetime:
+    parsed = _as_utc_datetime(value)
+    return parsed or datetime.fromtimestamp(0, tz=timezone.utc)
+
+
+def _minimal_strategy_spec_context(record: AiTradingStrategySpecRecord) -> Dict[str, Any]:
+    spec = _json_loads(record.spec_json, {})
+    if not isinstance(spec, dict):
+        spec = {}
+    risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
+    backtest = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else {}
+    ai_model = spec.get("ai_model") if isinstance(spec.get("ai_model"), dict) else {}
+    validation = _json_loads(record.validation_json, {})
+    if not isinstance(validation, dict):
+        validation = {}
+    return _redact_sensitive_payload({
+        "id": record.id,
+        "name": record.name,
+        "symbol": record.symbol,
+        "status": record.status,
+        "timeframe": spec.get("timeframe") or DEFAULT_TIMEFRAME,
+        "intent": spec.get("intent"),
+        "market": spec.get("market") if isinstance(spec.get("market"), dict) else _build_market_identity(record.symbol),
+        "ai_model": {
+            "provider": ai_model.get("provider"),
+            "model": ai_model.get("model"),
+            "source": ai_model.get("source"),
+            "configured": bool(ai_model.get("configured")),
+        },
+        "risk": {
+            "max_loss_pct": risk.get("max_loss_pct"),
+            "max_loss_usd": risk.get("max_loss_usd"),
+            "max_leverage": risk.get("max_leverage"),
+            "position_notional_usd": risk.get("position_notional_usd"),
+        },
+        "backtest": {
+            "status": backtest.get("status"),
+            "accepted_for_handoff": bool(backtest.get("accepted_for_handoff")),
+            "source": backtest.get("source"),
+            "backtest_id": backtest.get("backtest_id"),
+            "quality_blockers": _backtest_handoff_blockers(backtest),
+        },
+        "validation": {
+            "status": validation.get("status"),
+            "issues": validation.get("issues") or [],
+            "warnings": validation.get("warnings") or [],
+            "safe_to_emit_signal": bool(validation.get("safe_to_emit_signal")),
+        },
+        "approved_at": _record_timestamp(record.approved_at),
+        "updated_at": _record_timestamp(record.updated_at),
+    })
+
+
+def _minimal_signal_event_context(record: AiTradingSignalEventRecord) -> Dict[str, Any]:
+    signal = _json_loads(record.signal_json, {})
+    if not isinstance(signal, dict):
+        signal = {}
+    return _redact_sensitive_payload({
+        "id": record.id,
+        "strategy_spec_id": record.strategy_spec_id,
+        "symbol": record.symbol,
+        "action": record.action,
+        "status": record.status,
+        "handoff_status": record.handoff_status,
+        "validation": signal.get("validation") if isinstance(signal.get("validation"), dict) else {},
+        "handoff_eligibility": build_signal_event_handoff_eligibility(record),
+        "created_at": _record_timestamp(record.created_at),
+        "updated_at": _record_timestamp(record.updated_at),
+    })
+
+
+def list_ai_trading_agent_sessions(
+    db: Session,
+    *,
+    user_id: int,
+    limit: int = 50,
+) -> List[Dict[str, Any]]:
+    """Return current-user AI Trading agent-session summaries derived from audit rows."""
+    max_limit = max(1, min(int(limit or 50), 100))
+    specs = (
+        db.query(AiTradingStrategySpecRecord)
+        .filter(
+            AiTradingStrategySpecRecord.user_id == user_id,
+            AiTradingStrategySpecRecord.agent_session_id.isnot(None),
+            AiTradingStrategySpecRecord.status != ARCHIVED_STATUS,
+        )
+        .order_by(AiTradingStrategySpecRecord.updated_at.desc(), AiTradingStrategySpecRecord.id.desc())
+        .limit(500)
+        .all()
+    )
+    events = (
+        db.query(AiTradingSignalEventRecord)
+        .filter(
+            AiTradingSignalEventRecord.user_id == user_id,
+            AiTradingSignalEventRecord.agent_session_id.isnot(None),
+        )
+        .order_by(AiTradingSignalEventRecord.created_at.desc(), AiTradingSignalEventRecord.id.desc())
+        .limit(500)
+        .all()
+    )
+
+    grouped: Dict[str, Dict[str, Any]] = {}
+    for spec in specs:
+        session_id = spec.agent_session_id
+        if not session_id:
+            continue
+        item = grouped.setdefault(session_id, {
+            "id": session_id,
+            "name": spec.agent_session_name or spec.name,
+            "context_summary": spec.agent_context_summary,
+            "strategy_spec_count": 0,
+            "signal_event_count": 0,
+            "symbols": [],
+            "by_strategy_status": {},
+            "by_signal_status": {},
+            "latest_strategy_spec_id": None,
+            "latest_signal_event_id": None,
+            "updated_at": None,
+        })
+        item["strategy_spec_count"] += 1
+        item["by_strategy_status"][spec.status] = item["by_strategy_status"].get(spec.status, 0) + 1
+        if spec.symbol not in item["symbols"]:
+            item["symbols"].append(spec.symbol)
+        if not item["latest_strategy_spec_id"]:
+            item["latest_strategy_spec_id"] = spec.id
+        current_updated = _agent_session_sort_key(item["updated_at"])
+        spec_updated = _agent_session_sort_key(spec.updated_at)
+        if spec_updated >= current_updated:
+            item["updated_at"] = _record_timestamp(spec.updated_at)
+            item["name"] = spec.agent_session_name or item["name"]
+            item["context_summary"] = spec.agent_context_summary or item["context_summary"]
+
+    for event in events:
+        session_id = event.agent_session_id
+        if not session_id:
+            continue
+        item = grouped.setdefault(session_id, {
+            "id": session_id,
+            "name": event.agent_session_name or session_id,
+            "context_summary": None,
+            "strategy_spec_count": 0,
+            "signal_event_count": 0,
+            "symbols": [],
+            "by_strategy_status": {},
+            "by_signal_status": {},
+            "latest_strategy_spec_id": None,
+            "latest_signal_event_id": None,
+            "updated_at": None,
+        })
+        item["signal_event_count"] += 1
+        item["by_signal_status"][event.status] = item["by_signal_status"].get(event.status, 0) + 1
+        if event.symbol not in item["symbols"]:
+            item["symbols"].append(event.symbol)
+        if not item["latest_signal_event_id"]:
+            item["latest_signal_event_id"] = event.id
+        current_updated = _agent_session_sort_key(item["updated_at"])
+        event_updated = _agent_session_sort_key(event.updated_at or event.created_at)
+        if event_updated >= current_updated:
+            item["updated_at"] = _record_timestamp(event.updated_at or event.created_at)
+            item["name"] = event.agent_session_name or item["name"]
+
+    sessions = sorted(
+        grouped.values(),
+        key=lambda item: _agent_session_sort_key(item.get("updated_at")),
+        reverse=True,
+    )
+    return sessions[:max_limit]
+
+
+def build_ai_trading_agent_session_context(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: str,
+    strategy_limit: int = 5,
+    signal_limit: int = 10,
+) -> Dict[str, Any]:
+    """Build a compact, non-secret AI Trading context packet for one current-user session."""
+    resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
+    if not resolved_agent_session_id:
+        raise ValueError("agent_session_id is required")
+
+    strategy_records = list_strategy_spec_records(
+        db,
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+        limit=max(1, min(int(strategy_limit or 5), 20)),
+    )
+    signal_records = list_signal_event_records(
+        db,
+        user_id=user_id,
+        agent_session_id=resolved_agent_session_id,
+        limit=max(1, min(int(signal_limit or 10), 50)),
+    )
+    if not strategy_records and not signal_records:
+        raise ValueError("AI Trading agent session not found")
+
+    representative = strategy_records[0] if strategy_records else signal_records[0]
+    session_payload = _record_agent_session_payload(representative)
+    session_payload["id"] = resolved_agent_session_id
+    context_summary = session_payload.get("context_summary")
+    if not context_summary and strategy_records:
+        context_summary = strategy_records[0].agent_context_summary
+
+    return {
+        "agent_session": {
+            "id": resolved_agent_session_id,
+            "name": session_payload.get("name") or resolved_agent_session_id,
+            "context_summary": context_summary,
+        },
+        "compression": {
+            "format": "ai_trading_agent_session_context.v1",
+            "strategy_limit": len(strategy_records),
+            "signal_limit": len(signal_records),
+            "scope": "current_user_single_agent_session",
+            "secret_policy": "redacted_no_credentials",
+        },
+        "strategy_specs": [
+            _minimal_strategy_spec_context(record)
+            for record in strategy_records
+        ],
+        "signal_events": [
+            _minimal_signal_event_context(record)
+            for record in signal_records
+        ],
+    }
 
 
 def reject_signal_event_record(
@@ -2764,6 +3075,13 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
     spec_records = db.query(AiTradingStrategySpecRecord).filter(
         AiTradingStrategySpecRecord.user_id == user_id,
     ).all()
+    agent_session_count = db.query(
+        func.count(func.distinct(AiTradingStrategySpecRecord.agent_session_id))
+    ).filter(
+        AiTradingStrategySpecRecord.user_id == user_id,
+        AiTradingStrategySpecRecord.agent_session_id.isnot(None),
+        AiTradingStrategySpecRecord.status != ARCHIVED_STATUS,
+    ).scalar() or 0
 
     spec_counts = {str(status): int(count) for status, count in spec_rows}
     event_counts = {str(status): int(count) for status, count in event_rows}
@@ -2787,6 +3105,9 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
             "total": sum(spec_counts.values()),
             "by_status": spec_counts,
             "backtest_evidence": _summarize_strategy_backtest_evidence(spec_records),
+        },
+        "agent_sessions": {
+            "total": int(agent_session_count),
         },
         "signal_events": {
             "total": sum(event_counts.values()),
