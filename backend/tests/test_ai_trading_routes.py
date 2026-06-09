@@ -2333,11 +2333,29 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert attempts.status_code == 200
     assert attempts.json()["attempts"][0]["agent_session"]["name"] == "Renamed BTC Agent"
 
+    compressed = alice.post("/api/ai-trading/agent-sessions/session:managed-btc/compress-context")
+    assert compressed.status_code == 200
+    compressed_payload = compressed.json()
+    context_summary = compressed_payload["context_summary"]
+    assert "AI Trading session compressed context v1" in context_summary
+    assert "strategy_specs=1" in context_summary
+    assert "signal_events=1" in context_summary
+    assert "redaction=enabled" in context_summary
+    assert "ai_order_placement=disallowed" in context_summary
+    assert "api_key" not in json.dumps(compressed_payload).lower()
+    assert compressed_payload["agent_session"]["context_summary"] == context_summary
+    assert compressed_payload["context"]["agent_session"]["context_summary"] == context_summary
+
+    detail_after_compress = alice.get(f"/api/ai-trading/strategy-specs/{saved_record['id']}")
+    assert detail_after_compress.status_code == 200
+    assert detail_after_compress.json()["spec_record"]["agent_session"]["context_summary"] == context_summary
+
     assert bob.patch(
         "/api/ai-trading/agent-sessions/session:managed-btc",
         json={"name": "Bob cannot rename Alice session"},
     ).status_code == 404
     assert bob.delete("/api/ai-trading/agent-sessions/session:managed-btc").status_code == 404
+    assert bob.post("/api/ai-trading/agent-sessions/session:managed-btc/compress-context").status_code == 404
 
     archived = alice.delete("/api/ai-trading/agent-sessions/session:managed-btc")
     assert archived.status_code == 200

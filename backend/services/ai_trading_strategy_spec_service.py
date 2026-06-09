@@ -728,6 +728,144 @@ def archive_ai_trading_agent_session(
     return record
 
 
+def _format_agent_session_counts(values: Dict[str, int]) -> str:
+    if not values:
+        return "none"
+    return ", ".join(
+        f"{key}:{values[key]}"
+        for key in sorted(values.keys())
+    )
+
+
+def _build_agent_session_context_summary(context: Dict[str, Any]) -> str:
+    session = context.get("agent_session") if isinstance(context.get("agent_session"), dict) else {}
+    specs = context.get("strategy_specs") if isinstance(context.get("strategy_specs"), list) else []
+    signals = context.get("signal_events") if isinstance(context.get("signal_events"), list) else []
+
+    symbols = sorted({
+        str(item.get("symbol")).upper()
+        for item in [*specs, *signals]
+        if isinstance(item, dict) and item.get("symbol")
+    })
+    strategy_status_counts: Dict[str, int] = {}
+    signal_status_counts: Dict[str, int] = {}
+    handoff_counts: Dict[str, int] = {}
+    backtest_ready = 0
+    missing_or_blocked_backtests = 0
+
+    for spec in specs:
+        if not isinstance(spec, dict):
+            continue
+        status = str(spec.get("status") or "unknown")
+        strategy_status_counts[status] = strategy_status_counts.get(status, 0) + 1
+        backtest = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else {}
+        if backtest.get("accepted_for_handoff") and not backtest.get("quality_blockers"):
+            backtest_ready += 1
+        else:
+            missing_or_blocked_backtests += 1
+
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        status = str(signal.get("status") or "unknown")
+        signal_status_counts[status] = signal_status_counts.get(status, 0) + 1
+        handoff_status = str(signal.get("handoff_status") or "unknown")
+        handoff_counts[handoff_status] = handoff_counts.get(handoff_status, 0) + 1
+
+    latest_spec = specs[0] if specs and isinstance(specs[0], dict) else {}
+    latest_signal = signals[0] if signals and isinstance(signals[0], dict) else {}
+    latest_spec_line = (
+        f"latest_spec=#{latest_spec.get('id')} {latest_spec.get('symbol')} "
+        f"{latest_spec.get('status')} {latest_spec.get('timeframe')}"
+        if latest_spec
+        else "latest_spec=none"
+    )
+    latest_signal_line = (
+        f"latest_signal=#{latest_signal.get('id')} {latest_signal.get('symbol')} "
+        f"{latest_signal.get('action')} {latest_signal.get('status')}/{latest_signal.get('handoff_status')}"
+        if latest_signal
+        else "latest_signal=none"
+    )
+    open_blockers: List[str] = []
+    if missing_or_blocked_backtests:
+        open_blockers.append(f"{missing_or_blocked_backtests} specs need handoff-ready backtest evidence")
+    for signal in signals:
+        if not isinstance(signal, dict):
+            continue
+        eligibility = signal.get("handoff_eligibility") if isinstance(signal.get("handoff_eligibility"), dict) else {}
+        blockers = eligibility.get("blockers") if isinstance(eligibility.get("blockers"), list) else []
+        for blocker in blockers:
+            if blocker and blocker not in open_blockers:
+                open_blockers.append(str(blocker))
+            if len(open_blockers) >= 5:
+                break
+        if len(open_blockers) >= 5:
+            break
+
+    lines = [
+        "AI Trading session compressed context v1",
+        f"session={session.get('name') or session.get('id') or 'unknown'}",
+        f"status={session.get('status') or 'active'}",
+        f"symbols={', '.join(symbols[:8]) if symbols else 'none'}",
+        f"strategy_specs={len(specs)} ({_format_agent_session_counts(strategy_status_counts)})",
+        f"signal_events={len(signals)} ({_format_agent_session_counts(signal_status_counts)}); handoff={_format_agent_session_counts(handoff_counts)}",
+        f"backtest_ready={backtest_ready}; backtest_missing_or_blocked={missing_or_blocked_backtests}",
+        latest_spec_line,
+        latest_signal_line,
+        f"open_blockers={'; '.join(open_blockers[:5]) if open_blockers else 'none'}",
+        "redaction=enabled; ai_order_placement=disallowed",
+    ]
+    return _clean_agent_context_summary(" | ".join(lines)) or "AI Trading session compressed context v1"
+
+
+def compress_ai_trading_agent_session_context(
+    db: Session,
+    *,
+    user_id: int,
+    agent_session_id: str,
+    strategy_limit: int = 10,
+    signal_limit: int = 20,
+) -> Dict[str, Any]:
+    """Build and persist a deterministic, non-secret summary for one current-user session."""
+    context = build_ai_trading_agent_session_context(
+        db,
+        user_id=user_id,
+        agent_session_id=agent_session_id,
+        strategy_limit=strategy_limit,
+        signal_limit=signal_limit,
+    )
+    session = context.get("agent_session") if isinstance(context.get("agent_session"), dict) else {}
+    summary = _build_agent_session_context_summary(context)
+    record = _ensure_agent_session_record(
+        db,
+        user_id=user_id,
+        agent_session_id=agent_session_id,
+        name=str(session.get("name") or agent_session_id),
+        context_summary=summary,
+        allow_archived=True,
+    )
+    record.context_summary = summary
+    db.query(AiTradingStrategySpecRecord).filter(
+        AiTradingStrategySpecRecord.user_id == user_id,
+        AiTradingStrategySpecRecord.agent_session_id == record.agent_session_id,
+    ).update({
+        AiTradingStrategySpecRecord.agent_session_name: record.name,
+        AiTradingStrategySpecRecord.agent_context_summary: summary,
+    }, synchronize_session=False)
+    db.commit()
+    db.refresh(record)
+    context["agent_session"] = {
+        **context.get("agent_session", {}),
+        "context_summary": summary,
+        "status": record.status,
+    }
+    return {
+        "record": record,
+        "context": context,
+        "context_summary": summary,
+    }
+
+
 def serialize_strategy_spec_record(
     record: AiTradingStrategySpecRecord,
     *,

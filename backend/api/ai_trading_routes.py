@@ -28,6 +28,7 @@ from services.ai_trading_strategy_spec_service import (
     build_signal_preview_from_strategy_spec_record,
     build_strategy_backtest_evidence_detail,
     build_strategy_backtest_preflight,
+    compress_ai_trading_agent_session_context,
     create_ai_trading_agent_session,
     create_signal_event_record,
     draft_strategy_spec,
@@ -351,6 +352,40 @@ def ai_trading_agent_session_context_endpoint(
     return {
         "success": True,
         "context": context,
+    }
+
+
+@router.post("/agent-sessions/{agent_session_id}/compress-context")
+def compress_ai_trading_agent_session_context_endpoint(
+    agent_session_id: str = Path(
+        ...,
+        min_length=1,
+        max_length=80,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
+    ),
+    strategy_limit: int = Query(default=10, ge=1, le=20),
+    signal_limit: int = Query(default=20, ge=1, le=50),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Compress and persist a non-secret current-user AI Trading session summary."""
+    try:
+        result = compress_ai_trading_agent_session_context(
+            db,
+            user_id=current_user.id,
+            agent_session_id=agent_session_id,
+            strategy_limit=strategy_limit,
+            signal_limit=signal_limit,
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    return {
+        "success": True,
+        "agent_session": serialize_ai_trading_agent_session_record(result["record"]),
+        "context": result["context"],
+        "context_summary": result["context_summary"],
     }
 
 

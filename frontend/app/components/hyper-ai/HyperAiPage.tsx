@@ -1016,6 +1016,7 @@ export default function HyperAiPage() {
   const [agentSessionSummaryDraft, setAgentSessionSummaryDraft] = useState('')
   const [agentSessionSaving, setAgentSessionSaving] = useState(false)
   const [agentSessionArchiving, setAgentSessionArchiving] = useState(false)
+  const [agentSessionCompressing, setAgentSessionCompressing] = useState(false)
   const [agentSessionContext, setAgentSessionContext] = useState<AiTradingAgentSessionContext | null>(null)
   const [agentSessionContextLoading, setAgentSessionContextLoading] = useState(false)
   const [agentSessionContextError, setAgentSessionContextError] = useState<string | null>(null)
@@ -1623,6 +1624,35 @@ export default function HyperAiPage() {
       return null
     } finally {
       setAgentSessionContextLoading(false)
+    }
+  }
+
+  const handleCompressAgentSessionContext = async () => {
+    if (!selectedAiTradingAgentSession) {
+      return
+    }
+    setAgentSessionCompressing(true)
+    setStrategyDraftError(null)
+    try {
+      const res = await authFetchAiTradingAction(
+        `/api/ai-trading/agent-sessions/${encodeURIComponent(selectedAiTradingAgentSession.id)}/compress-context?strategy_limit=10&signal_limit=20`,
+        { method: 'POST' },
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to compress agent session context')
+      }
+      const summary = data.context_summary || data.agent_session?.context_summary || ''
+      setAgentSessionSummaryDraft(summary)
+      if (data.context) {
+        setAgentSessionContext(data.context as AiTradingAgentSessionContext)
+      }
+      refreshAiTradingState()
+    } catch (e) {
+      console.error('Failed to compress AI Trading agent session context:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to compress agent session context')
+    } finally {
+      setAgentSessionCompressing(false)
     }
   }
 
@@ -3674,21 +3704,38 @@ export default function HyperAiPage() {
                   <div className="truncate text-[11px] text-muted-foreground">
                     {(selectedAiTradingAgentSession.symbols || []).slice(0, 4).join(', ') || selectedAiTradingAgentSession.id}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => fetchAiTradingAgentSessionContext(selectedAiTradingAgentSession.id, true)}
-                    disabled={agentSessionContextLoading}
-                    className="flex h-7 w-full items-center justify-center gap-1.5 rounded-md border bg-background text-[11px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
-                    title={t('hyperAi.aiTradingLoadSessionContext', 'Load session context')}
-                    aria-label={t('hyperAi.aiTradingLoadSessionContext', 'Load session context')}
-                  >
-                    {agentSessionContextLoading ? (
-                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Brain className="h-3.5 w-3.5" />
-                    )}
-                    <span>{t('hyperAi.aiTradingLoadSessionContext', 'Load session context')}</span>
-                  </button>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => fetchAiTradingAgentSessionContext(selectedAiTradingAgentSession.id, true)}
+                      disabled={agentSessionContextLoading || agentSessionCompressing}
+                      className="flex h-7 items-center justify-center gap-1.5 rounded-md border bg-background text-[11px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      title={t('hyperAi.aiTradingLoadSessionContext', 'Load context')}
+                      aria-label={t('hyperAi.aiTradingLoadSessionContext', 'Load context')}
+                    >
+                      {agentSessionContextLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Brain className="h-3.5 w-3.5" />
+                      )}
+                      <span>{t('hyperAi.aiTradingLoadSessionContextShort', 'Load context')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleCompressAgentSessionContext}
+                      disabled={agentSessionContextLoading || agentSessionCompressing}
+                      className="flex h-7 items-center justify-center gap-1.5 rounded-md border bg-background text-[11px] text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      title={t('hyperAi.aiTradingCompressSessionContext', 'Compress context')}
+                      aria-label={t('hyperAi.aiTradingCompressSessionContext', 'Compress context')}
+                    >
+                      {agentSessionCompressing ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-3.5 w-3.5" />
+                      )}
+                      <span>{t('hyperAi.aiTradingCompressSessionContext', 'Compress context')}</span>
+                    </button>
+                  </div>
                   {agentSessionContextError && (
                     <div className="truncate text-[11px] text-red-500">{agentSessionContextError}</div>
                   )}
