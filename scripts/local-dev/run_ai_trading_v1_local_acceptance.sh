@@ -20,6 +20,7 @@ Runs the AI Trading V1 local acceptance gate:
   - default production readiness DB-audit gate must stay blocked
   - local V1 completion boundary audit must pass
   - production completion boundary audit must stay blocked
+  - production evidence template must stay blocked
   - frontend production build
   - local runtime readiness check
   - live LaunchAgent/mock-gateway handoff acceptance
@@ -107,6 +108,9 @@ run_step "Local V1 completion boundary audit" \
 
 run_expected_failure "Production completion boundary audit remains blocked" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-production"
+
+run_expected_failure "Production evidence template remains blocked" \
+  bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production"
 
 run_step "Frontend build" \
   bash -lc "cd frontend && npm run build"

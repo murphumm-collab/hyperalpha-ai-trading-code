@@ -30,6 +30,8 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 db_gate_text,
                 "Frontend build",
                 "ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff",
+                "Production evidence template remains blocked",
+                "--production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production",
             ]
         ),
     )

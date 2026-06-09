@@ -60,6 +60,8 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "--include-db-audits",
             "Frontend build",
             "ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff",
+            "Production evidence template remains blocked",
+            "--production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production",
         ),
     ),
     EvidenceRequirement(
