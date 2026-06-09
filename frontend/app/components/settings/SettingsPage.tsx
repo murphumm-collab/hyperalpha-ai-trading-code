@@ -681,11 +681,32 @@ export default function SettingsPage() {
       ai_stream: t('settings.aiTradingReadinessAiStream', 'AI Stream'),
       hard_risk: t('settings.aiTradingReadinessHardRisk', 'Hard Risk'),
       model_policy: t('settings.aiTradingReadinessModelPolicy', 'Model Policy'),
+      handoff_audit: t('settings.aiTradingReadinessHandoffAudit', 'Handoff Audit'),
     }
     return labels[component] || component.replace(/_/g, ' ')
   }
 
-  const formatReadinessCode = (code: string) => code.replace(/_/g, ' ')
+  const formatReadinessCode = (code: string) => {
+    const labels: Record<string, string> = {
+      'handoff_audit:handoff_attempt_failed_present': t(
+        'settings.aiTradingReadinessHandoffFailedPresent',
+        'Failed handoff attempts present'
+      ),
+      'handoff_audit:handoff_attempt_blocked_present': t(
+        'settings.aiTradingReadinessHandoffBlockedPresent',
+        'Blocked handoff attempts present'
+      ),
+      handoff_attempt_failed_present: t(
+        'settings.aiTradingReadinessHandoffFailedPresent',
+        'Failed handoff attempts present'
+      ),
+      handoff_attempt_blocked_present: t(
+        'settings.aiTradingReadinessHandoffBlockedPresent',
+        'Blocked handoff attempts present'
+      ),
+    }
+    return labels[code] || code.replace(/_/g, ' ')
+  }
 
   const handleToggleNewsSource = (index: number, enabled: boolean) => {
     setNewsError(null)
@@ -1873,7 +1894,7 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
                         {aiTradingReadinessComponents.map(([component, report]) => {
                           const blockers = report.blockers || []
                           const warnings = report.warnings || []
@@ -1903,8 +1924,20 @@ export default function SettingsPage() {
                                 </div>
                               )}
                               {warnings.length > 0 && (
-                                <div className="mt-2 text-xs text-amber-600">
-                                  {t('settings.readinessWarningCount', '{{count}} warnings', { count: warnings.length })}
+                                <div className="mt-2 space-y-1">
+                                  <div className="text-xs text-amber-600">
+                                    {t('settings.readinessWarningCount', '{{count}} warnings', { count: warnings.length })}
+                                  </div>
+                                  {warnings.slice(0, 2).map((warning) => (
+                                    <div key={warning} className="truncate text-xs text-amber-600" title={warning}>
+                                      {formatReadinessCode(warning)}
+                                    </div>
+                                  ))}
+                                  {warnings.length > 2 && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {t('settings.readinessMoreWarnings', '+{{count}} more', { count: warnings.length - 2 })}
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1919,6 +1952,19 @@ export default function SettingsPage() {
                             {aiTradingReadiness.blockers.slice(0, 8).map((blocker) => (
                               <div key={blocker} className="truncate text-xs text-red-500" title={blocker}>
                                 {formatReadinessCode(blocker)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {aiTradingReadiness.warnings.length > 0 && (
+                        <div className="rounded-md border p-3">
+                          <div className="mb-2 text-sm font-medium">{t('settings.readinessTopWarnings', 'Top Warnings')}</div>
+                          <div className="space-y-1">
+                            {aiTradingReadiness.warnings.slice(0, 8).map((warning) => (
+                              <div key={warning} className="truncate text-xs text-amber-600" title={warning}>
+                                {formatReadinessCode(warning)}
                               </div>
                             ))}
                           </div>
