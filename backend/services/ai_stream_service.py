@@ -1095,6 +1095,63 @@ class StreamBufferManager:
                     return task
             return self._hydrate_pending_task_for_conversation(conversation_id, user_id=user_id)
 
+    def get_persistent_running_snapshot(self, local_running_task_ids: set[str]) -> Dict[str, Any]:
+        """Summarize DB/Redis running task state for admin runtime visibility."""
+        snapshot: Dict[str, Any] = {
+            "persisted_running_tasks": 0,
+            "remote_running_tasks": 0,
+            "stale_running_tasks": 0,
+            "users": {},
+        }
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return snapshot
+
+        db = SessionLocal()
+        try:
+            rows = db.query(
+                AiStreamTaskRecord.task_id,
+                AiStreamTaskRecord.user_id,
+                AiStreamTaskRecord.created_at_epoch,
+            ).filter(
+                AiStreamTaskRecord.status == "running",
+            ).all()
+        except Exception as exc:
+            logger.warning("[StreamBuffer] Failed to collect persistent running snapshot: %s", exc)
+            return snapshot
+        finally:
+            db.close()
+
+        now = time.time()
+        for task_id, user_id, created_at_epoch in rows:
+            is_local = task_id in local_running_task_ids
+            has_active_lease = self._has_active_distributed_lease(task_id, user_id)
+            is_remote = bool(has_active_lease and not is_local)
+            is_stale = bool(self._admission_controller and not has_active_lease and not is_local)
+            age_seconds = max(0, int(now - (created_at_epoch or now)))
+
+            snapshot["persisted_running_tasks"] += 1
+            if is_remote:
+                snapshot["remote_running_tasks"] += 1
+            if is_stale:
+                snapshot["stale_running_tasks"] += 1
+
+            entry = snapshot["users"].setdefault(user_id, {
+                "user_id": user_id,
+                "persisted_running_tasks": 0,
+                "remote_running_tasks": 0,
+                "stale_running_tasks": 0,
+                "oldest_persisted_running_age_seconds": None,
+            })
+            entry["persisted_running_tasks"] += 1
+            if is_remote:
+                entry["remote_running_tasks"] += 1
+            if is_stale:
+                entry["stale_running_tasks"] += 1
+            current_oldest = entry["oldest_persisted_running_age_seconds"]
+            if current_oldest is None or age_seconds > current_oldest:
+                entry["oldest_persisted_running_age_seconds"] = age_seconds
+        return snapshot
+
 
 # Global singleton instance
 _buffer_manager: Optional[StreamBufferManager] = None
@@ -1207,6 +1264,7 @@ def get_ai_runtime_stats() -> Dict[str, Any]:
         running_tasks = 0
         completed_tasks = 0
         error_tasks = 0
+        local_running_task_ids: set[str] = set()
         user_stats: Dict[Optional[int], Dict[str, Any]] = {}
 
         for task in manager._tasks.values():
@@ -1214,14 +1272,19 @@ def get_ai_runtime_stats() -> Dict[str, Any]:
                 "user_id": task.user_id,
                 "total_tasks": 0,
                 "running_tasks": 0,
+                "remote_running_tasks": 0,
+                "persisted_running_tasks": 0,
+                "stale_running_tasks": 0,
                 "completed_tasks": 0,
                 "error_tasks": 0,
                 "oldest_running_age_seconds": None,
+                "oldest_persisted_running_age_seconds": None,
             })
             entry["total_tasks"] += 1
 
             if task.status == "running":
                 running_tasks += 1
+                local_running_task_ids.add(task.task_id)
                 entry["running_tasks"] += 1
                 age_seconds = max(0, int(now - task.created_at))
                 current_oldest = entry["oldest_running_age_seconds"]
@@ -1234,14 +1297,35 @@ def get_ai_runtime_stats() -> Dict[str, Any]:
                 error_tasks += 1
                 entry["error_tasks"] += 1
 
-        users = sorted(
-            user_stats.values(),
-            key=lambda item: (
-                -int(item["running_tasks"]),
-                -int(item["total_tasks"]),
-                item["user_id"] if item["user_id"] is not None else -1,
-            ),
-        )
+    persistent_snapshot = manager.get_persistent_running_snapshot(local_running_task_ids)
+    for user_id, persistent_entry in persistent_snapshot.get("users", {}).items():
+        entry = user_stats.setdefault(user_id, {
+            "user_id": user_id,
+            "total_tasks": 0,
+            "running_tasks": 0,
+            "remote_running_tasks": 0,
+            "persisted_running_tasks": 0,
+            "stale_running_tasks": 0,
+            "completed_tasks": 0,
+            "error_tasks": 0,
+            "oldest_running_age_seconds": None,
+            "oldest_persisted_running_age_seconds": None,
+        })
+        entry["remote_running_tasks"] = persistent_entry["remote_running_tasks"]
+        entry["persisted_running_tasks"] = persistent_entry["persisted_running_tasks"]
+        entry["stale_running_tasks"] = persistent_entry["stale_running_tasks"]
+        entry["oldest_persisted_running_age_seconds"] = persistent_entry[
+            "oldest_persisted_running_age_seconds"
+        ]
+
+    users = sorted(
+        user_stats.values(),
+        key=lambda item: (
+            -int(item["running_tasks"] + item.get("remote_running_tasks", 0)),
+            -int(item["total_tasks"]),
+            item["user_id"] if item["user_id"] is not None else -1,
+        ),
+    )
 
     task_threads = len(getattr(_ai_task_executor, "_threads", ()))
     background_threads = len(getattr(_ai_background_executor, "_threads", ()))
@@ -1250,6 +1334,10 @@ def get_ai_runtime_stats() -> Dict[str, Any]:
 
     return {
         "running_tasks": running_tasks,
+        "remote_running_tasks": persistent_snapshot["remote_running_tasks"],
+        "effective_running_tasks": running_tasks + persistent_snapshot["remote_running_tasks"],
+        "persisted_running_tasks": persistent_snapshot["persisted_running_tasks"],
+        "stale_running_tasks": persistent_snapshot["stale_running_tasks"],
         "completed_buffered_tasks": completed_tasks,
         "error_buffered_tasks": error_tasks,
         "total_buffered_tasks": running_tasks + completed_tasks + error_tasks,

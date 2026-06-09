@@ -77,13 +77,21 @@ interface AiRuntimeUserStats {
   email?: string | null
   total_tasks: number
   running_tasks: number
+  remote_running_tasks?: number
+  persisted_running_tasks?: number
+  stale_running_tasks?: number
   completed_tasks: number
   error_tasks: number
   oldest_running_age_seconds?: number | null
+  oldest_persisted_running_age_seconds?: number | null
 }
 
 interface AiRuntimeStats {
   running_tasks: number
+  remote_running_tasks?: number
+  effective_running_tasks?: number
+  persisted_running_tasks?: number
+  stale_running_tasks?: number
   completed_buffered_tasks: number
   error_buffered_tasks: number
   total_buffered_tasks: number
@@ -788,6 +796,9 @@ export default function SettingsPage() {
       setAdminRoleSaving(prev => ({ ...prev, [userId]: false }))
     }
   }
+
+  const aiEffectiveRunningTasks = aiRuntimeStats?.effective_running_tasks ?? aiRuntimeStats?.running_tasks ?? 0
+  const aiRemoteRunningTasks = aiRuntimeStats?.remote_running_tasks ?? 0
 
   return (
     <div className="p-6 h-[calc(100vh-64px)] flex flex-col overflow-hidden">
@@ -1555,12 +1566,12 @@ export default function SettingsPage() {
                       <Badge
                         variant={
                           aiRuntimeStats.task_max_running_global > 0
-                            && aiRuntimeStats.running_tasks >= aiRuntimeStats.task_max_running_global
+                            && aiEffectiveRunningTasks >= aiRuntimeStats.task_max_running_global
                             ? 'destructive'
                             : 'outline'
                         }
                       >
-                        {aiRuntimeStats.running_tasks}/{aiRuntimeStats.task_max_running_global || t('settings.unlimited', 'unlimited')}
+                        {aiEffectiveRunningTasks}/{aiRuntimeStats.task_max_running_global || t('settings.unlimited', 'unlimited')}
                       </Badge>
                     )}
                   </div>
@@ -1571,10 +1582,14 @@ export default function SettingsPage() {
                     <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
                   ) : aiRuntimeStats ? (
                     <div className="space-y-3">
-                      <div className="grid gap-4 sm:grid-cols-4">
+                      <div className="grid gap-4 sm:grid-cols-5">
                         <div>
-                          <div className="text-sm text-muted-foreground">{t('settings.runningTasks', 'Running')}</div>
+                          <div className="text-sm text-muted-foreground">{t('settings.localRunningTasks', 'Local Running')}</div>
                           <div className="text-xl font-semibold">{aiRuntimeStats.running_tasks}</div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">{t('settings.remoteRunningTasks', 'Remote Running')}</div>
+                          <div className="text-xl font-semibold">{aiRemoteRunningTasks}</div>
                         </div>
                         <div>
                           <div className="text-sm text-muted-foreground">{t('settings.taskQueue', 'Task Queue')}</div>
@@ -1590,7 +1605,7 @@ export default function SettingsPage() {
                         </div>
                       </div>
 
-                      <div className="grid gap-3 rounded-md border p-3 text-sm md:grid-cols-[minmax(160px,1fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)_minmax(120px,0.8fr)] md:items-center">
+                      <div className="grid gap-3 rounded-md border p-3 text-sm sm:grid-cols-2 md:grid-cols-6 md:items-center">
                         <div>
                           <div className="text-xs text-muted-foreground">
                             {t('settings.distributedAdmission', 'Distributed Admission')}
@@ -1625,8 +1640,16 @@ export default function SettingsPage() {
                               : t('settings.notAvailable', 'N/A')}
                           </div>
                         </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">{t('settings.persistedRunningTasks', 'Persisted')}</div>
+                          <div className="font-medium">{aiRuntimeStats.persisted_running_tasks ?? 0}</div>
+                        </div>
+                        <div>
+                          <div className="text-xs text-muted-foreground">{t('settings.staleRunningTasks', 'Stale DB')}</div>
+                          <div className="font-medium">{aiRuntimeStats.stale_running_tasks ?? 0}</div>
+                        </div>
                         {aiRuntimeStats.distributed_admission?.last_error && (
-                          <div className="min-w-0 text-xs text-red-500 md:col-span-4">
+                          <div className="min-w-0 text-xs text-red-500 md:col-span-6">
                             {aiRuntimeStats.distributed_admission.last_error}
                           </div>
                         )}
@@ -1641,7 +1664,7 @@ export default function SettingsPage() {
                           {aiRuntimeStats.users.map((entry, index) => (
                             <div
                               key={`${entry.user_id ?? 'anonymous'}-${index}`}
-                              className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(160px,1fr)_100px_100px_100px_120px] md:items-center"
+                              className="grid gap-3 rounded-lg border p-3 md:grid-cols-[minmax(160px,1fr)_100px_100px_100px_100px_120px] md:items-center"
                             >
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-medium">
@@ -1652,8 +1675,12 @@ export default function SettingsPage() {
                                 </div>
                               </div>
                               <div>
-                                <div className="text-xs text-muted-foreground">{t('settings.runningTasks', 'Running')}</div>
+                                <div className="text-xs text-muted-foreground">{t('settings.localRunningTasks', 'Local')}</div>
                                 <div className="text-sm font-medium">{entry.running_tasks}</div>
+                              </div>
+                              <div>
+                                <div className="text-xs text-muted-foreground">{t('settings.remoteRunningTasks', 'Remote')}</div>
+                                <div className="text-sm font-medium">{entry.remote_running_tasks ?? 0}</div>
                               </div>
                               <div>
                                 <div className="text-xs text-muted-foreground">{t('settings.totalTasks', 'Total')}</div>
