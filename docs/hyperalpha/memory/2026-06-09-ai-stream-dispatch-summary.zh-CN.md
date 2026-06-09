@@ -30,6 +30,7 @@
 - Hyper AI signal preview 按钮现在会先创建 signal event，再把候选 JSON 回填聊天框。
 - Hyper AI signal preview 按钮现在也要求 approved strategy spec 已有 handoff-ready backtest evidence；否则按钮禁用并在策略卡片显示 blocker，避免普通 UI 生成明显不可 handoff 的候选信号。
 - `/api/ai-trading/signal-events/{id}/handoff` 已实现外部订单后端 handoff 边界，但默认 `AI_TRADING_SIGNAL_GATEWAY_ENABLED=false`，未配置时返回 409 不发送。
+- `/api/ai-trading/signal-events/{id}/handoff` 现在要求请求体 `confirmed_by_user=true`；未确认时直接 400，不调用订单后端、不写 handoff attempt。Hyper AI 确认弹窗通过后会发送 `confirmed_by_user=true` 和 `confirmation_source=hyper_ai_recent_signal_panel`。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
@@ -182,6 +183,8 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal preview 前端回测 gate 后重新通过，14 条 AI Trading route 回归全绿。
 - `cd frontend && npm run build` 已通过；最近一次通过是在 signal-event handoff 二次确认后。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff 二次确认 UI 后重新通过，14 条 AI Trading route 回归全绿。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff API `confirmed_by_user=true` 硬 gate 后重新通过，14 条 AI Trading route 回归全绿；覆盖未确认时不调用 gateway、不新增 attempt。
+- `cd frontend && npm run build` 已通过；最近一次通过是在 Hyper AI confirmed handoff POST body 后。
 
 ## 6. 未验收 / 阻塞
 

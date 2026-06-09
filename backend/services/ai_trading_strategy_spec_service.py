@@ -1814,7 +1814,11 @@ def reject_signal_event_record(
     return event
 
 
-def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
+def _build_signal_gateway_payload(
+    event: AiTradingSignalEventRecord,
+    *,
+    confirmation_source: Optional[str] = None,
+) -> Dict[str, Any]:
     signal = _json_loads(event.signal_json, {})
     idempotency_key = signal.get("idempotency_key") if isinstance(signal, dict) else None
     return {
@@ -1826,6 +1830,10 @@ def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str
         "symbol": event.symbol,
         "action": event.action,
         "idempotency_key": idempotency_key or f"signal_event:{event.id}",
+        "user_confirmation": {
+            "confirmed": True,
+            "source": _clean_text(confirmation_source, 100) or "unspecified",
+        },
         "signal": signal,
     }
 
@@ -1879,11 +1887,15 @@ def submit_signal_event_to_gateway(
     *,
     user_id: int,
     event_id: int,
+    confirmed_by_user: bool = False,
+    confirmation_source: Optional[str] = None,
 ) -> AiTradingSignalEventRecord:
     """Submit a reviewed signal event to the configured order backend gateway."""
     event = get_signal_event_record(db, user_id=user_id, event_id=event_id)
     if not event:
         raise ValueError("Signal event not found")
+    if not confirmed_by_user:
+        raise ValueError("Signal handoff requires explicit user confirmation")
     eligibility = build_signal_event_handoff_eligibility(event)
     if not eligibility["eligible"]:
         gateway_blockers = {"gateway_disabled", "gateway_url_not_configured"}
@@ -1909,7 +1921,7 @@ def submit_signal_event_to_gateway(
     if not isinstance(execution_boundary, dict):
         execution_boundary = {}
 
-    payload = _build_signal_gateway_payload(event)
+    payload = _build_signal_gateway_payload(event, confirmation_source=confirmation_source)
     headers = {"Content-Type": "application/json"}
     if SIGNAL_GATEWAY_TOKEN:
         headers["Authorization"] = f"Bearer {SIGNAL_GATEWAY_TOKEN}"

@@ -108,6 +108,11 @@ class SignalEventRejectRequest(BaseModel):
     reason: Optional[str] = Field(default=None, max_length=1000)
 
 
+class SignalEventHandoffRequest(BaseModel):
+    confirmed_by_user: bool = False
+    confirmation_source: Optional[str] = Field(default=None, max_length=100)
+
+
 def _model_dump(model: BaseModel) -> Dict[str, Any]:
     if hasattr(model, "model_dump"):
         return model.model_dump()
@@ -563,12 +568,20 @@ def reject_signal_event_endpoint(
 @router.post("/signal-events/{event_id}/handoff")
 def submit_signal_event_handoff_endpoint(
     event_id: int,
+    request: Optional[SignalEventHandoffRequest] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ):
     """Submit a reviewed signal event to the configured external order backend."""
+    handoff_request = request or SignalEventHandoffRequest()
     try:
-        event = submit_signal_event_to_gateway(db, user_id=current_user.id, event_id=event_id)
+        event = submit_signal_event_to_gateway(
+            db,
+            user_id=current_user.id,
+            event_id=event_id,
+            confirmed_by_user=handoff_request.confirmed_by_user,
+            confirmation_source=handoff_request.confirmation_source,
+        )
     except SignalGatewayDisabledError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:

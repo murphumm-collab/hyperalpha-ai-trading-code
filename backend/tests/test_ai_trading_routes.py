@@ -342,7 +342,10 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert listed_events.json()["signal_events"][0]["id"] == event["id"]
     assert listed_events.json()["signal_events"][0]["handoff_eligibility"]["eligible"] is False
 
-    disabled_handoff = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
+    disabled_handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
     assert disabled_handoff.status_code == 409
     disabled_attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
     assert disabled_attempts.status_code == 200
@@ -376,7 +379,10 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert rejected_event["handoff_status"] == "rejected"
     assert rejected_event["signal"]["validation"]["eligible_for_backend_handoff"] is False
     assert rejected_event["signal"]["review"]["reason"] == "pytest rejected before handoff"
-    rejected_handoff = client.post(f"/api/ai-trading/signal-events/{reject_event['id']}/handoff")
+    rejected_handoff = client.post(
+        f"/api/ai-trading/signal-events/{reject_event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
     assert rejected_handoff.status_code == 400
 
     calls = []
@@ -403,7 +409,20 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert enabled_handoff_summary["eligible"] == 1
     assert enabled_handoff_summary["blocked"] == 0
 
-    submitted = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
+    unconfirmed = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": False, "confirmation_source": "pytest"},
+    )
+    assert unconfirmed.status_code == 400
+    assert "explicit user confirmation" in unconfirmed.json()["detail"]
+    assert calls == []
+    attempts_after_unconfirmed = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert len(attempts_after_unconfirmed.json()["attempts"]) == 1
+
+    submitted = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
     assert submitted.status_code == 200
     submitted_event = submitted.json()["signal_event"]
     assert submitted_event["status"] == "submitted"
@@ -425,6 +444,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert calls
     assert calls[0]["json"]["type"] == "AI_TRADING_SIGNAL_CANDIDATE"
     assert calls[0]["json"]["idempotency_key"] == submitted_event["signal"]["idempotency_key"]
+    assert calls[0]["json"]["user_confirmation"] == {"confirmed": True, "source": "pytest"}
     assert calls[0]["headers"]["Authorization"] == "Bearer test-token"
 
     final_runtime = client.get("/api/ai-trading/runtime").json()
@@ -549,7 +569,10 @@ def test_ai_trading_signal_handoff_requires_accepted_backtest_summary(tmp_path, 
     blockers = enabled_detail.json()["signal_event"]["handoff_eligibility"]["blockers"]
     assert "strategy_backtest_required_before_handoff" in blockers
 
-    blocked_handoff = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
+    blocked_handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
     assert blocked_handoff.status_code == 400
     assert calls == []
     attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
@@ -647,7 +670,10 @@ def test_ai_trading_backtest_summary_requires_quality_metrics(tmp_path, monkeypa
         enabled_detail.json()["signal_event"]["handoff_eligibility"]["blockers"]
     )
 
-    blocked_handoff = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
+    blocked_handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
     assert blocked_handoff.status_code == 400
     assert calls == []
 
@@ -1073,7 +1099,10 @@ def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_
 
     alice_spec, alice_event = _create_approved_signal_event(alice, symbol="ETH")
 
-    disabled_handoff = alice.post(f"/api/ai-trading/signal-events/{alice_event['id']}/handoff")
+    disabled_handoff = alice.post(
+        f"/api/ai-trading/signal-events/{alice_event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
     assert disabled_handoff.status_code == 409
     alice_attempts = alice.get(
         f"/api/ai-trading/signal-events/{alice_event['id']}/handoff-attempts"

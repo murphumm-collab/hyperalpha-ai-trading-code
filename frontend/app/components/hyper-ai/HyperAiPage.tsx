@@ -1970,6 +1970,11 @@ export default function HyperAiPage() {
     try {
       const res = await authFetch(`/api/ai-trading/signal-events/${eventId}/handoff`, {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          confirmed_by_user: true,
+          confirmation_source: 'hyper_ai_recent_signal_panel',
+        }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
