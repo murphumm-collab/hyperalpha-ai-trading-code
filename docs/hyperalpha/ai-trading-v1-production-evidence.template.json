@@ -3,7 +3,7 @@
   "generated_at": null,
   "secret_values_returned": false,
   "notes": [
-    "Copy this file outside the repo or into a private ops evidence location before filling it.",
+    "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
     "Use only documented evidence schema fields. Allowed root fields are version, generated_at, secret_values_returned, notes, and items. Allowed item fields are status, validated_at, validated_by, evidence_summary, artifact_refs, and secret_values_returned. Unknown root or item fields are rejected.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",

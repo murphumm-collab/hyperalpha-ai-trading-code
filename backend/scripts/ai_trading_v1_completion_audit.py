@@ -139,6 +139,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence text quality | Done |",
             "| AI Trading production evidence text bounds | Done |",
             "| AI Trading production evidence item IDs | Done |",
+            "| AI Trading production evidence path safety | Done |",
             "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
         ),
     ),
@@ -463,7 +464,19 @@ def _validate_external_evidence_item(
     }
 
 
-def _validate_external_evidence_file(production_evidence_file: Path | str | None) -> dict[str, Any]:
+def _path_is_relative_to(path: Path, parent: Path) -> bool:
+    try:
+        path.relative_to(parent)
+    except ValueError:
+        return False
+    return True
+
+
+def _validate_external_evidence_file(
+    production_evidence_file: Path | str | None,
+    *,
+    repo_root: Path | str | None = None,
+) -> dict[str, Any]:
     if production_evidence_file is None:
         return {
             "provided": False,
@@ -480,6 +493,10 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
     evidence_path = Path(production_evidence_file).resolve()
     blockers: list[str] = []
     warnings: list[str] = []
+    repo_root_resolved = Path(repo_root).resolve() if repo_root is not None else None
+    evidence_file_inside_repo = (
+        repo_root_resolved is not None and _path_is_relative_to(evidence_path, repo_root_resolved)
+    )
     try:
         payload = json.loads(evidence_path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -521,6 +538,8 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
         }
 
     version = payload.get("version")
+    if evidence_file_inside_repo:
+        blockers.append("external_evidence_file_must_be_outside_repo")
     unexpected_root_fields = _unexpected_fields(payload, ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS)
     if unexpected_root_fields:
         blockers.append("external_evidence_unexpected_root_fields")
@@ -570,6 +589,7 @@ def _validate_external_evidence_file(production_evidence_file: Path | str | None
         "secret_pattern_count": len(secret_hits),
         "unexpected_fields": unexpected_root_fields,
         "unexpected_item_ids": unexpected_item_ids,
+        "file_inside_repo": evidence_file_inside_repo,
     }
 
 
@@ -583,7 +603,7 @@ def build_completion_report(
     local_items = [_evaluate_requirement(root, requirement) for requirement in LOCAL_REQUIREMENTS]
     governance_items = [_latest_memory_report(root)]
     external_items = [_evaluate_requirement(root, requirement) for requirement in EXTERNAL_REQUIREMENTS]
-    production_evidence = _validate_external_evidence_file(production_evidence_file)
+    production_evidence = _validate_external_evidence_file(production_evidence_file, repo_root=root)
 
     local_evidence_items = local_items + governance_items
     local_blockers = [
@@ -636,7 +656,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file with documented schema fields/item IDs, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 

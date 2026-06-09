@@ -70,6 +70,7 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 "| AI Trading production evidence text quality | Done |",
                 "| AI Trading production evidence text bounds | Done |",
                 "| AI Trading production evidence item IDs | Done |",
+                "| AI Trading production evidence path safety | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -169,6 +170,10 @@ def _write_production_evidence(
     _write(path, json.dumps(payload, indent=2, sort_keys=True))
 
 
+def _outside_repo_evidence_path(repo_root: Path, filename: str) -> Path:
+    return repo_root.parent / f"{repo_root.name}-{filename}"
+
+
 def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
     repo_root = Path(__file__).resolve().parents[2]
 
@@ -214,7 +219,7 @@ def test_completion_audit_requires_external_pending_markers(tmp_path):
 
 def test_completion_audit_validates_production_evidence_but_requires_explicit_live_ready_confirmation(tmp_path):
     _write_minimal_acceptance_repo(tmp_path)
-    evidence_path = tmp_path / "production-evidence.json"
+    evidence_path = _outside_repo_evidence_path(tmp_path, "production-evidence.json")
     _write_production_evidence(evidence_path)
 
     report_without_confirmation = completion_audit.build_completion_report(
@@ -242,6 +247,22 @@ def test_completion_audit_validates_production_evidence_but_requires_explicit_li
     assert report_with_confirmation["ready_for_live_orders"] is True
     assert report_with_confirmation["summary"]["production_track"] == "accepted"
     assert report_with_confirmation["summary"]["external_pending_count"] == 0
+
+
+def test_completion_audit_rejects_repo_local_production_evidence_file(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    evidence_path = tmp_path / "production-evidence.json"
+    _write_production_evidence(evidence_path)
+
+    report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=evidence_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert report["ready_for_live_orders"] is False
+    assert report["production_evidence"]["file_inside_repo"] is True
+    assert "external_evidence_file_must_be_outside_repo" in report["production_evidence"]["blockers"]
 
 
 def test_completion_audit_rejects_incomplete_or_secret_bearing_production_evidence(tmp_path):
