@@ -257,6 +257,29 @@ interface AiTradingBacktestRunStatus {
   backtestId?: number
 }
 
+interface AiTradingBacktestEvidenceDetail {
+  strategy_spec_id?: number
+  strategy_symbol?: string
+  handoff_ready?: boolean
+  quality_issues?: string[]
+  backtest_result?: {
+    id?: number
+    status?: string
+    exchange?: string
+    symbols?: string[]
+    metrics?: Record<string, unknown>
+    equity_curve_sample?: Array<Record<string, unknown>>
+    period?: Record<string, unknown>
+  }
+  trigger_summary?: {
+    total?: number
+    returned?: number
+    action_counts?: Record<string, number>
+    triggers?: Array<Record<string, unknown>>
+    markers?: Array<Record<string, unknown>>
+  }
+}
+
 interface AiTradingMarket {
   symbol?: string
   coin?: string
@@ -833,6 +856,7 @@ export default function HyperAiPage() {
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
   const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | 'evidence' | null>(null)
   const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
+  const [strategyBacktestEvidenceDetail, setStrategyBacktestEvidenceDetail] = useState<AiTradingBacktestEvidenceDetail | null>(null)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -909,6 +933,18 @@ export default function HyperAiPage() {
     const drawdown = formatBacktestMetric(record.metrics, ['max_drawdown', 'max_drawdown_percent'], '%')
     return `${trades} trades · ${ret} return · ${drawdown} dd`
   }
+  const formatEvidenceValue = (value: unknown, suffix = ''): string => {
+    const parsed = Number(value)
+    if (!Number.isFinite(parsed)) {
+      return '-'
+    }
+    return `${Number(parsed.toFixed(2))}${suffix}`
+  }
+  const evidenceActionCounts = (detail: AiTradingBacktestEvidenceDetail | null): Array<[string, number]> => (
+    Object.entries(detail?.trigger_summary?.action_counts || {})
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+  )
   const isSignalHandoffEligible = (event: AiTradingSignalEventRecord): boolean => (
     event.handoff_eligibility?.eligible ??
     (
@@ -1654,6 +1690,7 @@ export default function HyperAiPage() {
         throw new Error(data.detail || 'Failed to load backtest evidence')
       }
       const evidence = data.evidence || {}
+      setStrategyBacktestEvidenceDetail(evidence as AiTradingBacktestEvidenceDetail)
       const prompt = currentLang === 'zh'
         ? `请复核 AI Trading Strategy Spec #${targetRecordId} 绑定的 Program Backtest evidence：重点检查 metrics、equity curve sample、trigger/action 分布、quality_issues 和 handoff_ready；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
         : `Review the Program Backtest evidence attached to AI Trading Strategy Spec #${targetRecordId}. Focus on metrics, equity curve sample, trigger/action distribution, quality_issues, and handoff_ready. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
@@ -2765,6 +2802,97 @@ export default function HyperAiPage() {
                   <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span className="break-words">{strategyDraft.validation.issues.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {strategyBacktestEvidenceDetail && (
+              <div className="mt-3 rounded-md border bg-muted/20 p-2 text-xs">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <div className="flex min-w-0 items-center gap-1.5 font-medium">
+                    <BarChart3 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span className="truncate">
+                      {t('hyperAi.aiTradingBacktestEvidence', 'Backtest evidence')} · #{strategyBacktestEvidenceDetail.backtest_result?.id || '-'}
+                    </span>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <span className={`rounded px-1.5 py-0.5 ${
+                      strategyBacktestEvidenceDetail.handoff_ready
+                        ? 'bg-green-500/10 text-green-600'
+                        : 'bg-yellow-500/10 text-yellow-600'
+                    }`}>
+                      {strategyBacktestEvidenceDetail.handoff_ready
+                        ? t('hyperAi.aiTradingStatusReady', 'Ready')
+                        : t('hyperAi.aiTradingStatusBlocked', 'Blocked')}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setStrategyBacktestEvidenceDetail(null)}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      title={t('common.close', 'Close')}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-1">
+                  <div className="rounded bg-background/70 px-2 py-1">
+                    <div className="text-[10px] uppercase text-muted-foreground">{t('hyperAi.aiTradingReturn', 'Return')}</div>
+                    <div className="font-medium text-foreground">
+                      {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['total_return'], '%')}
+                    </div>
+                  </div>
+                  <div className="rounded bg-background/70 px-2 py-1">
+                    <div className="text-[10px] uppercase text-muted-foreground">{t('hyperAi.aiTradingDrawdown', 'Drawdown')}</div>
+                    <div className="font-medium text-foreground">
+                      {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['max_drawdown'], '%')}
+                    </div>
+                  </div>
+                  <div className="rounded bg-background/70 px-2 py-1">
+                    <div className="text-[10px] uppercase text-muted-foreground">{t('hyperAi.aiTradingTrades', 'Trades')}</div>
+                    <div className="font-medium text-foreground">
+                      {formatEvidenceValue(strategyBacktestEvidenceDetail.backtest_result?.metrics?.['trade_count'])}
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {evidenceActionCounts(strategyBacktestEvidenceDetail).map(([action, count]) => (
+                    <span key={action} className="rounded bg-background/70 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      {action}: <span className="text-foreground">{count}</span>
+                    </span>
+                  ))}
+                  {evidenceActionCounts(strategyBacktestEvidenceDetail).length === 0 && (
+                    <span className="rounded bg-background/70 px-1.5 py-0.5 text-[11px] text-muted-foreground">
+                      {t('hyperAi.aiTradingNoTriggers', 'No triggers')}
+                    </span>
+                  )}
+                </div>
+                {strategyBacktestEvidenceDetail.quality_issues && strategyBacktestEvidenceDetail.quality_issues.length > 0 && (
+                  <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span className="break-words">{strategyBacktestEvidenceDetail.quality_issues.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+                {strategyBacktestEvidenceDetail.trigger_summary?.triggers && strategyBacktestEvidenceDetail.trigger_summary.triggers.length > 0 && (
+                  <div className="mt-2 space-y-1 border-t pt-2">
+                    {strategyBacktestEvidenceDetail.trigger_summary.triggers.slice(0, 3).map((trigger, index) => (
+                      <div key={`${trigger.id || index}`} className="min-w-0 rounded bg-background/60 px-2 py-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate font-medium">
+                            {String(trigger.decision_action || '-')} · {String(trigger.symbol || strategyBacktestEvidenceDetail.strategy_symbol || '-')}
+                          </span>
+                          <span className="shrink-0 text-[11px] text-muted-foreground">
+                            {formatEvidenceValue(trigger.equity_after)}
+                          </span>
+                        </div>
+                        {trigger.decision_reason && (
+                          <div className="truncate text-[11px] text-muted-foreground">
+                            {String(trigger.decision_reason)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>

@@ -103,6 +103,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel can load a Program Backtest preflight into chat from strategy cards and recent spec rows via a shield action.
 - Hyper AI AI Trading panel can run the preflighted current-user Program Backtest SSE flow, then auto-attach the completed Program BacktestResult as strategy evidence without touching the order gateway.
 - Hyper AI AI Trading panel can load attached Program Backtest evidence detail into chat for agent review without starting a backtest, attaching new evidence, or submitting orders.
+- Hyper AI AI Trading panel renders a compact attached-backtest evidence panel with handoff state, return, drawdown, trade count, action distribution, quality issues, and the first trigger summaries after evidence inspection.
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
@@ -284,6 +285,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading Program Backtest preflight UI | Done | Hyper AI strategy cards and recent spec rows expose a shield-icon action to save the draft if needed, request preflight, and load the non-executing recommendation into chat |
 | AI Trading Program Backtest run UI | Done | Hyper AI strategy cards and recent spec rows expose a run action that requests preflight, asks for user confirmation, streams `/api/programs/backtest`, then attaches the completed Program BacktestResult as non-order evidence |
 | AI Trading Program Backtest evidence detail UI | Done | Hyper AI strategy cards and recent spec rows expose a read-only inspect action that loads attached evidence detail into chat for agent review |
+| AI Trading compact evidence review panel | Done | Hyper AI renders inspected attached-backtest evidence as a compact metric/action/trigger panel so users can review results without parsing raw JSON |
 | AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
 | AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
@@ -649,6 +651,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading Program Backtest evidence-detail syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py`.
 - Passed: Frontend production build after adding the read-only attached backtest evidence inspect action.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned 200 after the evidence detail UI; click-through acceptance remains pending because the in-app Browser local URL policy blocked navigation in this session.
+- Passed: Frontend production build after rendering the compact attached-backtest evidence review panel.
+- Passed: AI Trading route regression re-run after compact evidence panel: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 13 passing tests.
+- Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned 200 after the compact evidence panel; click-through browser acceptance remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
@@ -660,7 +665,7 @@ Local checkpoint: current branch `HEAD`
 
 - Real Casdoor JWKS/issuer/audience environment values still need to be configured and accepted with a live login token.
 - Redis distributed admission leases, persisted high-risk confirmation responses, runner heartbeats, dispatch queue persistence, and Hyper AI/Prompt/Signal/Program/Attribution serialized worker handlers are implemented for cross-instance capacity/confirmation/routing coordination; live distributed worker acceptance with running Postgres/Redis and real model credentials is still pending.
-- Dedicated AI Trading rich backtest result page is still pending; the current slice stores manual/external summaries, links existing current-user Program BacktestResult evidence, produces a non-executing Program Backtest preflight request, can launch the existing Program Backtest SSE flow from the Hyper AI panel, and can load a non-secret evidence detail packet into chat.
+- Dedicated full-page AI Trading rich backtest result view is still pending; the current slice stores manual/external summaries, links existing current-user Program BacktestResult evidence, produces a non-executing Program Backtest preflight request, can launch the existing Program Backtest SSE flow from the Hyper AI panel, can load a non-secret evidence detail packet into chat, and now renders a compact evidence review panel.
 - AI Trading signal gateway live acceptance with the real HyperAlpha order backend URL/token is still pending; the endpoint is implemented and disabled by default.
 - End-to-end browser acceptance with real logged-in Hyper Insight sessions is still pending.
 - Real exchange execution acceptance is still pending; this slice adds automated hard-risk preflight but does not execute a live order for validation.
