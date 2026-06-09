@@ -323,6 +323,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream dispatch worker fake-handler smoke test in `uv run`: a claimed job was adopted by the runner, emitted chunks through the shared stream buffer, completed the task, and persisted completed dispatch/task runner state.
 - Passed: Hyper AI dispatch enqueue smoke test in `uv run`: chat and onboarding task starts created stream tasks and pending dispatch jobs with serialized payloads when dispatch mode was enabled.
 - Passed: Prompt/Signal/Program/Attribution dispatch route compile in both system Python and `uv run` backend environment; static AST check confirmed `prompt_ai.chat`, `signal_ai.chat`, `program_ai.chat`, and `attribution_ai.chat` task types plus `register_ai_stream_task_handler` calls.
+- Passed: AI stream error-message extraction smoke test in `uv run`: `message`, `content`, `error`, `text`, `raw`, non-dict payloads, and empty payload fallbacks produce readable task failure reasons.
 - Warning only: Live handler registry import check was blocked by local PostgreSQL being stopped because `analytics_routes.py` imports snapshot DB connection at module import time; compile and static checks passed.
 - Passed: Frontend production build after Settings AI Runtime displayed dispatch queue pending/claimed/running/completed/failed counts.
 - Passed: Hyperliquid ranked symbols API smoke test in `uv run`: fake `metaAndAssetCtxs` data sorted by `dayNtlVlm`, skipped delisted symbols, parsed market fields, and reused the in-process cache.

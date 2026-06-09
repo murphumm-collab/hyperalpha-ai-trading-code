@@ -1453,6 +1453,31 @@ def generate_task_id(prefix: str = "ai") -> str:
     return f"{prefix}_{int(time.time() * 1000)}_{uuid.uuid4().hex[:12]}"
 
 
+def _extract_stream_error_message(data: Any) -> str:
+    if isinstance(data, dict):
+        for key in ("message", "content", "error", "text", "raw"):
+            value = data.get(key)
+            if value is None:
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                text = str(value).strip()
+                if text:
+                    return text
+                continue
+            try:
+                text = _json_dumps(value).strip()
+            except Exception:
+                text = str(value).strip()
+            if text:
+                return text[:500]
+        return "Unknown error"
+    if data is not None:
+        text = str(data).strip()
+        if text:
+            return text[:500]
+    return "Unknown error"
+
+
 def _consume_ai_stream_generator(
     task_id: str,
     generator: Generator[str, None, None],
@@ -1471,7 +1496,7 @@ def _consume_ai_stream_generator(
 
             lines = sse_event.strip().split('\n')
             event_type = "message"
-            data = {}
+            data: Any = {}
 
             for line in lines:
                 if line.startswith('event: '):
@@ -1482,6 +1507,8 @@ def _consume_ai_stream_generator(
                     except json.JSONDecodeError:
                         data = {"raw": line[6:]}
 
+            if not isinstance(data, dict):
+                data = {"raw": data}
             manager.add_chunk(task_id, event_type, data)
 
             if event_type == "done":
@@ -1490,10 +1517,10 @@ def _consume_ai_stream_generator(
                     on_complete(task)
                 return
             if event_type == "error":
-                manager.fail_task(task_id, data.get("message", "Unknown error"))
+                manager.fail_task(task_id, _extract_stream_error_message(data))
                 return
             if event_type == "interrupted":
-                manager.fail_task(task_id, f"Interrupted: {data.get('error', 'Unknown')}")
+                manager.fail_task(task_id, f"Interrupted: {_extract_stream_error_message(data)}")
                 return
 
         manager.complete_task(task_id, {"status": "completed"})
