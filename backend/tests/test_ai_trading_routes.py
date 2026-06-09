@@ -16,6 +16,7 @@ from database.models import (
     Account,
     AccountProgramBinding,
     AiTradingSignalEventRecord,
+    AiTradingSignalHandoffAttemptRecord,
     AiTradingStrategySpecRecord,
     BacktestResult,
     BacktestTriggerLog,
@@ -648,6 +649,55 @@ def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tm
     assert "secret-key" not in str(calls[0]["json"])
     assert "secret-token" not in str(calls[0]["json"])
     assert "secret-private-key" not in str(calls[0]["json"])
+
+
+def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mutating_audit_json(tmp_path):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+
+    blocked = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert blocked.status_code == 409
+
+    session = client._ai_trading_session_factory()
+    try:
+        attempt = session.query(AiTradingSignalHandoffAttemptRecord).filter(
+            AiTradingSignalHandoffAttemptRecord.signal_event_id == event["id"]
+        ).one()
+        attempt.blockers_json = json.dumps([
+            "gateway_disabled",
+            {"access_token": "secret-blocker-token"},
+        ])
+        attempt.eligibility_json = json.dumps({
+            "eligible": False,
+            "api_key": "secret-eligibility-key",
+            "nested": {
+                "private_key": "secret-private-key",
+                "gateway_response": {
+                    "authorization": "bearer secret-gateway-header",
+                },
+            },
+        })
+        session.commit()
+        assert "secret-eligibility-key" in attempt.eligibility_json
+        assert "secret-blocker-token" in attempt.blockers_json
+    finally:
+        session.close()
+
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    attempt_payload = attempts.json()["attempts"][0]
+    assert attempt_payload["blockers"][1]["access_token"] == "***"
+    assert attempt_payload["eligibility"]["api_key"] == "***"
+    assert attempt_payload["eligibility"]["nested"]["private_key"] == "***"
+    assert attempt_payload["eligibility"]["nested"]["gateway_response"]["authorization"] == "***"
+    serialized = json.dumps(attempt_payload)
+    assert "secret-blocker-token" not in serialized
+    assert "secret-eligibility-key" not in serialized
+    assert "secret-private-key" not in serialized
+    assert "secret-gateway-header" not in serialized
 
 
 def test_ai_trading_strategy_spec_detail_redacts_sensitive_fields_without_mutating_audit_json(tmp_path):

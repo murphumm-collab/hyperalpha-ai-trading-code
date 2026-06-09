@@ -131,6 +131,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading runtime status summarizes review-candidate handoff readiness counts so operators can see ready versus blocked signal events without reading secrets.
 - AI Trading runtime status summarizes strategy-spec backtest evidence readiness counts so operators can see ready, blocked, missing, and blocker categories without reading full specs.
 - AI Trading signal handoff attempts are persisted as non-secret per-user audit records for blocked, failed, and submitted handoff attempts.
+- AI Trading signal handoff attempt responses recursively redact sensitive keys from blockers and eligibility audit JSON before returning data.
 - AI Trading signal handoff attempt audit records include non-secret user-confirmation metadata for confirmed blocked, failed, and submitted handoff attempts.
 - Submitted AI Trading signal handoff attempts include a non-secret gateway response summary with HTTP status code, without storing gateway URL/token or response body.
 - Failed AI Trading signal handoff attempts and signal-event errors store sanitized gateway failure summaries instead of raw exception strings, avoiding gateway URL/token/body leakage.
@@ -329,6 +330,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading handoff runtime summary | Done | Runtime status includes review-candidate handoff readiness counts and blocker counts; Hyper AI panel shows total signals versus ready candidates |
 | AI Trading strategy backtest runtime summary | Done | Runtime status includes strategy-spec backtest evidence ready/blocked/missing counts and blocker counts; Hyper AI panel shows total specs versus backtest-ready specs |
 | AI Trading handoff attempt audit | Done | `ai_trading_signal_handoff_attempts` stores blocked/failed/submitted handoff attempts without gateway URL/token or trading credentials |
+| AI Trading handoff attempt response redaction | Done | Handoff-attempt blockers and eligibility audit JSON recursively mask sensitive keys before API responses |
 | AI Trading handoff confirmation audit | Done | Confirmed handoff attempts persist non-secret `user_confirmation` metadata inside eligibility audit JSON, while unconfirmed handoff requests still write no attempt |
 | AI Trading handoff gateway response audit | Done | Submitted handoff attempts persist only non-secret gateway response status metadata inside eligibility audit JSON |
 | AI Trading failed handoff error sanitization | Done | Failed handoff event/attempt errors persist sanitized error type/status summaries and never raw gateway exception text |
@@ -716,6 +718,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading service/route/test syntax compile after strategy spec response redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: AI Trading route regression after Program Backtest evidence detail redaction: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 18 passing tests, including config-polluted evidence detail responses without sensitive key names or values.
 - Passed: AI Trading service/route/test syntax compile after evidence detail redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Passed: AI Trading route regression after handoff attempt response redaction: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 19 passing tests, including polluted blockers/eligibility audit JSON responses without leaking raw secrets.
+- Passed: AI Trading service/route/test syntax compile after handoff attempt response redaction: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

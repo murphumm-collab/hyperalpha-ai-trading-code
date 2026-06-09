@@ -45,6 +45,7 @@
 - `/api/ai-trading/runtime` 现在汇总 review-candidate handoff readiness：`review_candidates`、`eligible`、`blocked` 和 `by_blocker`；Hyper AI 面板的 Signals 卡片显示 total / ready。
 - `/api/ai-trading/runtime` 现在也汇总 strategy spec backtest evidence readiness：`total`、`ready`、`blocked`、`missing` 和 `by_blocker`；Hyper AI 面板的 Specs 卡片显示 total / backtest ready。
 - 新增 `ai_trading_signal_handoff_attempts`：每次 handoff 尝试如果 blocked、failed 或 submitted 都会写非敏感审计记录，包含 blockers、eligibility、gateway_ready、result，但不包含 gateway URL/token 或交易凭据；`GET /api/ai-trading/signal-events/{id}/handoff-attempts` 可按当前用户读取。
+- handoff attempt response 现在会对 blockers 和 eligibility audit JSON 递归 mask 敏感 key，例如 api_key、access_token、authorization、private_key；数据库里的 attempt audit 原文仍保留。
 - Hyper AI AI Trading recent signals 行现在有只读 handoff history 按钮，会读取 `/handoff-attempts` 并把 attempts JSON 回填聊天框给 agent 做审计复核，不会触发执行。
 - handoff attempts 的 `eligibility_json` 现在会在已确认的 blocked/failed/submitted attempt 中记录非敏感 `user_confirmation`，例如 `confirmed=true` 和确认来源；未确认请求仍不写 attempt。
 - submitted handoff attempts 的 `eligibility_json` 现在会记录非敏感 `gateway_response.status_code`，不记录 gateway URL/token 或响应 body，避免订单后端误回敏感内容被持久化。
@@ -212,6 +213,8 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 strategy spec response redaction 后通过。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 Program Backtest evidence detail redaction 后通过，18 条 AI Trading route 回归全绿；覆盖被污染的 BacktestResult config 不会通过 evidence detail 泄露敏感字段名或字段值。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 evidence detail redaction 后通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 handoff attempt response redaction 后通过，19 条 AI Trading route 回归全绿；覆盖被污染的 blockers/eligibility audit JSON 不会通过 `/handoff-attempts` 泄露原始 secret。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 handoff attempt response redaction 后通过。
 
 ## 6. 未验收 / 阻塞
 

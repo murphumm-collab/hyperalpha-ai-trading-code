@@ -549,8 +549,8 @@ def serialize_signal_handoff_attempt_record(
         "action": record.action,
         "result": record.result,
         "gateway_ready": bool(record.gateway_ready),
-        "blockers": _json_loads(record.blockers_json, []),
-        "eligibility": _json_loads(record.eligibility_json, {}),
+        "blockers": _redact_sensitive_payload(_json_loads(record.blockers_json, [])),
+        "eligibility": _redact_sensitive_payload(_json_loads(record.eligibility_json, {})),
         "error_message": record.error_message,
         "created_at": _record_timestamp(record.created_at),
     }
