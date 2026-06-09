@@ -34,6 +34,7 @@
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
 - Hyper AI AI Trading 面板现在会列出最近保存的 strategy specs 和最近创建的 signal events；用户可以把任一记录详情回填到聊天框，让 agent 做风控/止盈止损/执行边界复核，不会提交订单。
 - Recent signal events 现在有 gateway-gated handoff 按钮：只有 runtime 显示 gateway 已启用且 URL 已配置、事件仍是未提交 `review_candidate` 时才可点；点击仍走后端 `/handoff` 边界，不绕过默认关闭策略。
+- Signal event list/detail responses 现在包含非敏感 `handoff_eligibility`：会说明 gateway 未启用、URL 未配置、事件状态不对、已提交、signal 不适合 handoff、或缺少 `not_an_order` / `order_backend_only` 等 blocker；前端按钮优先使用这个 preflight。
 
 ## 3. AI Stream / Worker 现状
 
@@ -94,6 +95,10 @@
 - Frontend production build 已通过，recent signal events 的 handoff 按钮编译成功。
 - `backend/tests/test_ai_trading_routes.py` 在 handoff UI 后重新通过。
 - Playwright 已再次打开 `http://127.0.0.1:5174/app/ai-trading`，确认 Hyper AI / AI Trading shell 可渲染；因为本地 backend/Postgres/gateway 未运行，handoff 按钮点击验收仍待 live API。
+- Python syntax compile 已通过，AI Trading service/routes 在 handoff preflight 后正常。
+- `backend/tests/test_ai_trading_routes.py` 已覆盖 disabled gateway blocker、gateway enabled 后 eligible、submitted 后重复 handoff 被 blocker 禁止。
+- Frontend production build 已通过，recent signal handoff 按钮已改为优先使用后端 `handoff_eligibility`。
+- Playwright 已再次确认 `http://127.0.0.1:5174/app/ai-trading` 可过 splash fallback 渲染到 Hyper AI / AI Trading shell；preflight UI 点击验收仍待本地 backend/Postgres 和持久化 signal events。
 
 ## 6. 未验收 / 阻塞
 

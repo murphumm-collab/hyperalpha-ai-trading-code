@@ -92,10 +92,13 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert event["status"] == "review_candidate"
     assert event["signal"]["execution_boundary"]["not_an_order"] is True
     assert event["signal"]["execution_boundary"]["ai_may_place_orders"] is False
+    assert event["handoff_eligibility"]["eligible"] is False
+    assert "gateway_disabled" in event["handoff_eligibility"]["blockers"]
 
     listed_events = client.get("/api/ai-trading/signal-events")
     assert listed_events.status_code == 200
     assert listed_events.json()["signal_events"][0]["id"] == event["id"]
+    assert listed_events.json()["signal_events"][0]["handoff_eligibility"]["eligible"] is False
 
     disabled_handoff = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
     assert disabled_handoff.status_code == 409
@@ -115,12 +118,19 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
+    enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert enabled_detail.status_code == 200
+    assert enabled_detail.json()["signal_event"]["handoff_eligibility"]["eligible"] is True
+
     submitted = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
     assert submitted.status_code == 200
     submitted_event = submitted.json()["signal_event"]
     assert submitted_event["status"] == "submitted"
     assert submitted_event["handoff_status"] == "submitted"
     assert submitted_event["signal"]["execution_boundary"]["handoff_status"] == "submitted"
+    assert submitted_event["handoff_eligibility"]["eligible"] is False
+    assert "event_status_not_review_candidate" in submitted_event["handoff_eligibility"]["blockers"]
+    assert "handoff_already_submitted" in submitted_event["handoff_eligibility"]["blockers"]
 
     assert calls
     assert calls[0]["json"]["type"] == "AI_TRADING_SIGNAL_CANDIDATE"

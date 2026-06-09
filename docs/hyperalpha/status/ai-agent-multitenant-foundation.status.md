@@ -99,6 +99,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI AI Trading panel displays gateway/spec/signal runtime counts when the backend is available.
 - Hyper AI AI Trading panel lists recent strategy specs and signal events, and can load saved records into chat for audit review without submitting orders.
 - Hyper AI AI Trading panel exposes a gated signal-event handoff control that stays disabled until the backend reports an enabled/configured gateway and only targets unsubmitted `review_candidate` events.
+- AI Trading signal-event API responses include non-secret `handoff_eligibility` blockers so the frontend and backend share the same handoff preflight decision.
 - Auth-aware Attribution analytics and Trade Replay frontend requests.
 - Auth-aware trading account, strategy, wallet, asset-curve, Arena model-chat, and action-log frontend requests.
 - AI Trader LLM API keys are masked in account API responses and are not overwritten by masked frontend echoes.
@@ -255,6 +256,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals and refreshes them after draft save, approval, and signal event creation |
 | AI Trading recent records panel | Done | Hyper AI AI Trading panel lists recent saved specs/signal events and lets users inspect them into chat for audit review |
 | AI Trading signal handoff UI | Done | Recent signal events expose a disabled-by-default, gateway-gated handoff button for unsubmitted `review_candidate` events |
+| AI Trading handoff preflight | Done | Signal event list/detail/submit share non-secret `handoff_eligibility` blockers for gateway readiness, event state, and signal-only boundaries |
 | AI Trading API regression test | Done | `backend/tests/test_ai_trading_routes.py` covers strategy draft/save/approve, signal event creation, disabled/enabled handoff, and runtime counts with SQLite |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
@@ -536,6 +538,10 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after adding the gateway-gated signal-event handoff button to the recent signals panel.
 - Passed: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` after the handoff UI work.
 - Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading`, waited beyond the splash fallback, and confirmed the Hyper AI / AI Trading shell rendered; handoff button click acceptance still needs local backend/Postgres, persisted signal events, and configured gateway readiness.
+- Passed: Python syntax compile for AI Trading service/routes after adding signal-event `handoff_eligibility` preflight serialization.
+- Passed: AI Trading route regression test after adding handoff preflight assertions for disabled gateway, enabled gateway eligibility, and submitted-event duplicate-blocking.
+- Passed: Frontend production build after switching recent signal handoff buttons to backend-provided `handoff_eligibility`.
+- Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading`, waited beyond the splash fallback, and confirmed the Hyper AI / AI Trading shell rendered; preflight UI click acceptance still needs local backend/Postgres and persisted signal events.
 - Passed: Hyper AI memory trading-category compile in both system Python and `uv run` backend environment for memory service and tool schema.
 - Passed: Hyper AI memory trading-category smoke test in `uv run` with SQLite: `strategy_memory`, `risk_memory`, `performance_memory`, and `execution_memory` are accepted categories and user-scoped reads return the expected entries.
 - Passed: AI Trading route regression test: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed cleanly, covering draft/save/approve, signal event audit, disabled gateway 409, monkeypatched enabled handoff, and runtime counts.

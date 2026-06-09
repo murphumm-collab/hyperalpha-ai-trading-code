@@ -182,6 +182,13 @@ interface AiTradingSignalEventRecord {
   action: string
   status: string
   handoff_status?: string
+  handoff_eligibility?: {
+    eligible?: boolean
+    blockers?: string[]
+    gateway_ready?: boolean
+    can_retry?: boolean
+    default_handoff_status?: string
+  }
   created_at?: string | null
   signal?: Record<string, unknown>
 }
@@ -747,6 +754,24 @@ export default function HyperAiPage() {
   const aiTradingGatewayReady = Boolean(
     aiTradingRuntime?.gateway?.enabled && aiTradingRuntime.gateway?.url_configured
   )
+  const isSignalHandoffEligible = (event: AiTradingSignalEventRecord): boolean => (
+    event.handoff_eligibility?.eligible ??
+    (
+      aiTradingGatewayReady &&
+      event.status === 'review_candidate' &&
+      event.handoff_status !== 'submitted'
+    )
+  )
+  const signalHandoffTitle = (event: AiTradingSignalEventRecord): string => {
+    if (isSignalHandoffEligible(event)) {
+      return t('hyperAi.aiTradingSubmitHandoff', 'Submit handoff')
+    }
+    const blockers = event.handoff_eligibility?.blockers || []
+    if (blockers.length > 0) {
+      return blockers.join(', ')
+    }
+    return t('hyperAi.aiTradingGatewayDisabled', 'Gateway disabled')
+  }
 
   // Get current language
   const currentLang = i18n.language?.startsWith('zh') ? 'zh' : 'en'
@@ -2031,16 +2056,11 @@ export default function HyperAiPage() {
                             onClick={() => handleSubmitSignalEventHandoff(event.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={
-                              !aiTradingGatewayReady ||
+                              !isSignalHandoffEligible(event) ||
                               signalHandoffLoadingId !== null ||
-                              event.status !== 'review_candidate' ||
                               event.handoff_status === 'submitted'
                             }
-                            title={
-                              aiTradingGatewayReady
-                                ? t('hyperAi.aiTradingSubmitHandoff', 'Submit handoff')
-                                : t('hyperAi.aiTradingGatewayDisabled', 'Gateway disabled')
-                            }
+                            title={signalHandoffTitle(event)}
                           >
                             {signalHandoffLoadingId === event.id ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />

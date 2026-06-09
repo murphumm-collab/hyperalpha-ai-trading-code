@@ -266,6 +266,7 @@ def serialize_signal_event_record(
         "submitted_at": _record_timestamp(record.submitted_at),
         "created_at": _record_timestamp(record.created_at),
         "updated_at": _record_timestamp(record.updated_at),
+        "handoff_eligibility": build_signal_event_handoff_eligibility(record),
     }
     if include_signal:
         payload["signal"] = _json_loads(record.signal_json, {})
@@ -785,6 +786,49 @@ def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str
     }
 
 
+def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
+    """Return a non-secret preflight result for a signal event handoff."""
+    blockers: List[str] = []
+    gateway_ready = bool(SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL)
+
+    if event.status != "review_candidate":
+        blockers.append("event_status_not_review_candidate")
+    if event.handoff_status == "submitted":
+        blockers.append("handoff_already_submitted")
+    if not SIGNAL_GATEWAY_ENABLED:
+        blockers.append("gateway_disabled")
+    if not SIGNAL_GATEWAY_URL:
+        blockers.append("gateway_url_not_configured")
+
+    signal = _json_loads(event.signal_json, {})
+    if not isinstance(signal, dict) or not signal:
+        blockers.append("signal_payload_missing")
+        signal = {}
+
+    validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
+    if validation.get("eligible_for_backend_handoff") is not True:
+        blockers.append("signal_not_eligible_for_backend_handoff")
+
+    execution_boundary = signal.get("execution_boundary") if isinstance(signal.get("execution_boundary"), dict) else {}
+    if not execution_boundary:
+        blockers.append("execution_boundary_missing")
+    if execution_boundary.get("not_an_order") is not True:
+        blockers.append("signal_missing_not_an_order_boundary")
+    if execution_boundary.get("ai_may_place_orders") is not False:
+        blockers.append("signal_allows_direct_ai_order_placement")
+    if execution_boundary.get("order_backend_only") is not True:
+        blockers.append("signal_missing_order_backend_only_boundary")
+
+    deduped_blockers = list(dict.fromkeys(blockers))
+    return {
+        "eligible": not deduped_blockers,
+        "blockers": deduped_blockers,
+        "gateway_ready": gateway_ready,
+        "can_retry": event.status == "review_candidate" and event.handoff_status in {"not_submitted", "failed"},
+        "default_handoff_status": "available" if gateway_ready else "disabled",
+    }
+
+
 def submit_signal_event_to_gateway(
     db: Session,
     *,
@@ -795,21 +839,22 @@ def submit_signal_event_to_gateway(
     event = get_signal_event_record(db, user_id=user_id, event_id=event_id)
     if not event:
         raise ValueError("Signal event not found")
-    if event.status != "review_candidate":
-        raise ValueError("Signal event is not in review_candidate status")
-    if not SIGNAL_GATEWAY_ENABLED or not SIGNAL_GATEWAY_URL:
+    eligibility = build_signal_event_handoff_eligibility(event)
+    if not eligibility["eligible"]:
+        gateway_blockers = {"gateway_disabled", "gateway_url_not_configured"}
+        blockers = list(eligibility.get("blockers") or [])
+        non_gateway_blockers = [blocker for blocker in blockers if blocker not in gateway_blockers]
+        if non_gateway_blockers:
+            raise ValueError(
+                "Signal event is not eligible for handoff: "
+                + ", ".join(non_gateway_blockers)
+            )
         raise SignalGatewayDisabledError("AI Trading signal gateway is disabled")
 
     signal = _json_loads(event.signal_json, {})
     execution_boundary = signal.get("execution_boundary") if isinstance(signal, dict) else {}
     if not isinstance(execution_boundary, dict):
         execution_boundary = {}
-    if execution_boundary.get("not_an_order") is not True:
-        raise ValueError("Signal event is missing not_an_order boundary")
-    if execution_boundary.get("ai_may_place_orders") is not False:
-        raise ValueError("Signal event allows direct AI order placement")
-    if execution_boundary.get("order_backend_only") is not True:
-        raise ValueError("Signal event is missing order_backend_only boundary")
 
     payload = _build_signal_gateway_payload(event)
     headers = {"Content-Type": "application/json"}
