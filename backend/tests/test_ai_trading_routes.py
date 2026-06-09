@@ -102,6 +102,13 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
 
     disabled_handoff = client.post(f"/api/ai-trading/signal-events/{event['id']}/handoff")
     assert disabled_handoff.status_code == 409
+    disabled_attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert disabled_attempts.status_code == 200
+    disabled_attempt = disabled_attempts.json()["attempts"][0]
+    assert disabled_attempt["result"] == "blocked"
+    assert disabled_attempt["gateway_ready"] is False
+    assert "gateway_disabled" in disabled_attempt["blockers"]
+
     disabled_runtime = client.get("/api/ai-trading/runtime").json()
     disabled_handoff_summary = disabled_runtime["signal_events"]["handoff_eligibility"]
     assert disabled_handoff_summary["review_candidates"] == 1
@@ -142,6 +149,15 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert submitted_event["handoff_eligibility"]["eligible"] is False
     assert "event_status_not_review_candidate" in submitted_event["handoff_eligibility"]["blockers"]
     assert "handoff_already_submitted" in submitted_event["handoff_eligibility"]["blockers"]
+
+    submitted_attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert submitted_attempts.status_code == 200
+    attempt_rows = submitted_attempts.json()["attempts"]
+    assert [row["result"] for row in attempt_rows] == ["submitted", "blocked"]
+    assert attempt_rows[0]["gateway_ready"] is True
+    assert attempt_rows[0]["eligibility"]["eligible"] is True
+    assert "test-token" not in str(attempt_rows)
+    assert "order-backend.test" not in str(attempt_rows)
 
     assert calls
     assert calls[0]["json"]["type"] == "AI_TRADING_SIGNAL_CANDIDATE"

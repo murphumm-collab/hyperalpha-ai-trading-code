@@ -24,7 +24,11 @@ from config.settings import (
     AI_HARD_REQUIRE_STOP_LOSS,
     AI_HARD_REQUIRE_TAKE_PROFIT,
 )
-from database.models import AiTradingSignalEventRecord, AiTradingStrategySpecRecord
+from database.models import (
+    AiTradingSignalEventRecord,
+    AiTradingSignalHandoffAttemptRecord,
+    AiTradingStrategySpecRecord,
+)
 from services.exchanges.symbol_mapper import SymbolMapper
 
 
@@ -271,6 +275,25 @@ def serialize_signal_event_record(
     if include_signal:
         payload["signal"] = _json_loads(record.signal_json, {})
     return payload
+
+
+def serialize_signal_handoff_attempt_record(
+    record: AiTradingSignalHandoffAttemptRecord,
+) -> Dict[str, Any]:
+    return {
+        "id": record.id,
+        "user_id": record.user_id,
+        "signal_event_id": record.signal_event_id,
+        "strategy_spec_id": record.strategy_spec_id,
+        "symbol": record.symbol,
+        "action": record.action,
+        "result": record.result,
+        "gateway_ready": bool(record.gateway_ready),
+        "blockers": _json_loads(record.blockers_json, []),
+        "eligibility": _json_loads(record.eligibility_json, {}),
+        "error_message": record.error_message,
+        "created_at": _record_timestamp(record.created_at),
+    }
 
 
 def get_strategy_spec_schema() -> Dict[str, Any]:
@@ -771,6 +794,53 @@ def get_signal_event_record(
     ).first()
 
 
+def _add_signal_handoff_attempt(
+    db: Session,
+    event: AiTradingSignalEventRecord,
+    *,
+    result: str,
+    eligibility: Dict[str, Any],
+    error_message: Optional[str] = None,
+) -> AiTradingSignalHandoffAttemptRecord:
+    blockers = list(eligibility.get("blockers") or [])
+    attempt = AiTradingSignalHandoffAttemptRecord(
+        user_id=event.user_id,
+        signal_event_id=event.id,
+        strategy_spec_id=event.strategy_spec_id,
+        symbol=event.symbol,
+        action=event.action,
+        result=_clean_text(result, 30) or "unknown",
+        gateway_ready=bool(eligibility.get("gateway_ready")),
+        blockers_json=_json_dumps(blockers),
+        eligibility_json=_json_dumps(eligibility),
+        error_message=_clean_text(error_message, 2000) if error_message else None,
+    )
+    db.add(attempt)
+    return attempt
+
+
+def list_signal_handoff_attempt_records(
+    db: Session,
+    *,
+    user_id: int,
+    signal_event_id: int,
+    limit: int = 20,
+) -> List[AiTradingSignalHandoffAttemptRecord]:
+    return (
+        db.query(AiTradingSignalHandoffAttemptRecord)
+        .filter(
+            AiTradingSignalHandoffAttemptRecord.user_id == user_id,
+            AiTradingSignalHandoffAttemptRecord.signal_event_id == signal_event_id,
+        )
+        .order_by(
+            AiTradingSignalHandoffAttemptRecord.created_at.desc(),
+            AiTradingSignalHandoffAttemptRecord.id.desc(),
+        )
+        .limit(max(1, min(int(limit or 20), 100)))
+        .all()
+    )
+
+
 def _build_signal_gateway_payload(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
     signal = _json_loads(event.signal_json, {})
     return {
@@ -844,6 +914,14 @@ def submit_signal_event_to_gateway(
         gateway_blockers = {"gateway_disabled", "gateway_url_not_configured"}
         blockers = list(eligibility.get("blockers") or [])
         non_gateway_blockers = [blocker for blocker in blockers if blocker not in gateway_blockers]
+        _add_signal_handoff_attempt(
+            db,
+            event,
+            result="blocked",
+            eligibility=eligibility,
+            error_message=", ".join(blockers),
+        )
+        db.commit()
         if non_gateway_blockers:
             raise ValueError(
                 "Signal event is not eligible for handoff: "
@@ -872,6 +950,13 @@ def submit_signal_event_to_gateway(
     except Exception as exc:
         event.handoff_status = "failed"
         event.error_message = str(exc)
+        _add_signal_handoff_attempt(
+            db,
+            event,
+            result="failed",
+            eligibility=eligibility,
+            error_message=str(exc),
+        )
         db.commit()
         db.refresh(event)
         raise ValueError(f"Signal gateway handoff failed: {exc}") from exc
@@ -885,6 +970,12 @@ def submit_signal_event_to_gateway(
     event.signal_json = _json_dumps(signal)
     event.error_message = None
     event.submitted_at = datetime.now(timezone.utc)
+    _add_signal_handoff_attempt(
+        db,
+        event,
+        result="submitted",
+        eligibility=eligibility,
+    )
     db.commit()
     db.refresh(event)
     return event

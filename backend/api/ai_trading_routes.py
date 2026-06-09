@@ -20,9 +20,11 @@ from services.ai_trading_strategy_spec_service import (
     get_signal_event_record,
     get_strategy_spec_record,
     get_strategy_spec_schema,
+    list_signal_handoff_attempt_records,
     list_signal_event_records,
     list_strategy_spec_records,
     save_strategy_spec_record,
+    serialize_signal_handoff_attempt_record,
     serialize_signal_event_record,
     serialize_strategy_spec_record,
     submit_signal_event_to_gateway,
@@ -299,6 +301,31 @@ def get_signal_event_endpoint(
         raise HTTPException(status_code=404, detail="Signal event not found")
     return {
         "signal_event": serialize_signal_event_record(event, include_signal=True),
+    }
+
+
+@router.get("/signal-events/{event_id}/handoff-attempts")
+def list_signal_event_handoff_attempts_endpoint(
+    event_id: int,
+    limit: int = 20,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """List non-secret handoff attempt audit records for a signal event."""
+    event = get_signal_event_record(db, user_id=current_user.id, event_id=event_id)
+    if not event:
+        raise HTTPException(status_code=404, detail="Signal event not found")
+    attempts = list_signal_handoff_attempt_records(
+        db,
+        user_id=current_user.id,
+        signal_event_id=event_id,
+        limit=limit,
+    )
+    return {
+        "attempts": [
+            serialize_signal_handoff_attempt_record(attempt)
+            for attempt in attempts
+        ]
     }
 
 

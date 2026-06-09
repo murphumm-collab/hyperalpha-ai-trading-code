@@ -293,6 +293,28 @@ class AiTradingSignalEventRecord(Base):
     strategy_spec = relationship("AiTradingStrategySpecRecord")
 
 
+class AiTradingSignalHandoffAttemptRecord(Base):
+    """Per-user audit trail for AI Trading signal handoff attempts."""
+    __tablename__ = "ai_trading_signal_handoff_attempts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    signal_event_id = Column(Integer, ForeignKey("ai_trading_signal_events.id"), nullable=False, index=True)
+    strategy_spec_id = Column(Integer, ForeignKey("ai_trading_strategy_specs.id"), nullable=False, index=True)
+    symbol = Column(String(64), nullable=False, index=True)
+    action = Column(String(20), nullable=False, default="hold")
+    result = Column(String(30), nullable=False, index=True)
+    gateway_ready = Column(Boolean, nullable=False, default=False)
+    blockers_json = Column(Text, nullable=False, default="[]")
+    eligibility_json = Column(Text, nullable=False, default="{}")
+    error_message = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+    user = relationship("User")
+    signal_event = relationship("AiTradingSignalEventRecord")
+    strategy_spec = relationship("AiTradingStrategySpecRecord")
+
+
 class AiStreamTaskRecord(Base):
     """Persistent metadata for background AI stream tasks."""
     __tablename__ = "ai_stream_tasks"
