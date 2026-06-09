@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.hyperalpha.ai-trading-local</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/mo/Library/Application Support/HyperAlpha/ai_trading_local_supervisor.sh</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>WorkingDirectory</key>
+  <string>/tmp</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HYPERALPHA_PROJECT_ROOT</key>
+    <string>/Users/mo/Library/Application Support/HyperAlpha/runtime/hyperalpha-ai-trading</string>
+  </dict>
+  <key>StandardOutPath</key>
+  <string>/Users/mo/Library/Application Support/HyperAlpha/logs/local-dev/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/mo/Library/Application Support/HyperAlpha/logs/local-dev/launchd.err.log</string>
+</dict>
+</plist>

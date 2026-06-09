@@ -300,6 +300,9 @@ interface AiTradingMarket {
   dex?: string
 }
 
+type AiTradingSymbolGroupKey = 'crypto' | 'hip3' | 'all'
+type AiTradingSymbolGroups = Record<AiTradingSymbolGroupKey, string[]>
+
 interface AiTradingRuntimeStatus {
   gateway?: {
     enabled?: boolean
@@ -894,6 +897,12 @@ export default function HyperAiPage() {
   const [showToolModal, setShowToolModal] = useState(false)
   const [selectedTool, setSelectedTool] = useState<ToolInfo | null>(null)
   const [tradingSymbols, setTradingSymbols] = useState<string[]>([])
+  const [tradingSymbolGroups, setTradingSymbolGroups] = useState<AiTradingSymbolGroups>({
+    crypto: [],
+    hip3: [],
+    all: [],
+  })
+  const [tradingSymbolGroup, setTradingSymbolGroup] = useState<AiTradingSymbolGroupKey>('all')
   const [tradingSymbolSource, setTradingSymbolSource] = useState<'watchlist' | 'universe' | 'available' | 'none'>('none')
   const [tradingSymbolsLoading, setTradingSymbolsLoading] = useState(false)
   const [tradingSymbolsError, setTradingSymbolsError] = useState<string | null>(null)
@@ -1319,13 +1328,18 @@ export default function HyperAiPage() {
       const hip3Preset = Array.isArray(universeData.presets?.hip3_top_20)
         ? universeData.presets.hip3_top_20
         : []
-      const universe = [...cryptoPreset, ...hip3Preset]
-        .map((entry: AiTradingMarket | string) => (
-          typeof entry === 'string'
-            ? entry
-            : entry.coin || entry.exchange_symbol || entry.symbol || entry.display_symbol
-        ))
+      const marketSymbol = (entry: AiTradingMarket | string): string | undefined => (
+        typeof entry === 'string'
+          ? entry
+          : entry.coin || entry.exchange_symbol || entry.symbol || entry.display_symbol
+      )
+      const cryptoSymbols = cryptoPreset
+        .map(marketSymbol)
         .filter((symbol: string | undefined): symbol is string => Boolean(symbol))
+      const hip3Symbols = hip3Preset
+        .map(marketSymbol)
+        .filter((symbol: string | undefined): symbol is string => Boolean(symbol))
+      const universe = Array.from(new Set([...cryptoSymbols, ...hip3Symbols]))
       const available = Array.isArray(availableData.symbols)
         ? availableData.symbols.map((entry: { symbol?: string } | string) => (
             typeof entry === 'string' ? entry : entry.symbol
@@ -1333,21 +1347,38 @@ export default function HyperAiPage() {
         : []
 
       if (watchlist.length > 0) {
-        setTradingSymbols(watchlist.slice(0, 20))
+        const symbols = watchlist.slice(0, 20)
+        setTradingSymbolGroups({ crypto: symbols, hip3: [], all: symbols })
+        setTradingSymbolGroup('all')
+        setTradingSymbols(symbols)
         setTradingSymbolSource('watchlist')
       } else if (universe.length > 0) {
-        setTradingSymbols(Array.from(new Set(universe)).slice(0, 20))
+        const groups = {
+          crypto: Array.from(new Set(cryptoSymbols)).slice(0, 20),
+          hip3: Array.from(new Set(hip3Symbols)).slice(0, 20),
+          all: universe.slice(0, 40),
+        }
+        setTradingSymbolGroups(groups)
+        setTradingSymbolGroup('all')
+        setTradingSymbols(groups.all)
         setTradingSymbolSource('universe')
       } else if (available.length > 0) {
-        setTradingSymbols(available.slice(0, 20))
+        const symbols = available.slice(0, 20)
+        setTradingSymbolGroups({ crypto: symbols, hip3: [], all: symbols })
+        setTradingSymbolGroup('all')
+        setTradingSymbols(symbols)
         setTradingSymbolSource('available')
       } else {
+        setTradingSymbolGroups({ crypto: [], hip3: [], all: [] })
+        setTradingSymbolGroup('all')
         setTradingSymbols([])
         setTradingSymbolSource('none')
       }
     } catch (e) {
       console.error('Failed to fetch trading symbols:', e)
       setTradingSymbolsError(e instanceof Error ? e.message : 'Failed to load trading symbols')
+      setTradingSymbolGroups({ crypto: [], hip3: [], all: [] })
+      setTradingSymbolGroup('all')
       setTradingSymbols([])
       setTradingSymbolSource('none')
     } finally {
@@ -1388,6 +1419,11 @@ export default function HyperAiPage() {
   const refreshAiTradingState = () => {
     fetchAiTradingRuntime()
     fetchAiTradingRecords()
+  }
+
+  const handleTradingSymbolGroupChange = (group: AiTradingSymbolGroupKey) => {
+    setTradingSymbolGroup(group)
+    setTradingSymbols(tradingSymbolGroups[group])
   }
 
   const handleTradingSymbolPrompt = (symbol: string) => {
@@ -3216,6 +3252,35 @@ export default function HyperAiPage() {
                     </span>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {tradingSymbolSource === 'universe' && tradingSymbolGroups.all.length > 0 && (
+              <div className="mb-2 grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1 text-[11px]">
+                {([
+                  ['all', t('hyperAi.aiTradingAllMarkets', 'All')],
+                  ['crypto', t('hyperAi.aiTradingCryptoMarkets', 'Crypto')],
+                  ['hip3', t('hyperAi.aiTradingHip3Markets', 'HIP-3')],
+                ] as Array<[AiTradingSymbolGroupKey, string]>).map(([group, label]) => {
+                  const selected = tradingSymbolGroup === group
+                  const count = tradingSymbolGroups[group].length
+                  return (
+                    <button
+                      key={group}
+                      type="button"
+                      onClick={() => handleTradingSymbolGroupChange(group)}
+                      disabled={count === 0}
+                      className={`rounded px-1.5 py-1 font-medium transition-colors ${
+                        selected
+                          ? 'bg-background text-foreground shadow-sm'
+                          : 'text-muted-foreground hover:bg-background/70 hover:text-foreground'
+                      } disabled:cursor-not-allowed disabled:opacity-40`}
+                    >
+                      <span>{label}</span>
+                      <span className="ml-1 text-muted-foreground">{count}</span>
+                    </button>
+                  )
+                })}
               </div>
             )}
 

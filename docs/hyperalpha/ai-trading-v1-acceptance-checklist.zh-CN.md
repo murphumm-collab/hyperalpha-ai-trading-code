@@ -27,17 +27,20 @@ V1 的完成标准是：用户可以在本地/测试环境通过 AI Trading 页�
 
 ## 当前已验证
 
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q`：27 条 AI Trading route 回归通过。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py -q`：29 条 AI Trading/mock gateway 回归通过。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`：通过。
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py`：通过，覆盖 draft -> model-adjust -> save -> attach backtest -> approve -> reject signal -> confirmed mock handoff -> runtime。
-- `cd backend && uv run python scripts/ai_trading_v1_env_check.py`：可输出本地浏览器验收环境 readiness/blockers。
+- `cd backend && uv run python scripts/ai_trading_v1_env_check.py`：在 Docker/Postgres/mock gateway/backend/frontend 启动后返回 `ready=true`。
 - `cd frontend && npm run build`：通过，剩余为既有 browserslist/baseline/chunk-size warning。
-- Playwright CLI 可以打开 `http://127.0.0.1:5174/app/ai-trading` 并渲染 Hyper AI shell。
+- In-app Browser 可以打开 `http://127.0.0.1:5174/app/ai-trading`；跳过本地 onboarding 后可渲染 Hyper AI / AI Trading 页面、Gateway/Specs/Signals runtime、All/Crypto/HIP-3 市场分段和 Crypto/HIP-3 标的。
+- In-app Browser 已验证 HIP-3 分段过滤：`xyz:NVDA` / `xyz:AAPL` / `xyz:TSLA` 可见，BTC 不在 HIP-3 过滤结果中。
+- In-app Browser 已验证 `xyz:NVDA` safe prompt fill 和 strategy draft：UI 显示 `NVDA · 15m`、`ready_for_review`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
+- LaunchAgent `com.hyperalpha.ai-trading-local` 已固化成本地 runtime mirror 启动方式：安装脚本同步 runtime 副本到 Application Support，launchd 已在本机会话内恢复 frontend `5174`、backend `8802`、mock gateway `5621`，env checker 返回 `ready=true`。
 
 ## 当前未验收
 
-- 本地 PostgreSQL/Snapshot DB 未运行，后端真实启动和浏览器 API 点击流未完成。
-- Docker daemon 未运行，暂时不能通过 `docker compose up -d postgres` 启动本地 Postgres。
+- 完整浏览器点击流还未跑完：adjust -> save -> approve -> attach/run backtest evidence -> create/reject signal -> confirmed mock handoff。
+- 实际 macOS 整机重启后的自动恢复还未物理验收；当前已完成 LaunchAgent 会话内自恢复验收。后续代码变更需要重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime 副本。
 - 真实 DeepSeek/Qwen API key live model-adjust 未验收；当前为 mocked Qwen regression。
 - 真实 HyperAlpha 订单后端 URL/token live handoff 未验收；当前为 disabled-by-default 和 mock gateway contract 验收。
 - 真实交易所执行不属于 V1 本地验收完成条件，必须另开生产实盘验收。

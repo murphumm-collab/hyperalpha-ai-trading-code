@@ -17,6 +17,7 @@ import shutil
 import socket
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any, Dict, List, Optional
 
@@ -29,9 +30,16 @@ def _tcp_open(host: str, port: int, timeout: float = 1.0) -> bool:
         return False
 
 
+def _backend_port(backend_url: str) -> int:
+    parsed = urllib.parse.urlparse(backend_url)
+    if parsed.port:
+        return int(parsed.port)
+    return 443 if parsed.scheme == "https" else 80
+
+
 def _http_probe(url: str, timeout: float = 3.0) -> Dict[str, Any]:
     try:
-        request = urllib.request.Request(url, method="GET")
+        request = urllib.request.Request(url, method="GET", headers={"Accept": "*/*"})
         with urllib.request.urlopen(request, timeout=timeout) as response:
             body = response.read(512).decode("utf-8", errors="replace")
             return {
@@ -74,13 +82,14 @@ def _docker_ready() -> Dict[str, Any]:
 def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> Dict[str, Any]:
     docker = _docker_ready()
     postgres_open = _tcp_open("127.0.0.1", 5432)
-    backend_open = _tcp_open("127.0.0.1", 5611)
+    backend_port = _backend_port(backend_url)
+    backend_open = _tcp_open("127.0.0.1", backend_port)
     mock_gateway_open = _tcp_open("127.0.0.1", 5621)
 
     frontend = _http_probe(frontend_url)
-    backend_runtime = _http_probe(f"{backend_url.rstrip('/')}/api/ai-trading/runtime") if backend_open else {
+    backend_runtime = _http_probe(f"{backend_url.rstrip('/')}/api/ai-trading/runtime", timeout=45.0) if backend_open else {
         "ok": False,
-        "message": "backend port 5611 is not listening",
+        "message": f"backend port {backend_port} is not listening",
     }
     mock_gateway = _http_probe(f"{mock_gateway_url.rstrip('/')}/health") if mock_gateway_open else {
         "ok": False,
@@ -111,7 +120,7 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
             "docker": docker,
             "postgres_5432": {"tcp_open": postgres_open},
             "frontend": frontend,
-            "backend_5611": {"tcp_open": backend_open, "runtime": backend_runtime},
+            f"backend_{backend_port}": {"tcp_open": backend_open, "runtime": backend_runtime},
             "mock_gateway_5621": {"tcp_open": mock_gateway_open, "health": mock_gateway},
         },
         "next_actions": [
@@ -126,7 +135,7 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--frontend-url", default="http://127.0.0.1:5174/app/ai-trading")
-    parser.add_argument("--backend-url", default="http://127.0.0.1:5611")
+    parser.add_argument("--backend-url", default="http://127.0.0.1:8802")
     parser.add_argument("--mock-gateway-url", default="http://127.0.0.1:5621")
     parser.add_argument("--strict", action="store_true", help="Exit 1 when any readiness blocker exists.")
     args = parser.parse_args()

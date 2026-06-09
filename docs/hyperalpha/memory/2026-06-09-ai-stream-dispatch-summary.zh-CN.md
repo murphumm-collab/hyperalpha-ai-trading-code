@@ -68,7 +68,7 @@
 - Hyper AI recent signals 行现在会把常见 handoff blocker code 翻译成可读安全标签，包括 gateway disabled、missing backtest、weak metrics、boundary missing、already submitted、signal expired，并对过期信号显示 age/max-age。
 - AI Trading FastAPI route 回归现在覆盖 Alice/Bob 两个用户共享同一数据库时的隔离：Bob 不能 list/read/approve/archive/preview/create/reject/handoff Alice 的 strategy spec、signal event 或 handoff attempt。
 - 新增 `/api/ai-trading/market-universe`：返回 Hyperliquid Crypto Top 20/50 和 HIP-3 Top 20/50 presets，包含 dex、`coin`/`exchange_symbol`、category、24h volume、OI、max leverage、only-isolated、source/errors 等非敏感市场元数据。
-- Hyper AI AI Trading 标的加载逻辑现在优先使用用户 watchlist；没有 watchlist 时使用 AI Trading market universe 的 crypto + HIP-3 presets；最后才 fallback 到 available symbols。
+- Hyper AI AI Trading 标的加载逻辑现在优先使用用户 watchlist；没有 watchlist 时使用 AI Trading market universe 的 crypto + HIP-3 presets；最后才 fallback 到 available symbols。Market universe UI 现在有 All / Crypto / HIP-3 分段，能直接看到 BTC/ETH/HYPE 以及 `xyz:NVDA`、`xyz:AAPL`、`xyz:TSLA` 等 HIP-3 标的。
 - Strategy spec 和 signal candidate 现在保留 HIP-3 market identity：`market.dex`、`market.exchange_symbol`（如 `xyz:NVDA`）、`market.display_symbol`、category；内部 `symbol` 仍可保持 `NVDA` 用于既有记录索引。
 - Strategy spec 和 signal candidate 现在记录非敏感 `ai_model` 上下文：`provider`、`model`、`source`、是否为 V1 DeepSeek/Qwen provider；校验会 warning 缺失/非 V1 provider，并 reject `api_key`、`token`、`secret` 等字段进入 `ai_model`。
 - Hyper AI AI Trading strategy draft 请求现在携带当前 profile 的 `llm_provider/llm_model`，来源标记为 `hyper_ai_profile`；不携带 base URL、API key 或 token。
@@ -255,20 +255,25 @@
 - `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` 已保存 V1 完成标准、当前已验证项、未验收项和最终通过标准，避免继续无限扩功能。
 - 新增 `backend/scripts/ai_trading_v1_acceptance_smoke.py`：用 FastAPI TestClient、临时 SQLite、mock Qwen adjustment response、mock order backend gateway 跑 API-level V1 验收剧本，不依赖本地 Postgres/browser。
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` 已通过，输出 `success=true`；流程覆盖 draft -> model_adjust -> save -> attach_backtest -> approve -> create/reject signal -> create/confirm handoff signal -> handoff attempt -> runtime，gateway contract 保持 `signal_only=true`、`not_an_order=true`、`ai_may_place_orders=false`。
-- 新增 `backend/scripts/ai_trading_v1_env_check.py`：只探测不启动服务，输出 frontend/backend/Postgres/Docker/mock gateway readiness 和 blockers；当前运行成功但 `ready=false`，阻塞包括 frontend 5174 404、Postgres 5432 未监听、Docker daemon 未就绪、backend 5611 未监听、mock gateway 5621 未监听。
+- 新增 `backend/scripts/ai_trading_v1_env_check.py`：只探测不启动服务，输出 frontend/backend/Postgres/Docker/mock gateway readiness 和 blockers；现在默认检查与前端 Vite proxy 对齐的 backend `8802`，HTTP probe 带 `Accept: */*` 以兼容 Vite SPA fallback，backend runtime timeout 为 45s 以容忍冷启动。
 - mock signal gateway 已通过轻量验证：`cd backend && uv run python -m py_compile dev_ai_trading_signal_gateway.py`；临时运行 `uv run uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1` 后，`curl http://127.0.0.1:5621/health` 返回 ok，随后已停止服务。
 - `cd backend && uv run pytest tests/test_ai_trading_mock_gateway.py -q` 已通过，2 条 mock gateway 回归全绿；覆盖合格 V1 payload 返回 202 并写审计日志，以及 direct-order boundary 被 400 blocker 拒绝。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py -q` 已通过，当前 AI Trading backend 合并回归为 29 条全绿。
-- Playwright CLI 已打开 `http://127.0.0.1:5174/app/ai-trading`，页面 title 为 `Hyper Alpha Arena`，快照落在 Hyper AI shell/onboarding 状态；控制台错误主要来自本地后端 API/WS 未运行和少量静态资源 404，因此仍不是完整 AI Trading 点击级验收。
-- 临时启动后端 `uv run uvicorn main:app --port 5611 --host 127.0.0.1` 失败：`database.snapshot_connection` import 时连接本地 PostgreSQL `localhost:5432` 被拒，抛出 `psycopg2.OperationalError`。
+- In-app Browser 已打开 `http://127.0.0.1:5174/app/ai-trading`，本地未配置 LLM 时跳过 onboarding（未提交 API key）后，确认 Hyper AI / AI Trading 页面可渲染 Gateway `available / 15m max`、Specs/Signals runtime counts、All/Crypto/HIP-3 分段、BTC/ETH/HYPE 和 `xyz:NVDA`/`xyz:AAPL`/`xyz:TSLA`。
+- In-app Browser 已点击 HIP-3 分段，确认过滤后包含 `xyz:NVDA`/`xyz:AAPL`/`xyz:TSLA` 且不包含 BTC；点击 `xyz:NVDA` 会把安全 prompt 写入输入框，要求先做数据可用性、市场状态、入场/出场、仓位/杠杆、最大亏损、止盈止损/HOLD 复核，并明确不要直接下单。
+- In-app Browser 已点击 `xyz:NVDA` strategy draft 控件；本地 draft API 完成后 UI 显示 `NVDA · 15m`、`ready_for_review`、`Bias hold`、`Max loss 1%`、`Leverage 3x`、`Boundary signal only`、`Backtest not_run`、`Unsaved draft`。
+- 临时启动后端 `uv run uvicorn main:app --port 5611 --host 127.0.0.1` 曾失败：`database.snapshot_connection` import 时连接本地 PostgreSQL `localhost:5432` 被拒，抛出 `psycopg2.OperationalError`。后续已启动 Docker Desktop 和 compose Postgres，并把本地验收后端改为前端 proxy 对齐的 `8802`。
 - 用 `DATABASE_URL=sqlite:///./tmp_hyperalpha_dev.db SNAPSHOT_DATABASE_URL=sqlite:///./tmp_hyperalpha_snapshot.db` 探测 SQLite fallback 时，uvicorn 启动阶段产生大量 Postgres 专用 migration / model validation SQL 错误，服务没有稳定进入可验收状态；探测生成的临时 SQLite 文件已删除。
-- `docker compose up -d postgres` 探测失败，因为 Docker daemon 未运行（缺少 `/Users/mo/.docker/run/docker.sock`）；本机也没有可用 `psql` / `pg_isready`，所以本轮不能完成真实 Postgres 后端启动验收。
+- `docker compose up -d postgres` 后续已成功：`hyper-arena-postgres` healthy，`alpha_arena` 和 `alpha_snapshots` 都可连接；mock gateway `5621` 和 backend `8802` 已启动，`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
+- 新增本地自启动脚本：`scripts/local-dev/ai_trading_local_supervisor.sh`、`install_launch_agent.sh`、`uninstall_launch_agent.sh` 和 LaunchAgent plist。安装时会把当前项目同步到 `/Users/mo/Library/Application Support/HyperAlpha/runtime/hyperalpha-ai-trading`，修正 runtime `.venv` editable `.pth`，再由 `com.hyperalpha.ai-trading-local` 从 runtime 副本启动 frontend `5174`、backend `8802`、mock gateway `5621`，避免 macOS Documents 对后台执行的限制。
+- LaunchAgent runtime mirror 已通过本机自恢复验收：停止原本地服务后重装，launchd 从 runtime 副本恢复 frontend/backend/mock gateway；`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。实际整机重启没有在本会话物理执行；后续代码变更需要重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime 副本。
+- LaunchAgent runtime mirror 启动后，In-app Browser 再次打开 `/app/ai-trading` 并跳过 onboarding，确认 Gateway `available / 15m max`、All/Crypto/HIP-3 分段和 `xyz:NVDA`/`xyz:AAPL`/`xyz:TSLA` 仍可见。
 
 ## 6. 未验收 / 阻塞
 
-- 本地 PostgreSQL 未运行，导致后端 `8000` 未监听；analytics route runtime import 会因 snapshot DB 默认 Postgres 不可达而失败。
-- 本地 AI Trading browser/API 端到端验收仍需先启动 PostgreSQL/Snapshot DB，或实现明确的 dev SQLite/snapshot fallback；当前只有前端 shell 级 Playwright 证据。
-- Docker Desktop/daemon 启动后可继续用 `docker compose up -d postgres` 恢复 Postgres/Snapshot DB 验收路径。
+- 本地 PostgreSQL/backend/mock gateway 当前已可用于本机验收；LaunchAgent runtime mirror 已安装并通过本机会话内自恢复，但实际整机重启尚未物理验收。
+- 本地 AI Trading browser/API 完整点击流仍需准备测试用户/profile/backtest evidence；当前已有页面 runtime readiness、market selector、HIP-3 过滤、安全 prompt fill 和 `xyz:NVDA` draft 浏览器证据。
+- Docker Desktop/daemon 已启动，`docker compose up -d postgres` 已恢复 Postgres/Snapshot DB 验收路径。
 - 当前启动迁移和 model validation 偏 Postgres，临时 SQLite 环境不能作为完整浏览器验收环境。
 - GitHub 上传按用户要求暂不处理；本地继续开发、测试、验收标记和提交。历史推送失败原因为 HTTPS 凭据不可读：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
 - DeepSeek/Qwen 真实 API key/live profile 调用 model-adjust 的链路仍未验收；当前已完成 mocked Qwen 回归和前端按钮，模型输出进入 deterministic safety parser 后才会改 spec。
