@@ -432,6 +432,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -501,6 +502,75 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert final_runtime["signal_events"]["handoff_eligibility"]["eligible"] == 0
 
 
+def test_ai_trading_signal_handoff_requires_production_approval_for_external_gateway(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client, symbol="BTC")
+
+    calls = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        raise AssertionError("gateway should not be called without production handoff approval")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", False)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    eligibility = detail.json()["signal_event"]["handoff_eligibility"]
+    assert eligibility["eligible"] is False
+    assert eligibility["gateway_ready"] is False
+    assert "production_handoff_approval_required" in eligibility["blockers"]
+
+    runtime = client.get("/api/ai-trading/runtime").json()
+    assert runtime["gateway"]["runtime_config_blockers"] == ["production_handoff_approval_required"]
+    handoff_summary = runtime["signal_events"]["handoff_eligibility"]
+    assert handoff_summary["eligible"] == 0
+    assert handoff_summary["blocked"] == 1
+    assert handoff_summary["by_blocker"]["production_handoff_approval_required"] == 1
+
+    blocked_handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert blocked_handoff.status_code == 400
+    assert "production_handoff_approval_required" in blocked_handoff.json()["detail"]
+    assert calls == []
+
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    attempt = attempts.json()["attempts"][0]
+    assert attempt["result"] == "blocked"
+    assert attempt["gateway_ready"] is False
+    assert "production_handoff_approval_required" in attempt["blockers"]
+    assert "order-backend.test" not in str(attempt)
+    assert "test-token" not in str(attempt)
+
+
+def test_ai_trading_signal_handoff_allows_local_mock_gateway_without_production_approval(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client, symbol="BTC")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "http://127.0.0.1:5621/api/ai-trading/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "local-mock-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", False)
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    eligibility = detail.json()["signal_event"]["handoff_eligibility"]
+    assert eligibility["eligible"] is True
+    assert eligibility["gateway_ready"] is True
+    assert "production_handoff_approval_required" not in eligibility["blockers"]
+
+    runtime = client.get("/api/ai-trading/runtime").json()
+    assert runtime["gateway"]["runtime_config_blockers"] == []
+    assert runtime["gateway"]["default_handoff_status"] == "available"
+
+
 def test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client, symbol="BTC")
@@ -520,6 +590,7 @@ def test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only(tmp_pa
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     handoff = client.post(
@@ -766,6 +837,8 @@ def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypa
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -819,6 +892,8 @@ def test_ai_trading_signal_handoff_requires_signal_only_boundary(tmp_path, monke
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -870,6 +945,8 @@ def test_ai_trading_signal_handoff_requires_user_confirmation_boundary(tmp_path,
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -923,6 +1000,8 @@ def test_ai_trading_signal_handoff_requires_expected_signal_identity(tmp_path, m
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -983,6 +1062,8 @@ def test_ai_trading_signal_handoff_requires_event_signal_action_symbol_consisten
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -1052,6 +1133,7 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     failed = client.post(
@@ -1137,6 +1219,8 @@ def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tm
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     handoff = client.post(
@@ -1383,6 +1467,8 @@ def test_ai_trading_signal_handoff_requires_accepted_backtest_summary(tmp_path, 
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -1542,6 +1628,8 @@ def test_ai_trading_backtest_summary_requires_quality_metrics(tmp_path, monkeypa
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
     monkeypatch.setattr(strategy_service.requests, "post", fake_post)
 
     enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
@@ -1644,6 +1732,8 @@ def test_ai_trading_can_attach_owned_program_backtest_result(tmp_path, monkeypat
 
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
     monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
 
     enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert enabled_detail.status_code == 200

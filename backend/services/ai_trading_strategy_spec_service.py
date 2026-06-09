@@ -10,8 +10,10 @@ import re
 import json
 import os
 import copy
+import ipaddress
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib import parse
 
 import requests
 from sqlalchemy.orm import Session
@@ -125,6 +127,14 @@ SIGNAL_GATEWAY_URL = os.getenv("AI_TRADING_SIGNAL_GATEWAY_URL", "").strip()
 SIGNAL_GATEWAY_TIMEOUT_SECONDS = float(os.getenv("AI_TRADING_SIGNAL_GATEWAY_TIMEOUT_SECONDS", "10"))
 SIGNAL_GATEWAY_TOKEN = os.getenv("AI_TRADING_SIGNAL_GATEWAY_TOKEN", "").strip()
 SIGNAL_MAX_HANDOFF_AGE_SECONDS = float(os.getenv("AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS", "900"))
+SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED = (
+    os.getenv("AI_TRADING_PRODUCTION_HANDOFF_APPROVED", "false").lower() == "true"
+)
+SIGNAL_GATEWAY_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
+SIGNAL_GATEWAY_PLACEHOLDER_HOSTS = {
+    "example.com",
+    "order-backend.example.com",
+}
 
 
 class SignalGatewayDisabledError(RuntimeError):
@@ -2389,6 +2399,67 @@ def _build_signal_gateway_payload(
     }
 
 
+def _is_gateway_host_private_or_local(host: str) -> bool:
+    if host in SIGNAL_GATEWAY_LOCAL_HOSTS:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return bool(
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+    )
+
+
+def _is_local_mock_signal_gateway_url(url: str) -> bool:
+    parsed = parse.urlparse(url)
+    host = (parsed.hostname or "").lower()
+    path = (parsed.path or "").lower()
+    return bool(
+        host in SIGNAL_GATEWAY_LOCAL_HOSTS
+        or parsed.port == 5621
+        or "mock" in host
+        or "mock" in path
+    )
+
+
+def _signal_gateway_runtime_config_blockers() -> List[str]:
+    """Return non-secret runtime blockers for live order-backend gateway config."""
+    if not SIGNAL_GATEWAY_ENABLED or not SIGNAL_GATEWAY_URL:
+        return []
+    if _is_local_mock_signal_gateway_url(SIGNAL_GATEWAY_URL):
+        return []
+
+    parsed = parse.urlparse(SIGNAL_GATEWAY_URL)
+    host = (parsed.hostname or "").lower()
+    blockers: List[str] = []
+    if parsed.scheme != "https":
+        blockers.append("production_gateway_url_must_be_https")
+    if _is_gateway_host_private_or_local(host):
+        blockers.append("production_gateway_url_must_not_be_local_or_private")
+    if host in SIGNAL_GATEWAY_PLACEHOLDER_HOSTS or host.endswith(".example.com"):
+        blockers.append("production_gateway_url_must_not_be_placeholder")
+    if parsed.username or parsed.password or parsed.query:
+        blockers.append("production_gateway_url_must_not_embed_credentials_or_query")
+    if not SIGNAL_GATEWAY_TOKEN:
+        blockers.append("production_gateway_token_required")
+    if SIGNAL_GATEWAY_TIMEOUT_SECONDS <= 0:
+        blockers.append("production_gateway_timeout_invalid")
+    elif SIGNAL_GATEWAY_TIMEOUT_SECONDS > 30:
+        blockers.append("production_gateway_timeout_too_high")
+    if SIGNAL_MAX_HANDOFF_AGE_SECONDS <= 0:
+        blockers.append("production_signal_max_handoff_age_required")
+    elif SIGNAL_MAX_HANDOFF_AGE_SECONDS > 900:
+        blockers.append("production_signal_max_handoff_age_too_high")
+    if not SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED:
+        blockers.append("production_handoff_approval_required")
+    return blockers
+
+
 def _gateway_response_audit(response: Any = None, exc: Optional[BaseException] = None) -> Dict[str, Any]:
     error_response = getattr(exc, "response", None) if exc is not None else None
     status_code = getattr(response, "status_code", None)
@@ -2438,7 +2509,8 @@ def _gateway_error_message(exc: BaseException) -> str:
 def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
     """Return a non-secret preflight result for a signal event handoff."""
     blockers: List[str] = []
-    gateway_ready = bool(SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL)
+    gateway_config_blockers = _signal_gateway_runtime_config_blockers()
+    gateway_ready = bool(SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL and not gateway_config_blockers)
     signal_age_seconds = _signal_event_age_seconds(event)
 
     if event.status != "review_candidate":
@@ -2449,6 +2521,7 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         blockers.append("gateway_disabled")
     if not SIGNAL_GATEWAY_URL:
         blockers.append("gateway_url_not_configured")
+    blockers.extend(gateway_config_blockers)
     if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0:
         if signal_age_seconds is None:
             blockers.append("signal_event_created_at_missing")
@@ -2685,6 +2758,7 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
 
     spec_counts = {str(status): int(count) for status, count in spec_rows}
     event_counts = {str(status): int(count) for status, count in event_rows}
+    gateway_runtime_config_blockers = _signal_gateway_runtime_config_blockers()
     return {
         "gateway": {
             "enabled": SIGNAL_GATEWAY_ENABLED,
@@ -2692,7 +2766,11 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
             "mode": "http",
             "timeout_seconds": SIGNAL_GATEWAY_TIMEOUT_SECONDS,
             "max_handoff_age_seconds": int(SIGNAL_MAX_HANDOFF_AGE_SECONDS) if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0 else None,
-            "default_handoff_status": "available" if SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL else "disabled",
+            "production_handoff_approved": SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED,
+            "runtime_config_blockers": gateway_runtime_config_blockers,
+            "default_handoff_status": "available"
+            if SIGNAL_GATEWAY_ENABLED and SIGNAL_GATEWAY_URL and not gateway_runtime_config_blockers
+            else "disabled",
         },
         "strategy_specs": {
             "total": sum(spec_counts.values()),

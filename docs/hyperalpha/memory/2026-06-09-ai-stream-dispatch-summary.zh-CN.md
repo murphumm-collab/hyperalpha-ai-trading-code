@@ -48,6 +48,7 @@
 - gateway payload 现在有稳定的 V1 HTTP JSON contract：顶层包含 `contract/version`、event/spec/user IDs、`venue`、`symbol`、`exchange_symbol`、`action`、`idempotency_key`、signal age、用户确认、`market`、`market_context`、`risk`、`backtest`、`execution_boundary`、`validation` 和 redacted full `signal`；契约文档在 `docs/hyperalpha/ai-trading-signal-gateway-contract.md`。
 - 新增本地 mock signal gateway：`backend/dev_ai_trading_signal_gateway.py`。它只校验 V1 gateway contract 和 signal-only 边界，返回 202 并写 JSONL 审计，不连接真实订单服务或交易所。
 - 新增生产 handoff readiness gate：`backend/scripts/ai_trading_production_handoff_check.py`。它不联网、不提交信号，只检查生产订单后端配置是否显式可用；localhost/private/mock/placeholder/non-HTTPS/URL 内嵌凭据或 query、缺 token、timeout 过大、max age 无效、缺 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 都会阻塞，输出只含 token presence 不含 token 原文。
+- 后端运行时 handoff eligibility 现在也执行生产审批边界：外部订单后端 URL 缺 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 会被 `production_handoff_approval_required` blocker 拦截并写 blocked attempt；本地 mock gateway URL 仍可用于本地验收，不要求生产审批。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
 - `/api/ai-trading/runtime` 现在还返回非敏感 `gateway.max_handoff_age_seconds`；Hyper AI Gateway 卡片会显示紧凑 max-age，让运营知道后端当前 stale-signal gate。
 - Hyper AI AI Trading 面板会显示 Gateway / Specs / Signals 运行摘要，保存、审批、创建信号事件后刷新。
@@ -253,7 +254,9 @@
 - `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py` 不带确认参数会拒绝 handoff；`cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff` 已通过，输出 `success=true`，最新本地证据为 spec `#8`、signal event `#6`、gateway response summary `status=mock_accepted`。
 - `cd backend && uv run pytest tests/test_ai_trading_production_handoff_check.py -q` 已通过，5 条生产 handoff readiness 回归全绿；覆盖 localhost/mock gateway 拒绝、placeholder/缺 token/缺审批拒绝、private IP 拒绝、合格 HTTPS 配置通过且不输出 token、env-file parser。
 - `cd backend && uv run python scripts/ai_trading_production_handoff_check.py --strict` 在当前默认配置下正确失败，blockers 为 gateway disabled、URL missing、token missing、approval missing；使用假生产 HTTPS URL/token/`AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 时返回 `production_handoff_ready=true` 且不输出 token 原文。
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 已通过，当前 AI Trading 合并回归为 34 条全绿。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在运行时生产 handoff gate 后通过，29 条 AI Trading route 回归全绿；新增覆盖外部 HTTPS gateway 缺生产审批时 runtime/detail/handoff/attempt 均阻塞，local mock gateway 缺生产审批仍 eligible。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` 已通过，当前 AI Trading 合并回归为 36 条全绿。
+- `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` 已在运行时生产 handoff gate 后返回 `success=true`，证明本地 mock gateway 不被生产审批阻断。
 - 生产 handoff checker 后再次验证本地栈和前端：`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`；`cd frontend && npm run build` 通过，剩余为既有 browserslist/baseline/chunk-size 警告。
 - 提交 `e3d561e` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；约 10 秒冷启动后 `cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。

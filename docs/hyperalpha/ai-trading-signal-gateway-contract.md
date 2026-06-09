@@ -31,6 +31,11 @@ a bounded timeout, a positive handoff-age gate, and
 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`. It prints only sanitized URL
 parts and token presence, never the token value.
 
+The backend runtime also enforces the same production approval boundary before
+handoff. Local mock gateway URLs are allowed for local acceptance; external
+order-backend URLs are blocked until the runtime sees approved production-like
+config.
+
 ## HTTP Request
 
 Method: `POST`
@@ -91,6 +96,7 @@ A signal is eligible only when all of these are true:
 - Current authenticated user owns the signal event.
 - Event status is `review_candidate` and handoff status is not `submitted`.
 - Gateway is enabled and URL is configured.
+- External order-backend gateway config passes the runtime production handoff gate; local mock gateway URLs are allowed only for local acceptance.
 - Signal event is younger than `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS`, unless the age gate is explicitly set to `0`.
 - Request body includes `confirmed_by_user=true`.
 - Persisted signal version is `hyperalpha.ai_trading.signal_candidate.v1`.
@@ -129,6 +135,8 @@ Contract regression is covered by `backend/tests/test_ai_trading_routes.py`:
 
 - `test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only`
 - `test_ai_trading_strategy_signal_and_handoff_flow`
+- `test_ai_trading_signal_handoff_requires_production_approval_for_external_gateway`
+- `test_ai_trading_signal_handoff_allows_local_mock_gateway_without_production_approval`
 - Redaction, response-summary, and blocker-specific handoff tests
 - `backend/tests/test_ai_trading_production_handoff_check.py` covers the production handoff readiness checker, including localhost/mock rejection and token redaction.
 
