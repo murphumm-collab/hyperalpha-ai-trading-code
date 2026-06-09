@@ -67,6 +67,7 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
+                "| AI Trading production evidence text quality | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -124,6 +125,8 @@ def _write_production_evidence(
     empty_artifact_refs: bool = False,
     generated_at: object = "2026-06-10T12:05:00Z",
     validated_at: object = "2026-06-10T12:00:00Z",
+    validated_by: object = "ops-admin",
+    evidence_summary: object | None = None,
     root_extra: dict[str, object] | None = None,
     item_extra: dict[str, object] | None = None,
 ) -> None:
@@ -134,8 +137,12 @@ def _write_production_evidence(
         items[requirement.id] = {
             "status": "accepted",
             "validated_at": validated_at,
-            "validated_by": "ops-admin",
-            "evidence_summary": f"{requirement.id} accepted with sanitized operational evidence.",
+            "validated_by": validated_by,
+            "evidence_summary": (
+                evidence_summary
+                if evidence_summary is not None
+                else f"{requirement.id} accepted with sanitized operational evidence."
+            ),
             "artifact_refs": (
                 []
                 if empty_artifact_refs
@@ -346,6 +353,52 @@ def test_completion_audit_rejects_unexpected_production_evidence_fields(tmp_path
     )
     assert "external_evidence_unexpected_item_fields" in item_extra["blockers"]
     assert item_extra["unexpected_fields"] == ["raw_trace"]
+
+
+def test_completion_audit_rejects_placeholder_production_evidence_text(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    placeholder_path = tmp_path / "placeholder-evidence.json"
+    short_path = tmp_path / "short-evidence.json"
+    _write_production_evidence(
+        placeholder_path,
+        validated_by="TBD",
+        evidence_summary="OK",
+    )
+    _write_production_evidence(
+        short_path,
+        validated_by="me",
+        evidence_summary="accepted",
+    )
+
+    placeholder_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=placeholder_path,
+        allow_live_ready_from_evidence=True,
+    )
+    short_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=short_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert placeholder_report["ready_for_live_orders"] is False
+    placeholder_item = next(
+        item
+        for item in placeholder_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_validated_by_placeholder" in placeholder_item["blockers"]
+    assert "external_evidence_summary_placeholder" in placeholder_item["blockers"]
+    assert "external_evidence_summary_too_short" in placeholder_item["blockers"]
+    assert short_report["ready_for_live_orders"] is False
+    short_item = next(
+        item
+        for item in short_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_validated_by_too_short" in short_item["blockers"]
+    assert "external_evidence_summary_placeholder" in short_item["blockers"]
+    assert "external_evidence_summary_too_short" in short_item["blockers"]
 
 
 def test_completion_audit_rejects_unsafe_artifact_refs(tmp_path):

@@ -8,7 +8,7 @@
     "Use only documented evidence schema fields. Allowed root fields are version, generated_at, secret_values_returned, notes, and items. Allowed item fields are status, validated_at, validated_by, evidence_summary, artifact_refs, and secret_values_returned. Unknown root or item fields are rejected.",
     "generated_at and every item validated_at must be timezone-aware ISO-8601 timestamps, for example 2026-06-10T12:00:00Z; generated_at must not be earlier than any item validated_at.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; do not embed credentials or point to localhost/private-network URLs.",
-    "Each item must become status=accepted with validated_at, validated_by, evidence_summary, artifact_refs, and secret_values_returned=false before production cutover audit can pass."
+    "Each item must become status=accepted with validated_at, a non-placeholder validated_by, a concrete evidence_summary of at least 24 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass."
   ],
   "items": {
     "macos_reboot_recovery": {
