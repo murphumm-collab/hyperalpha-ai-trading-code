@@ -1865,11 +1865,24 @@ def _build_signal_gateway_payload(
     }
 
 
-def _gateway_response_audit(response: Any) -> Dict[str, Any]:
+def _gateway_response_audit(response: Any = None, exc: Optional[BaseException] = None) -> Dict[str, Any]:
+    error_response = getattr(exc, "response", None) if exc is not None else None
     status_code = getattr(response, "status_code", None)
-    return {
+    if status_code is None:
+        status_code = getattr(error_response, "status_code", None)
+    audit = {
         "status_code": int(status_code) if isinstance(status_code, int) else None,
     }
+    if exc is not None:
+        audit["error_type"] = _clean_text(exc.__class__.__name__, 120) or "Exception"
+    return audit
+
+
+def _gateway_error_message(exc: BaseException) -> str:
+    audit = _gateway_response_audit(exc=exc)
+    status_code = audit.get("status_code")
+    status_suffix = f" (status {status_code})" if status_code is not None else ""
+    return f"Signal gateway handoff failed: {audit.get('error_type') or 'Exception'}{status_suffix}"
 
 
 def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) -> Dict[str, Any]:
@@ -1985,18 +1998,22 @@ def submit_signal_event_to_gateway(
         )
         response.raise_for_status()
     except Exception as exc:
+        gateway_error = _gateway_error_message(exc)
         event.handoff_status = "failed"
-        event.error_message = str(exc)
+        event.error_message = gateway_error
         _add_signal_handoff_attempt(
             db,
             event,
             result="failed",
-            eligibility=attempt_eligibility,
-            error_message=str(exc),
+            eligibility={
+                **attempt_eligibility,
+                "gateway_response": _gateway_response_audit(exc=exc),
+            },
+            error_message=gateway_error,
         )
         db.commit()
         db.refresh(event)
-        raise ValueError(f"Signal gateway handoff failed: {exc}") from exc
+        raise ValueError(gateway_error) from exc
 
     signal["execution_boundary"] = {
         **execution_boundary,

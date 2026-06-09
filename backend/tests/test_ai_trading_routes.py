@@ -522,6 +522,65 @@ def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypa
     assert "signal_event_stale_for_handoff" in attempts.json()["attempts"][0]["blockers"]
 
 
+def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+
+    class FakeGatewayError(Exception):
+        def __init__(self, message, response):
+            super().__init__(message)
+            self.response = response
+
+    class FakeResponse:
+        status_code = 502
+
+        def raise_for_status(self):
+            raise FakeGatewayError(
+                "https://order-backend.test/signals test-token secret-response-body",
+                self,
+            )
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    failed = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert failed.status_code == 400
+    assert failed.json()["detail"] == "Signal gateway handoff failed: FakeGatewayError (status 502)"
+    assert "order-backend.test" not in str(failed.json())
+    assert "test-token" not in str(failed.json())
+    assert "secret-response-body" not in str(failed.json())
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    failed_event = detail.json()["signal_event"]
+    assert failed_event["handoff_status"] == "failed"
+    assert failed_event["error_message"] == "Signal gateway handoff failed: FakeGatewayError (status 502)"
+    assert "order-backend.test" not in str(failed_event)
+    assert "test-token" not in str(failed_event)
+    assert "secret-response-body" not in str(failed_event)
+
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    attempt = attempts.json()["attempts"][0]
+    assert attempt["result"] == "failed"
+    assert attempt["error_message"] == "Signal gateway handoff failed: FakeGatewayError (status 502)"
+    assert attempt["eligibility"]["gateway_response"] == {
+        "status_code": 502,
+        "error_type": "FakeGatewayError",
+    }
+    assert "order-backend.test" not in str(attempt)
+    assert "test-token" not in str(attempt)
+    assert "secret-response-body" not in str(attempt)
+
+
 def test_ai_trading_runtime_summarizes_strategy_backtest_evidence(tmp_path):
     clients = _build_clients(tmp_path, usernames=("alice", "bob"))
     alice = clients["alice"]
