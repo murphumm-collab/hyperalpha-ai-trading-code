@@ -64,6 +64,9 @@ def _create_approved_signal_event(client, *, symbol="BTC"):
             ),
             "max_loss_pct": 1,
             "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+            "model_source": "pytest",
         },
     )
     assert draft.status_code == 200
@@ -109,6 +112,8 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     spec = draft.json()["spec"]
     assert spec["validation"]["safe_to_emit_signal"] is True
     assert spec["execution"]["ai_may_place_orders"] is False
+    assert spec["ai_model"]["provider"] is None
+    assert "ai_model_provider_missing" in spec["validation"]["warnings"]
 
     saved = client.post(
         "/api/ai-trading/strategy-specs",
@@ -384,6 +389,9 @@ def test_ai_trading_strategy_spec_preserves_hip3_market_identity(tmp_path):
             ),
             "max_loss_pct": 1,
             "max_leverage": 2,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+            "model_source": "pytest",
         },
     )
     assert draft.status_code == 200
@@ -393,6 +401,10 @@ def test_ai_trading_strategy_spec_preserves_hip3_market_identity(tmp_path):
     assert spec["market"]["exchange_symbol"] == "xyz:NVDA"
     assert spec["market"]["display_symbol"] == "NVDA"
     assert spec["market"]["category"] == "us_stock"
+    assert spec["ai_model"]["provider"] == "qwen"
+    assert spec["ai_model"]["model"] == "qwen-plus"
+    assert spec["ai_model"]["source"] == "pytest"
+    assert spec["ai_model"]["v1_allowed_provider"] is True
 
     saved = client.post(
         "/api/ai-trading/strategy-specs",
@@ -414,3 +426,62 @@ def test_ai_trading_strategy_spec_preserves_hip3_market_identity(tmp_path):
     assert signal["exchange_symbol"] == "xyz:NVDA"
     assert signal["market"]["dex"] == "xyz"
     assert signal["market"]["category"] == "us_stock"
+    assert signal["ai_model"]["provider"] == "qwen"
+    assert signal["ai_model"]["model"] == "qwen-plus"
+
+
+def test_ai_trading_strategy_spec_model_context_and_secret_guard(tmp_path):
+    client = _build_client(tmp_path)
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at prior high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+            "model_source": "hyper_ai_profile",
+        },
+    )
+    assert draft.status_code == 200
+    spec = draft.json()["spec"]
+    assert spec["ai_model"]["provider"] == "deepseek"
+    assert spec["ai_model"]["model"] == "deepseek-chat"
+    assert spec["ai_model"]["source"] == "hyper_ai_profile"
+    assert spec["ai_model"]["configured"] is True
+    assert spec["ai_model"]["v1_allowed_provider"] is True
+    assert spec["validation"]["safe_to_emit_signal"] is True
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": spec, "name": "BTC model context spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    record = saved.json()["spec_record"]
+
+    approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
+    assert approved.status_code == 200
+
+    event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest-model"}},
+    )
+    assert event_response.status_code == 200
+    signal = event_response.json()["signal_event"]["signal"]
+    assert signal["ai_model"]["provider"] == "deepseek"
+    assert signal["ai_model"]["model"] == "deepseek-chat"
+    assert "api" not in str(signal["ai_model"]).lower()
+
+    invalid = client.post(
+        "/api/ai-trading/strategy-spec/validate",
+        json={"spec": {**spec, "ai_model": {**spec["ai_model"], "api_key": "secret-key"}}},
+    )
+    assert invalid.status_code == 200
+    validation = invalid.json()["validation"]
+    assert validation["valid"] is False
+    assert "ai_model_config_must_not_include_secrets" in validation["issues"]

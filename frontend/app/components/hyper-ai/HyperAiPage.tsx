@@ -1031,6 +1031,9 @@ export default function HyperAiPage() {
           max_leverage: 3,
           require_stop_loss: true,
           require_take_profit: true,
+          model_provider: profile?.llm_provider || undefined,
+          model_name: profile?.llm_model || undefined,
+          model_source: profile?.llm_provider ? 'hyper_ai_profile' : undefined,
         }),
       })
       const data = await res.json().catch(() => ({}))

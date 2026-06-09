@@ -49,6 +49,10 @@ SUPPORTED_TIMEFRAMES = {
     "1d",
 }
 ARCHIVED_STATUS = "archived"
+AI_TRADING_V1_MODEL_PROVIDERS = {
+    "deepseek",
+    "qwen",
+}
 HIP3_INDEX_SYMBOLS = {
     "SP500",
     "SPX",
@@ -115,6 +119,26 @@ def _clean_text(value: Any, max_length: int = 4000) -> str:
     text = str(value or "").strip()
     text = re.sub(r"\s+", " ", text)
     return text[:max_length]
+
+
+def _build_ai_model_config(payload: Dict[str, Any]) -> Dict[str, Any]:
+    provider = _clean_text(
+        payload.get("model_provider") or payload.get("ai_model_provider"),
+        50,
+    ).lower()
+    model = _clean_text(
+        payload.get("model_name") or payload.get("ai_model") or payload.get("model"),
+        100,
+    )
+    source = _clean_text(payload.get("model_source"), 50) or "request"
+    return {
+        "provider": provider or None,
+        "model": model or None,
+        "source": source,
+        "configured": bool(provider and model),
+        "v1_allowed_provider": provider in AI_TRADING_V1_MODEL_PROVIDERS if provider else False,
+        "allowed_providers": sorted(AI_TRADING_V1_MODEL_PROVIDERS),
+    }
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -364,6 +388,12 @@ def get_strategy_spec_schema() -> Dict[str, Any]:
             "order_backend_only": True,
             "requires_user_approval": True,
         },
+        "ai_model": {
+            "allowed_providers": sorted(AI_TRADING_V1_MODEL_PROVIDERS),
+            "required_for_live_review": False,
+            "stored_fields": ["provider", "model", "source"],
+            "secrets_allowed": False,
+        },
     }
 
 
@@ -372,6 +402,7 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
     text = _clean_text(payload.get("strategy_text") or payload.get("message"))
     symbol = _normalize_symbol(payload.get("symbol"))
     market_identity = _build_market_identity(payload.get("symbol"))
+    ai_model = _build_ai_model_config(payload)
     risk_defaults = _risk_profile_defaults(str(payload.get("risk_profile") or "balanced"))
 
     requested_leverage = _as_int(payload.get("max_leverage"))
@@ -396,6 +427,7 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
         "owner_user_id": user_id,
         "symbol": symbol,
         "market": market_identity,
+        "ai_model": ai_model,
         "mode": "live_signal_draft",
         "intent": text,
         "timeframe": timeframe,
@@ -496,6 +528,18 @@ def validate_strategy_spec(spec: Dict[str, Any], *, user_id: int) -> Dict[str, A
     timeframe = str(spec.get("timeframe") or "").lower()
     if timeframe and timeframe not in SUPPORTED_TIMEFRAMES:
         warnings.append("unsupported_timeframe")
+
+    ai_model = spec.get("ai_model") if isinstance(spec.get("ai_model"), dict) else {}
+    ai_provider = _clean_text(ai_model.get("provider"), 50).lower()
+    ai_model_name = _clean_text(ai_model.get("model"), 100)
+    if not ai_provider:
+        warnings.append("ai_model_provider_missing")
+    elif ai_provider not in AI_TRADING_V1_MODEL_PROVIDERS:
+        warnings.append("ai_model_provider_outside_v1")
+    if ai_provider and not ai_model_name:
+        warnings.append("ai_model_name_missing")
+    if any(key in ai_model for key in {"api_key", "secret", "token", "private_key", "password"}):
+        issues.append("ai_model_config_must_not_include_secrets")
 
     risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
     max_leverage = _as_int(risk.get("max_leverage"))
@@ -728,6 +772,7 @@ def build_signal_preview_from_strategy_spec_record(
         "symbol": symbol,
         "exchange_symbol": market_identity.get("exchange_symbol") or symbol,
         "market": market_identity,
+        "ai_model": spec.get("ai_model") if isinstance(spec.get("ai_model"), dict) else {},
         "action": action,
         "timeframe": spec.get("timeframe") or DEFAULT_TIMEFRAME,
         "confidence": None,

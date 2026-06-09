@@ -50,6 +50,9 @@ class StrategySpecDraftRequest(BaseModel):
     take_profit_rule: Optional[str] = Field(default=None, max_length=1000)
     require_stop_loss: bool = True
     require_take_profit: bool = True
+    model_provider: Optional[str] = Field(default=None, max_length=50)
+    model_name: Optional[str] = Field(default=None, max_length=100)
+    model_source: Optional[str] = Field(default=None, max_length=50)
 
 
 class StrategySpecValidateRequest(BaseModel):

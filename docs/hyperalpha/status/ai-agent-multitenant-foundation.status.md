@@ -88,6 +88,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading strategy-spec API drafts and validates structured, signal-only Hyperliquid strategy plans with explicit risk, TP/SL, user-approval, and no-direct-order boundaries.
 - AI Trading market-universe API exposes Hyperliquid Crypto Top 20/50 and HIP-3 Top 20/50 presets with dex, exchange symbol, category, volume, open interest, leverage, isolated-only, and source metadata.
 - AI Trading strategy specs and signal candidates preserve HIP-3 market identity with internal symbol, dex, exchange symbol such as `xyz:NVDA`, display symbol, and category metadata.
+- AI Trading strategy specs and signal candidates persist non-secret AI model context (`provider`, `model`, `source`) for DeepSeek/Qwen audit attribution, while validation rejects API key/token/secret fields inside `ai_model`.
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
@@ -254,6 +255,7 @@ Local checkpoint: current branch `HEAD`
 | Hyper AI startup fallback | Done | Splash completes after a bounded wait even if initial backend data is unavailable, allowing the AI Trading shell to render API/connectivity errors |
 | AI Trading market universe API | Done | `/api/ai-trading/market-universe` exposes `crypto_top_20`, `crypto_top_50`, `hip3_top_20`, and `hip3_top_50` presets for the To C market selector |
 | AI Trading HIP-3 market identity | Done | Strategy drafts and signal candidates keep `market.dex`, `market.exchange_symbol`, `market.display_symbol`, and category metadata so `xyz:NVDA` is not flattened before order-backend handoff |
+| AI Trading model context audit | Done | Strategy drafts accept current Hyper AI `llm_provider/llm_model`, store only non-secret `ai_model` fields, warn on missing/non-V1 providers, and mark embedded secrets invalid before approval or signal handoff |
 | AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
 | AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
@@ -588,6 +590,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: Frontend production build after Hyper AI symbol loading switched from generic ranked symbols to AI Trading market-universe presets.
 - Passed: AI Trading HIP-3 identity route regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed with `xyz:NVDA` draft/save/approve/signal-event coverage and signal payload preserving `exchange_symbol=xyz:NVDA`.
 - Passed: AI Trading route/service/test syntax compile after HIP-3 identity preservation.
+- Passed: AI Trading model-context regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed with DeepSeek/Qwen provider/model persisted into spec/signal and secret fields rejected by validation.
+- Passed: Frontend production build after strategy draft requests started passing current Hyper AI provider/model as non-secret model context.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

@@ -45,6 +45,8 @@
 - 新增 `/api/ai-trading/market-universe`：返回 Hyperliquid Crypto Top 20/50 和 HIP-3 Top 20/50 presets，包含 dex、`coin`/`exchange_symbol`、category、24h volume、OI、max leverage、only-isolated、source/errors 等非敏感市场元数据。
 - Hyper AI AI Trading 标的加载逻辑现在优先使用用户 watchlist；没有 watchlist 时使用 AI Trading market universe 的 crypto + HIP-3 presets；最后才 fallback 到 available symbols。
 - Strategy spec 和 signal candidate 现在保留 HIP-3 market identity：`market.dex`、`market.exchange_symbol`（如 `xyz:NVDA`）、`market.display_symbol`、category；内部 `symbol` 仍可保持 `NVDA` 用于既有记录索引。
+- Strategy spec 和 signal candidate 现在记录非敏感 `ai_model` 上下文：`provider`、`model`、`source`、是否为 V1 DeepSeek/Qwen provider；校验会 warning 缺失/非 V1 provider，并 reject `api_key`、`token`、`secret` 等字段进入 `ai_model`。
+- Hyper AI AI Trading strategy draft 请求现在携带当前 profile 的 `llm_provider/llm_model`，来源标记为 `hyper_ai_profile`；不携带 base URL、API key 或 token。
 
 ## 3. AI Stream / Worker 现状
 
@@ -126,7 +128,8 @@
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已通过。
 - `backend/tests/test_ai_trading_routes.py` 已新增 market-universe 回归：fake Hyperliquid core/HIP-3 metadata 下，crypto 按成交量排序、delisted 被过滤、HIP-3 返回 `xyz:` exchange symbol，并生成 top presets。
 - `backend/tests/test_ai_trading_routes.py` 已新增 HIP-3 market identity 回归：`xyz:NVDA` draft/save/approve/signal-event 后，signal payload 保留 `exchange_symbol=xyz:NVDA` 和 `market.dex=xyz`。
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 4 条 AI Trading route 回归全绿。
+- `backend/tests/test_ai_trading_routes.py` 已新增 model-context 回归：DeepSeek/Qwen provider/model 写入 spec/signal；`ai_model.api_key` 这类敏感字段会让 validation invalid。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 5 条 AI Trading route 回归全绿。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
 - `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。
 
