@@ -133,9 +133,10 @@
 - `backend/tests/test_ai_trading_routes.py` 已新增 HIP-3 market identity 回归：`xyz:NVDA` draft/save/approve/signal-event 后，signal payload 保留 `exchange_symbol=xyz:NVDA` 和 `market.dex=xyz`。
 - `backend/tests/test_ai_trading_routes.py` 已新增 model-context 回归：DeepSeek/Qwen provider/model 写入 spec/signal；`ai_model.api_key` 这类敏感字段会让 validation invalid。
 - `backend/tests/test_ai_trading_routes.py` 已新增 backtest gate 回归：missing backtest 的 signal event 在 gateway enabled 下仍 blocked；补 passing backtest 后旧事件仍 blocked，新事件才 eligible；Bob 不能给 Alice spec 挂 backtest summary。
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 6 条 AI Trading route 回归全绿。
+- `backend/tests/test_ai_trading_routes.py` 已新增 backtest metrics quality 回归：即使 backtest summary 标记 `passed`/`accepted_for_handoff=true`，缺少正交易数、最大回撤、表现指标时，gateway enabled 也不能 handoff，且不会调用订单后端。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 7 条 AI Trading route 回归全绿。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
-- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI backtest readiness badge / external summary attach action 后。
+- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI backtest readiness metrics gate UI 同步后。
 
 ## 6. 未验收 / 阻塞
 

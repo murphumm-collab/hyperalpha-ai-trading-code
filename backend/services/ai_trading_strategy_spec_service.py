@@ -59,6 +59,21 @@ BACKTEST_HANDOFF_READY_STATUSES = {
     "approved",
 }
 BACKTEST_REQUIRED_BLOCKER = "strategy_backtest_required_before_handoff"
+BACKTEST_TRADE_COUNT_BLOCKER = "strategy_backtest_trade_count_required"
+BACKTEST_MAX_DRAWDOWN_BLOCKER = "strategy_backtest_max_drawdown_required"
+BACKTEST_PERFORMANCE_METRIC_BLOCKER = "strategy_backtest_performance_metric_required"
+BACKTEST_TRADE_COUNT_METRICS = ("trade_count", "total_trades", "num_trades", "trades")
+BACKTEST_MAX_DRAWDOWN_METRICS = ("max_drawdown", "maximum_drawdown", "max_drawdown_pct", "max_dd")
+BACKTEST_PERFORMANCE_METRICS = (
+    "total_return",
+    "return_pct",
+    "pnl_pct",
+    "net_pnl",
+    "sharpe",
+    "sortino",
+    "win_rate",
+    "profit_factor",
+)
 HIP3_INDEX_SYMBOLS = {
     "SP500",
     "SPX",
@@ -184,12 +199,11 @@ def _is_backtest_ready_for_handoff(backtest: Any) -> bool:
         return True
     status = _clean_text(backtest.get("status"), 50).lower()
     backtest_id = _clean_text(backtest.get("backtest_id") or backtest.get("run_id"), 120)
-    metrics = backtest.get("metrics") if isinstance(backtest.get("metrics"), dict) else {}
     return (
         bool(backtest.get("accepted_for_handoff"))
         and status in BACKTEST_HANDOFF_READY_STATUSES
         and bool(backtest_id)
-        and bool(metrics)
+        and not _backtest_metrics_quality_issues(backtest)
     )
 
 
@@ -212,6 +226,55 @@ def _as_int(value: Any) -> Optional[int]:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _first_metric_float(metrics: Dict[str, Any], keys: tuple[str, ...]) -> Optional[float]:
+    for key in keys:
+        parsed = _as_float(metrics.get(key))
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _backtest_metrics_quality_issues(backtest: Any) -> List[str]:
+    metrics = backtest.get("metrics") if isinstance(backtest, dict) else {}
+    if not isinstance(metrics, dict):
+        metrics = {}
+
+    issues: List[str] = []
+    trade_count = _first_metric_float(metrics, BACKTEST_TRADE_COUNT_METRICS)
+    if trade_count is None or trade_count <= 0:
+        issues.append(BACKTEST_TRADE_COUNT_BLOCKER)
+
+    if _first_metric_float(metrics, BACKTEST_MAX_DRAWDOWN_METRICS) is None:
+        issues.append(BACKTEST_MAX_DRAWDOWN_BLOCKER)
+
+    if not any(_first_metric_float(metrics, (key,)) is not None for key in BACKTEST_PERFORMANCE_METRICS):
+        issues.append(BACKTEST_PERFORMANCE_METRIC_BLOCKER)
+
+    return issues
+
+
+def _should_report_backtest_metric_issues(backtest: Any) -> bool:
+    if not isinstance(backtest, dict):
+        return False
+    status = _clean_text(backtest.get("status"), 50).lower()
+    metrics = backtest.get("metrics") if isinstance(backtest.get("metrics"), dict) else {}
+    return bool(
+        backtest.get("accepted_for_handoff")
+        or status in BACKTEST_HANDOFF_READY_STATUSES
+        or backtest.get("backtest_id")
+        or metrics
+    )
+
+
+def _backtest_handoff_blockers(backtest: Any) -> List[str]:
+    if _is_backtest_ready_for_handoff(backtest):
+        return []
+    blockers = [BACKTEST_REQUIRED_BLOCKER]
+    if _should_report_backtest_metric_issues(backtest):
+        blockers.extend(_backtest_metrics_quality_issues(backtest))
+    return list(dict.fromkeys(blockers))
 
 
 def _extract_timeframe(text: str, explicit: Any = None) -> str:
@@ -449,7 +512,15 @@ def get_strategy_spec_schema() -> Dict[str, Any]:
         "backtest_gate": {
             "required_before_handoff": True,
             "handoff_ready_statuses": sorted(BACKTEST_HANDOFF_READY_STATUSES),
-            "required_fields": ["backtest_id", "status", "accepted_for_handoff", "metrics"],
+            "required_fields": [
+                "backtest_id",
+                "status",
+                "accepted_for_handoff",
+                "metrics.trade_count",
+                "metrics.max_drawdown",
+                "metrics.performance_metric",
+            ],
+            "performance_metric_fields": list(BACKTEST_PERFORMANCE_METRICS),
         },
     }
 
@@ -600,8 +671,7 @@ def validate_strategy_spec(spec: Dict[str, Any], *, user_id: int) -> Dict[str, A
         issues.append("ai_model_config_must_not_include_secrets")
 
     backtest = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else _default_backtest_gate()
-    if not _is_backtest_ready_for_handoff(backtest):
-        warnings.append(BACKTEST_REQUIRED_BLOCKER)
+    warnings.extend(_backtest_handoff_blockers(backtest))
 
     risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
     max_leverage = _as_int(risk.get("max_leverage"))
@@ -661,6 +731,8 @@ def validate_strategy_spec(spec: Dict[str, Any], *, user_id: int) -> Dict[str, A
     if entry.get("bias") in {None, "", "undecided"}:
         warnings.append("entry_bias_undecided")
 
+    issues = list(dict.fromkeys(issues))
+    warnings = list(dict.fromkeys(warnings))
     valid = not issues
     return {
         "valid": valid,
@@ -922,7 +994,7 @@ def build_signal_preview_from_strategy_spec_record(
 
     if not backtest_ready:
         signal["validation"]["warnings"] = list(dict.fromkeys(
-            list(signal["validation"]["warnings"]) + [BACKTEST_REQUIRED_BLOCKER]
+            list(signal["validation"]["warnings"]) + _backtest_handoff_blockers(backtest)
         ))
 
     if action == "hold":
@@ -1136,8 +1208,7 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         signal = {}
 
     validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
-    if not _is_backtest_ready_for_handoff(signal.get("backtest")):
-        blockers.append(BACKTEST_REQUIRED_BLOCKER)
+    blockers.extend(_backtest_handoff_blockers(signal.get("backtest")))
     if validation.get("eligible_for_backend_handoff") is not True:
         blockers.append("signal_not_eligible_for_backend_handoff")
 

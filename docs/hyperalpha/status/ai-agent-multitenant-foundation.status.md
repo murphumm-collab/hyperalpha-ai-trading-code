@@ -90,6 +90,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading strategy specs and signal candidates preserve HIP-3 market identity with internal symbol, dex, exchange symbol such as `xyz:NVDA`, display symbol, and category metadata.
 - AI Trading strategy specs and signal candidates persist non-secret AI model context (`provider`, `model`, `source`) for DeepSeek/Qwen audit attribution, while validation rejects API key/token/secret fields inside `ai_model`.
 - AI Trading strategy specs can attach current-user backtest summaries, and signal handoff eligibility now blocks order-backend handoff until a passing/accepted backtest summary is present in the immutable signal candidate.
+- AI Trading backtest handoff evidence now requires parseable quality metrics: positive trade count, max drawdown, and at least one performance metric before a signal event can become handoff-ready.
 - Hyper AI AI Trading panel shows current strategy backtest-gate status and can attach an external/backtest-service summary to the saved strategy spec without running orders.
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
@@ -259,6 +260,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading HIP-3 market identity | Done | Strategy drafts and signal candidates keep `market.dex`, `market.exchange_symbol`, `market.display_symbol`, and category metadata so `xyz:NVDA` is not flattened before order-backend handoff |
 | AI Trading model context audit | Done | Strategy drafts accept current Hyper AI `llm_provider/llm_model`, store only non-secret `ai_model` fields, warn on missing/non-V1 providers, and mark embedded secrets invalid before approval or signal handoff |
 | AI Trading backtest handoff gate | Done | `/api/ai-trading/strategy-specs/{id}/backtest-summary` stores non-executable backtest evidence, and signal-event handoff eligibility blocks candidates without accepted passing backtest evidence |
+| AI Trading backtest metrics gate | Done | Handoff readiness requires positive `trade_count`, parseable `max_drawdown`, and at least one performance metric such as `total_return`, `sharpe`, `win_rate`, or `profit_factor` |
 | AI Trading backtest summary UI | Done | Hyper AI strategy cards display backtest readiness and expose a chart-icon action to attach an external backtest summary JSON to a saved strategy spec |
 | AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
@@ -600,6 +602,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading backtest gate syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py`.
 - Passed: Frontend production build after adding the Hyper AI backtest readiness badge and external backtest-summary attach action.
 - Passed: AI Trading route regression re-run after the frontend backtest summary integration: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 6 passing tests.
+- Passed: AI Trading backtest metrics quality regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 7 passing tests, including weak accepted backtest summaries blocked from gateway handoff.
+- Passed: AI Trading backtest metrics syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py`.
+- Passed: Frontend production build after syncing Hyper AI backtest ready UI with the backend metrics gate.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

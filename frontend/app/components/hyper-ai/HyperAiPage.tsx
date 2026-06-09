@@ -797,13 +797,43 @@ export default function HyperAiPage() {
   const aiTradingGatewayReady = Boolean(
     aiTradingRuntime?.gateway?.enabled && aiTradingRuntime.gateway?.url_configured
   )
+  const backtestMetricValue = (metrics: Record<string, unknown> | undefined, keys: string[]): number | null => {
+    if (!metrics) {
+      return null
+    }
+    for (const key of keys) {
+      const raw = metrics[key]
+      if (raw === null || raw === undefined || raw === '') {
+        continue
+      }
+      const parsed = Number(raw)
+      if (Number.isFinite(parsed)) {
+        return parsed
+      }
+    }
+    return null
+  }
+  const hasBacktestQualityMetrics = (metrics: Record<string, unknown> | undefined): boolean => {
+    const tradeCount = backtestMetricValue(metrics, ['trade_count', 'total_trades', 'num_trades', 'trades'])
+    const maxDrawdown = backtestMetricValue(metrics, ['max_drawdown', 'maximum_drawdown', 'max_drawdown_pct', 'max_dd'])
+    const performanceMetric = backtestMetricValue(metrics, [
+      'total_return',
+      'return_pct',
+      'pnl_pct',
+      'net_pnl',
+      'sharpe',
+      'sortino',
+      'win_rate',
+      'profit_factor',
+    ])
+    return Boolean(tradeCount && tradeCount > 0 && maxDrawdown !== null && performanceMetric !== null)
+  }
   const isBacktestReady = (backtest?: AiTradingBacktestSummary): boolean => (
     Boolean(
       backtest?.accepted_for_handoff &&
       ['passed', 'accepted', 'approved'].includes(String(backtest.status || '').toLowerCase()) &&
       backtest.backtest_id &&
-      backtest.metrics &&
-      Object.keys(backtest.metrics).length > 0
+      hasBacktestQualityMetrics(backtest.metrics)
     )
   )
   const backtestStatusLabel = (backtest?: AiTradingBacktestSummary): string => {
@@ -1179,7 +1209,7 @@ export default function HyperAiPage() {
     }
     const metricsText = window.prompt(
       t('hyperAi.aiTradingBacktestMetricsPrompt', 'Metrics JSON'),
-      '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":0}'
+      '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":1}'
     )
     if (!metricsText) {
       return
