@@ -53,6 +53,7 @@ import {
   ShieldCheck,
   History,
   BarChart3,
+  Link2,
   Search as SearchIcon
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
@@ -785,6 +786,7 @@ export default function HyperAiPage() {
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
+  const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | null>(null)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -1228,6 +1230,7 @@ export default function HyperAiPage() {
     }
 
     setStrategyBacktestLoadingId(targetRecordId)
+    setStrategyBacktestLoadingSource('summary')
     try {
       const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-summary`, {
         method: 'POST',
@@ -1260,6 +1263,65 @@ export default function HyperAiPage() {
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach backtest summary')
     } finally {
       setStrategyBacktestLoadingId(null)
+      setStrategyBacktestLoadingSource(null)
+    }
+  }
+
+  const handleAttachProgramBacktestResult = async (recordId?: number) => {
+    setStrategyDraftError(null)
+    let targetRecordId = recordId
+    if (!targetRecordId) {
+      const record = strategyDraftRecord || (await persistStrategyDraft())
+      if (!record) {
+        return
+      }
+      targetRecordId = record.id
+    }
+
+    const backtestResultIdText = window.prompt(
+      t('hyperAi.aiTradingProgramBacktestResultIdPrompt', 'Program Backtest result ID')
+    )
+    if (!backtestResultIdText) {
+      return
+    }
+    const backtestResultId = Number(backtestResultIdText)
+    if (!Number.isInteger(backtestResultId) || backtestResultId <= 0) {
+      setStrategyDraftError('Program Backtest result ID must be a positive integer')
+      return
+    }
+
+    setStrategyBacktestLoadingId(targetRecordId)
+    setStrategyBacktestLoadingSource('program')
+    try {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          backtest_result_id: backtestResultId,
+          accepted_for_handoff: true,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to attach Program Backtest result')
+      }
+      const record = data.spec_record as AiTradingStrategySpecRecord
+      setStrategyDraftRecord(record)
+      if (record.spec) {
+        setStrategyDraft(record.spec)
+      }
+      const prompt = currentLang === 'zh'
+        ? `请复核 AI Trading Strategy Spec #${record.id} 绑定的 Program BacktestResult #${backtestResultId}：确认这是当前用户自己的回测、metrics 是否满足 handoff gate、是否仍然只作为 signal evidence 而不是订单。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
+        : `Review the Program BacktestResult #${backtestResultId} attached to AI Trading Strategy Spec #${record.id}. Confirm it belongs to the current user, whether metrics satisfy the handoff gate, and that it remains signal evidence rather than an order. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to attach AI trading Program Backtest result:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach Program Backtest result')
+    } finally {
+      setStrategyBacktestLoadingId(null)
+      setStrategyBacktestLoadingSource(null)
     }
   }
 
@@ -2258,10 +2320,23 @@ export default function HyperAiPage() {
                       disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
                       title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
                     >
-                      {strategyBacktestLoadingId === strategyDraftRecord?.id ? (
+                      {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'summary' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <BarChart3 className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAttachProgramBacktestResult(strategyDraftRecord?.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      title={t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
+                    >
+                      {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'program' ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Link2 className="h-3.5 w-3.5" />
                       )}
                     </button>
                     <button
@@ -2318,10 +2393,23 @@ export default function HyperAiPage() {
                             disabled={strategyBacktestLoadingId !== null}
                             title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
                           >
-                            {strategyBacktestLoadingId === record.id ? (
+                            {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'summary' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             ) : (
                               <BarChart3 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAttachProgramBacktestResult(record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={strategyBacktestLoadingId !== null}
+                            title={t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
+                          >
+                            {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'program' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Link2 className="h-3.5 w-3.5" />
                             )}
                           </button>
                         </div>

@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -10,7 +11,7 @@ import services.ai_trading_strategy_spec_service as strategy_service
 from api.ai_trading_routes import router
 from api.auth_utils import get_current_user_dependency
 from database.connection import Base, get_db
-from database.models import User
+from database.models import Account, AccountProgramBinding, BacktestResult, TradingProgram, User
 
 
 def _build_clients(tmp_path, usernames=("ai-trading-test-user",)):
@@ -45,7 +46,11 @@ def _build_clients(tmp_path, usernames=("ai-trading-test-user",)):
             lambda resolved_user_id=user_id: SimpleNamespace(id=resolved_user_id)
         )
         app.dependency_overrides[get_db] = override_db
-        clients[username] = TestClient(app)
+        client = TestClient(app)
+        client._ai_trading_session_factory = Session
+        client._ai_trading_user_ids = user_ids
+        client._ai_trading_username = username
+        clients[username] = client
     return clients
 
 
@@ -75,6 +80,88 @@ def _attach_passing_backtest(client, spec_id):
     )
     assert response.status_code == 200
     return response.json()["spec_record"]
+
+
+def _create_program_backtest_result(
+    client,
+    *,
+    username=None,
+    status="completed",
+    total_trades=12,
+    total_pnl_percent=8.5,
+    max_drawdown_percent=-2.25,
+):
+    session_factory = client._ai_trading_session_factory
+    user_ids = client._ai_trading_user_ids
+    owner_username = username or client._ai_trading_username
+    user_id = user_ids[owner_username]
+    session = session_factory()
+    try:
+        account = Account(
+            user_id=user_id,
+            name=f"{owner_username} program backtest account",
+            account_type="AI",
+            is_active="true",
+            auto_trading_enabled="false",
+            model="deepseek-chat",
+            base_url="https://api.deepseek.com",
+            api_key="not-returned",
+            is_deleted=False,
+        )
+        program = TradingProgram(
+            user_id=user_id,
+            name=f"{owner_username} AI Trading Program",
+            description="pytest owned program",
+            code="def run(ctx): return hold('pytest')",
+            is_deleted=False,
+        )
+        session.add_all([account, program])
+        session.flush()
+        binding = AccountProgramBinding(
+            account_id=account.id,
+            program_id=program.id,
+            signal_pool_ids="[]",
+            trigger_interval=300,
+            scheduled_trigger_enabled=True,
+            is_active=True,
+            is_deleted=False,
+            exchange="hyperliquid",
+        )
+        session.add(binding)
+        session.flush()
+
+        now = datetime.now(timezone.utc)
+        backtest = BacktestResult(
+            backtest_type="program",
+            binding_id=binding.id,
+            user_id=user_id,
+            config='{"symbols":["BTC"],"scheduled_interval_sec":300}',
+            start_time=now - timedelta(days=30),
+            end_time=now,
+            initial_balance=10000,
+            final_equity=10850,
+            total_pnl=850,
+            total_pnl_percent=total_pnl_percent,
+            max_drawdown=225,
+            max_drawdown_percent=max_drawdown_percent,
+            total_triggers=32,
+            total_trades=total_trades,
+            winning_trades=8,
+            losing_trades=4,
+            win_rate=66.67,
+            profit_factor=1.8,
+            sharpe_ratio=1.4,
+            equity_curve="[]",
+            execution_time_ms=1234,
+            status=status,
+            exchange="hyperliquid",
+            completed_at=now if status == "completed" else None,
+        )
+        session.add(backtest)
+        session.commit()
+        return backtest.id
+    finally:
+        session.close()
 
 
 def _create_approved_signal_event(client, *, symbol="BTC"):
@@ -447,6 +534,111 @@ def test_ai_trading_backtest_summary_requires_quality_metrics(tmp_path, monkeypa
     new_event = new_event_response.json()["signal_event"]
     assert new_event["handoff_eligibility"]["eligible"] is True
     assert new_event["signal"]["validation"]["eligible_for_backend_handoff"] is True
+
+
+def test_ai_trading_can_attach_owned_program_backtest_result(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    backtest_result_id = _create_program_backtest_result(client)
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert draft.status_code == 200
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": "BTC program backtest spec", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    record = saved.json()["spec_record"]
+
+    linked = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/backtest-result",
+        json={"backtest_result_id": backtest_result_id, "accepted_for_handoff": True},
+    )
+    assert linked.status_code == 200
+    linked_record = linked.json()["spec_record"]
+    backtest = linked_record["spec"]["backtest"]
+    assert backtest["source"] == "program_backtest_result"
+    assert backtest["backtest_id"] == f"program_backtest:{backtest_result_id}"
+    assert backtest["accepted_for_handoff"] is True
+    assert backtest["program_backtest_result_id"] == backtest_result_id
+    assert backtest["metrics"]["trade_count"] == 12
+    assert backtest["metrics"]["max_drawdown"] == -2.25
+    assert "strategy_backtest_required_before_handoff" not in linked_record["validation"]["warnings"]
+
+    approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
+    assert approved.status_code == 200
+
+    event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest-program-backtest"}},
+    )
+    assert event_response.status_code == 200
+    event = event_response.json()["signal_event"]
+    assert event["signal"]["backtest"]["source"] == "program_backtest_result"
+    assert event["signal"]["validation"]["eligible_for_backend_handoff"] is True
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+
+    enabled_detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert enabled_detail.status_code == 200
+    assert enabled_detail.json()["signal_event"]["handoff_eligibility"]["eligible"] is True
+
+
+def test_ai_trading_program_backtest_result_attachment_is_user_scoped(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+    alice_backtest_id = _create_program_backtest_result(alice, username="alice")
+
+    bob_draft = bob.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+        },
+    )
+    assert bob_draft.status_code == 200
+    bob_saved = bob.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": bob_draft.json()["spec"], "name": "Bob spec", "source": "pytest"},
+    )
+    assert bob_saved.status_code == 200
+    bob_spec_id = bob_saved.json()["spec_record"]["id"]
+
+    cross_attach = bob.post(
+        f"/api/ai-trading/strategy-specs/{bob_spec_id}/backtest-result",
+        json={"backtest_result_id": alice_backtest_id, "accepted_for_handoff": True},
+    )
+    assert cross_attach.status_code == 404
+
+    bob_backtest_id = _create_program_backtest_result(bob, username="bob")
+    own_attach = bob.post(
+        f"/api/ai-trading/strategy-specs/{bob_spec_id}/backtest-result",
+        json={"backtest_result_id": bob_backtest_id, "accepted_for_handoff": True},
+    )
+    assert own_attach.status_code == 200
+    assert own_attach.json()["spec_record"]["spec"]["backtest"]["program_backtest_result_id"] == bob_backtest_id
 
 
 def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_path):

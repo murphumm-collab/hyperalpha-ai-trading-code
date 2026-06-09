@@ -12,6 +12,7 @@ from database.models import User
 from services.ai_trading_market_universe_service import get_ai_trading_market_universe
 from services.ai_trading_strategy_spec_service import (
     SignalGatewayDisabledError,
+    attach_strategy_backtest_result,
     attach_strategy_backtest_summary,
     approve_strategy_spec_record,
     archive_strategy_spec_record,
@@ -78,6 +79,12 @@ class StrategyBacktestSummaryRequest(BaseModel):
     metrics: Dict[str, Any] = Field(default_factory=dict)
     period: Dict[str, Any] = Field(default_factory=dict)
     source: Optional[str] = Field(default="manual", max_length=50)
+    notes: Optional[str] = Field(default=None, max_length=1000)
+
+
+class StrategyBacktestResultRequest(BaseModel):
+    backtest_result_id: int = Field(..., ge=1)
+    accepted_for_handoff: bool = True
     notes: Optional[str] = Field(default=None, max_length=1000)
 
 
@@ -247,6 +254,31 @@ def attach_strategy_backtest_summary_endpoint(
             user_id=current_user.id,
             record_id=spec_id,
             summary=_model_dump(request),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return {
+        "success": True,
+        "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/backtest-result")
+def attach_strategy_backtest_result_endpoint(
+    spec_id: int,
+    request: StrategyBacktestResultRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Attach an owned Program BacktestResult as AI Trading handoff evidence."""
+    try:
+        record = attach_strategy_backtest_result(
+            db,
+            user_id=current_user.id,
+            record_id=spec_id,
+            backtest_result_id=request.backtest_result_id,
+            accepted_for_handoff=request.accepted_for_handoff,
+            notes=request.notes,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

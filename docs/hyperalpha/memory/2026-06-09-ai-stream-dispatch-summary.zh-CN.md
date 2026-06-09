@@ -50,6 +50,8 @@
 - 新增 `/api/ai-trading/strategy-specs/{id}/backtest-summary`，用于把当前用户的 backtest summary 绑定到 strategy spec；这不是完整回测引擎，只是把外部/未来 Backtest Service 的结果作为 handoff 前置证据落库。
 - Signal candidate 会复制生成当时的 `backtest` 摘要；handoff eligibility 要求 passing/accepted backtest summary，否则即使 gateway enabled 也 blocked。事后补回测不会改变旧 signal event，必须重新生成候选信号。
 - Hyper AI AI Trading strategy 卡片现在显示 backtest readiness，并提供 chart 图标 action 让用户输入外部 backtest id 和 metrics JSON，提交到 `/backtest-summary`；该 UI 仍不运行真实回测、不触发订单。
+- 新增 `/api/ai-trading/strategy-specs/{id}/backtest-result`，用于把当前用户已有的 Program BacktestResult 绑定到 AI Trading strategy spec；后端会通过 account/program binding 做 owner guard，并自动把 total return、max drawdown、trade count、win rate、profit factor、Sharpe 等持久化指标映射进 backtest gate。
+- Hyper AI AI Trading strategy 卡片和 recent spec 行现在有 link 图标 action，可输入已有 Program Backtest result ID 绑定 evidence；不会运行订单，也不会手填 metrics。
 
 ## 3. AI Stream / Worker 现状
 
@@ -134,9 +136,11 @@
 - `backend/tests/test_ai_trading_routes.py` 已新增 model-context 回归：DeepSeek/Qwen provider/model 写入 spec/signal；`ai_model.api_key` 这类敏感字段会让 validation invalid。
 - `backend/tests/test_ai_trading_routes.py` 已新增 backtest gate 回归：missing backtest 的 signal event 在 gateway enabled 下仍 blocked；补 passing backtest 后旧事件仍 blocked，新事件才 eligible；Bob 不能给 Alice spec 挂 backtest summary。
 - `backend/tests/test_ai_trading_routes.py` 已新增 backtest metrics quality 回归：即使 backtest summary 标记 `passed`/`accepted_for_handoff=true`，缺少正交易数、最大回撤、表现指标时，gateway enabled 也不能 handoff，且不会调用订单后端。
-- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 7 条 AI Trading route 回归全绿。
+- `backend/tests/test_ai_trading_routes.py` 已新增 Program Backtest bridge 回归：当前用户 owned Program BacktestResult 可绑定并让新 signal 在 gateway enabled 后 eligible；Bob 不能把 Alice 的 BacktestResult 绑定到 Bob 的 spec。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 9 条 AI Trading route 回归全绿。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
-- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI backtest readiness metrics gate UI 同步后。
+- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI Program Backtest result link action 后。
+- `curl -I --max-time 3 http://127.0.0.1:5174/app/ai-trading` 返回 200；当前 Node REPL 无法解析 `playwright` 包，因此本轮没有做点击级浏览器自动化。
 
 ## 6. 未验收 / 阻塞
 
@@ -146,7 +150,7 @@
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前只做 disabled-by-default 和 mock gateway 验收。
 - real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
-- 完整 AI Trading Hyperliquid backtest engine 和 backtest result UI 仍未实现；当前只实现 backtest summary handoff gate。
+- 完整 AI Trading Hyperliquid 一键 backtest engine 和 rich backtest result UI 仍未实现；当前已实现 manual/external summary gate 和 existing Program BacktestResult evidence bridge。
 - strategy spec / signal preview / signal event / recent records inspect / signal-event handoff 的浏览器点击验收仍需本地 backend/Postgres 正常运行并返回 Hyperliquid symbols、持久化记录与 gateway readiness；当前只做了页面 shell、service、persistence、FastAPI route、pytest 回归和前端 production build。
 
 ## 7. 当前提交锚点

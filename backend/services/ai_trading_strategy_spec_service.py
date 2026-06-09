@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 import requests
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 
 from config.settings import (
     AI_HARD_MAX_LEVERAGE,
@@ -25,9 +25,13 @@ from config.settings import (
     AI_HARD_REQUIRE_TAKE_PROFIT,
 )
 from database.models import (
+    Account,
+    AccountProgramBinding,
     AiTradingSignalEventRecord,
     AiTradingSignalHandoffAttemptRecord,
     AiTradingStrategySpecRecord,
+    BacktestResult,
+    TradingProgram,
 )
 from services.exchanges.symbol_mapper import SymbolMapper
 
@@ -179,7 +183,7 @@ def _normalize_backtest_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
     period = payload.get("period") if isinstance(payload.get("period"), dict) else {}
     backtest_id = _clean_text(payload.get("backtest_id") or payload.get("run_id"), 120) or None
-    return {
+    summary = {
         "required_before_handoff": True,
         "status": _clean_text(payload.get("status"), 50).lower() or "unknown",
         "accepted_for_handoff": bool(payload.get("accepted_for_handoff") or payload.get("accepted")),
@@ -190,6 +194,15 @@ def _normalize_backtest_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
         "notes": _clean_text(payload.get("notes"), 1000) if payload.get("notes") else None,
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
+    for key in (
+        "program_backtest_result_id",
+        "program_binding_id",
+        "program_backtest_status",
+        "program_backtest_config",
+    ):
+        if key in payload:
+            summary[key] = payload.get(key)
+    return summary
 
 
 def _is_backtest_ready_for_handoff(backtest: Any) -> bool:
@@ -820,6 +833,115 @@ def attach_strategy_backtest_summary(
     db.commit()
     db.refresh(record)
     return record
+
+
+def _get_owned_program_backtest_result(
+    db: Session,
+    *,
+    user_id: int,
+    backtest_result_id: int,
+) -> Optional[BacktestResult]:
+    """Return a Program BacktestResult only when it resolves through current-user ownership."""
+    return db.query(BacktestResult).join(
+        AccountProgramBinding,
+        BacktestResult.binding_id == AccountProgramBinding.id,
+    ).join(
+        Account,
+        AccountProgramBinding.account_id == Account.id,
+    ).join(
+        TradingProgram,
+        AccountProgramBinding.program_id == TradingProgram.id,
+    ).filter(
+        BacktestResult.id == backtest_result_id,
+        BacktestResult.backtest_type == "program",
+        BacktestResult.binding_id.isnot(None),
+        or_(BacktestResult.user_id == user_id, BacktestResult.user_id.is_(None)),
+        AccountProgramBinding.is_deleted != True,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
+    ).first()
+
+
+def _program_backtest_result_summary(
+    backtest: BacktestResult,
+    *,
+    accepted_for_handoff: bool,
+    notes: Optional[str] = None,
+) -> Dict[str, Any]:
+    status = _clean_text(backtest.status, 50).lower() or "unknown"
+    completed = status == "completed"
+    config = _json_loads(backtest.config, {}) if isinstance(backtest.config, str) else (backtest.config or {})
+    metrics = {
+        "total_return": backtest.total_pnl_percent,
+        "return_pct": backtest.total_pnl_percent,
+        "net_pnl": backtest.total_pnl,
+        "max_drawdown": (
+            backtest.max_drawdown_percent
+            if backtest.max_drawdown_percent is not None
+            else backtest.max_drawdown
+        ),
+        "max_drawdown_percent": backtest.max_drawdown_percent,
+        "sharpe": backtest.sharpe_ratio,
+        "win_rate": backtest.win_rate,
+        "profit_factor": backtest.profit_factor,
+        "trade_count": backtest.total_trades,
+        "total_trades": backtest.total_trades,
+        "winning_trades": backtest.winning_trades,
+        "losing_trades": backtest.losing_trades,
+        "total_triggers": backtest.total_triggers,
+        "initial_balance": backtest.initial_balance,
+        "final_equity": backtest.final_equity,
+    }
+    return {
+        "backtest_id": f"program_backtest:{backtest.id}",
+        "status": "passed" if completed else status,
+        "accepted_for_handoff": bool(accepted_for_handoff and completed),
+        "metrics": metrics,
+        "period": {
+            "start": backtest.start_time.isoformat() if backtest.start_time else None,
+            "end": backtest.end_time.isoformat() if backtest.end_time else None,
+        },
+        "source": "program_backtest_result",
+        "notes": notes or (
+            "Linked from current-user Program BacktestResult. This is evidence only, not an order."
+        ),
+        "program_backtest_result_id": backtest.id,
+        "program_binding_id": backtest.binding_id,
+        "program_backtest_status": status,
+        "program_backtest_config": config,
+    }
+
+
+def attach_strategy_backtest_result(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+    backtest_result_id: int,
+    accepted_for_handoff: bool = True,
+    notes: Optional[str] = None,
+) -> AiTradingStrategySpecRecord:
+    """Attach an owned Program BacktestResult as non-executable AI Trading evidence."""
+    backtest = _get_owned_program_backtest_result(
+        db,
+        user_id=user_id,
+        backtest_result_id=backtest_result_id,
+    )
+    if not backtest:
+        raise ValueError("Backtest result not found")
+    summary = _program_backtest_result_summary(
+        backtest,
+        accepted_for_handoff=accepted_for_handoff,
+        notes=_clean_text(notes, 1000) if notes else None,
+    )
+    return attach_strategy_backtest_summary(
+        db,
+        user_id=user_id,
+        record_id=record_id,
+        summary=summary,
+    )
 
 
 def list_strategy_spec_records(
