@@ -17,6 +17,8 @@ from services.ai_trading_strategy_spec_service import (
     attach_strategy_backtest_summary,
     adjust_strategy_spec,
     adjust_strategy_spec_record,
+    adjust_strategy_spec_record_with_model,
+    adjust_strategy_spec_with_model,
     approve_strategy_spec_record,
     archive_strategy_spec_record,
     build_signal_preview_from_strategy_spec_record,
@@ -74,9 +76,20 @@ class StrategySpecAdjustRequest(BaseModel):
     source: Optional[str] = Field(default="natural_language_adjustment", max_length=50)
 
 
+class StrategySpecModelAdjustRequest(BaseModel):
+    spec: Dict[str, Any]
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    source: Optional[str] = Field(default="model_adjustment", max_length=50)
+
+
 class StrategySpecRecordAdjustRequest(BaseModel):
     instruction: str = Field(..., min_length=1, max_length=4000)
     source: Optional[str] = Field(default="natural_language_adjustment", max_length=50)
+
+
+class StrategySpecRecordModelAdjustRequest(BaseModel):
+    instruction: str = Field(..., min_length=1, max_length=4000)
+    source: Optional[str] = Field(default="model_adjustment", max_length=50)
 
 
 class StrategySpecSaveRequest(BaseModel):
@@ -244,6 +257,35 @@ def adjust_strategy_spec_endpoint(
     }
 
 
+@router.post("/strategy-spec/model-adjust")
+def model_adjust_strategy_spec_endpoint(
+    request: StrategySpecModelAdjustRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Ask the user's configured DeepSeek/Qwen model for a safe adjustment, without persisting."""
+    try:
+        result = adjust_strategy_spec_with_model(
+            db,
+            user_id=current_user.id,
+            spec=request.spec,
+            instruction=request.instruction,
+            source=request.source or "model_adjustment",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    spec = result["spec"]
+    return {
+        "success": True,
+        "spec": spec,
+        "validation": spec.get("validation", {}),
+        "execution_boundary": spec.get("execution", {}),
+        "model_context": result.get("model_context", {}),
+        "model_suggestion": result.get("model_suggestion", {}),
+    }
+
+
 @router.get("/strategy-specs")
 def list_strategy_specs_endpoint(
     status: Optional[str] = None,
@@ -325,6 +367,35 @@ def adjust_strategy_spec_record_endpoint(
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(record, include_spec=True),
+    }
+
+
+@router.post("/strategy-specs/{spec_id}/model-adjust")
+def model_adjust_strategy_spec_record_endpoint(
+    spec_id: int,
+    request: StrategySpecRecordModelAdjustRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """Ask the user's configured DeepSeek/Qwen model to adjust a saved spec, then require re-approval."""
+    try:
+        result = adjust_strategy_spec_record_with_model(
+            db,
+            user_id=current_user.id,
+            record_id=spec_id,
+            instruction=request.instruction,
+            source=request.source or "model_adjustment",
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        status_code = 404 if "not found" in detail.lower() else 400
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+
+    return {
+        "success": True,
+        "spec_record": serialize_strategy_spec_record(result["record"], include_spec=True),
+        "model_context": result.get("model_context", {}),
+        "model_suggestion": result.get("model_suggestion", {}),
     }
 
 

@@ -37,6 +37,14 @@ from database.models import (
     TradingProgram,
 )
 from services.exchanges.symbol_mapper import SymbolMapper
+from services.ai_decision_service import (
+    _extract_text_from_message,
+    build_chat_completion_endpoints,
+    build_llm_headers,
+    build_llm_payload,
+    strip_thinking_tags,
+)
+from services.hyper_ai_service import get_llm_config
 
 
 SPEC_VERSION = "hyperalpha.ai_trading.strategy_spec.v1"
@@ -907,6 +915,157 @@ def adjust_strategy_spec(
         "safe_to_emit_signal": validation["safe_to_emit_signal"],
     }
     return adjusted
+
+
+def _extract_model_json_object(text: str) -> Dict[str, Any]:
+    cleaned, _ = strip_thinking_tags(text or "")
+    cleaned = cleaned.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE).strip()
+        cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+
+    try:
+        parsed = json.loads(cleaned)
+        return parsed if isinstance(parsed, dict) else {}
+    except json.JSONDecodeError:
+        pass
+
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        try:
+            parsed = json.loads(cleaned[start:end + 1])
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _extract_model_response_text(api_format: str, data: Dict[str, Any]) -> str:
+    if api_format == "anthropic":
+        return _extract_text_from_message(data.get("content"))
+    choices = data.get("choices") if isinstance(data.get("choices"), list) else []
+    if not choices:
+        return ""
+    message = choices[0].get("message") if isinstance(choices[0], dict) else {}
+    if not isinstance(message, dict):
+        return ""
+    return _extract_text_from_message(message.get("content"))
+
+
+def adjust_strategy_spec_with_model(
+    db: Session,
+    *,
+    user_id: int,
+    spec: Dict[str, Any],
+    instruction: str,
+    source: str = "model_adjustment",
+) -> Dict[str, Any]:
+    """Ask the user's configured model for an adjustment instruction, then safely apply it."""
+    instruction_text = _clean_text(instruction, 4000)
+    if not instruction_text:
+        raise ValueError("Adjustment instruction is required")
+
+    llm_config = get_llm_config(db, user_id=user_id)
+    if not llm_config.get("configured") or not llm_config.get("api_key"):
+        raise ValueError("LLM not configured for AI Trading model adjustment")
+
+    provider = _clean_text(llm_config.get("provider"), 50)
+    model = _clean_text(llm_config.get("model"), 100)
+    base_url = _clean_text(llm_config.get("base_url"), 500)
+    api_format = _clean_text(llm_config.get("api_format"), 20) or "openai"
+    if provider not in AI_TRADING_V1_MODEL_PROVIDERS:
+        raise ValueError("AI Trading model adjustment requires a DeepSeek or Qwen profile")
+    if not model or not base_url:
+        raise ValueError("LLM model or base URL is missing")
+
+    redacted_spec = _redact_sensitive_payload(spec)
+    system_prompt = (
+        "You are HyperAlpha AI Trading Strategy Editor. "
+        "Return JSON only. Do not place orders. Do not suggest direct execution. "
+        "Your JSON schema is: {"
+        "\"instruction\": string, "
+        "\"rationale\": string, "
+        "\"risk_notes\": string[]"
+        "}. The instruction must be concise and must only describe safe edits to "
+        "timeframe, bias, entry, stop-loss, take-profit, risk, leverage, or position notional."
+    )
+    user_prompt = (
+        "Current redacted AI Trading strategy spec:\n"
+        f"{json.dumps(redacted_spec, ensure_ascii=False, sort_keys=True)[:12000]}\n\n"
+        "User adjustment request:\n"
+        f"{instruction_text}\n\n"
+        "Return JSON only."
+    )
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_prompt},
+    ]
+    payload = build_llm_payload(
+        model=model,
+        messages=messages,
+        api_format=api_format,
+        max_tokens=1200,
+        temperature=0.2,
+    )
+    headers = build_llm_headers(api_format, llm_config["api_key"], base_url)
+    endpoints = build_chat_completion_endpoints(base_url, model)
+    if not endpoints:
+        raise ValueError("No valid LLM endpoint for AI Trading model adjustment")
+
+    last_error = "LLM request failed"
+    parsed: Dict[str, Any] = {}
+    for endpoint in endpoints:
+        try:
+            response = requests.post(endpoint, headers=headers, json=payload, timeout=60)
+            if response.status_code >= 400:
+                last_error = f"LLM request failed with status {response.status_code}"
+                continue
+            data = response.json()
+            response_text = _extract_model_response_text(api_format, data)
+            parsed = _extract_model_json_object(response_text)
+            if parsed:
+                break
+            last_error = "LLM adjustment response did not contain JSON"
+        except Exception as exc:
+            last_error = f"LLM request failed: {exc.__class__.__name__}"
+
+    model_instruction = _clean_text(parsed.get("instruction"), 4000)
+    if not model_instruction:
+        raise ValueError(last_error or "LLM adjustment response missing instruction")
+
+    adjusted_spec = adjust_strategy_spec(
+        spec,
+        instruction=model_instruction,
+        user_id=user_id,
+        source=source,
+    )
+    metadata = adjusted_spec.get("metadata") if isinstance(adjusted_spec.get("metadata"), dict) else {}
+    metadata["model_adjustment"] = {
+        "provider": provider,
+        "model": model,
+        "source": "hyper_ai_profile",
+        "rationale": _clean_text(parsed.get("rationale"), 1000),
+        "risk_notes": [
+            _clean_text(note, 300)
+            for note in (parsed.get("risk_notes") if isinstance(parsed.get("risk_notes"), list) else [])
+            if _clean_text(note, 300)
+        ][:8],
+    }
+    adjusted_spec["metadata"] = metadata
+    return {
+        "spec": adjusted_spec,
+        "model_context": {
+            "provider": provider,
+            "model": model,
+            "source": "hyper_ai_profile",
+        },
+        "model_suggestion": {
+            "instruction": model_instruction,
+            "rationale": metadata["model_adjustment"]["rationale"],
+            "risk_notes": metadata["model_adjustment"]["risk_notes"],
+        },
+    }
 
 
 def validate_strategy_spec(spec: Dict[str, Any], *, user_id: int) -> Dict[str, Any]:
@@ -1856,6 +2015,47 @@ def adjust_strategy_spec_record(
     db.commit()
     db.refresh(record)
     return record
+
+
+def adjust_strategy_spec_record_with_model(
+    db: Session,
+    *,
+    user_id: int,
+    record_id: int,
+    instruction: str,
+    source: str = "model_adjustment",
+) -> Dict[str, Any]:
+    record = get_strategy_spec_record(db, user_id=user_id, record_id=record_id)
+    if not record or record.status == ARCHIVED_STATUS:
+        raise ValueError("Strategy spec not found")
+
+    current_spec = _json_loads(record.spec_json, {})
+    result = adjust_strategy_spec_with_model(
+        db,
+        user_id=user_id,
+        spec=current_spec,
+        instruction=instruction,
+        source=source,
+    )
+    adjusted_spec = result["spec"]
+    validation = validate_strategy_spec(adjusted_spec, user_id=user_id)
+    adjusted_spec["validation"] = {
+        "status": validation["status"],
+        "issues": validation["issues"],
+        "warnings": adjusted_spec.get("validation", {}).get("warnings", validation["warnings"]),
+        "safe_to_emit_signal": validation["safe_to_emit_signal"],
+    }
+    record.spec_json = _json_dumps(adjusted_spec)
+    record.validation_json = _json_dumps({**validation, "warnings": adjusted_spec["validation"]["warnings"]})
+    record.status = validation["status"]
+    record.approved_at = None
+    record.source = _clean_text(source, 50) or record.source
+    db.commit()
+    db.refresh(record)
+    return {
+        **result,
+        "record": record,
+    }
 
 
 def build_signal_preview_from_strategy_spec_record(

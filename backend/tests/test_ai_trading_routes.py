@@ -644,6 +644,80 @@ def test_ai_trading_strategy_spec_natural_language_adjustment_invalidates_approv
     assert "approved" in preview_after_adjust.json()["detail"]
 
 
+def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_adjusts(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    approved_spec, _ = _create_approved_signal_event(client, symbol="BTC")
+    spec_id = approved_spec["id"]
+    calls = []
+
+    def fake_llm_config(db, user_id=None):
+        return {
+            "configured": True,
+            "provider": "qwen",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen-plus",
+            "api_key": "secret-model-key",
+            "api_format": "openai",
+        }
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps({
+                                "instruction": (
+                                    "Switch to a 1h short setup, max leverage 2x, max loss 0.5%, "
+                                    "stop loss above invalidation, take profit at prior support."
+                                ),
+                                "rationale": "Reduce risk and wait for confirmation.",
+                                "risk_notes": ["Re-run backtest before signal handoff."],
+                            })
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "get_llm_config", fake_llm_config)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    response = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/model-adjust",
+        json={"instruction": "Use Qwen to reduce risk and make this a short setup", "source": "pytest_model"},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    adjusted_record = payload["spec_record"]
+    adjusted = adjusted_record["spec"]
+    assert adjusted_record["status"] == "ready_for_review"
+    assert adjusted_record["approved_at"] is None
+    assert adjusted["timeframe"] == "1h"
+    assert adjusted["entry"]["bias"] == "short"
+    assert adjusted["risk"]["max_leverage"] == 2
+    assert adjusted["risk"]["max_loss_pct"] == 0.5
+    assert adjusted["backtest"]["source"] == "invalidated_by_strategy_adjustment"
+    assert adjusted["metadata"]["model_adjustment"]["provider"] == "qwen"
+    assert adjusted["metadata"]["model_adjustment"]["model"] == "qwen-plus"
+    assert payload["model_context"] == {
+        "provider": "qwen",
+        "model": "qwen-plus",
+        "source": "hyper_ai_profile",
+    }
+    assert payload["model_suggestion"]["risk_notes"] == ["Re-run backtest before signal handoff."]
+    assert "secret-model-key" not in str(payload)
+    assert calls
+    assert calls[0]["headers"]["Authorization"] == "Bearer secret-model-key"
+    assert "secret-model-key" not in str(calls[0]["json"])
+
+
 def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)
@@ -1899,6 +1973,13 @@ def test_ai_trading_routes_isolate_strategy_specs_and_signal_events_by_user(tmp_
         bob.post(
             f"/api/ai-trading/strategy-specs/{alice_spec['id']}/adjust",
             json={"instruction": "Switch Alice strategy to 1h short", "source": "pytest"},
+        ).status_code
+        == 404
+    )
+    assert (
+        bob.post(
+            f"/api/ai-trading/strategy-specs/{alice_spec['id']}/model-adjust",
+            json={"instruction": "Ask model to switch Alice strategy", "source": "pytest"},
         ).status_code
         == 404
     )

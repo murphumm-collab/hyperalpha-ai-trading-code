@@ -25,8 +25,9 @@
 - `ai_trading_strategy_specs` 已持久化当前用户的策略 spec 草案/待审/已审批记录；审批会重新校验 spec，不触发下单或信号发送。
 - Hyper AI 策略草案摘要已提供保存和审批按钮，仍只操作 review 状态。
 - 新增受控自然语言策略调整：`/api/ai-trading/strategy-spec/adjust` 可调整未保存草案，`/api/ai-trading/strategy-specs/{id}/adjust` 可调整当前用户已保存 spec；调整只解析 timeframe、方向、风险、杠杆、仓位、止损/止盈等受控字段，强制保留 `signal_only` / `ai_may_place_orders=false` / `order_backend_only=true`，并让已审批记录回到 review 状态。
+- 新增 DeepSeek/Qwen model-adjust 桥接：`/api/ai-trading/strategy-spec/model-adjust` 和 `/api/ai-trading/strategy-specs/{id}/model-adjust` 会读取当前用户 Hyper AI profile 的 DeepSeek/Qwen 配置，让模型只返回 JSON adjustment suggestion，然后仍交给同一个安全 adjust parser/validation/backtest invalidation 流程。
 - 已保存 spec 被自然语言调整后，原 backtest evidence 会被标记为 `invalidated_by_strategy_adjustment`，`approved_at` 清空；必须重新审批并重新绑定/运行 handoff-ready backtest，才能生成新的信号事件。
-- Hyper AI AI Trading 策略摘要卡片现在有紧凑自然语言调整输入框和 apply 按钮；未保存草案走非持久化 adjust，已保存记录走持久化 adjust，成功后把调整后的 spec 回填聊天框给 agent/用户复核。
+- Hyper AI AI Trading 策略摘要卡片现在有紧凑自然语言调整输入框、local apply 按钮和 DeepSeek/Qwen Brain 按钮；未保存草案走非持久化 adjust，已保存记录走持久化 adjust，成功后把调整后的 spec 或 model suggestion review packet 回填聊天框给 agent/用户复核。
 - 已审批 strategy spec 可生成 `hyperalpha.ai_trading.signal_candidate.v1` 信号预览；该 preview 明确 `not_an_order=true`、`ai_may_place_orders=false`，只供聊天审核和后端 handoff 前检查。
 - Hyper AI 已审批草案摘要可把 signal preview 回填到聊天框，不会提交执行网关。
 - 直接 `/api/ai-trading/strategy-specs/{id}/signal-preview` response 现在也会递归 mask 敏感 key，避免绕过 persisted signal event serializer 泄露已绑定 backtest config 中的 key/token/header。
@@ -243,12 +244,15 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 natural-language strategy adjustment 后通过，26 条 AI Trading route 回归全绿；覆盖未保存草案调整、已保存审批记录调整、旧回测/审批失效、direct-order intent ignore warning，以及 Bob 不能调整 Alice spec。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 strategy adjustment API 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI 策略调整输入框后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 DeepSeek/Qwen model-adjust bridge 后通过，27 条 AI Trading route 回归全绿；覆盖 mocked Qwen profile/model response、模型建议经安全 adjust 生效、旧审批/回测失效、响应不泄露模型 API key，以及 Bob 不能 model-adjust Alice spec。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 model-adjust bridge 后通过。
+- `cd frontend && npm run build` 已在 Hyper AI DeepSeek/Qwen Brain 调整按钮后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
 
 ## 6. 未验收 / 阻塞
 
 - 本地 PostgreSQL 未运行，导致后端 `8000` 未监听；analytics route runtime import 会因 snapshot DB 默认 Postgres 不可达而失败。
 - GitHub 上传按用户要求暂不处理；本地继续开发、测试、验收标记和提交。历史推送失败原因为 HTTPS 凭据不可读：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
-- DeepSeek/Qwen 真实模型生成 patch 并调用受控 adjust API 的链路仍未验收；当前实现是 deterministic safety parser，适合作为模型输出进入系统前的安全收口层。
+- DeepSeek/Qwen 真实 API key/live profile 调用 model-adjust 的链路仍未验收；当前已完成 mocked Qwen 回归和前端按钮，模型输出进入 deterministic safety parser 后才会改 spec。
 - live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
 - real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
 - AI Trading signal gateway live acceptance 需要真实 HyperAlpha 订单后端 URL/token；当前已做 disabled-by-default、mock gateway、V1 contract payload 和文档验收。
