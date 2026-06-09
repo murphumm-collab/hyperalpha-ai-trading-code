@@ -219,6 +219,21 @@ interface AiTradingSignalHandoffAttemptRecord {
   created_at?: string | null
 }
 
+interface AiTradingBacktestResultRecord {
+  id: number
+  status: string
+  source?: string
+  binding_id?: number | null
+  account_name?: string | null
+  program_name?: string | null
+  exchange?: string | null
+  symbols?: string[]
+  period?: Record<string, unknown>
+  metrics?: Record<string, unknown>
+  handoff_ready?: boolean
+  completed_at?: string | null
+}
+
 interface AiTradingMarket {
   symbol?: string
   coin?: string
@@ -794,6 +809,7 @@ export default function HyperAiPage() {
   const [aiTradingRuntime, setAiTradingRuntime] = useState<AiTradingRuntimeStatus | null>(null)
   const [recentStrategySpecs, setRecentStrategySpecs] = useState<AiTradingStrategySpecRecord[]>([])
   const [recentSignalEvents, setRecentSignalEvents] = useState<AiTradingSignalEventRecord[]>([])
+  const [recentBacktestResults, setRecentBacktestResults] = useState<AiTradingBacktestResultRecord[]>([])
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const aiTradingGatewayReady = Boolean(
@@ -849,6 +865,19 @@ export default function HyperAiPage() {
       ? 'bg-green-500/10 text-green-600'
       : 'bg-yellow-500/10 text-yellow-600'
   )
+  const formatBacktestMetric = (metrics: Record<string, unknown> | undefined, keys: string[], suffix = ''): string => {
+    const value = backtestMetricValue(metrics, keys)
+    if (value === null) {
+      return '-'
+    }
+    return `${Number(value.toFixed(2))}${suffix}`
+  }
+  const backtestResultLine = (record: AiTradingBacktestResultRecord): string => {
+    const trades = formatBacktestMetric(record.metrics, ['trade_count', 'total_trades'])
+    const ret = formatBacktestMetric(record.metrics, ['total_return', 'return_pct'], '%')
+    const drawdown = formatBacktestMetric(record.metrics, ['max_drawdown', 'max_drawdown_percent'], '%')
+    return `${trades} trades · ${ret} return · ${drawdown} dd`
+  }
   const isSignalHandoffEligible = (event: AiTradingSignalEventRecord): boolean => (
     event.handoff_eligibility?.eligible ??
     (
@@ -1052,14 +1081,17 @@ export default function HyperAiPage() {
 
   const fetchAiTradingRecords = async () => {
     try {
-      const [specRes, signalRes] = await Promise.all([
+      const [specRes, signalRes, backtestRes] = await Promise.all([
         authFetch('/api/ai-trading/strategy-specs?limit=3'),
         authFetch('/api/ai-trading/signal-events?limit=3'),
+        authFetch('/api/ai-trading/backtest-results?status=completed&limit=3'),
       ])
       const specData = specRes.ok ? await specRes.json() : {}
       const signalData = signalRes.ok ? await signalRes.json() : {}
+      const backtestData = backtestRes.ok ? await backtestRes.json() : {}
       setRecentStrategySpecs(Array.isArray(specData.specs) ? specData.specs : [])
       setRecentSignalEvents(Array.isArray(signalData.signal_events) ? signalData.signal_events : [])
+      setRecentBacktestResults(Array.isArray(backtestData.backtest_results) ? backtestData.backtest_results : [])
     } catch (e) {
       console.error('Failed to fetch AI Trading records:', e)
     }
@@ -1267,24 +1299,28 @@ export default function HyperAiPage() {
     }
   }
 
-  const handleAttachProgramBacktestResult = async (recordId?: number) => {
+  const handleAttachProgramBacktestResult = async (recordId?: number, providedBacktestResultId?: number) => {
     setStrategyDraftError(null)
     let targetRecordId = recordId
     if (!targetRecordId) {
       const record = strategyDraftRecord || (await persistStrategyDraft())
       if (!record) {
+        setStrategyDraftError('Save or draft a strategy spec before attaching a Program Backtest result')
         return
       }
       targetRecordId = record.id
     }
 
-    const backtestResultIdText = window.prompt(
-      t('hyperAi.aiTradingProgramBacktestResultIdPrompt', 'Program Backtest result ID')
-    )
-    if (!backtestResultIdText) {
-      return
+    let backtestResultId = providedBacktestResultId
+    if (!backtestResultId) {
+      const backtestResultIdText = window.prompt(
+        t('hyperAi.aiTradingProgramBacktestResultIdPrompt', 'Program Backtest result ID')
+      )
+      if (!backtestResultIdText) {
+        return
+      }
+      backtestResultId = Number(backtestResultIdText)
     }
-    const backtestResultId = Number(backtestResultIdText)
     if (!Number.isInteger(backtestResultId) || backtestResultId <= 0) {
       setStrategyDraftError('Program Backtest result ID must be a positive integer')
       return
@@ -2363,8 +2399,44 @@ export default function HyperAiPage() {
               </div>
             )}
 
-            {(recentStrategySpecs.length > 0 || recentSignalEvents.length > 0) && (
+            {(recentBacktestResults.length > 0 || recentStrategySpecs.length > 0 || recentSignalEvents.length > 0) && (
               <div className="mt-3 space-y-2 text-xs">
+                {recentBacktestResults.length > 0 && (
+                  <div className="rounded-md border bg-muted/20 p-2">
+                    <div className="mb-1.5 flex items-center gap-1.5 font-medium">
+                      <BarChart3 className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span>{t('hyperAi.aiTradingProgramBacktests', 'Program backtests')}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {recentBacktestResults.map(record => (
+                        <div key={record.id} className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="truncate font-medium">
+                              {(record.symbols || []).join(', ') || record.exchange || 'Backtest'} · {record.program_name || `#${record.id}`}
+                            </div>
+                            <div className="truncate text-[11px] text-muted-foreground">
+                              #{record.id} · {record.status} · {backtestResultLine(record)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleAttachProgramBacktestResult(undefined, record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={strategyBacktestLoadingId !== null || !record.handoff_ready}
+                            title={t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}
+                          >
+                            {strategyBacktestLoadingId !== null && strategyBacktestLoadingSource === 'program' ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <Link2 className="h-3.5 w-3.5" />
+                            )}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {recentStrategySpecs.length > 0 && (
                   <div className="rounded-md border bg-muted/20 p-2">
                     <div className="mb-1.5 flex items-center gap-1.5 font-medium">

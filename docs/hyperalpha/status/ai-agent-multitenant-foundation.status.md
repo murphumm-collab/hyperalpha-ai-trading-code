@@ -92,8 +92,10 @@ Local checkpoint: current branch `HEAD`
 - AI Trading strategy specs can attach current-user backtest summaries, and signal handoff eligibility now blocks order-backend handoff until a passing/accepted backtest summary is present in the immutable signal candidate.
 - AI Trading backtest handoff evidence now requires parseable quality metrics: positive trade count, max drawdown, and at least one performance metric before a signal event can become handoff-ready.
 - AI Trading strategy specs can link current-user Program BacktestResult records as handoff evidence, with owner guards across account/program binding and automatic metrics mapping instead of manual metric entry.
+- AI Trading exposes a current-user Program BacktestResult candidate list so users can discover recent completed backtests without knowing raw IDs, while responses omit program code and trading credentials.
 - Hyper AI AI Trading panel shows current strategy backtest-gate status and can attach an external/backtest-service summary to the saved strategy spec without running orders.
 - Hyper AI AI Trading panel can attach an existing Program Backtest result ID to a saved strategy spec and load the mapped evidence into chat for review without running orders.
+- Hyper AI AI Trading panel lists recent completed Program Backtests with symbols and key metrics, and can attach a listed result to the current strategy spec without manual ID entry.
 - Hyper AI AI Trading panel can request a per-symbol structured strategy draft and load it into chat for agent review before persistence or execution.
 - AI Trading strategy specs can be saved, listed, inspected, approved, and archived per user; approval reruns validation and never emits orders.
 - Hyper AI AI Trading strategy draft summary includes save and approval controls backed by the user-scoped strategy-spec API.
@@ -264,8 +266,10 @@ Local checkpoint: current branch `HEAD`
 | AI Trading backtest handoff gate | Done | `/api/ai-trading/strategy-specs/{id}/backtest-summary` stores non-executable backtest evidence, and signal-event handoff eligibility blocks candidates without accepted passing backtest evidence |
 | AI Trading backtest metrics gate | Done | Handoff readiness requires positive `trade_count`, parseable `max_drawdown`, and at least one performance metric such as `total_return`, `sharpe`, `win_rate`, or `profit_factor` |
 | AI Trading Program Backtest bridge | Done | `/api/ai-trading/strategy-specs/{id}/backtest-result` attaches current-user Program BacktestResult evidence via account/program owner guards and maps persisted metrics into the AI Trading backtest gate |
+| AI Trading Program Backtest evidence list | Done | `/api/ai-trading/backtest-results` lists current-user completed Program BacktestResult candidates with symbol/status/limit filters, key metrics, and no strategy code or credentials |
 | AI Trading backtest summary UI | Done | Hyper AI strategy cards display backtest readiness and expose a chart-icon action to attach an external backtest summary JSON to a saved strategy spec |
 | AI Trading Program Backtest UI bridge | Done | Hyper AI strategy cards and recent spec rows expose a link-icon action to attach an existing Program Backtest result ID without manual metric entry |
+| AI Trading Program Backtest evidence UI | Done | Hyper AI AI Trading panel lists recent Program Backtests and can attach a listed handoff-ready result to the current strategy spec |
 | AI Trading strategy spec API | Done | `/api/ai-trading/strategy-spec/schema|draft|validate` provides a structured, signal-only strategy contract and rejects direct AI order-placement boundaries |
 | AI Trading strategy spec UI | Done | Hyper AI AI Trading symbol controls can request a strategy spec draft and load the JSON into chat for review |
 | AI Trading strategy spec persistence | Done | `ai_trading_strategy_specs` stores current-user draft/review/approved records; approval reruns validation and archived records are hidden from default lists |
@@ -612,6 +616,10 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading Program Backtest bridge regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 9 passing tests, including owned Program BacktestResult attachment, cross-user backtest-result rejection, and gateway-ready handoff eligibility after linked metrics.
 - Passed: AI Trading Program Backtest bridge syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py`.
 - Passed: Frontend production build after adding the Hyper AI link-icon Program Backtest result attachment action.
+- Passed: AI Trading Program Backtest evidence-list regression: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 9 passing tests, including current-user list isolation, symbol filtering, handoff-ready calculation, and no API key/program code leakage in list responses.
+- Passed: AI Trading Program Backtest evidence-list syntax compile: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py`.
+- Passed: Frontend production build after adding the recent Program Backtests list and direct attach action.
+- Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest evidence-list UI; click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

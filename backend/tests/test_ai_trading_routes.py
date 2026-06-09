@@ -540,6 +540,21 @@ def test_ai_trading_can_attach_owned_program_backtest_result(tmp_path, monkeypat
     client = _build_client(tmp_path)
     backtest_result_id = _create_program_backtest_result(client)
 
+    listed = client.get("/api/ai-trading/backtest-results?status=completed&symbol=BTC&limit=10")
+    assert listed.status_code == 200
+    listed_results = listed.json()["backtest_results"]
+    assert [row["id"] for row in listed_results] == [backtest_result_id]
+    assert listed_results[0]["handoff_ready"] is True
+    assert listed_results[0]["symbols"] == ["BTC"]
+    assert listed_results[0]["metrics"]["trade_count"] == 12
+    assert listed_results[0]["program_name"] == "ai-trading-test-user AI Trading Program"
+    assert "not-returned" not in str(listed_results)
+    assert "def run" not in str(listed_results)
+
+    assert client.get("/api/ai-trading/backtest-results?status=completed&symbol=ETH").json()[
+        "backtest_results"
+    ] == []
+
     draft = client.post(
         "/api/ai-trading/strategy-spec/draft",
         json={
@@ -633,6 +648,12 @@ def test_ai_trading_program_backtest_result_attachment_is_user_scoped(tmp_path):
     assert cross_attach.status_code == 404
 
     bob_backtest_id = _create_program_backtest_result(bob, username="bob")
+    bob_listed = bob.get("/api/ai-trading/backtest-results?status=completed&limit=10")
+    assert bob_listed.status_code == 200
+    bob_rows = bob_listed.json()["backtest_results"]
+    assert [row["id"] for row in bob_rows] == [bob_backtest_id]
+    assert alice_backtest_id not in [row["id"] for row in bob_rows]
+
     own_attach = bob.post(
         f"/api/ai-trading/strategy-specs/{bob_spec_id}/backtest-result",
         json={"backtest_result_id": bob_backtest_id, "accepted_for_handoff": True},

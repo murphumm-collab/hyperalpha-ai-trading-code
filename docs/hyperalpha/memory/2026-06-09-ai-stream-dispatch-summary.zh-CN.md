@@ -52,6 +52,8 @@
 - Hyper AI AI Trading strategy 卡片现在显示 backtest readiness，并提供 chart 图标 action 让用户输入外部 backtest id 和 metrics JSON，提交到 `/backtest-summary`；该 UI 仍不运行真实回测、不触发订单。
 - 新增 `/api/ai-trading/strategy-specs/{id}/backtest-result`，用于把当前用户已有的 Program BacktestResult 绑定到 AI Trading strategy spec；后端会通过 account/program binding 做 owner guard，并自动把 total return、max drawdown、trade count、win rate、profit factor、Sharpe 等持久化指标映射进 backtest gate。
 - Hyper AI AI Trading strategy 卡片和 recent spec 行现在有 link 图标 action，可输入已有 Program Backtest result ID 绑定 evidence；不会运行订单，也不会手填 metrics。
+- 新增 `/api/ai-trading/backtest-results`，返回当前用户可绑定的 Program BacktestResult 候选列表，支持 `status`、`symbol`、`limit`，返回 symbol、program/account 名称、关键 metrics、handoff_ready，但不返回 Program code、API key 或交易凭据。
+- Hyper AI AI Trading panel 现在会列出最近 completed Program Backtests，用户可以点 link 图标把某条 handoff-ready evidence 绑定到当前 strategy spec；如果当前草案未保存，会先保存再绑定。
 
 ## 3. AI Stream / Worker 现状
 
@@ -137,9 +139,10 @@
 - `backend/tests/test_ai_trading_routes.py` 已新增 backtest gate 回归：missing backtest 的 signal event 在 gateway enabled 下仍 blocked；补 passing backtest 后旧事件仍 blocked，新事件才 eligible；Bob 不能给 Alice spec 挂 backtest summary。
 - `backend/tests/test_ai_trading_routes.py` 已新增 backtest metrics quality 回归：即使 backtest summary 标记 `passed`/`accepted_for_handoff=true`，缺少正交易数、最大回撤、表现指标时，gateway enabled 也不能 handoff，且不会调用订单后端。
 - `backend/tests/test_ai_trading_routes.py` 已新增 Program Backtest bridge 回归：当前用户 owned Program BacktestResult 可绑定并让新 signal 在 gateway enabled 后 eligible；Bob 不能把 Alice 的 BacktestResult 绑定到 Bob 的 spec。
+- `backend/tests/test_ai_trading_routes.py` 已新增 Program Backtest evidence-list 回归：列表只返回当前用户 backtest candidates，支持 symbol filter，返回 handoff_ready，不泄露 API key 或 Program code。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 9 条 AI Trading route 回归全绿。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
-- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI Program Backtest result link action 后。
+- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI recent Program Backtests evidence list/direct attach action 后。
 - `curl -I --max-time 3 http://127.0.0.1:5174/app/ai-trading` 返回 200；当前 Node REPL 无法解析 `playwright` 包，因此本轮没有做点击级浏览器自动化。
 
 ## 6. 未验收 / 阻塞

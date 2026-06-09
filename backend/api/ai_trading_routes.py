@@ -23,6 +23,7 @@ from services.ai_trading_strategy_spec_service import (
     get_signal_event_record,
     get_strategy_spec_record,
     get_strategy_spec_schema,
+    list_program_backtest_result_candidates,
     list_signal_handoff_attempt_records,
     list_signal_event_records,
     list_strategy_spec_records,
@@ -130,6 +131,27 @@ def ai_trading_runtime_endpoint(
 ):
     """Return current-user AI Trading runtime status without secrets."""
     return get_ai_trading_runtime_status(db, user_id=current_user.id)
+
+
+@router.get("/backtest-results")
+def list_ai_trading_backtest_results_endpoint(
+    status: Optional[str] = Query(default=None, max_length=50),
+    symbol: Optional[str] = Query(default=None, max_length=64),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """List current-user Program BacktestResult rows attachable as AI Trading evidence."""
+    rows = list_program_backtest_result_candidates(
+        db,
+        user_id=current_user.id,
+        status=status,
+        symbol=symbol,
+        limit=limit,
+    )
+    return {
+        "backtest_results": rows,
+    }
 
 
 @router.post("/strategy-spec/draft")

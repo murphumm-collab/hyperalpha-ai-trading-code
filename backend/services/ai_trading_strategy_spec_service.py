@@ -914,6 +914,111 @@ def _program_backtest_result_summary(
     }
 
 
+def _program_backtest_symbols(config: Any) -> List[str]:
+    config_dict = _json_loads(config, {}) if isinstance(config, str) else (config or {})
+    symbols = config_dict.get("symbols") if isinstance(config_dict, dict) else []
+    if isinstance(symbols, str):
+        symbols = [symbols]
+    if not isinstance(symbols, list):
+        return []
+    return [
+        _normalize_symbol(symbol)
+        for symbol in symbols
+        if _normalize_symbol(symbol)
+    ]
+
+
+def serialize_program_backtest_result_candidate(
+    backtest: BacktestResult,
+    *,
+    binding: Optional[AccountProgramBinding] = None,
+    account: Optional[Account] = None,
+    program: Optional[TradingProgram] = None,
+) -> Dict[str, Any]:
+    """Serialize a non-secret Program BacktestResult candidate for AI Trading evidence."""
+    summary = _program_backtest_result_summary(backtest, accepted_for_handoff=True)
+    config = summary.get("program_backtest_config") if isinstance(summary.get("program_backtest_config"), dict) else {}
+    return {
+        "id": backtest.id,
+        "backtest_id": summary.get("backtest_id"),
+        "status": _clean_text(backtest.status, 50).lower() or "unknown",
+        "source": "program_backtest_result",
+        "binding_id": backtest.binding_id,
+        "account_id": getattr(account, "id", None),
+        "account_name": getattr(account, "name", None),
+        "program_id": getattr(program, "id", None),
+        "program_name": getattr(program, "name", None),
+        "exchange": backtest.exchange or getattr(binding, "exchange", None) or "hyperliquid",
+        "symbols": _program_backtest_symbols(config),
+        "period": summary.get("period") or {},
+        "metrics": summary.get("metrics") or {},
+        "handoff_ready": _is_backtest_ready_for_handoff(summary),
+        "created_at": _record_timestamp(backtest.created_at),
+        "completed_at": _record_timestamp(backtest.completed_at),
+    }
+
+
+def list_program_backtest_result_candidates(
+    db: Session,
+    *,
+    user_id: int,
+    status: Optional[str] = None,
+    symbol: Optional[str] = None,
+    limit: int = 20,
+) -> List[Dict[str, Any]]:
+    """List current-user Program BacktestResult rows that can be attached as AI Trading evidence."""
+    query = db.query(
+        BacktestResult,
+        AccountProgramBinding,
+        Account,
+        TradingProgram,
+    ).join(
+        AccountProgramBinding,
+        BacktestResult.binding_id == AccountProgramBinding.id,
+    ).join(
+        Account,
+        AccountProgramBinding.account_id == Account.id,
+    ).join(
+        TradingProgram,
+        AccountProgramBinding.program_id == TradingProgram.id,
+    ).filter(
+        BacktestResult.backtest_type == "program",
+        BacktestResult.binding_id.isnot(None),
+        or_(BacktestResult.user_id == user_id, BacktestResult.user_id.is_(None)),
+        AccountProgramBinding.is_deleted != True,
+        Account.user_id == user_id,
+        Account.is_deleted != True,
+        TradingProgram.user_id == user_id,
+        TradingProgram.is_deleted != True,
+    )
+    normalized_status = _clean_text(status, 50).lower()
+    if normalized_status:
+        query = query.filter(BacktestResult.status == normalized_status)
+
+    row_limit = max(1, min(int(limit or 20), 100))
+    fetch_limit = 100 if symbol else row_limit
+    rows = query.order_by(
+        BacktestResult.completed_at.desc(),
+        BacktestResult.created_at.desc(),
+        BacktestResult.id.desc(),
+    ).limit(fetch_limit).all()
+
+    normalized_symbol = _normalize_symbol(symbol) if symbol else ""
+    candidates: List[Dict[str, Any]] = []
+    for backtest, binding, account, program in rows:
+        if normalized_symbol and normalized_symbol not in _program_backtest_symbols(backtest.config):
+            continue
+        candidates.append(
+            serialize_program_backtest_result_candidate(
+                backtest,
+                binding=binding,
+                account=account,
+                program=program,
+            )
+        )
+    return candidates[:row_limit]
+
+
 def attach_strategy_backtest_result(
     db: Session,
     *,
