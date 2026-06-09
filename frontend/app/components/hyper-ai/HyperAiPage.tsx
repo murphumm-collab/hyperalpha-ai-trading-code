@@ -52,6 +52,7 @@ import {
   Save,
   ShieldCheck,
   History,
+  BarChart3,
   Search as SearchIcon
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
@@ -126,6 +127,7 @@ interface Message {
 interface AiTradingStrategySpec {
   symbol?: string
   timeframe?: string
+  backtest?: AiTradingBacktestSummary
   entry?: {
     bias?: string
   }
@@ -159,6 +161,17 @@ interface AiTradingStrategySpec {
     warnings?: string[]
     safe_to_emit_signal?: boolean
   }
+}
+
+interface AiTradingBacktestSummary {
+  required_before_handoff?: boolean
+  status?: string
+  accepted_for_handoff?: boolean
+  backtest_id?: string | null
+  source?: string | null
+  metrics?: Record<string, unknown>
+  period?: Record<string, unknown>
+  updated_at?: string | null
 }
 
 interface AiTradingStrategySpecRecord {
@@ -771,6 +784,7 @@ export default function HyperAiPage() {
   const [strategyDraftSaving, setStrategyDraftSaving] = useState(false)
   const [strategyDraftApproving, setStrategyDraftApproving] = useState(false)
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
+  const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
@@ -782,6 +796,26 @@ export default function HyperAiPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const aiTradingGatewayReady = Boolean(
     aiTradingRuntime?.gateway?.enabled && aiTradingRuntime.gateway?.url_configured
+  )
+  const isBacktestReady = (backtest?: AiTradingBacktestSummary): boolean => (
+    Boolean(
+      backtest?.accepted_for_handoff &&
+      ['passed', 'accepted', 'approved'].includes(String(backtest.status || '').toLowerCase()) &&
+      backtest.backtest_id &&
+      backtest.metrics &&
+      Object.keys(backtest.metrics).length > 0
+    )
+  )
+  const backtestStatusLabel = (backtest?: AiTradingBacktestSummary): string => {
+    if (isBacktestReady(backtest)) {
+      return 'backtest ready'
+    }
+    return backtest?.status || 'backtest needed'
+  }
+  const backtestStatusClassName = (backtest?: AiTradingBacktestSummary): string => (
+    isBacktestReady(backtest)
+      ? 'bg-green-500/10 text-green-600'
+      : 'bg-yellow-500/10 text-yellow-600'
   )
   const isSignalHandoffEligible = (event: AiTradingSignalEventRecord): boolean => (
     event.handoff_eligibility?.eligible ??
@@ -1123,6 +1157,79 @@ export default function HyperAiPage() {
       setStrategyDraftError(e instanceof Error ? e.message : 'Failed to approve strategy spec')
     } finally {
       setStrategyDraftApproving(false)
+    }
+  }
+
+  const handleAttachBacktestSummary = async (recordId?: number) => {
+    setStrategyDraftError(null)
+    let targetRecordId = recordId
+    if (!targetRecordId) {
+      const record = strategyDraftRecord || (await persistStrategyDraft())
+      if (!record) {
+        return
+      }
+      targetRecordId = record.id
+    }
+
+    const backtestId = window.prompt(
+      t('hyperAi.aiTradingBacktestIdPrompt', 'Backtest ID from the external/backtest service')
+    )
+    if (!backtestId) {
+      return
+    }
+    const metricsText = window.prompt(
+      t('hyperAi.aiTradingBacktestMetricsPrompt', 'Metrics JSON'),
+      '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":0}'
+    )
+    if (!metricsText) {
+      return
+    }
+
+    let metrics: Record<string, unknown>
+    try {
+      const parsed = JSON.parse(metricsText)
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Metrics must be a JSON object')
+      }
+      metrics = parsed as Record<string, unknown>
+    } catch (error) {
+      setStrategyDraftError(error instanceof Error ? error.message : 'Invalid metrics JSON')
+      return
+    }
+
+    setStrategyBacktestLoadingId(targetRecordId)
+    try {
+      const res = await authFetch(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-summary`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          backtest_id: backtestId,
+          status: 'passed',
+          accepted_for_handoff: true,
+          metrics,
+          source: 'hyper_ai_panel_external_summary',
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to attach backtest summary')
+      }
+      const record = data.spec_record as AiTradingStrategySpecRecord
+      setStrategyDraftRecord(record)
+      if (record.spec) {
+        setStrategyDraft(record.spec)
+      }
+      const prompt = currentLang === 'zh'
+        ? `请复核 AI Trading Strategy Spec #${record.id} 的回测摘要：确认 backtest id、metrics、是否足以允许后续 signal handoff；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
+        : `Review the backtest summary attached to AI Trading Strategy Spec #${record.id}. Confirm the backtest id, metrics, and whether it is sufficient for later signal handoff. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
+      setInputValue(prompt)
+      refreshAiTradingState()
+      setTimeout(() => textareaRef.current?.focus(), 50)
+    } catch (e) {
+      console.error('Failed to attach AI trading backtest summary:', e)
+      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach backtest summary')
+    } finally {
+      setStrategyBacktestLoadingId(null)
     }
   }
 
@@ -2076,6 +2183,10 @@ export default function HyperAiPage() {
                   <span className="truncate text-foreground">
                     {strategyDraft.execution?.signal_only ? 'signal only' : 'review'}
                   </span>
+                  <span>{t('hyperAi.aiTradingBacktest', 'Backtest')}</span>
+                  <span className={`truncate rounded px-1.5 py-0.5 ${backtestStatusClassName(strategyDraft.backtest)}`}>
+                    {backtestStatusLabel(strategyDraft.backtest)}
+                  </span>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
                   <span className="min-w-0 truncate text-muted-foreground">
@@ -2108,6 +2219,19 @@ export default function HyperAiPage() {
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       ) : (
                         <CheckCircle2 className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAttachBacktestSummary(strategyDraftRecord?.id)}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategySignalPreviewLoading || strategyBacktestLoadingId !== null}
+                      title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
+                    >
+                      {strategyBacktestLoadingId === strategyDraftRecord?.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <BarChart3 className="h-3.5 w-3.5" />
                       )}
                     </button>
                     <button
@@ -2156,6 +2280,19 @@ export default function HyperAiPage() {
                             title={t('hyperAi.aiTradingInspectSpec', 'Inspect spec')}
                           >
                             <SearchIcon className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAttachBacktestSummary(record.id)}
+                            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                            disabled={strategyBacktestLoadingId !== null}
+                            title={t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
+                          >
+                            {strategyBacktestLoadingId === record.id ? (
+                              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            ) : (
+                              <BarChart3 className="h-3.5 w-3.5" />
+                            )}
                           </button>
                         </div>
                       ))}

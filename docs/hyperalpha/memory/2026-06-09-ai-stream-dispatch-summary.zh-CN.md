@@ -49,6 +49,7 @@
 - Hyper AI AI Trading strategy draft 请求现在携带当前 profile 的 `llm_provider/llm_model`，来源标记为 `hyper_ai_profile`；不携带 base URL、API key 或 token。
 - 新增 `/api/ai-trading/strategy-specs/{id}/backtest-summary`，用于把当前用户的 backtest summary 绑定到 strategy spec；这不是完整回测引擎，只是把外部/未来 Backtest Service 的结果作为 handoff 前置证据落库。
 - Signal candidate 会复制生成当时的 `backtest` 摘要；handoff eligibility 要求 passing/accepted backtest summary，否则即使 gateway enabled 也 blocked。事后补回测不会改变旧 signal event，必须重新生成候选信号。
+- Hyper AI AI Trading strategy 卡片现在显示 backtest readiness，并提供 chart 图标 action 让用户输入外部 backtest id 和 metrics JSON，提交到 `/backtest-summary`；该 UI 仍不运行真实回测、不触发订单。
 
 ## 3. AI Stream / Worker 现状
 
@@ -134,7 +135,7 @@
 - `backend/tests/test_ai_trading_routes.py` 已新增 backtest gate 回归：missing backtest 的 signal event 在 gateway enabled 下仍 blocked；补 passing backtest 后旧事件仍 blocked，新事件才 eligible；Bob 不能给 Alice spec 挂 backtest summary。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已通过，当前 6 条 AI Trading route 回归全绿。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_market_universe_service.py tests/test_ai_trading_routes.py` 已通过。
-- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。
+- `cd frontend && npm run build` 已通过；Vite 只提示既有 browserslist/baseline 数据过旧和大 chunk 警告。最近一次通过是在 Hyper AI backtest readiness badge / external summary attach action 后。
 
 ## 6. 未验收 / 阻塞
 
