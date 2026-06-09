@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -7,7 +8,13 @@ from sqlalchemy.orm import sessionmaker
 
 from api.ai_trading_routes import router
 from database.connection import Base, get_db
-from database.models import User, UserAuthSession
+from database.models import (
+    AiTradingSignalEventRecord,
+    AiTradingSignalHandoffAttemptRecord,
+    AiTradingStrategySpecRecord,
+    User,
+    UserAuthSession,
+)
 
 
 RELEVANT_ENV_NAMES = {
@@ -78,6 +85,7 @@ def _build_client(tmp_path):
     app.include_router(router)
     app.dependency_overrides[get_db] = override_db
     client = TestClient(app)
+    client._ai_trading_session_factory = Session
     return client, admin_token, ordinary_token, admin_id
 
 
@@ -140,6 +148,104 @@ def test_admin_can_read_ai_trading_production_readiness_without_secret_leakage(t
     serialized = str(data)
     assert "secret-order-gateway-token" not in serialized
     assert "secret-deepseek-key" not in serialized
+
+
+def test_admin_readiness_reports_handoff_attempt_audit_warnings_without_attempt_secrets(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
+    session = client._ai_trading_session_factory()
+    try:
+        spec = AiTradingStrategySpecRecord(
+            user_id=admin_id,
+            name="Admin readiness audit spec",
+            symbol="BTC",
+            status="approved",
+            source="pytest",
+            spec_json=json.dumps({"symbol": "BTC"}),
+            validation_json=json.dumps({"status": "ok"}),
+        )
+        session.add(spec)
+        session.flush()
+        event = AiTradingSignalEventRecord(
+            user_id=admin_id,
+            strategy_spec_id=spec.id,
+            symbol="BTC",
+            action="buy",
+            status="review_candidate",
+            handoff_status="failed",
+            signal_json=json.dumps({"symbol": "BTC"}),
+        )
+        session.add(event)
+        session.flush()
+        failed_attempt = AiTradingSignalHandoffAttemptRecord(
+            user_id=admin_id,
+            signal_event_id=event.id,
+            strategy_spec_id=spec.id,
+            symbol="BTC",
+            action="buy",
+            result="failed",
+            gateway_ready=True,
+            blockers_json=json.dumps([]),
+            eligibility_json=json.dumps({
+                "gateway_response": {
+                    "authorization": "secret-attempt-authorization",
+                    "body": "secret-attempt-body",
+                },
+            }),
+            error_message="Signal gateway handoff failed with secret-attempt-token",
+            created_at=datetime(2026, 6, 9, 12, 0, 0),
+        )
+        blocked_attempt = AiTradingSignalHandoffAttemptRecord(
+            user_id=admin_id,
+            signal_event_id=event.id,
+            strategy_spec_id=spec.id,
+            symbol="BTC",
+            action="buy",
+            result="blocked",
+            gateway_ready=False,
+            blockers_json=json.dumps(["gateway_disabled"]),
+            eligibility_json=json.dumps({"api_key": "secret-attempt-key"}),
+            error_message="gateway_disabled",
+            created_at=datetime(2026, 6, 9, 12, 1, 0),
+        )
+        session.add_all([failed_attempt, blocked_attempt])
+        session.flush()
+        spec_id = spec.id
+        event_id = event.id
+        blocked_attempt_id = blocked_attempt.id
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get(f"/api/ai-trading/admin/production-readiness?session_token={admin_token}")
+
+    assert response.status_code == 200
+    readiness = response.json()["readiness"]
+    assert readiness["production_ready"] is True
+    assert readiness["blockers"] == []
+    assert "handoff_audit:handoff_attempt_failed_present" in readiness["warnings"]
+    assert "handoff_audit:handoff_attempt_blocked_present" in readiness["warnings"]
+    handoff_audit = readiness["checks"]["handoff_audit"]
+    assert handoff_audit["ready"] is True
+    assert handoff_audit["checks"]["total"] == 2
+    assert handoff_audit["checks"]["by_result"] == {"blocked": 1, "failed": 1}
+    assert handoff_audit["checks"]["gateway_ready"] == 1
+    assert handoff_audit["checks"]["gateway_not_ready"] == 1
+    assert handoff_audit["checks"]["latest_non_submitted"] == {
+        "id": blocked_attempt_id,
+        "signal_event_id": event_id,
+        "strategy_spec_id": spec_id,
+        "symbol": "BTC",
+        "action": "buy",
+        "result": "blocked",
+        "gateway_ready": False,
+    }
+    assert handoff_audit["checks"]["secret_values_returned"] is False
+    serialized = str(response.json())
+    assert "secret-attempt-authorization" not in serialized
+    assert "secret-attempt-body" not in serialized
+    assert "secret-attempt-key" not in serialized
+    assert "secret-attempt-token" not in serialized
 
 
 def test_ai_trading_production_readiness_api_requires_admin_session(tmp_path, monkeypatch):

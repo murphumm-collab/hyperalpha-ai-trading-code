@@ -7,6 +7,8 @@ import os
 from typing import Any, Dict, Mapping, Optional
 from urllib import parse
 
+from sqlalchemy import func
+
 from services import ai_trading_production_handoff_service as handoff_check
 
 
@@ -257,10 +259,64 @@ def _build_model_policy_report(env: Mapping[str, str]) -> Dict[str, Any]:
     }
 
 
+def build_handoff_attempt_audit_report(db: Any) -> Dict[str, Any]:
+    """Return non-secret admin audit counts for persisted handoff attempts."""
+    from database.models import AiTradingSignalHandoffAttemptRecord
+
+    rows = db.query(
+        AiTradingSignalHandoffAttemptRecord.result,
+        func.count(AiTradingSignalHandoffAttemptRecord.id),
+    ).group_by(AiTradingSignalHandoffAttemptRecord.result).all()
+    by_result = {str(result or "unknown"): int(count) for result, count in rows}
+    total = sum(by_result.values())
+    gateway_ready = int(db.query(AiTradingSignalHandoffAttemptRecord).filter(
+        AiTradingSignalHandoffAttemptRecord.gateway_ready.is_(True),
+    ).count())
+    latest_non_submitted = db.query(AiTradingSignalHandoffAttemptRecord).filter(
+        AiTradingSignalHandoffAttemptRecord.result.in_(["blocked", "failed"]),
+    ).order_by(
+        AiTradingSignalHandoffAttemptRecord.created_at.desc(),
+        AiTradingSignalHandoffAttemptRecord.id.desc(),
+    ).first()
+
+    latest_payload = None
+    if latest_non_submitted:
+        latest_payload = {
+            "id": latest_non_submitted.id,
+            "signal_event_id": latest_non_submitted.signal_event_id,
+            "strategy_spec_id": latest_non_submitted.strategy_spec_id,
+            "symbol": latest_non_submitted.symbol,
+            "action": latest_non_submitted.action,
+            "result": latest_non_submitted.result,
+            "gateway_ready": bool(latest_non_submitted.gateway_ready),
+        }
+
+    warnings: list[str] = []
+    if by_result.get("failed", 0) > 0:
+        warnings.append("handoff_attempt_failed_present")
+    if by_result.get("blocked", 0) > 0:
+        warnings.append("handoff_attempt_blocked_present")
+
+    return {
+        "ready": True,
+        "blockers": [],
+        "warnings": warnings,
+        "checks": {
+            "total": total,
+            "by_result": by_result,
+            "gateway_ready": gateway_ready,
+            "gateway_not_ready": max(0, total - gateway_ready),
+            "latest_non_submitted": latest_payload,
+            "secret_values_returned": False,
+        },
+    }
+
+
 def build_report(
     env: Mapping[str, str],
     *,
     require_handoff_approval_flag: bool = True,
+    handoff_attempt_audit_report: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     handoff_report = handoff_check.build_report(
         env,
@@ -283,6 +339,13 @@ def build_report(
         "hard_risk": hard_risk_report,
         "model_policy": model_policy_report,
     }
+    if handoff_attempt_audit_report is not None:
+        component_reports["handoff_audit"] = {
+            "ready": bool(handoff_attempt_audit_report.get("ready", True)),
+            "blockers": list(handoff_attempt_audit_report.get("blockers") or []),
+            "warnings": list(handoff_attempt_audit_report.get("warnings") or []),
+            "checks": dict(handoff_attempt_audit_report.get("checks") or {}),
+        }
 
     blockers: list[str] = []
     warnings: list[str] = []
