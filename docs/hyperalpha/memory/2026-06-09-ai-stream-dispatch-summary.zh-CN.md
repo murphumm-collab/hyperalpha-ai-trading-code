@@ -251,7 +251,7 @@
 - In-app Browser 已完成最终本地 AI Trading UI 验收：BTC draft -> natural-language adjust -> save -> approve -> inline backtest evidence -> `backtest ready` -> signal preview -> reject；UI 记录为 spec `#5`、signal `#3 rejected`。
 - 本地 live API 已完成最终正向 mock handoff：spec `#6`、signal event `#4`、`handoff_status=submitted`、latest handoff attempt `submitted`、`gateway_ready=true`。
 - In-app Browser 已确认 Recent signals 可见 `BTC · buy / #2 submitted` 和 `BTC · hold / #1/#3 rejected`，并能读取 handoff attempts，attempt response 只包含脱敏 gateway response summary。
-- `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py` 不带确认参数会拒绝 handoff；`cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff` 已通过，输出 `success=true`，最新本地证据为 spec `#8`、signal event `#6`、gateway response summary `status=mock_accepted`。
+- `cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py` 不带确认参数会拒绝 handoff；`cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff` 已通过，输出 `success=true`，最新本地证据为 spec `#10`、signal event `#8`、gateway response summary `status=mock_accepted`。
 - `cd backend && uv run pytest tests/test_ai_trading_production_handoff_check.py -q` 已通过，5 条生产 handoff readiness 回归全绿；覆盖 localhost/mock gateway 拒绝、placeholder/缺 token/缺审批拒绝、private IP 拒绝、合格 HTTPS 配置通过且不输出 token、env-file parser。
 - `cd backend && uv run python scripts/ai_trading_production_handoff_check.py --strict` 在当前默认配置下正确失败，blockers 为 gateway disabled、URL missing、token missing、approval missing；使用假生产 HTTPS URL/token/`AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true` 时返回 `production_handoff_ready=true` 且不输出 token 原文。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在运行时生产 handoff gate 后通过，29 条 AI Trading route 回归全绿；新增覆盖外部 HTTPS gateway 缺生产审批时 runtime/detail/handoff/attempt 均阻塞，local mock gateway 缺生产审批仍 eligible。
@@ -259,6 +259,7 @@
 - `cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py` 已在运行时生产 handoff gate 后返回 `success=true`，证明本地 mock gateway 不被生产审批阻断。
 - 生产 handoff checker 后再次验证本地栈和前端：`cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`；`cd frontend && npm run build` 通过，剩余为既有 browserslist/baseline/chunk-size 警告。
 - 提交 `e3d561e` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；约 10 秒冷启动后 `cd backend && uv run python scripts/ai_trading_v1_env_check.py` 返回 `ready=true`。
+- 提交 `121272f` 后已重跑 `scripts/local-dev/install_launch_agent.sh` 同步 runtime mirror；runtime gateway 返回 `production_handoff_approved=false`、`runtime_config_blockers=[]`、local mock `default_handoff_status=available`，随后 live-stack mock handoff 通过并生成 spec `#10`、signal event `#8`。
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI signal identity blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
