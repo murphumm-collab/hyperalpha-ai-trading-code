@@ -37,6 +37,7 @@
 - `cd frontend && npm run build`：passed，剩余为既有 browser baseline / Browserslist / chunk-size warnings。
 - `scripts/local-dev/install_launch_agent.sh`：passed。
 - 首次 strict env check 命中 backend 冷启动；确认 8802 已监听后重试 `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict`：`ready=true`，runtime totals 为 strategy specs `35`、signal events `33`、agent sessions `20`、handoff attempts `31`。
+- `scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`：passed，覆盖 backend compile、59 条 AI Trading 回归、API-level smoke、live model-adjust 默认拒绝、默认生产 handoff/readiness gate 阻断、frontend build、runtime readiness、live local mock handoff；最新证据为 strategy spec `#36`、signal event `#34`、runtime `target_kind=local_mock`、agent sessions `21`、handoff attempts `32`。
 - In-app Browser：
   - `/app/ai-trading` 跳过本地 onboarding 后显示 `Agent session`、`Context 0 / 2000`，Recent agent sessions 显示 `ctx 0 / 2000`。
   - `/app/ai-trading/sessions/ait%3Abtc%3A4d53a40f6789` 跳过本地 onboarding 后显示 `Agent session detail`、`Context limits`、`Summary chars 0 / 2000`、`redacted, no credentials`、Session specs/signals/handoff attempts。
