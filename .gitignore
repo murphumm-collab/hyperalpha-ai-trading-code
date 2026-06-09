@@ -307,6 +307,8 @@ backend/data.db
 us_crypto_news.json
 data.db
 backend/tests/
+!backend/tests/
+!backend/tests/test_ai_trading_routes.py
 .vscode/
 backend/.DS_Store
 

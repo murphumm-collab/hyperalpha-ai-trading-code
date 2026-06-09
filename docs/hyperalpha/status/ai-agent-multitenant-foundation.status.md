@@ -145,6 +145,7 @@ Local checkpoint: current branch `HEAD`
 - Current-user role is exposed to the frontend so non-admin users do not see Settings admin controls while backend RBAC remains authoritative.
 - Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus signed Telegram webhook ingress.
 - Development progress and acceptance markers.
+- AI Trading strategy/spec/signal/gateway flow now has a pytest regression covering draft, save, approval, signal-event audit, disabled gateway, enabled handoff, and runtime counts.
 - REST manual order placement resolves the order owner from authenticated request context or a verified body session token; WebSocket order placement validates the connection user's account ownership.
 - Manual AI trade trigger API passes the current user into trading command services; single-account execution filters by request owner while background global scheduling remains unchanged.
 - Secondary account metadata lookups in Program execution feed and Binance wallet listing validate current-user ownership.
@@ -250,6 +251,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading signal gateway env templates | Done | Root and backend `.env.example` document gateway enablement, URL, timeout, and bearer token without exposing secrets to the AI model |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
 | AI Trading runtime panel | Done | Hyper AI AI Trading panel displays gateway/spec/signal totals and refreshes them after draft save, approval, and signal event creation |
+| AI Trading API regression test | Done | `backend/tests/test_ai_trading_routes.py` covers strategy draft/save/approve, signal event creation, disabled/enabled handoff, and runtime counts with SQLite |
 | Frontend attribution analytics auth | Done | Attribution summary/dimension/trade list/account list plus Trade Replay kline/replay/chat-stream requests use `authFetch` |
 | Frontend trading account auth | Done | Binance wallet setup/status/balance/quota/delete, account strategy, asset curve, Arena model-chat, account deletion, and Hyperliquid action logs use `authFetch` |
 | AI Trader API key response masking | Done | Account list/create/update responses return masked API keys plus `api_key_configured`; masked echoes are ignored on update and frontend edit forms preserve existing keys unless a new key is entered |
@@ -526,6 +528,7 @@ Local checkpoint: current branch `HEAD`
 - Partial: Playwright re-opened `http://127.0.0.1:5174/app/ai-trading` and confirmed the shell still renders; runtime panel data requires local backend/Postgres availability.
 - Passed: Hyper AI memory trading-category compile in both system Python and `uv run` backend environment for memory service and tool schema.
 - Passed: Hyper AI memory trading-category smoke test in `uv run` with SQLite: `strategy_memory`, `risk_memory`, `performance_memory`, and `execution_memory` are accepted categories and user-scoped reads return the expected entries.
+- Passed: AI Trading route regression test: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` passed cleanly, covering draft/save/approve, signal event audit, disabled gateway 409, monkeypatched enabled handoff, and runtime counts.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.

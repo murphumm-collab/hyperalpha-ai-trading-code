@@ -85,6 +85,7 @@
 - AI Trading runtime route smoke：空状态不泄露 URL/token；创建 approved spec 和 review signal event 后计数正确。
 - Frontend production build 已通过，Hyper AI AI Trading runtime status 面板编译成功。
 - Hyper AI memory category smoke：SQLite 下四个 AI Trading 专用 memory category 可保存和按用户读取。
+- `backend/tests/test_ai_trading_routes.py` 已作为 pytest 回归，覆盖 strategy draft/save/approve、signal event、disabled gateway 409、mock enabled handoff 和 runtime counts。
 
 ## 6. 未验收 / 阻塞
 

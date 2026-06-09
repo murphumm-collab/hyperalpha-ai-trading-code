@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -597,7 +597,7 @@ def approve_strategy_spec_record(
     record.status = "approved"
     record.spec_json = _json_dumps(spec)
     record.validation_json = _json_dumps({**validation, "status": "approved"})
-    record.approved_at = datetime.utcnow()
+    record.approved_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(record)
     return record
@@ -839,7 +839,7 @@ def submit_signal_event_to_gateway(
     event.handoff_status = "submitted"
     event.signal_json = _json_dumps(signal)
     event.error_message = None
-    event.submitted_at = datetime.utcnow()
+    event.submitted_at = datetime.now(timezone.utc)
     db.commit()
     db.refresh(event)
     return event
