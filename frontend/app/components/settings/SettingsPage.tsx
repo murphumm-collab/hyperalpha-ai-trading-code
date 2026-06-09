@@ -682,6 +682,7 @@ export default function SettingsPage() {
       hard_risk: t('settings.aiTradingReadinessHardRisk', 'Hard Risk'),
       model_policy: t('settings.aiTradingReadinessModelPolicy', 'Model Policy'),
       handoff_audit: t('settings.aiTradingReadinessHandoffAudit', 'Handoff Audit'),
+      agent_session_context: t('settings.aiTradingReadinessAgentContext', 'Agent Context'),
     }
     return labels[component] || component.replace(/_/g, ' ')
   }
@@ -696,6 +697,22 @@ export default function SettingsPage() {
         'settings.aiTradingReadinessHandoffBlockedPresent',
         'Blocked handoff attempts present'
       ),
+      'agent_session_context:agent_session_context_over_budget_present': t(
+        'settings.aiTradingReadinessAgentContextOverBudget',
+        'Agent context summary over budget'
+      ),
+      'agent_session_context:agent_session_context_near_budget_present': t(
+        'settings.aiTradingReadinessAgentContextNearBudget',
+        'Agent context summary near budget'
+      ),
+      'agent_session_context:agent_session_context_redacted_present': t(
+        'settings.aiTradingReadinessAgentContextRedacted',
+        'Redacted agent context present'
+      ),
+      'agent_session_context:agent_session_context_sensitive_present': t(
+        'settings.aiTradingReadinessAgentContextSensitive',
+        'Sensitive-looking agent context present'
+      ),
       handoff_attempt_failed_present: t(
         'settings.aiTradingReadinessHandoffFailedPresent',
         'Failed handoff attempts present'
@@ -703,6 +720,22 @@ export default function SettingsPage() {
       handoff_attempt_blocked_present: t(
         'settings.aiTradingReadinessHandoffBlockedPresent',
         'Blocked handoff attempts present'
+      ),
+      agent_session_context_over_budget_present: t(
+        'settings.aiTradingReadinessAgentContextOverBudget',
+        'Agent context summary over budget'
+      ),
+      agent_session_context_near_budget_present: t(
+        'settings.aiTradingReadinessAgentContextNearBudget',
+        'Agent context summary near budget'
+      ),
+      agent_session_context_redacted_present: t(
+        'settings.aiTradingReadinessAgentContextRedacted',
+        'Redacted agent context present'
+      ),
+      agent_session_context_sensitive_present: t(
+        'settings.aiTradingReadinessAgentContextSensitive',
+        'Sensitive-looking agent context present'
       ),
     }
     return labels[code] || code.replace(/_/g, ' ')

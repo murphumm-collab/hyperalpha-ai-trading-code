@@ -312,11 +312,96 @@ def build_handoff_attempt_audit_report(db: Any) -> Dict[str, Any]:
     }
 
 
+def build_agent_session_context_audit_report(db: Any) -> Dict[str, Any]:
+    """Return non-secret admin audit counts for AI Trading session context budgets."""
+    from database.models import AiTradingAgentSessionRecord
+    from services.ai_trading_strategy_spec_service import (
+        AGENT_CONTEXT_SUMMARY_MAX_CHARS,
+        SENSITIVE_AI_TRADING_KEY_PATTERN,
+    )
+
+    records = db.query(AiTradingAgentSessionRecord).all()
+    total = len(records)
+    active = 0
+    archived = 0
+    with_summary = 0
+    redacted = 0
+    sensitive = 0
+    near_budget = 0
+    over_budget = 0
+    max_chars = 0
+    latest_over_budget = None
+    near_budget_threshold = int(AGENT_CONTEXT_SUMMARY_MAX_CHARS * 0.9)
+
+    for record in records:
+        status = str(record.status or "unknown")
+        if status == "active":
+            active += 1
+        elif status == "archived":
+            archived += 1
+
+        summary = str(record.context_summary or "")
+        summary_chars = len(summary)
+        max_chars = max(max_chars, summary_chars)
+        if summary:
+            with_summary += 1
+        if summary == "[redacted_sensitive_context]":
+            redacted += 1
+        elif summary and SENSITIVE_AI_TRADING_KEY_PATTERN.search(summary):
+            sensitive += 1
+        if summary_chars >= near_budget_threshold and summary_chars <= AGENT_CONTEXT_SUMMARY_MAX_CHARS:
+            near_budget += 1
+        if summary_chars > AGENT_CONTEXT_SUMMARY_MAX_CHARS:
+            over_budget += 1
+            candidate = {
+                "id": record.id,
+                "agent_session_id": record.agent_session_id,
+                "status": status,
+                "context_summary_chars": summary_chars,
+            }
+            if latest_over_budget is None or record.id > latest_over_budget["id"]:
+                latest_over_budget = candidate
+
+    blockers: list[str] = []
+    warnings: list[str] = []
+    if over_budget:
+        blockers.append("agent_session_context_over_budget_present")
+    if near_budget:
+        warnings.append("agent_session_context_near_budget_present")
+    if redacted:
+        warnings.append("agent_session_context_redacted_present")
+    if sensitive:
+        warnings.append("agent_session_context_sensitive_present")
+
+    return {
+        "ready": not blockers,
+        "blockers": blockers,
+        "warnings": warnings,
+        "checks": {
+            "total": total,
+            "active": active,
+            "archived": archived,
+            "with_context_summary": with_summary,
+            "empty_context_summary": max(0, total - with_summary),
+            "context_summary_max_chars": AGENT_CONTEXT_SUMMARY_MAX_CHARS,
+            "near_budget_threshold_chars": near_budget_threshold,
+            "max_context_summary_chars": max_chars,
+            "near_budget_count": near_budget,
+            "over_budget_count": over_budget,
+            "redacted_context_summary_count": redacted,
+            "sensitive_context_summary_count": sensitive,
+            "latest_over_budget": latest_over_budget,
+            "secret_values_returned": False,
+        },
+    }
+
+
 def build_report(
     env: Mapping[str, str],
     *,
     require_handoff_approval_flag: bool = True,
     handoff_attempt_audit_report: Optional[Mapping[str, Any]] = None,
+    agent_session_context_audit_report: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     handoff_report = handoff_check.build_report(
         env,
@@ -346,6 +431,13 @@ def build_report(
             "warnings": list(handoff_attempt_audit_report.get("warnings") or []),
             "checks": dict(handoff_attempt_audit_report.get("checks") or {}),
         }
+    if agent_session_context_audit_report is not None:
+        component_reports["agent_session_context"] = {
+            "ready": bool(agent_session_context_audit_report.get("ready", True)),
+            "blockers": list(agent_session_context_audit_report.get("blockers") or []),
+            "warnings": list(agent_session_context_audit_report.get("warnings") or []),
+            "checks": dict(agent_session_context_audit_report.get("checks") or {}),
+        }
 
     blockers: list[str] = []
     warnings: list[str] = []
@@ -371,6 +463,24 @@ def build_report(
         next_actions.append(
             "Review blocked AI Trading signal handoff attempts for eligibility blockers such as stale signals, "
             "missing backtest evidence, archived sessions, or disabled gateway config before enabling retry."
+        )
+    if "agent_session_context:agent_session_context_over_budget_present" in blockers:
+        next_actions.append(
+            "Compress or truncate over-budget AI Trading agent session summaries before production model-adjust "
+            "acceptance so per-session context stays inside the configured prompt budget."
+        )
+    if "agent_session_context:agent_session_context_near_budget_present" in warnings:
+        next_actions.append(
+            "Review near-budget AI Trading agent session summaries and compress them before adding more "
+            "strategy, signal, or handoff history to the same session."
+        )
+    if (
+        "agent_session_context:agent_session_context_redacted_present" in warnings
+        or "agent_session_context:agent_session_context_sensitive_present" in warnings
+    ):
+        next_actions.append(
+            "Review AI Trading agent session summaries with redacted or sensitive-looking context and replace "
+            "them with non-secret strategy/risk notes before live model-adjust acceptance."
         )
 
     return {

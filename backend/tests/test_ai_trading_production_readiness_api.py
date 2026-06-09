@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from api.ai_trading_routes import router
 from database.connection import Base, get_db
 from database.models import (
+    AiTradingAgentSessionRecord,
     AiTradingSignalEventRecord,
     AiTradingSignalHandoffAttemptRecord,
     AiTradingStrategySpecRecord,
@@ -249,6 +250,93 @@ def test_admin_readiness_reports_handoff_attempt_audit_warnings_without_attempt_
     assert "secret-attempt-body" not in serialized
     assert "secret-attempt-key" not in serialized
     assert "secret-attempt-token" not in serialized
+
+
+def test_admin_readiness_reports_agent_session_context_budget_without_summary_leakage(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
+    session = client._ai_trading_session_factory()
+    try:
+        session.add_all([
+            AiTradingAgentSessionRecord(
+                user_id=admin_id,
+                agent_session_id="session:normal-context",
+                name="Normal Context Session",
+                context_summary="BTC breakout context with risk caps.",
+                status="active",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=admin_id,
+                agent_session_id="session:redacted-context",
+                name="Redacted Context Session",
+                context_summary="[redacted_sensitive_context]",
+                status="active",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=admin_id,
+                agent_session_id="session:sensitive-context",
+                name="Sensitive Context Session",
+                context_summary="api_key=secret-session-key should not be returned",
+                status="active",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=admin_id,
+                agent_session_id="session:near-budget",
+                name="Near Budget Session",
+                context_summary="n" * 1800,
+                status="archived",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=admin_id,
+                agent_session_id="session:over-budget",
+                name="Over Budget Session",
+                context_summary="o" * 2001,
+                status="active",
+            ),
+        ])
+        session.commit()
+    finally:
+        session.close()
+
+    response = client.get(f"/api/ai-trading/admin/production-readiness?session_token={admin_token}")
+
+    assert response.status_code == 200
+    readiness = response.json()["readiness"]
+    assert readiness["production_ready"] is False
+    assert "agent_session_context:agent_session_context_over_budget_present" in readiness["blockers"]
+    assert "agent_session_context:agent_session_context_near_budget_present" in readiness["warnings"]
+    assert "agent_session_context:agent_session_context_redacted_present" in readiness["warnings"]
+    assert "agent_session_context:agent_session_context_sensitive_present" in readiness["warnings"]
+    agent_context = readiness["checks"]["agent_session_context"]
+    assert agent_context["ready"] is False
+    assert agent_context["checks"]["total"] == 5
+    assert agent_context["checks"]["active"] == 4
+    assert agent_context["checks"]["archived"] == 1
+    assert agent_context["checks"]["with_context_summary"] == 5
+    assert agent_context["checks"]["empty_context_summary"] == 0
+    assert agent_context["checks"]["context_summary_max_chars"] == 2000
+    assert agent_context["checks"]["near_budget_threshold_chars"] == 1800
+    assert agent_context["checks"]["max_context_summary_chars"] == 2001
+    assert agent_context["checks"]["near_budget_count"] == 1
+    assert agent_context["checks"]["over_budget_count"] == 1
+    assert agent_context["checks"]["redacted_context_summary_count"] == 1
+    assert agent_context["checks"]["sensitive_context_summary_count"] == 1
+    assert agent_context["checks"]["latest_over_budget"] == {
+        "id": agent_context["checks"]["latest_over_budget"]["id"],
+        "agent_session_id": "session:over-budget",
+        "status": "active",
+        "context_summary_chars": 2001,
+    }
+    assert agent_context["checks"]["secret_values_returned"] is False
+    next_actions = readiness["next_actions"]
+    assert any("over-budget AI Trading agent session summaries" in action for action in next_actions)
+    assert any("near-budget AI Trading agent session summaries" in action for action in next_actions)
+    assert any("redacted or sensitive-looking context" in action for action in next_actions)
+    serialized = str(response.json())
+    assert "secret-session-key" not in serialized
+    assert "BTC breakout context with risk caps" not in serialized
+    assert "nnnnnnnn" not in serialized
+    assert "oooooooo" not in serialized
 
 
 def test_ai_trading_production_readiness_api_requires_admin_session(tmp_path, monkeypatch):

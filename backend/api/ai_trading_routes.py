@@ -12,6 +12,7 @@ from database.connection import get_db
 from database.models import User
 from services.ai_trading_market_universe_service import get_ai_trading_market_universe
 from services.ai_trading_production_readiness_service import (
+    build_agent_session_context_audit_report,
     build_handoff_attempt_audit_report,
     build_report as build_production_readiness_report,
 )
@@ -239,6 +240,7 @@ def ai_trading_production_readiness_endpoint(
         "readiness": build_production_readiness_report(
             dict(os.environ),
             handoff_attempt_audit_report=build_handoff_attempt_audit_report(db),
+            agent_session_context_audit_report=build_agent_session_context_audit_report(db),
         ),
     }
 
