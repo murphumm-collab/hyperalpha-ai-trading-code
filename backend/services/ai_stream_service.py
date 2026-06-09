@@ -89,6 +89,9 @@ AI_STREAM_DISPATCH_MAX_ATTEMPTS = int(os.getenv("AI_STREAM_DISPATCH_MAX_ATTEMPTS
 AI_STREAM_DISPATCH_POLL_INTERVAL_SECONDS = float(
     os.getenv("AI_STREAM_DISPATCH_POLL_INTERVAL_SECONDS", "1.0")
 )
+AI_STREAM_DISPATCH_CLAIM_STALE_SECONDS = int(
+    os.getenv("AI_STREAM_DISPATCH_CLAIM_STALE_SECONDS", "120")
+)
 
 _ai_task_executor = ThreadPoolExecutor(
     max_workers=AI_TASK_MAX_WORKERS,
@@ -1326,6 +1329,9 @@ class StreamBufferManager:
 
         db = SessionLocal()
         try:
+            if self._recover_stale_claimed_dispatch_jobs(db):
+                db.commit()
+
             query = db.query(AiStreamDispatchJobRecord).filter(
                 AiStreamDispatchJobRecord.status == "pending",
                 AiStreamDispatchJobRecord.attempts < AiStreamDispatchJobRecord.max_attempts,
@@ -1343,6 +1349,8 @@ class StreamBufferManager:
             record.runner_id = AI_STREAM_RUNNER_ID
             record.attempts = int(record.attempts or 0) + 1
             record.claimed_at_epoch = time.time()
+            record.completed_at_epoch = None
+            record.error_message = None
             db.commit()
             return AiStreamDispatchJob(
                 task_id=record.task_id,
@@ -1358,6 +1366,58 @@ class StreamBufferManager:
             return None
         finally:
             db.close()
+
+    def _recover_stale_claimed_dispatch_jobs(self, db: Any) -> int:
+        """Requeue or fail jobs that were claimed but never reached running."""
+        if AI_STREAM_DISPATCH_CLAIM_STALE_SECONDS <= 0:
+            return 0
+
+        now = time.time()
+        cutoff = now - AI_STREAM_DISPATCH_CLAIM_STALE_SECONDS
+        stale_records = db.query(AiStreamDispatchJobRecord).filter(
+            AiStreamDispatchJobRecord.status == "claimed",
+            AiStreamDispatchJobRecord.claimed_at_epoch.isnot(None),
+            AiStreamDispatchJobRecord.claimed_at_epoch < cutoff,
+        ).with_for_update(skip_locked=True).all()
+
+        changed = 0
+        for record in stale_records:
+            attempts = int(record.attempts or 0)
+            max_attempts = int(record.max_attempts or AI_STREAM_DISPATCH_MAX_ATTEMPTS)
+            previous_runner = record.runner_id or "unknown"
+            if attempts < max_attempts:
+                record.status = "pending"
+                record.runner_id = None
+                record.claimed_at_epoch = None
+                record.completed_at_epoch = None
+                record.error_message = f"Requeued after stale claim by {previous_runner}"
+            else:
+                error_message = "Dispatch claim expired before worker started"
+                record.status = "failed"
+                record.runner_id = AI_STREAM_RUNNER_ID
+                record.error_message = error_message
+                record.completed_at_epoch = now
+
+                task_record = db.query(AiStreamTaskRecord).filter(
+                    AiStreamTaskRecord.task_id == record.task_id,
+                    AiStreamTaskRecord.status == "running",
+                ).first()
+                if task_record:
+                    task_record.status = "error"
+                    task_record.error_message = error_message
+                    task_record.runner_id = AI_STREAM_RUNNER_ID
+                    task_record.last_heartbeat_epoch = now
+                    task_record.completed_at_epoch = now
+                with self._tasks_lock:
+                    task = self._tasks.get(record.task_id)
+                    if task and task.status == "running":
+                        task.status = "error"
+                        task.error_message = error_message
+                        task.completed_at = now
+                        self._release_task_admission(task)
+            changed += 1
+
+        return changed
 
     def mark_dispatch_job_running(self, task_id: str) -> None:
         self._update_dispatch_job_status(task_id, "running")
@@ -1390,6 +1450,8 @@ class StreamBufferManager:
             record.error_message = error_message
             if completed:
                 record.completed_at_epoch = time.time()
+            elif status in {"claimed", "running"}:
+                record.completed_at_epoch = None
             db.commit()
         except Exception as exc:
             db.rollback()
@@ -1401,6 +1463,7 @@ class StreamBufferManager:
         """Return dispatch queue counts for admin runtime visibility."""
         stats: Dict[str, Any] = {
             "enabled": AI_STREAM_DISTRIBUTED_WORKER_ENABLED,
+            "claim_stale_seconds": AI_STREAM_DISPATCH_CLAIM_STALE_SECONDS,
             "pending": 0,
             "claimed": 0,
             "running": 0,
