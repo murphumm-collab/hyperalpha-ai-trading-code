@@ -122,6 +122,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading signal handoff endpoint requires an explicit `confirmed_by_user=true` request before any eligible signal can be submitted to the order backend.
 - AI Trading signal handoff eligibility now requires the persisted signal execution boundary to keep `requires_user_confirmation=true` before any order-backend handoff.
 - AI Trading signal handoff eligibility now requires the persisted signal execution boundary to keep `signal_only=true` before any order-backend handoff.
+- AI Trading signal handoff eligibility now requires persisted signals to keep the expected signal version, review-candidate type, and Hyperliquid venue before any order-backend handoff.
 - AI Trading signal handoff eligibility blocks stale signal events by default after `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS` so old market signals cannot be submitted silently.
 - AI Trading signal gateway environment variables are documented in root and backend `.env.example` templates.
 - AI Trading runtime status exposes non-sensitive gateway readiness plus current-user strategy spec and signal event counts.
@@ -324,6 +325,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading handoff confirmation API gate | Done | `/api/ai-trading/signal-events/{id}/handoff` requires `confirmed_by_user=true` before gateway eligibility, gateway POST, or handoff-attempt audit writes |
 | AI Trading user-confirmation handoff boundary | Done | Handoff eligibility blocks persisted signals whose execution boundary no longer has `requires_user_confirmation=true`, and the frontend labels the blocker |
 | AI Trading signal-only handoff boundary | Done | Handoff eligibility blocks persisted signals whose execution boundary no longer has `signal_only=true`, and the frontend labels the blocker |
+| AI Trading signal identity handoff boundary | Done | Handoff eligibility blocks persisted signals whose version, candidate type, or venue no longer matches the AI Trading Hyperliquid review-signal contract |
 | AI Trading stale signal handoff gate | Done | Handoff eligibility blocks signal events older than `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS` and includes non-secret signal age/max-age metadata in preflight responses |
 | AI Trading signal gateway env templates | Done | Root and backend `.env.example` document gateway enablement, URL, timeout, and bearer token without exposing secrets to the AI model |
 | AI Trading runtime visibility | Done | `/api/ai-trading/runtime` exposes gateway enablement/readiness and current-user strategy spec/signal event counts without URL/token leakage |
@@ -734,6 +736,9 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading route regression after enforcing `requires_user_confirmation` before handoff: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 22 passing tests, including detail/runtime/handoff/attempt blockers when a persisted signal boundary is mutated to `requires_user_confirmation=false`.
 - Passed: AI Trading service/route/test syntax compile after user-confirmation handoff boundary: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: Frontend production build after adding a readable `requires_user_confirmation` blocker label in the Hyper AI recent signal panel: `cd frontend && npm run build`; existing browserslist/baseline and chunk-size warnings remain.
+- Passed: AI Trading route regression after enforcing persisted signal identity before handoff: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 23 passing tests, including detail/runtime/handoff/attempt blockers when version, candidate type, and venue are mutated.
+- Passed: AI Trading service/route/test syntax compile after signal identity handoff boundary: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
+- Passed: Frontend production build after adding readable signal identity blocker labels in the Hyper AI recent signal panel: `cd frontend && npm run build`; existing browserslist/baseline and chunk-size warnings remain.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the Program Backtest bridge UI; Playwright package was unavailable in current node module resolution, so click-through browser automation remains pending.
 - Partial: HTTP shell check for `http://127.0.0.1:5174/app/ai-trading` returned the Vite app HTML after the backtest summary UI change; full click-through attach-summary acceptance still needs browser automation plus local backend/Postgres data.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.

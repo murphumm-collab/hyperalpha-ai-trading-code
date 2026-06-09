@@ -634,6 +634,67 @@ def test_ai_trading_signal_handoff_requires_user_confirmation_boundary(tmp_path,
     assert "signal_missing_user_confirmation_boundary" in attempts.json()["attempts"][0]["blockers"]
 
 
+def test_ai_trading_signal_handoff_requires_expected_signal_identity(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        signal = json.loads(row.signal_json)
+        signal["version"] = "legacy.signal.v0"
+        signal["candidate_type"] = "order_instruction"
+        signal["venue"] = "binance"
+        row.signal_json = json.dumps(signal)
+        session.commit()
+    finally:
+        session.close()
+
+    calls = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        raise AssertionError("gateway should not be called for wrong signal identity")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    eligibility = detail.json()["signal_event"]["handoff_eligibility"]
+    assert eligibility["eligible"] is False
+    assert "signal_version_mismatch" in eligibility["blockers"]
+    assert "signal_candidate_type_invalid" in eligibility["blockers"]
+    assert "signal_venue_must_be_hyperliquid" in eligibility["blockers"]
+
+    runtime = client.get("/api/ai-trading/runtime").json()
+    handoff_summary = runtime["signal_events"]["handoff_eligibility"]
+    assert handoff_summary["eligible"] == 0
+    assert handoff_summary["by_blocker"]["signal_version_mismatch"] == 1
+    assert handoff_summary["by_blocker"]["signal_candidate_type_invalid"] == 1
+    assert handoff_summary["by_blocker"]["signal_venue_must_be_hyperliquid"] == 1
+
+    blocked_handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert blocked_handoff.status_code == 400
+    assert "signal_version_mismatch" in blocked_handoff.json()["detail"]
+    assert "signal_candidate_type_invalid" in blocked_handoff.json()["detail"]
+    assert "signal_venue_must_be_hyperliquid" in blocked_handoff.json()["detail"]
+    assert calls == []
+
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    blockers = attempts.json()["attempts"][0]["blockers"]
+    assert "signal_version_mismatch" in blockers
+    assert "signal_candidate_type_invalid" in blockers
+    assert "signal_venue_must_be_hyperliquid" in blockers
+
+
 def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)

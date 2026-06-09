@@ -1949,6 +1949,13 @@ def build_signal_event_handoff_eligibility(event: AiTradingSignalEventRecord) ->
         blockers.append("signal_payload_missing")
         signal = {}
 
+    if signal.get("version") != SIGNAL_VERSION:
+        blockers.append("signal_version_mismatch")
+    if signal.get("candidate_type") != "review_signal_candidate":
+        blockers.append("signal_candidate_type_invalid")
+    if signal.get("venue") != "hyperliquid":
+        blockers.append("signal_venue_must_be_hyperliquid")
+
     validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
     blockers.extend(_backtest_handoff_blockers(signal.get("backtest")))
     if validation.get("eligible_for_backend_handoff") is not True:
