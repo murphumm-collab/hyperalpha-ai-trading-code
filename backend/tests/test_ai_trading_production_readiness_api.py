@@ -241,6 +241,9 @@ def test_admin_readiness_reports_handoff_attempt_audit_warnings_without_attempt_
         "gateway_ready": False,
     }
     assert handoff_audit["checks"]["secret_values_returned"] is False
+    next_actions = readiness["next_actions"]
+    assert any("failed AI Trading signal handoff attempts" in action for action in next_actions)
+    assert any("blocked AI Trading signal handoff attempts" in action for action in next_actions)
     serialized = str(response.json())
     assert "secret-attempt-authorization" not in serialized
     assert "secret-attempt-body" not in serialized

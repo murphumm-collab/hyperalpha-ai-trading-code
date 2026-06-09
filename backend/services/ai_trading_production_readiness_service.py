@@ -355,16 +355,28 @@ def build_report(
         for warning in report.get("warnings") or []:
             warnings.append(f"{component}:{warning}")
 
+    next_actions = [
+        "Configure verified Bearer JWT auth with HTTPS JWKS, issuer, audience, and RS algorithms.",
+        "Configure the real HTTPS order-backend signal gateway and run the production handoff checker.",
+        "Set platform hard-risk caps for max notional, leverage, margin usage, stop loss, and take profit.",
+        "For multiple backend instances, enable Redis-backed AI stream admission and keep fail-open disabled.",
+        "Keep AI Trading model keys user-provided through Hyper AI profiles; do not put user keys in model context.",
+    ]
+    if "handoff_audit:handoff_attempt_failed_present" in warnings:
+        next_actions.append(
+            "Review failed AI Trading signal handoff attempts in admin audit history, fix gateway or "
+            "order-backend failures, then require a fresh user confirmation before retry."
+        )
+    if "handoff_audit:handoff_attempt_blocked_present" in warnings:
+        next_actions.append(
+            "Review blocked AI Trading signal handoff attempts for eligibility blockers such as stale signals, "
+            "missing backtest evidence, archived sessions, or disabled gateway config before enabling retry."
+        )
+
     return {
         "production_ready": not blockers,
         "blockers": blockers,
         "warnings": warnings,
         "checks": component_reports,
-        "next_actions": [
-            "Configure verified Bearer JWT auth with HTTPS JWKS, issuer, audience, and RS algorithms.",
-            "Configure the real HTTPS order-backend signal gateway and run the production handoff checker.",
-            "Set platform hard-risk caps for max notional, leverage, margin usage, stop loss, and take profit.",
-            "For multiple backend instances, enable Redis-backed AI stream admission and keep fail-open disabled.",
-            "Keep AI Trading model keys user-provided through Hyper AI profiles; do not put user keys in model context.",
-        ],
+        "next_actions": next_actions,
     }

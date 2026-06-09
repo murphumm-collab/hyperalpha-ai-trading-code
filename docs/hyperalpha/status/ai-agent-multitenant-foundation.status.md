@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Admin Readiness Handoff Audit UI Gate Complete / Remote Push Skipped
+Status: Local V1 Admin Handoff Audit Next Actions Gate Complete / Remote Push Skipped
 
 Local checkpoint: current branch `HEAD`
 
@@ -146,6 +146,7 @@ Local checkpoint: current branch `HEAD`
 - AI Trading production handoff and aggregate production readiness logic now lives in backend service modules so CLI scripts and API routes share one no-network/no-submit readiness standard.
 - Admin-only AI Trading production readiness API is available at `/api/ai-trading/admin/production-readiness`; anonymous and ordinary users are rejected, and responses never include gateway tokens or model key values.
 - Admin-only AI Trading production readiness API now includes non-secret DB handoff audit warnings for failed/blocked handoff attempts, without exposing user IDs, gateway URLs, tokens, authorization headers, raw error bodies, or downstream response bodies.
+- Admin-only AI Trading production readiness next actions now include safe operational follow-ups for failed/blocked handoff attempt warnings, without echoing attempt secrets or downstream response bodies.
 - Settings Admin UI has an AI Trading Production Readiness panel that summarizes component readiness, blockers, warnings, and next actions using the admin-only readiness API, including readable Handoff Audit warning labels for failed/blocked handoff attempts.
 - AI Trading strategy specs, signal events, and handoff attempts now carry current-user `agent_session_id` metadata so one To C user can run multiple strategy-agent sessions without mixing audit records.
 - AI Trading exposes `/api/ai-trading/agent-sessions` and `/api/ai-trading/agent-sessions/{agent_session_id}/context` as current-user, non-secret session list/context packet endpoints for frontend and model-context reuse.
@@ -391,6 +392,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading production readiness service | Done | `services/ai_trading_production_handoff_service.py` and `services/ai_trading_production_readiness_service.py` are shared by CLI checks and admin APIs so production readiness has one standard |
 | AI Trading production readiness admin API | Done | `/api/ai-trading/admin/production-readiness` returns no-network/no-submit component readiness, blocks anonymous/ordinary users, and does not return gateway token or model key values |
 | AI Trading production readiness handoff audit | Done | Admin readiness adds `handoff_audit` warnings/counts for failed or blocked handoff attempts without exposing user IDs or secret attempt data |
+| AI Trading production readiness handoff audit next actions | Done | Admin readiness adds warning-specific next actions for failed/blocked handoff attempts so operators know to review audit history, fix gateway/order-backend failures, inspect eligibility blockers, and require fresh confirmation before retry |
 | AI Trading production readiness admin UI | Done | Settings Admin tab fetches the readiness API and renders component blockers/warnings/next actions, including readable Handoff Audit and Top Warnings labels; local auth-disabled browser hides admin controls as expected |
 | AI Trading agent-session metadata | Done | Strategy specs, signal events, and handoff attempts persist current-user `agent_session_id`/name metadata so one user can keep multiple AI Trading sessions separated |
 | AI Trading agent-session context API | Done | `/api/ai-trading/agent-sessions` and `/api/ai-trading/agent-sessions/{agent_session_id}/context` return current-user non-secret session summaries/context packets and cross-user context reads return 404 |
@@ -944,6 +946,8 @@ Local checkpoint: current branch `HEAD`
 - Passed: focused production readiness regression after Admin readiness warning UI labels: `cd backend && uv run pytest tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py -q` returned 8 passing tests with 4 existing UTC deprecation warnings.
 - Passed: LaunchAgent runtime mirror was resynced after Admin readiness warning UI labels with `scripts/local-dev/install_launch_agent.sh`; first strict env check hit backend cold start, and retry returned `ready=true` with runtime totals strategy specs `35`, signal events `33`, agent sessions `20`, and handoff attempts `31`.
 - Passed: In-app Browser opened `http://127.0.0.1:5174/#settings`, skipped local onboarding without entering API keys, and confirmed Settings renders without visible errors; local auth-disabled state still hides Admin readiness controls as expected.
+- Passed: Admin readiness handoff audit next-action checks: `cd backend && uv run python -m py_compile services/ai_trading_production_readiness_service.py tests/test_ai_trading_production_readiness_api.py` passed; `cd backend && uv run pytest tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py -q` returned 8 passing tests, including warning-specific next actions and no attempt secret leakage.
+- Passed: aggregate AI Trading regression after Admin readiness handoff audit next actions: `cd backend && uv run pytest tests/test_ai_trading_env_check.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 59 passing tests with 4 existing UTC deprecation warnings.
 - Warning only: Vite reported stale browser baseline data and large bundle chunks.
 - Warning only: Analytics smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
 - Warning only: WebSocket smoke used a fake snapshot session because local `SNAPSHOT_DATABASE_URL` default Postgres was not reachable during test.
