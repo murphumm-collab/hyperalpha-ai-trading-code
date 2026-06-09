@@ -199,6 +199,7 @@ Local checkpoint: current branch `HEAD`
 - Current-user role is exposed to the frontend so non-admin users do not see Settings admin controls while backend RBAC remains authoritative.
 - Backend route audit completed for account/analytics/AI/config/system/signal/factor management endpoints; remaining unauthenticated handlers are public market-data/static-doc/auth-lifecycle endpoints plus signed Telegram webhook ingress.
 - Development progress and acceptance markers.
+- V1 acceptance checklist is saved in `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` to prevent open-ended development and define the exact local/test acceptance gate.
 - AI Trading strategy/spec/signal/gateway flow now has a pytest regression covering draft, save, approval, signal-event audit, disabled gateway, enabled handoff, and runtime counts.
 - REST manual order placement resolves the order owner from authenticated request context or a verified body session token; WebSocket order placement validates the connection user's account ownership.
 - Manual AI trade trigger API passes the current user into trading command services; single-account execution filters by request owner while background global scheduling remains unchanged.
@@ -752,6 +753,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI Trading signal gateway contract regression after stabilizing the V1 HTTP JSON payload: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 25 passing tests, including `test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only`.
 - Passed: AI Trading service/route/test syntax compile after signal gateway contract fields: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Added: `docs/hyperalpha/ai-trading-signal-gateway-contract.md` documents the disabled-by-default gateway config, required payload, handoff gates, downstream order-backend responsibilities, and test evidence.
+- Added: `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` defines V1 target, required capabilities, current verified evidence, non-accepted items, and final pass criteria.
 - Passed: AI Trading route regression after natural-language strategy adjustment API: `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` returned 26 passing tests, including unpersisted adjustment, saved-record adjustment, approval/backtest invalidation, direct-order-intent ignore warning, and cross-user adjust 404.
 - Passed: AI Trading service/route/test syntax compile after strategy adjustment API: `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py`.
 - Passed: Frontend production build after adding the Hyper AI strategy adjustment control: `cd frontend && npm run build`; existing browserslist/baseline and chunk-size warnings remain.

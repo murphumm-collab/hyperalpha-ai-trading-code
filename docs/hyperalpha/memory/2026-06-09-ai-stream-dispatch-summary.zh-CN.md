@@ -8,6 +8,7 @@
 
 - 目标是在 `app.hyperalpha.org` 上把 Vibe-Trading/Hyper AI 能力改造成 To C 可用的 AI Trading Agent。
 - 第一版重点是 Hyperliquid 可交易标的、DeepSeek/Qwen 模型、多用户隔离、回测/策略信号和安全执行前置。
+- V1 验收边界已固化到 `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md`：本地/测试环境要跑通 draft -> adjust -> save -> approve -> backtest evidence -> signal event -> reject/confirm handoff；AI 仍不能直接下单。
 - 真实下单仍由现有交易后端负责；AI 只进入策略建议、策略编辑、诊断、信号候选、风险解释和需要确认的工具调用链。
 - 用户 API key、钱包私钥、交易凭据不进入 AI 上下文。
 - 最新 AI Trading 策略草案契约是 `signal_only`：AI 可以生成/校验结构化策略 spec，但不能直接下单。
@@ -247,6 +248,7 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 DeepSeek/Qwen model-adjust bridge 后通过，27 条 AI Trading route 回归全绿；覆盖 mocked Qwen profile/model response、模型建议经安全 adjust 生效、旧审批/回测失效、响应不泄露模型 API key，以及 Bob 不能 model-adjust Alice spec。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 model-adjust bridge 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI DeepSeek/Qwen Brain 调整按钮后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
+- `docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md` 已保存 V1 完成标准、当前已验证项、未验收项和最终通过标准，避免继续无限扩功能。
 - Playwright CLI 已打开 `http://127.0.0.1:5174/app/ai-trading`，页面 title 为 `Hyper Alpha Arena`，快照落在 Hyper AI shell/onboarding 状态；控制台错误主要来自本地后端 API/WS 未运行和少量静态资源 404，因此仍不是完整 AI Trading 点击级验收。
 - 临时启动后端 `uv run uvicorn main:app --port 5611 --host 127.0.0.1` 失败：`database.snapshot_connection` import 时连接本地 PostgreSQL `localhost:5432` 被拒，抛出 `psycopg2.OperationalError`。
 - 用 `DATABASE_URL=sqlite:///./tmp_hyperalpha_dev.db SNAPSHOT_DATABASE_URL=sqlite:///./tmp_hyperalpha_snapshot.db` 探测 SQLite fallback 时，uvicorn 启动阶段产生大量 Postgres 专用 migration / model validation SQL 错误，服务没有稳定进入可验收状态；探测生成的临时 SQLite 文件已删除。
