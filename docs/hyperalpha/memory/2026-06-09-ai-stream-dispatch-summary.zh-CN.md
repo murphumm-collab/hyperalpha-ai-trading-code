@@ -37,6 +37,7 @@
 - handoff eligibility 现在会要求 persisted signal execution boundary 保持 `requires_user_confirmation=true`；如果信号 JSON 被污染成 `requires_user_confirmation=false`，即使请求体已确认、gateway enabled，也会被 `signal_missing_user_confirmation_boundary` blocker 拦截，并写 blocked attempt。
 - handoff eligibility 现在会要求 persisted signal execution boundary 保持 `signal_only=true`；如果信号 JSON 被污染成 `signal_only=false`，即使 gateway enabled 也会被 `signal_missing_signal_only_boundary` blocker 拦截，并写 blocked attempt。
 - handoff eligibility 现在会要求 persisted signal identity 保持 `version=hyperalpha.ai_trading.signal_candidate.v1`、`candidate_type=review_signal_candidate`、`venue=hyperliquid`；如果被污染成旧版本、订单指令类型或其他 venue，会被 identity blockers 拦截并写 blocked attempt。
+- handoff eligibility 现在会要求 persisted signal action 是可交易的 `buy/sell`，并且 nested signal 的 action/symbol 必须和 audit event 的 action/symbol 一致；如果被污染成 `hold` 或其他 symbol，会被 action/symbol blockers 拦截并写 blocked attempt。
 - `/api/ai-trading/signal-events/{id}/handoff` 现在默认限制 signal event 最大 handoff 年龄：`AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS=900`。超过时 `handoff_eligibility.blockers` 包含 `signal_event_stale_for_handoff`，并返回非敏感 `signal_age_seconds` / `max_handoff_age_seconds`；设为 `0` 可关闭年龄 gate。
 - gateway 只提交已审计、仍带 `not_an_order` / `ai_may_place_orders=false` 边界的 signal event；URL/token 只发给订单后端，不进入 AI model。
 - `/api/ai-trading/runtime` 已返回非敏感运行状态：gateway 是否启用/URL 是否配置，以及当前用户 strategy spec / signal event 计数。
@@ -230,6 +231,9 @@
 - `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 signal identity handoff boundary 后通过，23 条 AI Trading route 回归全绿；覆盖 version/candidate_type/venue 被篡改时 detail/runtime/handoff/attempt 都会拦截。
 - `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 signal identity handoff boundary 后通过。
 - `cd frontend && npm run build` 已在 Hyper AI signal identity blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
+- `cd backend && uv run pytest tests/test_ai_trading_routes.py -q` 已在 event/signal consistency handoff boundary 后通过，24 条 AI Trading route 回归全绿；覆盖 nested signal action 被污染成 non-tradeable 且 action/symbol 与 audit event 不一致时 detail/runtime/handoff/attempt 都会拦截。
+- `cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py tests/test_ai_trading_routes.py` 已在 event/signal consistency boundary 后通过。
+- `cd frontend && npm run build` 已在 Hyper AI action/symbol blocker labels 后通过；剩余为既有 browserslist/baseline/chunk-size 警告。
 
 ## 6. 未验收 / 阻塞
 
