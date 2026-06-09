@@ -66,6 +66,7 @@ Local checkpoint: current branch `HEAD`
 - AI stream dispatch queue recovers stale claimed jobs by requeueing when attempts remain or failing the stream task when attempts are exhausted.
 - Hyper AI and Program AI task admission is conversation-scoped, so one conversation cannot run overlapping writes while other users/conversations can still run.
 - Context compression memory extraction stores long-term memories under the current user.
+- Development compressed memory now has a `docs/hyperalpha/memory/latest.md` pointer for continuation handoff.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
 - Hyper AI exposes a Hyperliquid AI Trading focus strip using the user's watchlist, then 24h volume-ranked Hyperliquid symbols, then available-symbol fallback to prefill safe strategy prompts.
 - User-scoped exchange preference selection so one user's Hyperliquid/Binance/Aster choice does not overwrite another user's UI state.
@@ -201,6 +202,7 @@ Local checkpoint: current branch `HEAD`
 | AI runtime stale-claim visibility | Done | Settings AI Runtime displays the dispatch queue claim timeout beside queue state counts |
 | Conversation task admission | Done | Hyper AI and Program AI return `already_running` for the same user's active conversation task while allowing other users/conversations to start under capacity limits |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
+| Development memory pointer | Done | `docs/hyperalpha/memory/latest.md` points to the latest compressed development memory summary |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
 | Watchlist API/AI tool scoping | Done | `/symbols/watchlist` GET/PUT and Hyper AI `get_watchlist/update_watchlist` pass current `user_id` |
 | Hyperliquid ranked symbols API | Done | `/api/hyperliquid/symbols/ranked` reads public Hyperliquid `metaAndAssetCtxs`, ranks by 24h notional volume, caches briefly, and falls back to cached available symbols |
@@ -344,6 +346,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Conversation task admission smoke test in `uv run`: Hyper AI and Program AI returned `already_running` for the same user's running conversation task, and a different user with the same conversation id was allowed to start.
 - Passed: Frontend production build after Hyper AI and Program AI rollback temporary UI messages when a conversation already has a running task or the backend rejects admission.
 - Passed: Compression memory owner propagation compile, static call-site search, and whitespace check.
+- Passed: Development compressed memory summary updated for 2026-06-09 with AI stream dispatch, worker, stale-claim, verification, and blocked push state.
 - Passed: User symbol watchlist route/service/tool compile and static search confirming user-facing GET/PUT and Hyper AI tools pass `user_id`.
 - Passed: Trading command static review confirming account AI prompt symbols are sourced from each account owner's watchlist.
 - Passed: Frontend watchlist fetch audit found no remaining bare `/symbols/watchlist` requests; production Vite build passed.

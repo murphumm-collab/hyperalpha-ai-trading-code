@@ -1,0 +1,77 @@
+# HyperAlpha AI Trading 开发压缩记忆
+
+版本：v0.2  
+日期：2026-06-09  
+分支：`codex/ai-agent-multitenant-foundation`
+
+## 1. 当前产品边界
+
+- 目标是在 `app.hyperalpha.org` 上把 Vibe-Trading/Hyper AI 能力改造成 To C 可用的 AI Trading Agent。
+- 第一版重点是 Hyperliquid 可交易标的、DeepSeek/Qwen 模型、多用户隔离、回测/策略信号和安全执行前置。
+- 真实下单仍由现有交易后端负责；AI 只进入策略建议、策略编辑、诊断、信号候选、风险解释和需要确认的工具调用链。
+- 用户 API key、钱包私钥、交易凭据不进入 AI 上下文。
+
+## 2. 已实现安全基础
+
+- Hyper AI、Prompt AI、Signal AI、Program AI、Attribution AI、Kline AI 的主要服务入口已要求 `user_id`，缺失用户上下文时 fail closed。
+- Hyper AI profile、memory、conversation、skill/tool settings 已按用户隔离。
+- Prompt/Signal/Program/Attribution shared tools 已按当前用户过滤账号、策略、信号池、prompt、program、decision log 和 analytics 数据。
+- Hyperliquid/Binance 钱包、手动交易、策略执行、Program Trader、AI Trader 执行路径已传递 account owner，避免跨用户读写交易配置。
+- 自动 AI Trader 和 Program Trader 下单前已接入 hard risk validator。
+- 前端主要 AI chat、stream polling、Settings、交易账户、Signal/Prompt/Program/Attribution 等请求已改为 auth-aware fetch。
+
+## 3. AI Stream / Worker 现状
+
+- `ai_stream_tasks` / `ai_stream_chunks` 持久化 background stream task 和 chunk，支持服务重启后的轮询恢复。
+- 本地 admission 支持全局和单用户并发限制：`AI_STREAM_MAX_RUNNING_GLOBAL`、`AI_STREAM_MAX_RUNNING_PER_USER`。
+- 可选 Redis distributed admission 支持多实例共享并发 lease。
+- high-risk confirmation 已持久化到 `ai_stream_confirmations`，允许用户确认提交到不同后端实例后唤醒运行中的 task。
+- `ai_stream_tasks.runner_id` 和 `last_heartbeat_epoch` 记录执行实例与心跳。
+- `ai_stream_dispatch_jobs` 已作为 serializable worker queue：pending / claimed / running / completed / failed。
+- 可选 dispatch worker 能 claim 注册 task type，并把生成器输出写回统一 stream buffer。
+- 已接入 serializable task handler：
+  - `hyper_ai.chat`
+  - `hyper_ai.onboarding`
+  - `prompt_ai.chat`
+  - `signal_ai.chat`
+  - `program_ai.chat`
+  - `attribution_ai.chat`
+- `AI_STREAM_DISPATCH_CLAIM_STALE_SECONDS` 用于恢复 claimed 但未进入 running 的 job：
+  - attempts 未耗尽：重新回到 pending；
+  - attempts 已耗尽：dispatch job failed，同时 stream task 标记 error。
+- stream error 解析已兼容 `message`、`content`、`error`、`text`、`raw` 和非 dict payload，避免任务失败原因变成 `Unknown error`。
+
+## 4. 上下文压缩与记忆
+
+- `ai_context_compression_service.py` 负责 token 估算、tool-call group 边界保护、conversation summary、compression points 和 tool call restoration。
+- Hyper/Prompt/Signal/Program/Attribution AI 服务均已调用 compression pipeline。
+- `compress_messages(..., user_id=...)` 已把当前用户传给 background memory extraction。
+- `hyper_ai_memory_service.py` 已按 `user_id` 存取、去重、更新、软删除 memory。
+- 当前 memory categories 是 `preference`、`decision`、`lesson`、`insight`、`context`；产品文档里的 `strategy_memory`、`performance_memory`、`risk_memory`、`execution_memory` 仍属于后续 schema 升级。
+
+## 5. 已验证
+
+- Backend compile：相关 AI stream、Prompt/Signal/Program/Attribution route 均通过 system Python 和 `uv run python -m py_compile`。
+- Dispatch queue foundation smoke：enqueue、duplicate enqueue、type-scoped claim、running/completed/failed transitions、admin stats 均通过。
+- Dispatch worker fake-handler smoke：claimed job 可被 runner adopt，chunk 写入 stream buffer，task/dispatch completed。
+- Hyper AI dispatch enqueue smoke：chat/onboarding 在 dispatch enabled 时写入 pending job。
+- Prompt/Signal/Program/Attribution dispatch static check：task type 常量和 handler registration 均存在。
+- Stale claimed recovery smoke：SQLite 环境下 exhausted job 失败并同步 stream task，attempts 未耗尽 job 可重新 claim。
+- Frontend production build 已通过，Settings AI Runtime 显示 dispatch queue counts 和 claim timeout。
+
+## 6. 未验收 / 阻塞
+
+- 本地 PostgreSQL 未运行，导致后端 `8000` 未监听；analytics route runtime import 会因 snapshot DB 默认 Postgres 不可达而失败。
+- `git push -u origin codex/ai-agent-multitenant-foundation` 仍被 HTTPS 凭据阻塞：`could not read Username for 'https://github.com': Device not configured`；本机也没有 `gh` CLI。
+- live distributed worker acceptance 还需要真实 Postgres、Redis、模型凭据和至少两个 runner 实例。
+- real Casdoor JWKS / issuer / audience 环境值仍需 live token 验收。
+- real exchange execution acceptance 未做；当前实现是安全基础、队列、风控和信号/agent 链路，不做实盘下单验收。
+
+## 7. 当前提交锚点
+
+- `463c669 feat: show ai dispatch claim timeout`
+- `436108b feat: recover stale ai dispatch claims`
+- `71114d7 fix: preserve ai stream error details`
+- `f6d3f4a feat: dispatch remaining ai stream chat tasks`
+- `6122707 feat: run hyper ai tasks via dispatch worker`
+- `43d69b1 feat: add ai stream dispatch queue foundation`
