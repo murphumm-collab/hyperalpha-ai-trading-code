@@ -87,6 +87,7 @@ interface AiRuntimeUserStats {
 }
 
 interface AiRuntimeStats {
+  runner_id?: string
   running_tasks: number
   remote_running_tasks?: number
   effective_running_tasks?: number
@@ -1561,6 +1562,11 @@ export default function SettingsPage() {
                       <div className="text-xs text-muted-foreground">
                         {t('settings.aiRuntimeDesc', 'Shared model capacity and per-user occupancy')}
                       </div>
+                      {aiRuntimeStats?.runner_id && (
+                        <div className="max-w-full truncate text-xs text-muted-foreground">
+                          {t('settings.aiRuntimeRunner', 'Runner')} {aiRuntimeStats.runner_id}
+                        </div>
+                      )}
                     </div>
                     {aiRuntimeStats && (
                       <Badge

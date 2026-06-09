@@ -258,6 +258,8 @@ class AiStreamTaskRecord(Base):
     user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
     conversation_id = Column(Integer, nullable=True, index=True)
     status = Column(String(20), nullable=False, default="running")
+    runner_id = Column(String(120), nullable=True, index=True)
+    last_heartbeat_epoch = Column(Float, nullable=True)
     result = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
     created_at_epoch = Column(Float, nullable=False)

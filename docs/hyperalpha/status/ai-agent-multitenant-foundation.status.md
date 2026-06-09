@@ -59,6 +59,7 @@ Local checkpoint: current branch `HEAD`
 - Admin-only AI runtime visibility shows shared model capacity, queue depth, and per-user buffered task occupancy.
 - Admin-only AI runtime visibility shows optional Redis distributed admission status, lease count, and lease TTL.
 - Admin-only AI runtime visibility distinguishes local, remote, effective, persisted, and stale AI running tasks across backend instances.
+- AI stream tasks persist runner id and heartbeat timestamps to support future distributed worker routing or takeover.
 - Hyper AI and Program AI task admission is conversation-scoped, so one conversation cannot run overlapping writes while other users/conversations can still run.
 - Context compression memory extraction stores long-term memories under the current user.
 - User-scoped Hyperliquid/Binance symbol watchlists, with shared data collectors reading the aggregate symbol union.
@@ -188,6 +189,7 @@ Local checkpoint: current branch `HEAD`
 | AI runtime admin visibility | Done | Admin-only `/api/ai-stream/admin/runtime` plus Settings AI Runtime section expose shared capacity, queue depth, and per-user task occupancy without message/tool payloads |
 | AI runtime distributed-admission visibility | Done | Admin runtime stats and Settings AI Runtime display show distributed admission enablement, availability, Redis leases, and lease TTL without exposing Redis URL |
 | AI runtime remote-task visibility | Done | Admin runtime stats and Settings AI Runtime display local/effective/remote running counts plus persisted/stale DB running tasks for multi-instance operations |
+| AI stream runner heartbeat | Done | `ai_stream_tasks.runner_id` and `last_heartbeat_epoch` record the backend instance and last persisted activity for each AI stream task |
 | Conversation task admission | Done | Hyper AI and Program AI return `already_running` for the same user's active conversation task while allowing other users/conversations to start under capacity limits |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
@@ -309,6 +311,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: AI stream persisted confirmation mailbox and owner guard smoke test in `uv run`: duplicate pending confirmations and cross-user submissions were rejected; a simulated remote backend submitted the owning user's response through the DB and the waiting task woke from the persisted response.
 - Passed: AI stream cross-instance conversation duplicate guard smoke test in `uv run`: same-user same-conversation starts reused a remote active task with a live lease, cross-user tasks stayed isolated, and stale running records without leases were interrupted.
 - Passed: AI runtime remote stats smoke test in `uv run`: admin runtime stats reported local, remote, effective, persisted, and stale running tasks and per-user remote occupancy from DB plus fake Redis leases.
+- Passed: AI stream runner heartbeat smoke test in `uv run`: task create/chunk/complete persisted `runner_id` and refreshed `last_heartbeat_epoch`; admin runtime stats returned the current runner id.
 - Passed: Frontend production build after Settings AI Runtime displayed distributed admission status, Redis leases, and lease TTL.
 - Passed: AI stream runtime environment templates updated for single-server and Redis distributed admission configuration.
 - Passed: AI stream task ID UUID smoke test in `uv run`: 5000 sequential task IDs with the same prefix were unique and preserved the expected prefix/timestamp/random-suffix shape.

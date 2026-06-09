@@ -32,6 +32,7 @@ import asyncio
 import json
 import logging
 import os
+import socket
 import threading
 import time
 import uuid
@@ -70,6 +71,10 @@ AI_STREAM_DISTRIBUTED_ADMISSION_PREFIX = os.getenv(
 AI_STREAM_DISTRIBUTED_LEASE_TTL_SECONDS = int(
     os.getenv("AI_STREAM_DISTRIBUTED_LEASE_TTL_SECONDS", str(BUFFER_EXPIRATION_SECONDS * 2))
 )
+AI_STREAM_RUNNER_ID = (
+    os.getenv("AI_STREAM_RUNNER_ID", "").strip()
+    or f"{socket.gethostname()}:{os.getpid()}"
+)[:120]
 
 _ai_task_executor = ThreadPoolExecutor(
     max_workers=AI_TASK_MAX_WORKERS,
@@ -474,6 +479,8 @@ class StreamBufferManager:
             record.user_id = task.user_id
             record.conversation_id = task.conversation_id
             record.status = task.status
+            record.runner_id = AI_STREAM_RUNNER_ID
+            record.last_heartbeat_epoch = time.time()
             record.result = _json_dumps(task.result) if task.result is not None else None
             record.error_message = task.error_message
             record.created_at_epoch = task.created_at
@@ -491,6 +498,13 @@ class StreamBufferManager:
 
         db = SessionLocal()
         try:
+            task_record = db.query(AiStreamTaskRecord).filter(
+                AiStreamTaskRecord.task_id == task_id
+            ).first()
+            if task_record and task_record.status == "running":
+                task_record.runner_id = AI_STREAM_RUNNER_ID
+                task_record.last_heartbeat_epoch = chunk.timestamp
+
             existing = db.query(AiStreamChunkRecord.id).filter(
                 AiStreamChunkRecord.task_id == task_id,
                 AiStreamChunkRecord.chunk_index == chunk_index,
@@ -1333,6 +1347,7 @@ def get_ai_runtime_stats() -> Dict[str, Any]:
     background_queue = getattr(getattr(_ai_background_executor, "_work_queue", None), "qsize", lambda: 0)()
 
     return {
+        "runner_id": AI_STREAM_RUNNER_ID,
         "running_tasks": running_tasks,
         "remote_running_tasks": persistent_snapshot["remote_running_tasks"],
         "effective_running_tasks": running_tasks + persistent_snapshot["remote_running_tasks"],
