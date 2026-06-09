@@ -1932,6 +1932,14 @@ def submit_signal_event_to_gateway(
     if not confirmed_by_user:
         raise ValueError("Signal handoff requires explicit user confirmation")
     eligibility = build_signal_event_handoff_eligibility(event)
+    confirmation_audit = {
+        "confirmed": True,
+        "source": _clean_text(confirmation_source, 100) or "unspecified",
+    }
+    attempt_eligibility = {
+        **eligibility,
+        "user_confirmation": confirmation_audit,
+    }
     if not eligibility["eligible"]:
         gateway_blockers = {"gateway_disabled", "gateway_url_not_configured"}
         blockers = list(eligibility.get("blockers") or [])
@@ -1940,7 +1948,7 @@ def submit_signal_event_to_gateway(
             db,
             event,
             result="blocked",
-            eligibility=eligibility,
+            eligibility=attempt_eligibility,
             error_message=", ".join(blockers),
         )
         db.commit()
@@ -1976,7 +1984,7 @@ def submit_signal_event_to_gateway(
             db,
             event,
             result="failed",
-            eligibility=eligibility,
+            eligibility=attempt_eligibility,
             error_message=str(exc),
         )
         db.commit()
@@ -1996,7 +2004,7 @@ def submit_signal_event_to_gateway(
         db,
         event,
         result="submitted",
-        eligibility=eligibility,
+        eligibility=attempt_eligibility,
     )
     db.commit()
     db.refresh(event)

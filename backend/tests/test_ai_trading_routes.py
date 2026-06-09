@@ -360,6 +360,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     disabled_attempt = disabled_attempts.json()["attempts"][0]
     assert disabled_attempt["result"] == "blocked"
     assert disabled_attempt["gateway_ready"] is False
+    assert disabled_attempt["eligibility"]["user_confirmation"] == {"confirmed": True, "source": "pytest"}
     assert "gateway_disabled" in disabled_attempt["blockers"]
 
     disabled_runtime = client.get("/api/ai-trading/runtime").json()
@@ -446,6 +447,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert [row["result"] for row in attempt_rows] == ["submitted", "blocked"]
     assert attempt_rows[0]["gateway_ready"] is True
     assert attempt_rows[0]["eligibility"]["eligible"] is True
+    assert attempt_rows[0]["eligibility"]["user_confirmation"] == {"confirmed": True, "source": "pytest"}
     assert "test-token" not in str(attempt_rows)
     assert "order-backend.test" not in str(attempt_rows)
 
@@ -513,6 +515,7 @@ def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypa
     attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
     assert attempts.status_code == 200
     assert attempts.json()["attempts"][0]["result"] == "blocked"
+    assert attempts.json()["attempts"][0]["eligibility"]["user_confirmation"] == {"confirmed": True, "source": "pytest"}
     assert "signal_event_stale_for_handoff" in attempts.json()["attempts"][0]["blockers"]
 
 
