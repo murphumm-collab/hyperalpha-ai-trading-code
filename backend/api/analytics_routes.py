@@ -5,7 +5,7 @@ Provides multi-dimensional analysis of trading decisions and performance.
 
 from datetime import datetime, date, timedelta
 from decimal import Decimal
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generator
 
 from fastapi import APIRouter, Depends, Query, HTTPException
 from pydantic import BaseModel
@@ -770,6 +770,18 @@ from services.ai_attribution_service import (
     get_attribution_conversations,
     get_attribution_messages
 )
+from services.ai_stream_service import (
+    AiStreamDispatchJob,
+    TaskAdmissionError,
+    format_sse_event,
+    generate_task_id,
+    get_buffer_manager,
+    is_ai_stream_dispatch_enabled,
+    register_ai_stream_task_handler,
+    run_ai_task_in_background,
+)
+
+ATTRIBUTION_AI_TASK_TYPE = "attribution_ai.chat"
 
 
 class AiAttributionChatRequest(PydanticBaseModel):
@@ -780,7 +792,7 @@ class AiAttributionChatRequest(PydanticBaseModel):
     useBackgroundTask: bool = True
 
 
-def _ensure_attribution_account_access(db: Session, account_id: int, user_id: int) -> None:
+def _ensure_attribution_account_access(db: Session, account_id: int, user_id: int) -> Account:
     account = db.query(Account).filter(
         Account.id == account_id,
         Account.user_id == user_id,
@@ -789,6 +801,39 @@ def _ensure_attribution_account_access(db: Session, account_id: int, user_id: in
     ).first()
     if not account:
         raise HTTPException(status_code=404, detail="AI account not found")
+    return account
+
+
+def _dispatch_attribution_ai_chat(job: AiStreamDispatchJob) -> Generator[str, None, None]:
+    payload = job.payload or {}
+    account_id = int(payload.get("account_id") or 0)
+    conversation_id = payload.get("conversation_id", job.conversation_id)
+    user_message = str(payload.get("user_message") or "")
+
+    bg_db = SessionLocal()
+    try:
+        account = bg_db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == job.user_id,
+            Account.account_type == "AI",
+            Account.is_deleted != True,
+        ).first()
+        if not account:
+            yield format_sse_event("error", {"message": "AI account not found"})
+            return
+
+        yield from generate_attribution_analysis_stream(
+            db=bg_db,
+            account_id=account_id,
+            user_message=user_message,
+            conversation_id=conversation_id,
+            user_id=job.user_id,
+        )
+    finally:
+        bg_db.close()
+
+
+register_ai_stream_task_handler(ATTRIBUTION_AI_TASK_TYPE, _dispatch_attribution_ai_chat)
 
 
 @router.post("/ai-attribution/chat-stream")
@@ -804,9 +849,6 @@ async def ai_attribution_chat_stream(
     - SSE streaming (default): Returns Server-Sent Events directly
     - Background task (useBackgroundTask=true): Returns task_id for polling
     """
-    from services.ai_stream_service import TaskAdmissionError, get_buffer_manager, generate_task_id, run_ai_task_in_background
-    from database.connection import SessionLocal
-
     _ensure_attribution_account_access(db, request.accountId, current_user.id)
 
     # Background task mode
@@ -830,6 +872,23 @@ async def ai_attribution_chat_stream(
         user_message = request.userMessage
         conversation_id = request.conversationId
         user_id = current_user.id
+
+        if is_ai_stream_dispatch_enabled():
+            enqueued = manager.enqueue_dispatch_job(
+                task_id=task_id,
+                task_type=ATTRIBUTION_AI_TASK_TYPE,
+                payload={
+                    "account_id": account_id,
+                    "user_message": user_message,
+                    "conversation_id": conversation_id,
+                },
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+            if not enqueued:
+                manager.fail_task(task_id, "Failed to enqueue Attribution AI task")
+                raise HTTPException(status_code=500, detail="Failed to enqueue Attribution AI task")
+            return {"task_id": task_id, "status": "started"}
 
         def generator_func():
             bg_db = SessionLocal()

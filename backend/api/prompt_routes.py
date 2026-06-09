@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, Generator, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
@@ -706,7 +706,20 @@ from services.ai_prompt_generation_service import (
     get_conversation_history,
     get_conversation_messages
 )
+from services.ai_stream_service import (
+    AiStreamDispatchJob,
+    TaskAdmissionError,
+    format_sse_event,
+    generate_task_id,
+    get_buffer_manager,
+    is_ai_stream_dispatch_enabled,
+    register_ai_stream_task_handler,
+    run_ai_task_in_background,
+)
 from database.models import User, UserSubscription
+
+
+PROMPT_AI_TASK_TYPE = "prompt_ai.chat"
 
 
 class AiChatRequest(BaseModel):
@@ -746,6 +759,39 @@ def _ensure_prompt_account_access(db: Session, account_id: int, user_id: int) ->
     if account.account_type != "AI":
         raise HTTPException(status_code=400, detail="Selected account is not an AI Trader")
     return account
+
+
+def _dispatch_prompt_ai_chat(job: AiStreamDispatchJob) -> Generator[str, None, None]:
+    payload = job.payload or {}
+    account_id = int(payload.get("account_id") or 0)
+    conversation_id = payload.get("conversation_id", job.conversation_id)
+    prompt_id = payload.get("prompt_id")
+    user_message = str(payload.get("user_message") or "")
+
+    bg_db = SessionLocal()
+    try:
+        bg_account = bg_db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == job.user_id,
+            Account.is_deleted != True,
+        ).first()
+        if not bg_account:
+            yield format_sse_event("error", {"message": "AI Trader not found"})
+            return
+
+        yield from generate_prompt_with_ai_stream(
+            db=bg_db,
+            account=bg_account,
+            user_message=user_message,
+            conversation_id=conversation_id,
+            user_id=job.user_id,
+            prompt_id=prompt_id,
+        )
+    finally:
+        bg_db.close()
+
+
+register_ai_stream_task_handler(PROMPT_AI_TASK_TYPE, _dispatch_prompt_ai_chat)
 
 
 @router.post("/ai-chat", response_model=AiChatResponse)
@@ -797,9 +843,6 @@ def ai_chat_stream(
 
     Premium feature - requires active subscription.
     """
-    from services.ai_stream_service import TaskAdmissionError, get_buffer_manager, generate_task_id, run_ai_task_in_background
-    from database.connection import SessionLocal
-
     # Get AI Trader account
     account = _ensure_prompt_account_access(db, request.account_id, current_user.id)
 
@@ -826,6 +869,24 @@ def ai_chat_stream(
         conversation_id = request.conversation_id
         user_id = current_user.id
         prompt_id = request.prompt_id
+
+        if is_ai_stream_dispatch_enabled():
+            enqueued = manager.enqueue_dispatch_job(
+                task_id=task_id,
+                task_type=PROMPT_AI_TASK_TYPE,
+                payload={
+                    "account_id": account_id,
+                    "user_message": user_message,
+                    "conversation_id": conversation_id,
+                    "prompt_id": prompt_id,
+                },
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+            if not enqueued:
+                manager.fail_task(task_id, "Failed to enqueue Prompt AI task")
+                raise HTTPException(status_code=500, detail="Failed to enqueue Prompt AI task")
+            return {"task_id": task_id, "status": "started"}
 
         def generator_func():
             # Create new db session for background thread

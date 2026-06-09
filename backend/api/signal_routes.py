@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import json
-from typing import Any, List, Optional
+from typing import Any, Generator, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from database.connection import SessionLocal
-from database.models import User
+from database.models import Account, User
 
 logger = logging.getLogger(__name__)
 from schemas.signal import (
@@ -863,6 +863,20 @@ from services.ai_signal_generation_service import (
     get_signal_conversation_history,
     get_signal_conversation_messages
 )
+from services.ai_stream_service import (
+    AiStreamDispatchJob,
+    TaskAdmissionError,
+    format_sse_event,
+    generate_task_id,
+    get_buffer_manager,
+    is_ai_stream_dispatch_enabled,
+    register_ai_stream_task_handler,
+    run_ai_task_in_background,
+)
+
+SIGNAL_AI_TASK_TYPE = "signal_ai.chat"
+
+
 class AiSignalChatRequest(BaseModel):
     """Request to send a message to AI signal generation chat"""
     account_id: int = Field(..., alias="accountId")
@@ -888,9 +902,7 @@ class AiSignalChatResponse(BaseModel):
         populate_by_name = True
 
 
-def _ensure_signal_account_access(db: Session, account_id: int, user_id: int) -> None:
-    from database.models import Account
-
+def _ensure_signal_account_access(db: Session, account_id: int, user_id: int) -> Account:
     account = db.query(Account).filter(
         Account.id == account_id,
         Account.user_id == user_id,
@@ -898,6 +910,38 @@ def _ensure_signal_account_access(db: Session, account_id: int, user_id: int) ->
     ).first()
     if not account:
         raise HTTPException(status_code=404, detail="Account not found")
+    return account
+
+
+def _dispatch_signal_ai_chat(job: AiStreamDispatchJob) -> Generator[str, None, None]:
+    payload = job.payload or {}
+    account_id = int(payload.get("account_id") or 0)
+    conversation_id = payload.get("conversation_id", job.conversation_id)
+    user_message = str(payload.get("user_message") or "")
+
+    bg_db = SessionLocal()
+    try:
+        account = bg_db.query(Account).filter(
+            Account.id == account_id,
+            Account.user_id == job.user_id,
+            Account.is_deleted != True,
+        ).first()
+        if not account:
+            yield format_sse_event("error", {"message": "Account not found"})
+            return
+
+        yield from generate_signal_with_ai_stream(
+            db=bg_db,
+            account_id=account_id,
+            user_message=user_message,
+            conversation_id=conversation_id,
+            user_id=job.user_id,
+        )
+    finally:
+        bg_db.close()
+
+
+register_ai_stream_task_handler(SIGNAL_AI_TASK_TYPE, _dispatch_signal_ai_chat)
 
 
 @router.post("/ai-chat", response_model=AiSignalChatResponse)
@@ -1059,9 +1103,6 @@ async def ai_signal_chat_stream(
     - done: Completion with final result
     - error: Error occurred
     """
-    from services.ai_stream_service import TaskAdmissionError, get_buffer_manager, generate_task_id, run_ai_task_in_background
-    from database.connection import SessionLocal
-
     # Background task mode
     if request.use_background_task:
         _ensure_signal_account_access(db, request.account_id, current_user.id)
@@ -1085,6 +1126,23 @@ async def ai_signal_chat_stream(
         user_message = request.user_message
         conversation_id = request.conversation_id
         user_id = current_user.id
+
+        if is_ai_stream_dispatch_enabled():
+            enqueued = manager.enqueue_dispatch_job(
+                task_id=task_id,
+                task_type=SIGNAL_AI_TASK_TYPE,
+                payload={
+                    "account_id": account_id,
+                    "user_message": user_message,
+                    "conversation_id": conversation_id,
+                },
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+            if not enqueued:
+                manager.fail_task(task_id, "Failed to enqueue Signal AI task")
+                raise HTTPException(status_code=500, detail="Failed to enqueue Signal AI task")
+            return {"task_id": task_id, "status": "started"}
 
         def generator_func():
             bg_db = SessionLocal()

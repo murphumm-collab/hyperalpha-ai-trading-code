@@ -11,22 +11,35 @@ from fastapi.responses import StreamingResponse
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Generator
 from datetime import datetime
 import json
 import asyncio
 
-from database.connection import get_db
+from database.connection import SessionLocal, get_db
 from api.auth_utils import get_current_user_dependency
 from database.models import (
     TradingProgram, AccountProgramBinding, ProgramExecutionLog,
     User, Account, SignalPool, BacktestResult, BacktestTriggerLog
+)
+from services.ai_program_service import generate_program_with_ai_stream
+from services.ai_stream_service import (
+    AiStreamDispatchJob,
+    TaskAdmissionError,
+    format_sse_event,
+    generate_task_id,
+    get_buffer_manager,
+    is_ai_stream_dispatch_enabled,
+    register_ai_stream_task_handler,
+    run_ai_task_in_background,
 )
 from program_trader import validate_strategy_code, BacktestEngine
 from program_trader.models import Kline
 
 
 router = APIRouter(prefix="/api/programs", tags=["Program Trader"])
+
+PROGRAM_AI_TASK_TYPE = "program_ai.chat"
 
 
 # ============================================================================
@@ -862,6 +875,40 @@ class MessageResponse(BaseModel):
     is_complete: bool = True  # False = interrupted, can retry
 
 
+def _dispatch_program_ai_chat(job: AiStreamDispatchJob) -> Generator[str, None, None]:
+    payload = job.payload or {}
+    account_id = int(payload.get("account_id") or 0)
+    conversation_id = payload.get("conversation_id", job.conversation_id)
+    program_id = payload.get("program_id")
+    user_message = str(payload.get("user_message") or "")
+
+    bg_db = SessionLocal()
+    try:
+        account = bg_db.query(Account).filter(
+            Account.id == account_id,
+            Account.account_type == "AI",
+            Account.user_id == job.user_id,
+            Account.is_deleted != True,
+        ).first()
+        if not account:
+            yield format_sse_event("error", {"message": "AI account not found"})
+            return
+
+        yield from generate_program_with_ai_stream(
+            db=bg_db,
+            account_id=account_id,
+            user_message=user_message,
+            conversation_id=conversation_id,
+            program_id=program_id,
+            user_id=job.user_id,
+        )
+    finally:
+        bg_db.close()
+
+
+register_ai_stream_task_handler(PROGRAM_AI_TASK_TYPE, _dispatch_program_ai_chat)
+
+
 @router.post("/ai-chat")
 async def ai_program_chat(
     request: AiProgramChatRequest,
@@ -872,13 +919,6 @@ async def ai_program_chat(
     AI-assisted program coding with SSE streaming.
     Supports both SSE mode (default) and background task mode.
     """
-    from fastapi.responses import StreamingResponse
-    from services.ai_program_service import generate_program_with_ai_stream
-    from services.ai_stream_service import (
-        TaskAdmissionError, get_buffer_manager, run_ai_task_in_background, generate_task_id
-    )
-    from database.connection import SessionLocal
-
     user_id = current_user.id
     _ensure_program_account_access(db, request.account_id, user_id)
 
@@ -904,6 +944,24 @@ async def ai_program_chat(
         user_message = request.message
         conversation_id = request.conversation_id
         program_id = request.program_id
+
+        if is_ai_stream_dispatch_enabled():
+            enqueued = manager.enqueue_dispatch_job(
+                task_id=task_id,
+                task_type=PROGRAM_AI_TASK_TYPE,
+                payload={
+                    "account_id": account_id,
+                    "user_message": user_message,
+                    "conversation_id": conversation_id,
+                    "program_id": program_id,
+                },
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+            if not enqueued:
+                manager.fail_task(task_id, "Failed to enqueue Program AI task")
+                raise HTTPException(status_code=500, detail="Failed to enqueue Program AI task")
+            return {"task_id": task_id, "status": "started"}
 
         def generator_func():
             bg_db = SessionLocal()
