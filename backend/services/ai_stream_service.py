@@ -728,6 +728,40 @@ class StreamBufferManager:
         finally:
             db.close()
 
+    def _hydrate_pending_task_for_conversation(
+        self,
+        conversation_id: int,
+        user_id: Optional[int] = None,
+    ) -> Optional[StreamTask]:
+        if not AI_STREAM_PERSISTENCE_ENABLED:
+            return None
+
+        db = SessionLocal()
+        try:
+            query = db.query(AiStreamTaskRecord.task_id).filter(
+                AiStreamTaskRecord.conversation_id == conversation_id,
+                AiStreamTaskRecord.status == "running",
+            )
+            if user_id is not None:
+                query = query.filter(AiStreamTaskRecord.user_id == user_id)
+
+            rows = query.order_by(AiStreamTaskRecord.created_at_epoch.desc()).all()
+        except Exception as exc:
+            logger.warning(
+                "[StreamBuffer] Failed to find pending task for conversation %s: %s",
+                conversation_id,
+                exc,
+            )
+            return None
+        finally:
+            db.close()
+
+        for row in rows:
+            task = self._hydrate_task_from_db(row[0], user_id=user_id)
+            if task and task.status == "running":
+                return task
+        return None
+
     def _cleanup_persistent_tasks(self, now: float) -> None:
         if not AI_STREAM_PERSISTENCE_ENABLED or AI_STREAM_DB_RETENTION_SECONDS <= 0:
             return
@@ -1059,7 +1093,7 @@ class StreamBufferManager:
                     and (user_id is None or task.user_id == user_id)
                 ):
                     return task
-            return None
+            return self._hydrate_pending_task_for_conversation(conversation_id, user_id=user_id)
 
 
 # Global singleton instance
