@@ -59,6 +59,7 @@ Local checkpoint: current branch `HEAD`
 - Admin-only AI runtime visibility shows shared model capacity, queue depth, and per-user buffered task occupancy.
 - Admin-only AI runtime visibility shows optional Redis distributed admission status, lease count, and lease TTL.
 - Admin-only AI runtime visibility distinguishes local, remote, effective, persisted, and stale AI running tasks across backend instances.
+- Admin-only AI runtime visibility shows dispatch queue stale-claim timeout for worker recovery operations.
 - AI stream tasks persist runner id and heartbeat timestamps to support future distributed worker routing or takeover.
 - AI stream dispatch queue records serializable worker jobs with claim/running/completed/failed states for distributed worker routing.
 - AI stream dispatch workers can claim registered task types and run Hyper AI chat/onboarding plus Prompt/Signal/Program/Attribution AI chat jobs from serialized payloads when enabled.
@@ -197,6 +198,7 @@ Local checkpoint: current branch `HEAD`
 | AI stream dispatch queue foundation | Done | `ai_stream_dispatch_jobs` plus enqueue/claim/running/complete/fail service methods persist serializable worker jobs and expose admin queue stats |
 | AI stream dispatch worker handlers | Done | Optional dispatch worker loop claims supported DB jobs; Hyper AI chat/onboarding plus Prompt/Signal/Program/Attribution chat routes register serializable handlers and enqueue instead of running local closures when enabled |
 | AI stream stale claim recovery | Done | `AI_STREAM_DISPATCH_CLAIM_STALE_SECONDS` controls recovery of claimed-but-not-running jobs; exhausted jobs mark both dispatch and stream task failed |
+| AI runtime stale-claim visibility | Done | Settings AI Runtime displays the dispatch queue claim timeout beside queue state counts |
 | Conversation task admission | Done | Hyper AI and Program AI return `already_running` for the same user's active conversation task while allowing other users/conversations to start under capacity limits |
 | Compression memory ownership | Done | `compress_messages(..., user_id=...)` propagates current user into background memory extraction |
 | Symbol watchlist ownership | Done | `add_user_symbol_watchlists.py`; Hyperliquid/Binance watchlists are stored per user, with aggregate reads for collectors |
@@ -327,6 +329,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: Prompt/Signal/Program/Attribution dispatch route compile in both system Python and `uv run` backend environment; static AST check confirmed `prompt_ai.chat`, `signal_ai.chat`, `program_ai.chat`, and `attribution_ai.chat` task types plus `register_ai_stream_task_handler` calls.
 - Passed: AI stream error-message extraction smoke test in `uv run`: `message`, `content`, `error`, `text`, `raw`, non-dict payloads, and empty payload fallbacks produce readable task failure reasons.
 - Passed: AI stream dispatch stale-claim recovery smoke test in `uv run` with SQLite: stale claimed jobs fail the stream task when attempts are exhausted and are re-claimed when attempts remain.
+- Passed: Frontend production build after Settings AI Runtime displayed dispatch queue claim timeout.
 - Warning only: Live handler registry import check was blocked by local PostgreSQL being stopped because `analytics_routes.py` imports snapshot DB connection at module import time; compile and static checks passed.
 - Passed: Frontend production build after Settings AI Runtime displayed dispatch queue pending/claimed/running/completed/failed counts.
 - Passed: Hyperliquid ranked symbols API smoke test in `uv run`: fake `metaAndAssetCtxs` data sorted by `dayNtlVlm`, skipped delisted symbols, parsed market fields, and reused the in-process cache.

@@ -114,6 +114,7 @@ interface AiRuntimeStats {
   }
   dispatch_queue?: {
     enabled: boolean
+    claim_stale_seconds?: number
     pending: number
     claimed: number
     running: number
@@ -1672,7 +1673,7 @@ export default function SettingsPage() {
                       </div>
 
                       {aiRuntimeStats.dispatch_queue && (
-                        <div className="grid gap-3 rounded-md border p-3 text-sm sm:grid-cols-2 md:grid-cols-6 md:items-center">
+                        <div className="grid gap-3 rounded-md border p-3 text-sm sm:grid-cols-2 md:grid-cols-7 md:items-center">
                           <div>
                             <div className="text-xs text-muted-foreground">{t('settings.dispatchQueue', 'Dispatch Queue')}</div>
                             <div className="font-medium">
@@ -1688,6 +1689,14 @@ export default function SettingsPage() {
                           <div>
                             <div className="text-xs text-muted-foreground">{t('settings.claimed', 'Claimed')}</div>
                             <div className="font-medium">{aiRuntimeStats.dispatch_queue.claimed}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-muted-foreground">{t('settings.claimTimeout', 'Claim Timeout')}</div>
+                            <div className="font-medium">
+                              {aiRuntimeStats.dispatch_queue.claim_stale_seconds
+                                ? `${aiRuntimeStats.dispatch_queue.claim_stale_seconds}s`
+                                : t('settings.notAvailable', 'N/A')}
+                            </div>
                           </div>
                           <div>
                             <div className="text-xs text-muted-foreground">{t('settings.runningTasks', 'Running')}</div>
