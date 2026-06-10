@@ -4581,7 +4581,19 @@ export default function HyperAiPage() {
                   )}
                 </div>
                 <div className="min-w-0">
-                  <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingModel', 'Model')}</div>
+                  <div className="flex min-w-0 items-center gap-1">
+                    <div className="min-w-0 flex-1 truncate text-muted-foreground">{t('hyperAi.aiTradingModel', 'Model')}</div>
+                    <button
+                      type="button"
+                      data-testid="ai-trading-model-config-button"
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
+                      aria-label={t('hyperAi.aiTradingConfigureModel', 'Configure DeepSeek/Qwen model')}
+                      title={t('hyperAi.aiTradingConfigureModel', 'Configure DeepSeek/Qwen model')}
+                      onClick={() => setShowConfigModal(true)}
+                    >
+                      <Settings className="h-3 w-3" />
+                    </button>
+                  </div>
                   <div className={`truncate font-medium ${
                     aiTradingModelAdjustmentReady
                       ? 'text-green-600'

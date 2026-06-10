@@ -174,6 +174,9 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
     assert "modelAdjustmentReadinessDetailLabel()" in model_runtime_card_block
     assert "modelAdjustmentUnavailableTitle()" in model_adjust_button_block
     assert "Model adjustment blocked: {{summary}}" in hyper_ai_source
+    assert 'data-testid="ai-trading-model-config-button"' in model_runtime_card_block
+    assert "setShowConfigModal(true)" in model_runtime_card_block
+    assert "Configure DeepSeek/Qwen model" in model_runtime_card_block
 
     safe_ui_blocks = model_runtime_card_block + model_adjust_button_block
     assert "llm_api_key" not in safe_ui_blocks
