@@ -129,6 +129,40 @@ def _set_ready_env(monkeypatch):
         monkeypatch.setenv(key, value)
 
 
+def _production_evidence_payload(*, include_secret: bool = False, missing_item: str | None = None):
+    item_ids = [
+        "macos_reboot_recovery",
+        "real_model_profile_live_acceptance",
+        "real_order_backend_handoff",
+        "production_auth_hard_risk_readiness",
+        "admin_readiness_real_auth_visual",
+        "production_agent_session_visual",
+        "real_exchange_execution",
+    ]
+    items = {}
+    for item_id in item_ids:
+        if item_id == missing_item:
+            continue
+        items[item_id] = {
+            "status": "accepted",
+            "validated_at": "2026-06-10T12:00:00Z",
+            "validated_by": "ops-admin",
+            "evidence_summary": f"{item_id} accepted with sanitized operational evidence.",
+            "artifact_refs": [f"ops://ai-trading/{item_id}/acceptance"],
+            "secret_values_returned": False,
+        }
+    if include_secret:
+        items["real_order_backend_handoff"]["evidence_summary"] = (
+            "accepted with Authorization: Bearer secret-production-token-123456789"
+        )
+    return {
+        "version": "hyperalpha.ai_trading.external_acceptance.v1",
+        "generated_at": "2026-06-10T12:05:00Z",
+        "secret_values_returned": False,
+        "items": items,
+    }
+
+
 def test_admin_can_read_ai_trading_production_readiness_without_secret_leakage(tmp_path, monkeypatch):
     _set_ready_env(monkeypatch)
     client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
@@ -201,6 +235,58 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     serialized = str(data)
     assert "secret-order-gateway-token" not in serialized
     assert "secret-deepseek-key" not in serialized
+
+
+def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_unlock(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
+
+    response = client.post(
+        f"/api/ai-trading/admin/production-evidence-validate?session_token={admin_token}",
+        json={"evidence": _production_evidence_payload()},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["requested_by_user_id"] == admin_id
+    validation = data["validation"]
+    assert validation["mode"] == "production_evidence_payload_validation"
+    assert validation["github_upload"] == "deferred_by_user_request"
+    assert validation["local_v1_accepted"] is True
+    assert validation["ready_for_live_orders"] is False
+    assert validation["production_track"] == "external_evidence_accepted_pending_explicit_confirmation"
+    assert validation["production_evidence"]["provided"] is True
+    assert validation["production_evidence"]["path"] is None
+    assert validation["production_evidence"]["ready"] is True
+    assert validation["production_evidence"]["accepted_count"] == 7
+    assert validation["production_evidence"]["required_count"] == 7
+    assert validation["items"][0]["required_fields"]
+    assert all(item["ready"] for item in validation["items"])
+    serialized = str(data)
+    assert "secret-order-gateway-token" not in serialized
+    assert "secret-deepseek-key" not in serialized
+
+
+def test_admin_evidence_payload_validation_reports_secret_blocker_without_echoing_secret(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, _admin_id = _build_client(tmp_path)
+
+    response = client.post(
+        f"/api/ai-trading/admin/production-evidence-validate?session_token={admin_token}",
+        json={"evidence": _production_evidence_payload(include_secret=True)},
+    )
+
+    assert response.status_code == 200
+    validation = response.json()["validation"]
+    assert validation["ready_for_live_orders"] is False
+    assert validation["production_evidence"]["ready"] is False
+    assert "external_evidence_secret_pattern_detected" in validation["production_evidence"]["blockers"]
+    order_item = next(item for item in validation["items"] if item["id"] == "real_order_backend_handoff")
+    assert "external_evidence_secret_pattern_detected" in order_item["blockers"]
+    serialized = str(response.json())
+    assert "secret-production-token-123456789" not in serialized
+    assert "Authorization: Bearer" not in serialized
 
 
 def test_admin_readiness_reports_handoff_attempt_audit_warnings_without_attempt_secrets(tmp_path, monkeypatch):
@@ -442,6 +528,21 @@ def test_ai_trading_production_evidence_explain_api_requires_admin_session(tmp_p
 
     anonymous = client.get("/api/ai-trading/admin/production-evidence-explain")
     ordinary = client.get(f"/api/ai-trading/admin/production-evidence-explain?session_token={ordinary_token}")
+
+    assert anonymous.status_code == 401
+    assert ordinary.status_code == 403
+
+
+def test_ai_trading_production_evidence_validate_api_requires_admin_session(tmp_path, monkeypatch):
+    _clear_relevant_env(monkeypatch)
+    client, _admin_token, ordinary_token, _admin_id = _build_client(tmp_path)
+    payload = {"evidence": _production_evidence_payload()}
+
+    anonymous = client.post("/api/ai-trading/admin/production-evidence-validate", json=payload)
+    ordinary = client.post(
+        f"/api/ai-trading/admin/production-evidence-validate?session_token={ordinary_token}",
+        json=payload,
+    )
 
     assert anonymous.status_code == 401
     assert ordinary.status_code == 403

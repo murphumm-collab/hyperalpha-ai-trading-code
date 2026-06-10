@@ -54,6 +54,21 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "production_evidence_file" not in helper_source
 
 
+def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
+    settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+
+    assert "/api/ai-trading/admin/production-evidence-validate" in settings_source
+    assert "aiTradingEvidenceValidationJson" in settings_source
+    assert "aiTradingEvidenceValidation.productionEvidence.acceptedCount" in settings_source
+    assert "aiTradingEvidenceValidation.readyForLiveOrders" in settings_source
+    assert "extractAiTradingProductionEvidenceExplain(data.validation)" in settings_source
+    assert "production_evidence_file" not in settings_source
+    assert "AI_TRADING_SIGNAL_GATEWAY_TOKEN" not in settings_source
+    assert "DEEPSEEK_API_KEY" not in settings_source
+    assert "QWEN_API_KEY" not in settings_source
+    assert "DASHSCOPE_API_KEY" not in settings_source
+
+
 def test_ai_trading_runtime_context_budget_ui_uses_counts_only_projection() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     budget_block = hyper_ai_source.split(

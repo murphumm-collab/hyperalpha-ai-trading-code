@@ -13,6 +13,7 @@ from database.connection import get_db
 from database.models import User
 from scripts.ai_trading_v1_completion_audit import (
     build_production_evidence_explain as build_ai_trading_production_evidence_explain,
+    build_production_evidence_payload_validation as build_ai_trading_production_evidence_payload_validation,
 )
 from services.ai_trading_market_universe_service import get_ai_trading_market_universe
 from services.ai_trading_production_readiness_service import (
@@ -85,6 +86,10 @@ class StrategySpecDraftRequest(BaseModel):
     model_provider: Optional[str] = Field(default=None, max_length=50)
     model_name: Optional[str] = Field(default=None, max_length=100)
     model_source: Optional[str] = Field(default=None, max_length=50)
+
+
+class ProductionEvidenceValidateRequest(BaseModel):
+    evidence: Dict[str, Any] = Field(..., description="Sanitized external acceptance evidence JSON object.")
 
 
 class StrategySpecValidateRequest(BaseModel):
@@ -259,6 +264,22 @@ def ai_trading_production_evidence_explain_endpoint(
         "success": True,
         "requested_by_user_id": current_user.id,
         "explain": build_ai_trading_production_evidence_explain(AI_TRADING_REPO_ROOT),
+    }
+
+
+@router.post("/admin/production-evidence-validate")
+def ai_trading_production_evidence_validate_endpoint(
+    request: ProductionEvidenceValidateRequest,
+    current_user: User = Depends(get_admin_user_dependency),
+):
+    """Validate admin-submitted production evidence without storing it or enabling live orders."""
+    return {
+        "success": True,
+        "requested_by_user_id": current_user.id,
+        "validation": build_ai_trading_production_evidence_payload_validation(
+            AI_TRADING_REPO_ROOT,
+            request.evidence,
+        ),
     }
 
 

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -233,6 +234,11 @@ export default function SettingsPage() {
     useState<AiTradingProductionEvidenceExplainView | null>(null)
   const [aiTradingEvidenceExplainLoading, setAiTradingEvidenceExplainLoading] = useState(false)
   const [aiTradingEvidenceExplainError, setAiTradingEvidenceExplainError] = useState<string | null>(null)
+  const [aiTradingEvidenceValidationJson, setAiTradingEvidenceValidationJson] = useState('')
+  const [aiTradingEvidenceValidation, setAiTradingEvidenceValidation] =
+    useState<AiTradingProductionEvidenceExplainView | null>(null)
+  const [aiTradingEvidenceValidationLoading, setAiTradingEvidenceValidationLoading] = useState(false)
+  const [aiTradingEvidenceValidationError, setAiTradingEvidenceValidationError] = useState<string | null>(null)
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -419,6 +425,48 @@ export default function SettingsPage() {
       setAiTradingEvidenceExplainLoading(false)
     }
   }, [])
+
+  const validateAiTradingEvidence = useCallback(async () => {
+    const trimmed = aiTradingEvidenceValidationJson.trim()
+    setAiTradingEvidenceValidationError(null)
+    setAiTradingEvidenceValidation(null)
+    if (!trimmed) {
+      setAiTradingEvidenceValidationError(
+        t('settings.aiTradingEvidenceValidationRequired', 'Paste evidence JSON before validating')
+      )
+      return
+    }
+
+    let parsedEvidence: unknown
+    try {
+      parsedEvidence = JSON.parse(trimmed)
+    } catch {
+      setAiTradingEvidenceValidationError(
+        t('settings.aiTradingEvidenceValidationInvalidJson', 'Evidence JSON is not valid')
+      )
+      return
+    }
+
+    setAiTradingEvidenceValidationLoading(true)
+    try {
+      const res = await authFetch('/api/ai-trading/admin/production-evidence-validate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ evidence: parsedEvidence }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to validate AI Trading production evidence')
+      }
+      setAiTradingEvidenceValidation(extractAiTradingProductionEvidenceExplain(data.validation) || null)
+    } catch (err) {
+      setAiTradingEvidenceValidationError(
+        err instanceof Error ? err.message : 'Failed to validate AI Trading production evidence'
+      )
+    } finally {
+      setAiTradingEvidenceValidationLoading(false)
+    }
+  }, [aiTradingEvidenceValidationJson, t])
 
   const fetchAdminData = useCallback(async () => {
     await Promise.all([
@@ -2260,6 +2308,96 @@ export default function SettingsPage() {
                           </div>
                         </div>
                       )}
+
+                      <div className="rounded-md border p-3">
+                        <div className="mb-3 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                          <div>
+                            <div className="text-sm font-medium">
+                              {t('settings.aiTradingEvidenceValidate', 'Validate Evidence JSON')}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {t('settings.aiTradingEvidenceValidateDesc', 'Admin-only dry run for sanitized external evidence')}
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            onClick={validateAiTradingEvidence}
+                            disabled={aiTradingEvidenceValidationLoading}
+                          >
+                            {aiTradingEvidenceValidationLoading
+                              ? t('common.loading', 'Loading...')
+                              : t('settings.aiTradingEvidenceValidateAction', 'Validate')}
+                          </Button>
+                        </div>
+                        <Textarea
+                          value={aiTradingEvidenceValidationJson}
+                          onChange={(event) => setAiTradingEvidenceValidationJson(event.target.value)}
+                          placeholder={t('settings.aiTradingEvidenceValidatePlaceholder', 'Paste production evidence JSON')}
+                          className="min-h-[120px] resize-y font-mono text-xs"
+                        />
+                        {aiTradingEvidenceValidationError && (
+                          <div className="mt-2 text-sm text-red-500">{aiTradingEvidenceValidationError}</div>
+                        )}
+                        {aiTradingEvidenceValidation && (
+                          <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">
+                            <div className="rounded-md border p-3">
+                              <div className="text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidenceAccepted', 'Accepted')}
+                              </div>
+                              <div className="text-xl font-semibold">
+                                {aiTradingEvidenceValidation.productionEvidence.acceptedCount}/{aiTradingEvidenceValidation.productionEvidence.requiredCount}
+                              </div>
+                              <Badge
+                                className="mt-2"
+                                variant={getReadinessBadgeVariant(aiTradingEvidenceValidation.productionEvidence.ready)}
+                              >
+                                {aiTradingEvidenceValidation.productionEvidence.ready
+                                  ? t('settings.ready', 'Ready')
+                                  : t('settings.blocked', 'Blocked')}
+                              </Badge>
+                              <div className="mt-2 text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidenceLiveOrders', 'Live orders')}: {
+                                  aiTradingEvidenceValidation.readyForLiveOrders
+                                    ? t('settings.ready', 'Ready')
+                                    : t('settings.blocked', 'Blocked')
+                                }
+                              </div>
+                            </div>
+                            <div className="rounded-md border p-3">
+                              <div className="mb-2 text-sm font-medium">
+                                {t('settings.readinessBlockers', 'Blockers')}
+                              </div>
+                              {aiTradingEvidenceValidation.productionEvidence.blockers.length > 0 ? (
+                                <div className="grid gap-1 md:grid-cols-2">
+                                  {aiTradingEvidenceValidation.productionEvidence.blockers.slice(0, 8).map((blocker) => (
+                                    <div key={blocker} className="truncate text-xs text-red-500" title={blocker}>
+                                      {formatReadinessCode(blocker)}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-muted-foreground">
+                                  {t('settings.aiTradingEvidenceNoBlockers', 'No evidence blockers')}
+                                </div>
+                              )}
+                              {aiTradingEvidenceValidation.items.some((item) => !item.ready) && (
+                                <div className="mt-3 grid gap-2 md:grid-cols-2">
+                                  {aiTradingEvidenceValidation.items.filter((item) => !item.ready).slice(0, 6).map((item) => (
+                                    <div key={item.id} className="min-w-0 rounded border p-2">
+                                      <div className="truncate text-xs font-medium">
+                                        {formatProductionEvidenceItemName(item.id)}
+                                      </div>
+                                      <div className="truncate text-xs text-muted-foreground">
+                                        {item.blockers.slice(0, 2).map(formatReadinessCode).join(', ')}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   ) : (
                     <div className="text-sm text-muted-foreground">

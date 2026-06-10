@@ -212,10 +212,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the local admin production evidence UI as accepted and remote push as skipped.",
+        description="Feature status marks the local admin production evidence validation as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Admin Production Evidence UI Accepted / Remote Push Skipped",
+            "Local V1 Admin Production Evidence Validation Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -231,6 +231,8 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading aggregate production evidence explain gate | Done |",
             "| AI Trading admin production evidence explain API | Done |",
             "| AI Trading admin production evidence UI | Done |",
+            "| AI Trading admin production evidence validation API | Done |",
+            "| AI Trading admin production evidence validation UI | Done |",
             "| AI Trading runtime mirror freshness gate | Done |",
             "| AI Trading runtime readiness cold-start retry | Done |",
             "| AI Trading agent-session manual context secret rejection | Done |",
@@ -665,73 +667,43 @@ def _path_is_relative_to(path: Path, parent: Path) -> bool:
     return True
 
 
-def _validate_external_evidence_file(
-    production_evidence_file: Path | str | None,
+def _empty_external_evidence_report(
     *,
-    repo_root: Path | str | None = None,
+    provided: bool,
+    path: str | None,
+    blockers: list[str] | None = None,
 ) -> dict[str, Any]:
-    if production_evidence_file is None:
-        return {
-            "provided": False,
-            "path": None,
-            "ready": False,
-            "version": None,
-            "accepted_count": 0,
-            "required_count": len(EXTERNAL_REQUIREMENTS),
-            "blockers": [],
-            "warnings": [],
-            "items": [],
-        }
+    return {
+        "provided": provided,
+        "path": path,
+        "ready": False,
+        "version": None,
+        "accepted_count": 0,
+        "required_count": len(EXTERNAL_REQUIREMENTS),
+        "blockers": blockers or [],
+        "warnings": [],
+        "items": [],
+    }
 
-    evidence_path = Path(production_evidence_file).resolve()
+
+def _validate_external_evidence_payload(
+    payload: Any,
+    *,
+    path: str | None = None,
+    file_inside_repo: bool = False,
+) -> dict[str, Any]:
     blockers: list[str] = []
     warnings: list[str] = []
-    repo_root_resolved = Path(repo_root).resolve() if repo_root is not None else None
-    evidence_file_inside_repo = (
-        repo_root_resolved is not None and _path_is_relative_to(evidence_path, repo_root_resolved)
-    )
-    try:
-        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return {
-            "provided": True,
-            "path": str(evidence_path),
-            "ready": False,
-            "version": None,
-            "accepted_count": 0,
-            "required_count": len(EXTERNAL_REQUIREMENTS),
-            "blockers": ["external_evidence_file_missing"],
-            "warnings": [],
-            "items": [],
-        }
-    except json.JSONDecodeError:
-        return {
-            "provided": True,
-            "path": str(evidence_path),
-            "ready": False,
-            "version": None,
-            "accepted_count": 0,
-            "required_count": len(EXTERNAL_REQUIREMENTS),
-            "blockers": ["external_evidence_json_invalid"],
-            "warnings": [],
-            "items": [],
-        }
 
     if not isinstance(payload, dict):
-        return {
-            "provided": True,
-            "path": str(evidence_path),
-            "ready": False,
-            "version": None,
-            "accepted_count": 0,
-            "required_count": len(EXTERNAL_REQUIREMENTS),
-            "blockers": ["external_evidence_root_must_be_object"],
-            "warnings": [],
-            "items": [],
-        }
+        return _empty_external_evidence_report(
+            provided=True,
+            path=path,
+            blockers=["external_evidence_root_must_be_object"],
+        )
 
     version = payload.get("version")
-    if evidence_file_inside_repo:
+    if file_inside_repo:
         blockers.append("external_evidence_file_must_be_outside_repo")
     unexpected_root_fields = _unexpected_fields(payload, ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS)
     if unexpected_root_fields:
@@ -772,7 +744,7 @@ def _validate_external_evidence_file(
 
     return {
         "provided": True,
-        "path": str(evidence_path),
+        "path": path,
         "ready": not blockers,
         "version": version,
         "accepted_count": accepted_count,
@@ -783,9 +755,49 @@ def _validate_external_evidence_file(
         "secret_pattern_count": len(secret_hits),
         "unexpected_fields": unexpected_root_fields,
         "unexpected_item_ids": unexpected_item_ids,
-        "file_inside_repo": evidence_file_inside_repo,
+        "file_inside_repo": file_inside_repo,
         "notes_count": len(payload.get("notes")) if isinstance(payload.get("notes"), list) else 0,
     }
+
+
+def _validate_external_evidence_file(
+    production_evidence_file: Path | str | None,
+    *,
+    repo_root: Path | str | None = None,
+) -> dict[str, Any]:
+    if production_evidence_file is None:
+        return _empty_external_evidence_report(provided=False, path=None)
+
+    evidence_path = Path(production_evidence_file).resolve()
+    repo_root_resolved = Path(repo_root).resolve() if repo_root is not None else None
+    evidence_file_inside_repo = (
+        repo_root_resolved is not None and _path_is_relative_to(evidence_path, repo_root_resolved)
+    )
+    try:
+        payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return _empty_external_evidence_report(
+            provided=True,
+            path=str(evidence_path),
+            blockers=["external_evidence_file_missing"],
+        )
+    except json.JSONDecodeError:
+        return _empty_external_evidence_report(
+            provided=True,
+            path=str(evidence_path),
+            blockers=["external_evidence_json_invalid"],
+        )
+
+    return _validate_external_evidence_payload(
+        payload,
+        path=str(evidence_path),
+        file_inside_repo=evidence_file_inside_repo,
+    )
+
+
+def validate_external_acceptance_evidence_payload(payload: Any) -> dict[str, Any]:
+    """Validate a submitted evidence JSON object without accepting file paths or enabling live orders."""
+    return _validate_external_evidence_payload(payload, path=None, file_inside_repo=False)
 
 
 def build_external_acceptance_evidence_template() -> dict[str, Any]:
@@ -821,6 +833,41 @@ def build_production_evidence_explain(
         production_evidence_file=production_evidence_file,
         allow_live_ready_from_evidence=allow_live_ready_from_evidence,
     )
+    return _build_production_evidence_explain_from_report(report, mode="production_evidence_explain")
+
+
+def build_production_evidence_payload_validation(repo_root: Path | str, payload: Any) -> dict[str, Any]:
+    """Validate a submitted evidence JSON object for admins without unlocking live-order readiness."""
+    report = build_completion_report(repo_root)
+    production_evidence = validate_external_acceptance_evidence_payload(payload)
+    report["production_evidence"] = production_evidence
+    report["ready_for_live_orders"] = False
+    report["summary"]["production_track"] = (
+        "external_evidence_accepted_pending_explicit_confirmation"
+        if production_evidence["ready"]
+        else "pending_external_acceptance"
+    )
+    report["summary"]["external_pending_count"] = (
+        0 if production_evidence["ready"] else report["summary"]["documented_external_pending_count"]
+    )
+    report["summary"]["production_evidence_blockers"] = list(production_evidence["blockers"])
+    validation = _build_production_evidence_explain_from_report(
+        report,
+        mode="production_evidence_payload_validation",
+    )
+    validation["next_actions"] = [
+        "Store accepted evidence only in a private ops evidence location outside the code repository.",
+        "Re-run validation after each real external acceptance item changes.",
+        "Use strict production cutover only during an explicitly approved live-order window.",
+    ]
+    return validation
+
+
+def _build_production_evidence_explain_from_report(
+    report: dict[str, Any],
+    *,
+    mode: str,
+) -> dict[str, Any]:
     production_evidence = report["production_evidence"]
     external_status_by_id = {
         item["id"]: item
@@ -874,7 +921,7 @@ def build_production_evidence_explain(
         )
 
     return {
-        "mode": "production_evidence_explain",
+        "mode": mode,
         "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "repo_root": report["repo_root"],
         "github_upload": report["github_upload"],
