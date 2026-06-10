@@ -135,6 +135,7 @@ def _set_ready_env(monkeypatch):
 
 
 def _production_evidence_payload(*, include_secret: bool = False, missing_item: str | None = None):
+    evidence_run_id = "ops-20260610-cutover-001"
     summaries = {
         "macos_reboot_recovery": (
             "macOS reboot accepted with LaunchAgent restored, runtime mirror current, and ready=true readiness."
@@ -176,7 +177,7 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
             "validated_at": _utc_iso(timedelta(minutes=-5)),
             "validated_by": "ops-admin",
             "evidence_summary": summaries[item_id],
-            "artifact_refs": [f"ops://ai-trading/{item_id}/acceptance"],
+            "artifact_refs": [f"ops://ai-trading/{evidence_run_id}/{item_id}/acceptance"],
             "secret_values_returned": False,
         }
     if include_secret:
@@ -185,14 +186,14 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
         )
     return {
         "version": "hyperalpha.ai_trading.external_acceptance.v1",
-        "evidence_run_id": "ops-20260610-cutover-001",
+        "evidence_run_id": evidence_run_id,
         "generated_at": _utc_iso(timedelta(minutes=-2)),
         "expires_at": _utc_iso(timedelta(days=1)),
         "cutover_window": {
             "start_at": _utc_iso(timedelta(minutes=-10)),
             "end_at": _utc_iso(timedelta(hours=2)),
         },
-        "cutover_approval_ref": "ops://ai-trading/production-cutover/approval",
+        "cutover_approval_ref": f"ops://ai-trading/{evidence_run_id}/production-cutover/approval",
         "secret_values_returned": False,
         "items": items,
     }
@@ -253,7 +254,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["schema"]["min_evidence_run_id_chars"] == 12
     assert explain["schema"]["max_evidence_run_id_chars"] == 80
     assert (
-        "evidence_run_id=safe unique run id, 12-80 chars, letters/numbers/._:- only"
+        "evidence_run_id=safe unique run id, 12-80 chars, letters/numbers/._:- only, referenced by cutover_approval_ref and item artifact_refs"
         in explain["schema"]["required_root_fields"]
     )
     assert (
@@ -273,7 +274,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
         "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future and not older than 7 days at generated_at",
         "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
         "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
-        "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion://",
+        "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id",
         "secret_values_returned=false",
     ]
     assert explain["schema"]["required_item_ids"] == [

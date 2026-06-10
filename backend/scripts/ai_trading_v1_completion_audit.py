@@ -69,7 +69,7 @@ MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS = 80
 PRODUCTION_EVIDENCE_RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS = (
     f"version={EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION}",
-    f"evidence_run_id=safe unique run id, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, letters/numbers/._:- only",
+    f"evidence_run_id=safe unique run id, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, letters/numbers/._:- only, referenced by cutover_approval_ref and item artifact_refs",
     f"generated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future",
     f"expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days",
     f"cutover_window=start_at/end_at timezone-aware ISO-8601 window containing the production audit time and no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours",
@@ -103,11 +103,11 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Use only documented schema fields. Allowed root fields: version, evidence_run_id, generated_at, expires_at, cutover_window, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
-    f"evidence_run_id must be a unique sanitized operations run id for this production acceptance attempt, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, using only letters, numbers, dot, underscore, colon, or hyphen.",
+    f"evidence_run_id must be a unique sanitized operations run id for this production acceptance attempt, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, using only letters, numbers, dot, underscore, colon, or hyphen; cutover_approval_ref and every item artifact_ref must contain this same run id.",
     f"generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >{MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS}s in the future; item validation cannot be older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at; expires_at must be after generated_at, future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
     f"cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours.",
-    "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window.",
-    "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
+    "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window and include evidence_run_id.",
+    "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, include evidence_run_id, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
 )
@@ -116,7 +116,7 @@ PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS = (
     f"validated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future and not older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at",
     "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
     "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
-    "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion://",
+    "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id",
     "secret_values_returned=false",
 )
 PRODUCTION_EVIDENCE_COMMON_FORBIDDEN = (
@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Run ID Guard Accepted / Remote Push Skipped",
+            "Local V1 Evidence Run ID Traceability Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -304,6 +304,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence validation age guard | Done |",
             "| AI Trading production evidence cutover window guard | Done |",
             "| AI Trading production evidence run id guard | Done |",
+            "| AI Trading production evidence run id traceability | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -586,7 +587,7 @@ def _secret_pattern_hits(value: Any) -> list[str]:
     return hits
 
 
-def _artifact_ref_blockers(ref: Any) -> list[str]:
+def _artifact_ref_blockers(ref: Any, *, evidence_run_id: str | None = None) -> list[str]:
     if not isinstance(ref, str) or not ref.strip():
         return ["external_evidence_artifact_ref_must_be_non_empty_string"]
     if len(ref.strip()) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS:
@@ -596,6 +597,8 @@ def _artifact_ref_blockers(ref: Any) -> list[str]:
 
     parsed = urlparse(ref)
     blockers: list[str] = []
+    if evidence_run_id and evidence_run_id not in ref:
+        blockers.append("external_evidence_artifact_ref_missing_run_id")
     if parsed.scheme not in SAFE_ARTIFACT_REF_SCHEMES:
         blockers.append("external_evidence_artifact_ref_scheme_not_allowed")
     if parsed.username or parsed.password:
@@ -617,12 +620,12 @@ def _artifact_ref_blockers(ref: Any) -> list[str]:
     return blockers
 
 
-def _cutover_approval_ref_blockers(ref: Any) -> list[str]:
+def _cutover_approval_ref_blockers(ref: Any, *, evidence_run_id: str | None = None) -> list[str]:
     if not isinstance(ref, str) or not ref.strip():
         return ["external_evidence_cutover_approval_ref_missing"]
     return [
         blocker.replace("external_evidence_artifact_ref_", "external_evidence_cutover_approval_ref_", 1)
-        for blocker in _artifact_ref_blockers(ref)
+        for blocker in _artifact_ref_blockers(ref, evidence_run_id=evidence_run_id)
     ]
 
 
@@ -644,6 +647,13 @@ def _evidence_run_id_blockers(value: Any) -> list[str]:
     if _secret_pattern_hits(run_id):
         blockers.append("external_evidence_run_id_secret_pattern_detected")
     return blockers
+
+
+def _valid_evidence_run_id(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    run_id = value.strip()
+    return run_id if run_id and not _evidence_run_id_blockers(run_id) else None
 
 
 def _cutover_window_report(
@@ -793,6 +803,7 @@ def _validate_external_evidence_item(
     *,
     generated_at_utc: datetime | None = None,
     now_utc: datetime | None = None,
+    evidence_run_id: str | None = None,
 ) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {
@@ -861,7 +872,7 @@ def _validate_external_evidence_item(
         if len(artifact_refs) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS:
             blockers.append("external_evidence_artifact_refs_too_many")
         for ref in artifact_refs:
-            blockers.extend(_artifact_ref_blockers(ref))
+            blockers.extend(_artifact_ref_blockers(ref, evidence_run_id=evidence_run_id))
     if item.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
 
@@ -941,7 +952,9 @@ def _validate_external_evidence_payload(
     if version != EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION:
         blockers.append("external_evidence_version_mismatch")
     evidence_run_id = payload.get("evidence_run_id")
-    blockers.extend(_evidence_run_id_blockers(evidence_run_id))
+    evidence_run_id_blockers = _evidence_run_id_blockers(evidence_run_id)
+    blockers.extend(evidence_run_id_blockers)
+    valid_evidence_run_id = _valid_evidence_run_id(evidence_run_id) if not evidence_run_id_blockers else None
     generated_at_utc, timestamp_blockers = _parse_iso_timestamp(payload.get("generated_at"), "generated_at")
     blockers.extend(timestamp_blockers)
     expires_at_utc, expires_at_blockers = _parse_iso_timestamp(payload.get("expires_at"), "expires_at")
@@ -970,7 +983,7 @@ def _validate_external_evidence_payload(
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
     cutover_approval_ref = payload.get("cutover_approval_ref")
-    blockers.extend(_cutover_approval_ref_blockers(cutover_approval_ref))
+    blockers.extend(_cutover_approval_ref_blockers(cutover_approval_ref, evidence_run_id=valid_evidence_run_id))
     blockers.extend(_evidence_notes_blockers(payload.get("notes")))
 
     secret_hits = _secret_pattern_hits(payload)
@@ -994,6 +1007,7 @@ def _validate_external_evidence_payload(
             items_payload.get(item_id),
             generated_at_utc=generated_at_utc,
             now_utc=now_utc,
+            evidence_run_id=valid_evidence_run_id,
         )
         for item_id in required_ids
     ]
