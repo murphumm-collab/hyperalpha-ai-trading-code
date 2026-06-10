@@ -60,6 +60,9 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "/api/ai-trading/admin/production-evidence-template" in settings_source
     assert "/api/ai-trading/admin/production-evidence-validate" in settings_source
     assert "loadAiTradingEvidenceTemplate" in settings_source
+    assert "AI_TRADING_EVIDENCE_MAX_JSON_CHARS" in settings_source
+    assert "aiTradingEvidenceValidationTooLarge" in settings_source
+    assert "maxLength={AI_TRADING_EVIDENCE_MAX_JSON_CHARS}" in settings_source
     assert "aiTradingEvidenceValidationJson" in settings_source
     assert "aiTradingEvidenceValidation.productionEvidence.acceptedCount" in settings_source
     assert "aiTradingEvidenceValidation.readyForLiveOrders" in settings_source

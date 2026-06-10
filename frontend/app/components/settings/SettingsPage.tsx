@@ -51,6 +51,8 @@ import DataCoverageHeatmap from './DataCoverageHeatmap'
 import ExchangeIcon from '@/components/exchange/ExchangeIcon'
 import { CoinIcon } from '@/components/ui/coin-icon'
 
+const AI_TRADING_EVIDENCE_MAX_JSON_CHARS = 40000
+
 interface StorageStats {
   exchange: string
   total_size_mb: number
@@ -434,6 +436,12 @@ export default function SettingsPage() {
     if (!trimmed) {
       setAiTradingEvidenceValidationError(
         t('settings.aiTradingEvidenceValidationRequired', 'Paste evidence JSON before validating')
+      )
+      return
+    }
+    if (trimmed.length > AI_TRADING_EVIDENCE_MAX_JSON_CHARS) {
+      setAiTradingEvidenceValidationError(
+        t('settings.aiTradingEvidenceValidationTooLarge', 'Evidence JSON is too large for dry-run validation')
       )
       return
     }
@@ -2366,6 +2374,7 @@ export default function SettingsPage() {
                           value={aiTradingEvidenceValidationJson}
                           onChange={(event) => setAiTradingEvidenceValidationJson(event.target.value)}
                           placeholder={t('settings.aiTradingEvidenceValidatePlaceholder', 'Paste production evidence JSON')}
+                          maxLength={AI_TRADING_EVIDENCE_MAX_JSON_CHARS}
                           className="min-h-[120px] resize-y font-mono text-xs"
                         />
                         {aiTradingEvidenceValidationError && (

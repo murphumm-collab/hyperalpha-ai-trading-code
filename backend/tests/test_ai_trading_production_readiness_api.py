@@ -322,6 +322,48 @@ def test_admin_evidence_payload_validation_reports_secret_blocker_without_echoin
     assert "Authorization: Bearer" not in serialized
 
 
+def test_admin_evidence_payload_validation_rejects_oversized_payload_without_echoing_secret(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, _admin_id = _build_client(tmp_path)
+    payload = _production_evidence_payload()
+    payload["notes"] = [
+        "oversized sanitized note " + ("x" * 41000) + " secret-production-token-123456789"
+    ]
+
+    response = client.post(
+        f"/api/ai-trading/admin/production-evidence-validate?session_token={admin_token}",
+        json={"evidence": payload},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "production_evidence_payload_too_large"
+    serialized = str(response.json())
+    assert "secret-production-token-123456789" not in serialized
+
+
+def test_admin_evidence_payload_validation_rejects_too_many_item_keys(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, _admin_id = _build_client(tmp_path)
+    payload = _production_evidence_payload()
+    for index in range(20):
+        payload["items"][f"unexpected_evidence_item_{index}"] = {
+            "status": "accepted",
+            "validated_at": "2026-06-10T12:00:00Z",
+            "validated_by": "ops-admin",
+            "evidence_summary": "unexpected item should be rejected before deep validation.",
+            "artifact_refs": ["ops://ai-trading/unexpected/acceptance"],
+            "secret_values_returned": False,
+        }
+
+    response = client.post(
+        f"/api/ai-trading/admin/production-evidence-validate?session_token={admin_token}",
+        json={"evidence": payload},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["detail"] == "production_evidence_items_too_many"
+
+
 def test_admin_readiness_reports_handoff_attempt_audit_warnings_without_attempt_secrets(tmp_path, monkeypatch):
     _set_ready_env(monkeypatch)
     client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)

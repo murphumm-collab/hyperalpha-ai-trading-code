@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path as FilesystemPath
 from typing import Any, Dict, Optional
@@ -69,6 +70,8 @@ from services.ai_trading_strategy_spec_service import (
 
 router = APIRouter(prefix="/api/ai-trading", tags=["AI Trading"])
 AI_TRADING_REPO_ROOT = FilesystemPath(__file__).resolve().parents[2]
+AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES = 40000
+AI_TRADING_PRODUCTION_EVIDENCE_MAX_ITEM_KEYS = 14
 
 
 class StrategySpecDraftRequest(BaseModel):
@@ -205,6 +208,20 @@ def _model_dump(model: BaseModel) -> Dict[str, Any]:
     return model.dict()
 
 
+def _enforce_production_evidence_payload_bounds(evidence: Dict[str, Any]) -> None:
+    try:
+        serialized = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="production_evidence_json_not_serializable")
+
+    if len(serialized.encode("utf-8")) > AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="production_evidence_payload_too_large")
+
+    items = evidence.get("items")
+    if isinstance(items, dict) and len(items) > AI_TRADING_PRODUCTION_EVIDENCE_MAX_ITEM_KEYS:
+        raise HTTPException(status_code=413, detail="production_evidence_items_too_many")
+
+
 @router.get("/strategy-spec/schema")
 def strategy_spec_schema(
     current_user: User = Depends(get_current_user_dependency),
@@ -293,6 +310,7 @@ def ai_trading_production_evidence_validate_endpoint(
     current_user: User = Depends(get_admin_user_dependency),
 ):
     """Validate admin-submitted production evidence without storing it or enabling live orders."""
+    _enforce_production_evidence_payload_bounds(request.evidence)
     return {
         "success": True,
         "requested_by_user_id": current_user.id,
