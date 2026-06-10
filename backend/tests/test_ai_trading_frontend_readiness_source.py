@@ -147,6 +147,38 @@ def test_ai_trading_model_adjust_output_safety_is_visible_in_frontend() -> None:
     assert "aiTradingModelOutputDirectOrderIgnored" in hyper_ai_source
 
 
+def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    model_readiness_helper_block = hyper_ai_source.split(
+        "const modelAdjustmentBlockerLabel =",
+        1,
+    )[1].split("const aiTradingValidationWarningLabel", 1)[0]
+    model_runtime_card_block = hyper_ai_source.split(
+        "{t('hyperAi.aiTradingModel', 'Model')}",
+        1,
+    )[1].split("{t('hyperAi.aiTradingSessions', 'Sessions')}", 1)[0]
+    model_adjust_button_block = hyper_ai_source.split(
+        "onClick={handleModelAdjustStrategyDraft}",
+        1,
+    )[1].split("{strategyModelAdjusting ?", 1)[0]
+
+    assert "model_profile_not_configured" in model_readiness_helper_block
+    assert "model_profile_credential_missing" in model_readiness_helper_block
+    assert "model_profile_credential_unreadable" in model_readiness_helper_block
+    assert "model_provider_not_deepseek_or_qwen" in model_readiness_helper_block
+    assert "model_name_missing" in model_readiness_helper_block
+    assert "model_base_url_missing" in model_readiness_helper_block
+    assert "modelAdjustmentReadinessDetailLabel()" in model_runtime_card_block
+    assert "modelAdjustmentUnavailableTitle()" in model_adjust_button_block
+    assert "Model adjustment blocked: {{summary}}" in hyper_ai_source
+
+    safe_ui_blocks = model_runtime_card_block + model_adjust_button_block
+    assert "llm_api_key" not in safe_ui_blocks
+    assert "llm_base_url" not in safe_ui_blocks
+    assert "api_key" not in safe_ui_blocks
+    assert "base_url" not in safe_ui_blocks
+
+
 def test_ai_trading_session_detail_validation_warnings_use_readable_labels() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     session_detail_specs_block = hyper_ai_source.split(

@@ -1529,15 +1529,41 @@ export default function HyperAiPage() {
     }
     return t('hyperAi.aiTradingGatewayTargetNotConfigured', 'Not configured')
   }
+  const modelAdjustmentBlockerLabel = (blocker: string): string => {
+    const labels: Record<string, string> = {
+      model_profile_not_configured: t('hyperAi.aiTradingModelProfileMissing', 'Profile missing'),
+      model_profile_credential_missing: t('hyperAi.aiTradingModelCredentialMissing', 'Key missing'),
+      model_profile_credential_unreadable: t('hyperAi.aiTradingModelCredentialUnreadable', 'Key unreadable'),
+      model_provider_not_deepseek_or_qwen: t('hyperAi.aiTradingModelProviderUnsupported', 'DeepSeek/Qwen required'),
+      model_name_missing: t('hyperAi.aiTradingModelNameMissing', 'Model missing'),
+      model_base_url_missing: t('hyperAi.aiTradingModelEndpointMissing', 'Endpoint missing'),
+    }
+    return labels[blocker] || t('hyperAi.aiTradingModelBlocked', 'Blocked')
+  }
+  const modelAdjustmentBlockerSummary = (): string => (
+    Array.from(new Set(aiTradingModelAdjustmentBlockers.map(modelAdjustmentBlockerLabel))).join(', ')
+  )
   const modelAdjustmentStatusLabel = (): string => {
     if (aiTradingModelAdjustmentReady) {
       return t('hyperAi.aiTradingModelReady', 'Ready')
+    }
+    if (aiTradingModelAdjustmentBlockers.includes('model_profile_not_configured')) {
+      return t('hyperAi.aiTradingModelProfileMissing', 'Profile missing')
     }
     if (aiTradingModelAdjustmentBlockers.includes('model_provider_not_deepseek_or_qwen')) {
       return t('hyperAi.aiTradingModelProviderUnsupported', 'DeepSeek/Qwen required')
     }
     if (aiTradingModelAdjustmentBlockers.includes('model_profile_credential_missing')) {
       return t('hyperAi.aiTradingModelCredentialMissing', 'Key missing')
+    }
+    if (aiTradingModelAdjustmentBlockers.includes('model_profile_credential_unreadable')) {
+      return t('hyperAi.aiTradingModelCredentialUnreadable', 'Key unreadable')
+    }
+    if (aiTradingModelAdjustmentBlockers.includes('model_name_missing')) {
+      return t('hyperAi.aiTradingModelNameMissing', 'Model missing')
+    }
+    if (aiTradingModelAdjustmentBlockers.includes('model_base_url_missing')) {
+      return t('hyperAi.aiTradingModelEndpointMissing', 'Endpoint missing')
     }
     return t('hyperAi.aiTradingModelBlocked', 'Blocked')
   }
@@ -1550,7 +1576,20 @@ export default function HyperAiPage() {
     if (provider) {
       return String(provider)
     }
-    return t('hyperAi.aiTradingModelNotConfigured', 'Not configured')
+    return t('hyperAi.aiTradingModelNotConfigured', 'DeepSeek/Qwen profile')
+  }
+  const modelAdjustmentReadinessDetailLabel = (): string => {
+    const identity = modelAdjustmentDetailLabel()
+    const blockerSummary = modelAdjustmentBlockerSummary()
+    return blockerSummary ? `${identity} / ${blockerSummary}` : identity
+  }
+  const modelAdjustmentUnavailableTitle = (): string => {
+    const blockerSummary = modelAdjustmentBlockerSummary()
+    return blockerSummary
+      ? t('hyperAi.aiTradingModelAdjustmentBlockedBy', 'Model adjustment blocked: {{summary}}', {
+          summary: blockerSummary,
+        })
+      : t('hyperAi.aiTradingModelAdjustmentUnavailable', 'Configure DeepSeek or Qwen for model adjustment')
   }
   const aiTradingValidationWarningLabel = (warning: string): string => {
     if (warning === AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING) {
@@ -4537,8 +4576,8 @@ export default function HyperAiPage() {
                   }`}>
                     {modelAdjustmentStatusLabel()}
                   </div>
-                  <div className="truncate text-[10px] text-muted-foreground" title={modelAdjustmentDetailLabel()}>
-                    {modelAdjustmentDetailLabel()}
+                  <div className="truncate text-[10px] text-muted-foreground" title={modelAdjustmentReadinessDetailLabel()}>
+                    {modelAdjustmentReadinessDetailLabel()}
                   </div>
                 </div>
                 <div className="min-w-0">
@@ -4899,7 +4938,7 @@ export default function HyperAiPage() {
                         ? archivedSessionActionTitle
                       : canUseAiTradingModelAdjust
                         ? t('hyperAi.aiTradingApplyModelAdjustment', 'Apply with DeepSeek/Qwen')
-                        : t('hyperAi.aiTradingModelAdjustmentUnavailable', 'Configure DeepSeek or Qwen for model adjustment')
+                        : modelAdjustmentUnavailableTitle()
                     }
                   >
                     {strategyModelAdjusting ? (
