@@ -23,6 +23,7 @@ def _write_minimal_acceptance_repo(
     *,
     include_db_gate: bool = True,
     include_frontend_source_guard: bool = True,
+    include_production_evidence_explain_gate: bool = True,
     include_external_markers: bool = True,
     git_branch: str = "codex/ai-agent-multitenant-foundation",
 ) -> None:
@@ -33,6 +34,11 @@ def _write_minimal_acceptance_repo(
     frontend_source_guard_text = (
         "tests/test_ai_trading_frontend_readiness_source.py\n"
     ) if include_frontend_source_guard else ""
+    explain_gate_text = (
+        "Production evidence explain mode gate\n"
+        "--explain-production-evidence\n"
+        "production_evidence_explain_gate\n"
+    ) if include_production_evidence_explain_gate else ""
     _write(
         root / "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh",
         "\n".join(
@@ -48,6 +54,7 @@ def _write_minimal_acceptance_repo(
                 "codex/ai-agent-multitenant-foundation",
                 "ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff",
                 "Production evidence template remains blocked",
+                explain_gate_text,
                 "Production evidence initializer gate",
                 "--init-production-evidence-file",
                 "production_evidence_initializer_gate",
@@ -91,7 +98,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Production Evidence Explain Mode Accepted / Remote Push Skipped",
+                "Local V1 Production Evidence Explain Gate Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -104,6 +111,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading production evidence initializer | Done |",
                 "| AI Trading aggregate production evidence initializer gate | Done |",
                 "| AI Trading production evidence explain mode | Done |",
+                "| AI Trading aggregate production evidence explain gate | Done |",
                 "| AI Trading runtime mirror freshness gate | Done |",
                 "| AI Trading runtime readiness cold-start retry | Done |",
                 "| AI Trading agent-session manual context secret rejection | Done |",
@@ -389,6 +397,19 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_source_guard_is_
     assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
     runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
     assert "tests/test_ai_trading_frontend_readiness_source.py" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_explain_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_production_evidence_explain_gate=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert "Production evidence explain mode gate" in runner_evidence["missing_phrases"]
+    assert "--explain-production-evidence" in runner_evidence["missing_phrases"]
+    assert "production_evidence_explain_gate" in runner_evidence["missing_phrases"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_branch_is_not_thread_branch(tmp_path):

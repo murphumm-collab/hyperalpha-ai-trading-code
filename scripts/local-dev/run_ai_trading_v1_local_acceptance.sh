@@ -21,6 +21,7 @@ Runs the AI Trading V1 local acceptance gate:
   - local V1 completion boundary audit must pass
   - local completion summary gate must confirm local accepted, live orders false, and Git governance accepted
   - production completion boundary audit must stay blocked
+  - production evidence explain mode gate must report item-level blockers without unlocking live orders
   - production evidence initializer gate must create repo-external pending evidence and keep live orders false
   - production evidence template must stay blocked
   - frontend production build
@@ -218,6 +219,61 @@ PY
   rm -f "$evidence_file" "$init_report_file" "$audit_report_file"
 }
 
+run_production_evidence_explain_gate() {
+  local explain_report_file
+  explain_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-explain.XXXXXX.json")"
+  (
+    cd backend
+    uv run python scripts/ai_trading_v1_completion_audit.py --explain-production-evidence > "$explain_report_file"
+  )
+  cat "$explain_report_file"
+  python3 - "$explain_report_file" <<'PY'
+import json
+import sys
+
+expected_item_ids = {
+    "macos_reboot_recovery",
+    "real_model_profile_live_acceptance",
+    "real_order_backend_handoff",
+    "production_auth_hard_risk_readiness",
+    "admin_readiness_real_auth_visual",
+    "production_agent_session_visual",
+    "real_exchange_execution",
+}
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+items = report.get("items") or []
+items_by_id = {item.get("id"): item for item in items if isinstance(item, dict)}
+order_backend_item = items_by_id.get("real_order_backend_handoff") or {}
+schema = report.get("schema") or {}
+production_evidence = report.get("production_evidence") or {}
+checks = {
+    "mode": report.get("mode") == "production_evidence_explain",
+    "local_v1_accepted": report.get("local_v1_accepted") is True,
+    "ready_for_live_orders_false": report.get("ready_for_live_orders") is False,
+    "production_evidence_ready_false": production_evidence.get("ready") is False,
+    "production_evidence_not_provided": production_evidence.get("provided") is False,
+    "item_ids_exact": set(items_by_id) == expected_item_ids,
+    "required_item_fields_present": "status=accepted" in (schema.get("required_item_fields") or []),
+    "safe_ref_schemes_present": set(schema.get("safe_artifact_ref_schemes") or []) == {"https", "lark", "notion", "ops"},
+    "real_order_backend_item_blocked": "external_evidence_item_not_provided" in (order_backend_item.get("blockers") or []),
+    "forbidden_values_present": "API keys" in (order_backend_item.get("forbidden_values") or []),
+    "operator_guidance_present": bool(order_backend_item.get("operator_guidance")),
+}
+failed = [name for name, ok in checks.items() if not ok]
+print(json.dumps({
+    "production_evidence_explain_gate": "accepted" if not failed else "failed",
+    "checked": checks,
+    "ready_for_live_orders": report.get("ready_for_live_orders"),
+    "real_order_backend_blockers": order_backend_item.get("blockers"),
+}, ensure_ascii=False, indent=2, sort_keys=True))
+if failed:
+    raise SystemExit("Production evidence explain gate failed: " + ", ".join(failed))
+PY
+  rm -f "$explain_report_file"
+}
+
 run_runtime_readiness_with_retry() {
   local attempts=12
   local delay_seconds=5
@@ -269,6 +325,9 @@ run_step "Local V1 completion boundary audit" \
 
 run_expected_failure "Production completion boundary audit remains blocked" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-production"
+
+run_step "Production evidence explain mode gate" \
+  run_production_evidence_explain_gate
 
 run_step "Production evidence initializer gate" \
   run_production_evidence_initializer_gate
