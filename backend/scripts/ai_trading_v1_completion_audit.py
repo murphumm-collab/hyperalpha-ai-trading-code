@@ -84,6 +84,7 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "generated_at and every item validated_at must be timezone-aware ISO-8601 timestamps, for example 2026-06-10T12:00:00Z; generated_at must not be earlier than any item validated_at.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
+    "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
 )
 PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS = (
     "status=accepted",
@@ -102,6 +103,51 @@ PRODUCTION_EVIDENCE_COMMON_FORBIDDEN = (
     "raw model output",
     "raw operational dumps",
 )
+PRODUCTION_EVIDENCE_ITEM_REQUIRED_SUMMARY_TERMS: dict[str, tuple[tuple[str, ...], ...]] = {
+    "macos_reboot_recovery": (
+        ("macOS reboot", "reboot"),
+        ("LaunchAgent",),
+        ("runtime mirror current", "runtime_mirror.current=true", "runtime mirror"),
+        ("ready=true", "ready true"),
+    ),
+    "real_model_profile_live_acceptance": (
+        ("DeepSeek", "Qwen"),
+        ("live model-adjust", "model-adjust"),
+        ("no signal event", "no signal events", "no signals"),
+        ("no handoff", "no orders"),
+    ),
+    "real_order_backend_handoff": (
+        ("HTTPS",),
+        ("mode=http", "gateway mode=http", "gateway_mode=http"),
+        ("token-present", "token present", "token_present"),
+        ("production_handoff_approved=true", "production approval", "approved production handoff"),
+    ),
+    "production_auth_hard_risk_readiness": (
+        ("JWKS",),
+        ("hard risk", "hard-risk"),
+        ("stop loss", "stop-loss"),
+        ("take profit", "take-profit"),
+        ("secret_values_returned=false", "no secrets"),
+    ),
+    "admin_readiness_real_auth_visual": (
+        ("admin",),
+        ("real auth", "logged-in", "login"),
+        ("production readiness panel", "readiness panel"),
+        ("no secrets", "no token"),
+    ),
+    "production_agent_session_visual": (
+        ("agent-session", "agent session"),
+        ("current user", "user-scoped"),
+        ("context budget", "summary chars"),
+        ("no context_summary", "no raw context", "no secrets"),
+    ),
+    "real_exchange_execution": (
+        ("order backend", "backend"),
+        ("exchange execution", "Hyperliquid"),
+        ("not AI agent", "order backend only"),
+        ("sanitized execution evidence", "sanitized"),
+    ),
+}
 PRODUCTION_EVIDENCE_ITEM_GUIDANCE: dict[str, tuple[str, ...]] = {
     "macos_reboot_recovery": (
         "After a real macOS reboot, prove LaunchAgent restored frontend, backend, mock gateway, and Postgres readiness.",
@@ -215,7 +261,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Gateway Mode Guard Accepted / Remote Push Skipped",
+            "Local V1 Evidence Summary Terms Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -225,6 +271,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence item IDs | Done |",
             "| AI Trading production evidence path safety | Done |",
             "| AI Trading production evidence note safety | Done |",
+            "| AI Trading production evidence summary terms | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -600,6 +647,28 @@ def _evidence_text_quality_blockers(
     return blockers
 
 
+def _summary_term_label(term_group: tuple[str, ...]) -> str:
+    return " / ".join(term_group)
+
+
+def _summary_term_blocker_label(term_group: tuple[str, ...]) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", "_", term_group[0].casefold()).strip("_")
+    return normalized or "required_term"
+
+
+def _missing_required_summary_terms(item_id: str, evidence_summary: Any) -> list[str]:
+    if not isinstance(evidence_summary, str) or not evidence_summary.strip():
+        return []
+
+    normalized_summary = re.sub(r"\s+", " ", evidence_summary).casefold()
+    missing_terms: list[str] = []
+    for term_group in PRODUCTION_EVIDENCE_ITEM_REQUIRED_SUMMARY_TERMS.get(item_id, ()):
+        if any(term.casefold() in normalized_summary for term in term_group):
+            continue
+        missing_terms.append(_summary_term_label(term_group))
+    return missing_terms
+
+
 def _validate_external_evidence_item(
     item_id: str,
     item: Any,
@@ -642,6 +711,14 @@ def _validate_external_evidence_item(
             max_chars=MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
         )
     )
+    missing_summary_terms: list[str] = []
+    if status == "accepted":
+        missing_summary_terms = _missing_required_summary_terms(item_id, item.get("evidence_summary"))
+        blockers.extend(
+            "external_evidence_summary_missing_required_term:"
+            + _summary_term_blocker_label((term.split(" / ", 1)[0],))
+            for term in missing_summary_terms
+        )
     artifact_refs = item.get("artifact_refs")
     if artifact_refs is None:
         blockers.append("external_evidence_artifact_refs_missing")
@@ -670,6 +747,7 @@ def _validate_external_evidence_item(
         "artifact_ref_count": len(artifact_refs) if isinstance(artifact_refs, list) else 0,
         "secret_pattern_count": len(secret_hits),
         "unexpected_fields": unexpected_item_fields,
+        "missing_summary_terms": missing_summary_terms,
     }
 
 
@@ -928,6 +1006,13 @@ def _build_production_evidence_explain_from_report(
                 "secret_pattern_count": secret_pattern_count,
                 "unexpected_fields": unexpected_fields,
                 "required_fields": list(PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS),
+                "required_summary_terms": [
+                    _summary_term_label(term_group)
+                    for term_group in PRODUCTION_EVIDENCE_ITEM_REQUIRED_SUMMARY_TERMS.get(requirement.id, ())
+                ],
+                "missing_summary_terms": list(evidence_item.get("missing_summary_terms") or [])
+                if evidence_item is not None
+                else [],
                 "safe_artifact_ref_schemes": sorted(SAFE_ARTIFACT_REF_SCHEMES),
                 "forbidden_values": list(PRODUCTION_EVIDENCE_COMMON_FORBIDDEN),
                 "operator_guidance": list(PRODUCTION_EVIDENCE_ITEM_GUIDANCE.get(requirement.id, ())),

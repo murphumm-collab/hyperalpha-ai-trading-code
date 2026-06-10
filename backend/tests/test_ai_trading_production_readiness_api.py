@@ -130,6 +130,29 @@ def _set_ready_env(monkeypatch):
 
 
 def _production_evidence_payload(*, include_secret: bool = False, missing_item: str | None = None):
+    summaries = {
+        "macos_reboot_recovery": (
+            "macOS reboot accepted with LaunchAgent restored, runtime mirror current, and ready=true readiness."
+        ),
+        "real_model_profile_live_acceptance": (
+            "DeepSeek live model-adjust accepted with no signal event, no handoff, and no orders."
+        ),
+        "real_order_backend_handoff": (
+            "HTTPS order backend accepted with mode=http, token-present, and production_handoff_approved=true."
+        ),
+        "production_auth_hard_risk_readiness": (
+            "JWKS and hard risk accepted with stop loss, take profit, and secret_values_returned=false."
+        ),
+        "admin_readiness_real_auth_visual": (
+            "Admin real auth accepted with production readiness panel visible and no secrets or token rendered."
+        ),
+        "production_agent_session_visual": (
+            "Agent-session current user visual accepted with context budget and no context_summary rendered."
+        ),
+        "real_exchange_execution": (
+            "Order backend Hyperliquid exchange execution accepted as not AI agent with sanitized execution evidence."
+        ),
+    }
     item_ids = [
         "macos_reboot_recovery",
         "real_model_profile_live_acceptance",
@@ -147,7 +170,7 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
             "status": "accepted",
             "validated_at": "2026-06-10T12:00:00Z",
             "validated_by": "ops-admin",
-            "evidence_summary": f"{item_id} accepted with sanitized operational evidence.",
+            "evidence_summary": summaries[item_id],
             "artifact_refs": [f"ops://ai-trading/{item_id}/acceptance"],
             "secret_values_returned": False,
         }

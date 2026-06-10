@@ -31,6 +31,8 @@ export interface AiTradingProductionEvidenceItemView {
   blockers: string[]
   artifactRefCount: number
   requiredFields: string[]
+  requiredSummaryTerms: string[]
+  missingSummaryTerms: string[]
   safeArtifactRefSchemes: string[]
   forbiddenValues: string[]
   operatorGuidance: string[]
@@ -142,6 +144,8 @@ export const extractAiTradingProductionEvidenceExplain = (
         blockers: stringList(rawItem.blockers),
         artifactRefCount: numberValue(rawItem.artifact_ref_count),
         requiredFields: stringList(rawItem.required_fields),
+        requiredSummaryTerms: stringList(rawItem.required_summary_terms),
+        missingSummaryTerms: stringList(rawItem.missing_summary_terms),
         safeArtifactRefSchemes: stringList(rawItem.safe_artifact_ref_schemes),
         forbiddenValues: stringList(rawItem.forbidden_values),
         operatorGuidance: stringList(rawItem.operator_guidance),

@@ -2295,6 +2295,11 @@ export default function SettingsPage() {
                               <div>
                                 {t('settings.aiTradingEvidenceArtifactRefs', 'Artifact refs')}: {item.artifactRefCount}
                               </div>
+                              <div className="col-span-2 truncate" title={item.missingSummaryTerms.join(', ') || item.requiredSummaryTerms.join(', ') || '-'}>
+                                {t('settings.aiTradingEvidenceSummaryTerms', 'Summary terms')}: {item.missingSummaryTerms.length > 0
+                                  ? item.missingSummaryTerms.slice(0, 2).join(', ')
+                                  : `${item.requiredSummaryTerms.length} ${t('settings.required', 'required')}`}
+                              </div>
                             </div>
                             {item.blockers.length > 0 && (
                               <div className="mt-2 space-y-1">

@@ -10,7 +10,8 @@
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
     "generated_at and every item validated_at must be timezone-aware ISO-8601 timestamps, for example 2026-06-10T12:00:00Z; generated_at must not be earlier than any item validated_at.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
-    "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass."
+    "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
+    "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected."
   ],
   "items": {
     "macos_reboot_recovery": {

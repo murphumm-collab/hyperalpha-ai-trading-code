@@ -18,6 +18,18 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def _default_evidence_summary(item_id: str) -> str:
+    required_terms = [
+        term_group[0]
+        for term_group in completion_audit.PRODUCTION_EVIDENCE_ITEM_REQUIRED_SUMMARY_TERMS[item_id]
+    ]
+    return (
+        f"{item_id} accepted with sanitized operational evidence covering "
+        + ", ".join(required_terms)
+        + "."
+    )
+
+
 def _write_minimal_acceptance_repo(
     root: Path,
     *,
@@ -31,6 +43,7 @@ def _write_minimal_acceptance_repo(
     include_admin_production_evidence_template_api_marker: bool = True,
     include_admin_production_evidence_template_ui_marker: bool = True,
     include_admin_production_evidence_payload_bounds_marker: bool = True,
+    include_production_evidence_summary_terms_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -78,6 +91,9 @@ def _write_minimal_acceptance_repo(
     admin_payload_bounds_marker = (
         "| AI Trading admin production evidence payload bounds | Done |"
     ) if include_admin_production_evidence_payload_bounds_marker else ""
+    production_evidence_summary_terms_marker = (
+        "| AI Trading production evidence summary terms | Done |"
+    ) if include_production_evidence_summary_terms_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -170,7 +186,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Gateway Mode Guard Accepted / Remote Push Skipped",
+                "Local V1 Evidence Summary Terms Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -191,6 +207,7 @@ def _write_minimal_acceptance_repo(
                 admin_template_api_marker,
                 admin_template_ui_marker,
                 admin_payload_bounds_marker,
+                production_evidence_summary_terms_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -285,7 +302,7 @@ def _write_production_evidence(
             "evidence_summary": (
                 evidence_summary
                 if evidence_summary is not None
-                else f"{requirement.id} accepted with sanitized operational evidence."
+                else _default_evidence_summary(requirement.id)
             ),
             "artifact_refs": (
                 []
@@ -348,6 +365,7 @@ def test_production_evidence_template_builder_uses_required_item_ids_without_sec
     assert payload["version"] == completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION
     assert payload["generated_at"] is None
     assert payload["secret_values_returned"] is False
+    assert any("required non-secret proof terms" in note for note in payload["notes"])
     assert set(payload["items"]) == {requirement.id for requirement in completion_audit.EXTERNAL_REQUIREMENTS}
     assert all(item["status"] == "pending_external_acceptance" for item in payload["items"].values())
     assert all(item["secret_values_returned"] is False for item in payload["items"].values())
@@ -373,6 +391,8 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
     assert order_backend_item["ready"] is False
     assert "external_evidence_item_not_provided" in order_backend_item["blockers"]
     assert "API keys" in order_backend_item["forbidden_values"]
+    assert "HTTPS" in order_backend_item["required_summary_terms"]
+    assert "mode=http / gateway mode=http / gateway_mode=http" in order_backend_item["required_summary_terms"]
     assert "Configure the real HTTPS order-backend signal gateway" in order_backend_item["operator_guidance"][0]
 
 
@@ -628,6 +648,24 @@ def test_completion_audit_blocks_local_acceptance_when_admin_payload_bounds_mark
     )
 
 
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_summary_terms_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_summary_terms_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence summary terms | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
 def test_completion_audit_blocks_local_acceptance_when_agent_session_response_redaction_marker_is_missing(tmp_path):
     _write_minimal_acceptance_repo(
         tmp_path,
@@ -877,6 +915,41 @@ def test_completion_audit_validates_production_evidence_but_requires_explicit_li
     assert report_with_confirmation["ready_for_live_orders"] is True
     assert report_with_confirmation["summary"]["production_track"] == "accepted"
     assert report_with_confirmation["summary"]["external_pending_count"] == 0
+
+
+def test_completion_audit_rejects_generic_accepted_production_evidence_summary(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    evidence_path = _outside_repo_evidence_path(tmp_path, "generic-summary-production-evidence.json")
+    _write_production_evidence(evidence_path)
+    payload = json.loads(evidence_path.read_text(encoding="utf-8"))
+    payload["items"]["real_order_backend_handoff"]["evidence_summary"] = (
+        "Real order backend handoff accepted with sanitized operational evidence."
+    )
+    _write(evidence_path, json.dumps(payload, indent=2, sort_keys=True))
+
+    report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=evidence_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert report["ready_for_live_orders"] is False
+    assert "external_evidence_item_blocked:real_order_backend_handoff" in report["production_evidence"]["blockers"]
+    item = next(
+        item
+        for item in report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert item["missing_summary_terms"] == [
+        "HTTPS",
+        "mode=http / gateway mode=http / gateway_mode=http",
+        "token-present / token present / token_present",
+        "production_handoff_approved=true / production approval / approved production handoff",
+    ]
+    assert "external_evidence_summary_missing_required_term:https" in item["blockers"]
+    assert "external_evidence_summary_missing_required_term:mode_http" in item["blockers"]
+    assert "external_evidence_summary_missing_required_term:token_present" in item["blockers"]
+    assert "external_evidence_summary_missing_required_term:production_handoff_approved_true" in item["blockers"]
 
 
 def test_completion_audit_rejects_repo_local_production_evidence_file(tmp_path):

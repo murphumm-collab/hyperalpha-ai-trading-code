@@ -39,7 +39,10 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "productionEvidence.acceptedCount" in settings_source
     assert "readyForLiveOrders" in settings_source
     assert "artifactRefCount" in settings_source
+    assert "requiredSummaryTerms" in settings_source
+    assert "missingSummaryTerms" in settings_source
     assert "operatorGuidance" in settings_source
+    assert "evidence_summary" not in settings_source
     assert "production_evidence_file" not in settings_source
     assert "AI_TRADING_SIGNAL_GATEWAY_TOKEN" not in settings_source
     assert "DEEPSEEK_API_KEY" not in settings_source
@@ -49,7 +52,10 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "production_evidence" in helper_source
     assert "ready_for_live_orders" in helper_source
     assert "artifact_ref_count" in helper_source
+    assert "required_summary_terms" in helper_source
+    assert "missing_summary_terms" in helper_source
     assert "operator_guidance" in helper_source
+    assert "evidence_summary" not in helper_source
     assert "secret_values_returned" not in helper_source
     assert "production_evidence_file" not in helper_source
 
