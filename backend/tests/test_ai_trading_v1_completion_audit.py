@@ -91,6 +91,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading production evidence item IDs | Done |",
                 "| AI Trading production evidence path safety | Done |",
                 "| AI Trading production evidence note safety | Done |",
+                "| AI Trading production evidence initializer | Done |",
                 "| AI Trading env-check runtime context budget gate | Done |",
                 "| AI Trading runtime budget UI source guard | Done |",
                 "| AI Trading completion audit git governance gate | Done |",
@@ -226,6 +227,66 @@ def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
     statuses = {item["id"]: item["status"] for item in report["external_acceptance"]}
     assert statuses["real_order_backend_handoff"] == "pending_external_acceptance"
     assert statuses["real_exchange_execution"] == "out_of_local_v1_scope"
+
+
+def test_production_evidence_template_builder_uses_required_item_ids_without_secrets():
+    payload = completion_audit.build_external_acceptance_evidence_template()
+
+    assert payload["version"] == completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION
+    assert payload["generated_at"] is None
+    assert payload["secret_values_returned"] is False
+    assert set(payload["items"]) == {requirement.id for requirement in completion_audit.EXTERNAL_REQUIREMENTS}
+    assert all(item["status"] == "pending_external_acceptance" for item in payload["items"].values())
+    assert all(item["secret_values_returned"] is False for item in payload["items"].values())
+    assert completion_audit._secret_pattern_hits(payload) == []
+
+
+def test_production_evidence_initializer_writes_repo_external_pending_template(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    output_path = _outside_repo_evidence_path(tmp_path, "initialized-production-evidence.json")
+
+    init_report = completion_audit.write_external_acceptance_evidence_template(
+        output_path,
+        repo_root=tmp_path,
+    )
+    completion_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=output_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert init_report["created"] is True
+    assert init_report["ready_for_live_orders"] is False
+    assert init_report["production_evidence_ready"] is False
+    assert output_path.exists()
+    assert completion_report["local_v1_accepted"] is True
+    assert completion_report["ready_for_live_orders"] is False
+    assert completion_report["production_evidence"]["provided"] is True
+    assert completion_report["production_evidence"]["file_inside_repo"] is False
+    assert completion_report["production_evidence"]["accepted_count"] == 0
+    assert "external_evidence_generated_at_missing" in completion_report["production_evidence"]["blockers"]
+    assert "external_evidence_item_blocked:real_order_backend_handoff" in completion_report["production_evidence"]["blockers"]
+
+
+def test_production_evidence_initializer_refuses_repo_local_or_existing_outputs(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    repo_local_path = tmp_path / "ops-production-evidence.json"
+    existing_path = _outside_repo_evidence_path(tmp_path, "existing-production-evidence.json")
+    _write(existing_path, "{}")
+
+    repo_local_report = completion_audit.write_external_acceptance_evidence_template(
+        repo_local_path,
+        repo_root=tmp_path,
+    )
+    existing_report = completion_audit.write_external_acceptance_evidence_template(
+        existing_path,
+        repo_root=tmp_path,
+    )
+
+    assert repo_local_report["created"] is False
+    assert "external_evidence_output_must_be_outside_repo" in repo_local_report["blockers"]
+    assert existing_report["created"] is False
+    assert "external_evidence_output_exists" in existing_report["blockers"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_db_gate_is_missing(tmp_path):

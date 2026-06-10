@@ -72,6 +72,16 @@ PLACEHOLDER_EVIDENCE_VALUES = {
     "todo",
     "unknown",
 }
+PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
+    "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
+    "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
+    "Use only documented evidence schema fields. Allowed root fields are version, generated_at, secret_values_returned, notes, and items. Allowed item fields are status, validated_at, validated_by, evidence_summary, artifact_refs, and secret_values_returned. Unknown root or item fields are rejected.",
+    "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
+    "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
+    "generated_at and every item validated_at must be timezone-aware ISO-8601 timestamps, for example 2026-06-10T12:00:00Z; generated_at must not be earlier than any item validated_at.",
+    "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
+    "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
+)
 SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
@@ -153,6 +163,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence item IDs | Done |",
             "| AI Trading production evidence path safety | Done |",
             "| AI Trading production evidence note safety | Done |",
+            "| AI Trading production evidence initializer | Done |",
             "| AI Trading env-check runtime context budget gate | Done |",
             "| AI Trading runtime budget UI source guard | Done |",
             "| AI Trading completion audit git governance gate | Done |",
@@ -707,6 +718,78 @@ def _validate_external_evidence_file(
     }
 
 
+def build_external_acceptance_evidence_template() -> dict[str, Any]:
+    """Build a pending, secret-free external production evidence skeleton."""
+    return {
+        "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
+        "generated_at": None,
+        "secret_values_returned": False,
+        "notes": list(PRODUCTION_EVIDENCE_TEMPLATE_NOTES),
+        "items": {
+            requirement.id: {
+                "status": "pending_external_acceptance",
+                "validated_at": None,
+                "validated_by": None,
+                "evidence_summary": "",
+                "artifact_refs": [],
+                "secret_values_returned": False,
+            }
+            for requirement in EXTERNAL_REQUIREMENTS
+        },
+    }
+
+
+def write_external_acceptance_evidence_template(
+    output_path: Path | str,
+    *,
+    repo_root: Path | str,
+    overwrite: bool = False,
+) -> dict[str, Any]:
+    """Create a repo-external evidence skeleton and immediately validate it."""
+    root = Path(repo_root).resolve()
+    destination = Path(output_path).expanduser().resolve()
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if _path_is_relative_to(destination, root):
+        blockers.append("external_evidence_output_must_be_outside_repo")
+    if destination.exists() and not overwrite:
+        blockers.append("external_evidence_output_exists")
+    if destination.suffix.lower() != ".json":
+        warnings.append("external_evidence_output_should_use_json_suffix")
+
+    if blockers:
+        return {
+            "created": False,
+            "path": str(destination),
+            "repo_root": str(root),
+            "blockers": blockers,
+            "warnings": warnings,
+            "ready_for_live_orders": False,
+        }
+
+    payload = build_external_acceptance_evidence_template()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    validation = _validate_external_evidence_file(destination, repo_root=root)
+    return {
+        "created": True,
+        "path": str(destination),
+        "repo_root": str(root),
+        "blockers": [],
+        "warnings": warnings,
+        "item_ids": [requirement.id for requirement in EXTERNAL_REQUIREMENTS],
+        "production_evidence_ready": validation["ready"],
+        "production_evidence_blockers": validation["blockers"],
+        "ready_for_live_orders": False,
+        "next_actions": [
+            "Fill this file only after real external acceptance is completed, then update generated_at and each accepted item.",
+            "Keep the filled file outside the code repository or in a private ops evidence location.",
+            "Run ai_trading_v1_completion_audit.py with --production-evidence-file against the filled file before any production cutover.",
+        ],
+    }
+
+
 def build_completion_report(
     repo_root: Path | str,
     *,
@@ -801,7 +884,28 @@ def main() -> int:
             "Without this explicit flag, accepted evidence is reported but live-order readiness remains false."
         ),
     )
+    parser.add_argument(
+        "--init-production-evidence-file",
+        help=(
+            "Create a pending external production evidence skeleton at this path and exit. "
+            "The output path must be outside the code repository unless you are editing the checked-in template manually."
+        ),
+    )
+    parser.add_argument(
+        "--overwrite-production-evidence-file",
+        action="store_true",
+        help="Allow --init-production-evidence-file to replace an existing output file.",
+    )
     args = parser.parse_args()
+
+    if args.init_production_evidence_file:
+        init_report = write_external_acceptance_evidence_template(
+            args.init_production_evidence_file,
+            repo_root=args.repo_root,
+            overwrite=args.overwrite_production_evidence_file,
+        )
+        print(json.dumps(init_report, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if init_report["created"] else 1
 
     report = build_completion_report(
         args.repo_root,
