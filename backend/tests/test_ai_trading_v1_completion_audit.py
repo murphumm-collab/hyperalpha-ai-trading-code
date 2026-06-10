@@ -60,6 +60,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_cutover_window_guard_marker: bool = True,
     include_production_evidence_run_id_guard_marker: bool = True,
     include_production_evidence_run_id_traceability_marker: bool = True,
+    include_production_evidence_item_artifact_traceability_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -134,6 +135,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_run_id_traceability_marker = (
         "| AI Trading production evidence run id traceability | Done |"
     ) if include_production_evidence_run_id_traceability_marker else ""
+    production_evidence_item_artifact_traceability_marker = (
+        "| AI Trading production evidence item artifact traceability | Done |"
+    ) if include_production_evidence_item_artifact_traceability_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -226,7 +230,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Run ID Traceability Accepted / Remote Push Skipped",
+                "Local V1 Evidence Item Artifact Traceability Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -256,6 +260,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_cutover_window_guard_marker,
                 production_evidence_run_id_guard_marker,
                 production_evidence_run_id_traceability_marker,
+                production_evidence_item_artifact_traceability_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -914,6 +919,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_run_i
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence run id traceability | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_item_artifact_traceability_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_item_artifact_traceability_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence item artifact traceability | Done |"
         in status_evidence["missing_phrases"]
     )
 
@@ -1606,6 +1629,30 @@ def test_completion_audit_rejects_refs_that_do_not_contain_evidence_run_id(tmp_p
         if item["id"] == "real_order_backend_handoff"
     )
     assert "external_evidence_artifact_ref_missing_run_id" in order_backend_item["blockers"]
+
+
+def test_completion_audit_rejects_refs_that_do_not_contain_item_id(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    artifact_missing_item_id_path = tmp_path / "artifact-ref-missing-item-id-evidence.json"
+    _write_production_evidence(
+        artifact_missing_item_id_path,
+        artifact_ref_override="ops://ai-trading/ops-20260610-cutover-001/generic-acceptance",
+    )
+
+    report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=artifact_missing_item_id_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert report["ready_for_live_orders"] is False
+    order_backend_item = next(
+        item
+        for item in report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_artifact_ref_missing_item_id" in order_backend_item["blockers"]
+    assert "external_evidence_artifact_ref_missing_run_id" not in order_backend_item["blockers"]
 
 
 def test_completion_audit_rejects_missing_or_unsafe_cutover_approval_ref(tmp_path):

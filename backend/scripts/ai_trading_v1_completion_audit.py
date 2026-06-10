@@ -103,11 +103,11 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Use only documented schema fields. Allowed root fields: version, evidence_run_id, generated_at, expires_at, cutover_window, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
-    f"evidence_run_id must be a unique sanitized operations run id for this production acceptance attempt, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, using only letters, numbers, dot, underscore, colon, or hyphen; cutover_approval_ref and every item artifact_ref must contain this same run id.",
+    f"evidence_run_id must be a unique sanitized operations run id for this production acceptance attempt, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, letters/numbers/dot/underscore/colon/hyphen only; cutover_approval_ref must include it, and each item artifact_ref must include it plus the item id.",
     f"generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >{MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS}s in the future; item validation cannot be older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at; expires_at must be after generated_at, future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
     f"cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window and include evidence_run_id.",
-    "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, include evidence_run_id, and do not embed credentials or point to localhost/private-network URLs.",
+    "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, include evidence_run_id plus the item id, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
 )
@@ -116,7 +116,7 @@ PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS = (
     f"validated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future and not older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at",
     "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
     "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
-    "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id",
+    "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id plus the item id",
     "secret_values_returned=false",
 )
 PRODUCTION_EVIDENCE_COMMON_FORBIDDEN = (
@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Run ID Traceability Accepted / Remote Push Skipped",
+            "Local V1 Evidence Item Artifact Traceability Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -305,6 +305,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence cutover window guard | Done |",
             "| AI Trading production evidence run id guard | Done |",
             "| AI Trading production evidence run id traceability | Done |",
+            "| AI Trading production evidence item artifact traceability | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -587,18 +588,26 @@ def _secret_pattern_hits(value: Any) -> list[str]:
     return hits
 
 
-def _artifact_ref_blockers(ref: Any, *, evidence_run_id: str | None = None) -> list[str]:
+def _artifact_ref_blockers(
+    ref: Any,
+    *,
+    evidence_run_id: str | None = None,
+    item_id: str | None = None,
+) -> list[str]:
     if not isinstance(ref, str) or not ref.strip():
         return ["external_evidence_artifact_ref_must_be_non_empty_string"]
-    if len(ref.strip()) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS:
+    ref_text = ref.strip()
+    if len(ref_text) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS:
         return ["external_evidence_artifact_ref_too_long"]
-    if _secret_pattern_hits(ref):
+    if _secret_pattern_hits(ref_text):
         return ["external_evidence_artifact_ref_secret_pattern_detected"]
 
-    parsed = urlparse(ref)
+    parsed = urlparse(ref_text)
     blockers: list[str] = []
-    if evidence_run_id and evidence_run_id not in ref:
+    if evidence_run_id and evidence_run_id not in ref_text:
         blockers.append("external_evidence_artifact_ref_missing_run_id")
+    if item_id and item_id not in ref_text:
+        blockers.append("external_evidence_artifact_ref_missing_item_id")
     if parsed.scheme not in SAFE_ARTIFACT_REF_SCHEMES:
         blockers.append("external_evidence_artifact_ref_scheme_not_allowed")
     if parsed.username or parsed.password:
@@ -872,7 +881,7 @@ def _validate_external_evidence_item(
         if len(artifact_refs) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS:
             blockers.append("external_evidence_artifact_refs_too_many")
         for ref in artifact_refs:
-            blockers.extend(_artifact_ref_blockers(ref, evidence_run_id=evidence_run_id))
+            blockers.extend(_artifact_ref_blockers(ref, evidence_run_id=evidence_run_id, item_id=item_id))
     if item.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
 

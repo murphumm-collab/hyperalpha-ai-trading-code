@@ -274,7 +274,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
         "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future and not older than 7 days at generated_at",
         "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
         "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
-        "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id",
+        "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id plus the item id",
         "secret_values_returned=false",
     ]
     assert explain["schema"]["required_item_ids"] == [
