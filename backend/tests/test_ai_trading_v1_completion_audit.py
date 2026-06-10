@@ -90,7 +90,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Runtime Mirror Freshness Gate Accepted / Remote Push Skipped",
+                "Local V1 Agent Session Context Secret Rejection Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -104,6 +104,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading aggregate production evidence initializer gate | Done |",
                 "| AI Trading runtime mirror freshness gate | Done |",
                 "| AI Trading runtime readiness cold-start retry | Done |",
+                "| AI Trading agent-session manual context secret rejection | Done |",
                 "| AI Trading env-check runtime context budget gate | Done |",
                 "| AI Trading runtime budget UI source guard | Done |",
                 "| AI Trading completion audit git governance gate | Done |",

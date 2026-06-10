@@ -3189,6 +3189,48 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
     assert "archived" in save_to_archived.json()["detail"]
 
 
+def test_ai_trading_agent_session_manual_context_rejects_sensitive_values(tmp_path):
+    client = _build_client(tmp_path)
+
+    rejected_create = client.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": "session:manual-sensitive",
+            "name": "Manual Sensitive Session",
+            "context_summary": "api_key=should-not-be-stored token=should-not-be-stored",
+        },
+    )
+    assert rejected_create.status_code == 400
+    assert "context_summary must not contain" in rejected_create.json()["detail"]
+
+    created = client.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": "session:manual-safe",
+            "name": "Manual Safe Session",
+            "context_summary": "Safe BTC risk notes only.",
+        },
+    )
+    assert created.status_code == 200
+
+    rejected_update = client.patch(
+        "/api/ai-trading/agent-sessions/session:manual-safe",
+        json={
+            "context_summary": "authorization=Bearer should-not-be-stored private_key=blocked",
+        },
+    )
+    assert rejected_update.status_code == 400
+    assert "context_summary must not contain" in rejected_update.json()["detail"]
+
+    context = client.get("/api/ai-trading/agent-sessions/session:manual-safe/context")
+    assert context.status_code == 200
+    agent_session = context.json()["context"]["agent_session"]
+    assert agent_session["context_summary"] == "Safe BTC risk notes only."
+    serialized = json.dumps(context.json(), ensure_ascii=False).lower()
+    assert "should-not-be-stored" not in serialized
+    assert "private_key" not in serialized
+
+
 def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     market_universe_service.clear_ai_trading_market_universe_cache()

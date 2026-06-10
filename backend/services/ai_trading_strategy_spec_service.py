@@ -556,11 +556,16 @@ def _new_agent_session_id(spec: Dict[str, Any]) -> str:
     return f"ait:{symbol}:{uuid.uuid4().hex[:12]}"
 
 
-def _clean_agent_context_summary(value: Any) -> Optional[str]:
+def _clean_agent_context_summary(value: Any, *, reject_sensitive: bool = False) -> Optional[str]:
     summary = _clean_text(value, AGENT_CONTEXT_SUMMARY_MAX_CHARS)
     if not summary:
         return None
     if SENSITIVE_AI_TRADING_KEY_PATTERN.search(summary):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading agent session context_summary must not contain "
+                "API keys, tokens, secrets, private keys, passwords, or authorization headers"
+            )
         return "[redacted_sensitive_context]"
     return summary
 
@@ -729,7 +734,7 @@ def create_ai_trading_agent_session(
         user_id=user_id,
         agent_session_id=resolved_agent_session_id,
         name=_clean_text(name, 120) or "AI Trading Agent Session",
-        context_summary=_clean_agent_context_summary(context_summary),
+        context_summary=_clean_agent_context_summary(context_summary, reject_sensitive=True),
         status=AGENT_SESSION_ACTIVE_STATUS,
     )
     db.add(record)
@@ -761,7 +766,7 @@ def update_ai_trading_agent_session(
             raise ValueError("AI Trading agent session name is required")
         record.name = resolved_name
     if context_summary is not None:
-        record.context_summary = _clean_agent_context_summary(context_summary)
+        record.context_summary = _clean_agent_context_summary(context_summary, reject_sensitive=True)
 
     db.query(AiTradingStrategySpecRecord).filter(
         AiTradingStrategySpecRecord.user_id == user_id,

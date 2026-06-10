@@ -159,10 +159,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the local runtime mirror freshness gate as accepted and remote push as skipped.",
+        description="Feature status marks the local agent-session context secret-rejection gate as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Runtime Mirror Freshness Gate Accepted / Remote Push Skipped",
+            "Local V1 Agent Session Context Secret Rejection Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -176,6 +176,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading runtime mirror freshness gate | Done |",
             "| AI Trading runtime readiness cold-start retry | Done |",
+            "| AI Trading agent-session manual context secret rejection | Done |",
             "| AI Trading env-check runtime context budget gate | Done |",
             "| AI Trading runtime budget UI source guard | Done |",
             "| AI Trading completion audit git governance gate | Done |",
