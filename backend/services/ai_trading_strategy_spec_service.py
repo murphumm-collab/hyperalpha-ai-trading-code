@@ -113,6 +113,7 @@ SENSITIVE_AI_TRADING_KEY_PATTERN = re.compile(
     r"(api[_-]?key|secret|token|private[_-]?key|password|authorization|bearer)",
     re.IGNORECASE,
 )
+AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS = {"context_summary", "agent_context_summary"}
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
     r"direct\s+order|立即下单|直接下单|市价单|限价单)",
@@ -472,7 +473,10 @@ def _redact_sensitive_payload(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: Dict[str, Any] = {}
         for key, child in value.items():
-            if SENSITIVE_AI_TRADING_KEY_PATTERN.search(str(key)):
+            key_text = str(key)
+            if key_text in AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS:
+                redacted[key] = _clean_agent_context_summary(child)
+            elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
                 redacted[key] = "***"
             else:
                 redacted[key] = _redact_sensitive_payload(child)
@@ -588,6 +592,7 @@ def _record_agent_session_payload(
     context_summary = getattr(record, "agent_context_summary", None)
     if not context_summary and session_record is not None:
         context_summary = session_record.context_summary
+    context_summary = _clean_agent_context_summary(context_summary)
     name = getattr(record, "agent_session_name", None)
     if session_record is not None:
         name = session_record.name or name
@@ -605,11 +610,12 @@ def _record_agent_session_payload(
 def serialize_ai_trading_agent_session_record(
     record: AiTradingAgentSessionRecord,
 ) -> Dict[str, Any]:
+    context_summary = _clean_agent_context_summary(record.context_summary)
     return {
         "id": record.agent_session_id,
         "name": record.name,
-        "context_summary": record.context_summary,
-        **_agent_context_summary_budget_fields(record.context_summary),
+        "context_summary": context_summary,
+        **_agent_context_summary_budget_fields(context_summary),
         "status": record.status,
         "created_at": _record_timestamp(record.created_at),
         "updated_at": _record_timestamp(record.updated_at),
@@ -3194,6 +3200,7 @@ def list_ai_trading_agent_sessions(
         reverse=True,
     )
     for session in sessions:
+        session["context_summary"] = _clean_agent_context_summary(session.get("context_summary"))
         session.update(_agent_context_summary_budget_fields(session.get("context_summary")))
     return sessions[:max_limit]
 
@@ -3239,7 +3246,7 @@ def build_ai_trading_agent_session_context(
         raise ValueError("AI Trading agent session not found")
 
     if session_record:
-        session_context_summary = session_record.context_summary
+        session_context_summary = _clean_agent_context_summary(session_record.context_summary)
         session_payload = {
             "id": session_record.agent_session_id,
             "name": session_record.name,
@@ -3255,6 +3262,7 @@ def build_ai_trading_agent_session_context(
     context_summary = session_payload.get("context_summary")
     if not context_summary and strategy_records:
         context_summary = strategy_records[0].agent_context_summary
+    context_summary = _clean_agent_context_summary(context_summary)
 
     return {
         "agent_session": {

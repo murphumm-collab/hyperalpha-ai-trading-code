@@ -2000,6 +2000,121 @@ def test_ai_trading_strategy_spec_detail_redacts_sensitive_fields_without_mutati
     assert "secret-key" not in str(approved_spec)
 
 
+def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_values_without_mutating_rows(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    bob = clients["bob"]
+    spec, event = _create_approved_signal_event(
+        alice,
+        agent_session_id="session:legacy-redaction",
+        agent_session_name="Legacy Redaction Agent",
+        agent_context_summary="Safe context before legacy pollution.",
+    )
+
+    blocked = alice.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest_legacy_redaction"},
+    )
+    assert blocked.status_code == 409
+
+    session = alice._ai_trading_session_factory()
+    raw_markers = [
+        "legacy-session-row-key",
+        "legacy-spec-row-token",
+        "legacy-spec-json-key",
+        "legacy-event-row-key",
+        "legacy-signal-json-header",
+        "legacy-attempt-row-secret",
+    ]
+    try:
+        session_record = session.query(AiTradingAgentSessionRecord).filter(
+            AiTradingAgentSessionRecord.agent_session_id == "session:legacy-redaction",
+        ).one()
+        spec_row = session.query(AiTradingStrategySpecRecord).filter(
+            AiTradingStrategySpecRecord.id == spec["id"],
+        ).one()
+        event_row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"],
+        ).one()
+        attempt_row = session.query(AiTradingSignalHandoffAttemptRecord).filter(
+            AiTradingSignalHandoffAttemptRecord.signal_event_id == event["id"],
+        ).one()
+
+        spec_json = json.loads(spec_row.spec_json)
+        spec_json.setdefault("agent_session", {})["context_summary"] = "api_key=legacy-spec-json-key"
+        signal_json = json.loads(event_row.signal_json)
+        signal_json.setdefault("agent_session", {})[
+            "context_summary"
+        ] = "authorization=Bearer legacy-signal-json-header"
+
+        session_record.context_summary = "api_key=legacy-session-row-key"
+        spec_row.agent_context_summary = "token=legacy-spec-row-token"
+        spec_row.spec_json = json.dumps(spec_json)
+        event_row.agent_context_summary = "private_key=legacy-event-row-key"
+        event_row.signal_json = json.dumps(signal_json)
+        attempt_row.agent_context_summary = "secret=legacy-attempt-row-secret"
+        session.commit()
+
+        assert "legacy-session-row-key" in session_record.context_summary
+        assert "legacy-spec-row-token" in spec_row.agent_context_summary
+        assert "legacy-spec-json-key" in spec_row.spec_json
+        assert "legacy-event-row-key" in event_row.agent_context_summary
+        assert "legacy-signal-json-header" in event_row.signal_json
+        assert "legacy-attempt-row-secret" in attempt_row.agent_context_summary
+    finally:
+        session.close()
+
+    sessions = alice.get("/api/ai-trading/agent-sessions")
+    assert sessions.status_code == 200
+    session_payload = next(
+        row for row in sessions.json()["agent_sessions"] if row["id"] == "session:legacy-redaction"
+    )
+    assert session_payload["context_summary"] == "[redacted_sensitive_context]"
+
+    spec_list = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:legacy-redaction")
+    assert spec_list.status_code == 200
+    assert spec_list.json()["specs"][0]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+
+    spec_detail = alice.get(f"/api/ai-trading/strategy-specs/{spec['id']}")
+    assert spec_detail.status_code == 200
+    spec_detail_payload = spec_detail.json()["spec_record"]
+    assert spec_detail_payload["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+    assert spec_detail_payload["spec"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+
+    signal_list = alice.get("/api/ai-trading/signal-events?agent_session_id=session:legacy-redaction")
+    assert signal_list.status_code == 200
+    assert signal_list.json()["signal_events"][0]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+
+    signal_detail = alice.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert signal_detail.status_code == 200
+    signal_detail_payload = signal_detail.json()["signal_event"]
+    assert signal_detail_payload["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+    assert signal_detail_payload["signal"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+
+    attempts = alice.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    assert attempts.json()["attempts"][0]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+
+    context = alice.get("/api/ai-trading/agent-sessions/session:legacy-redaction/context")
+    assert context.status_code == 200
+    assert context.json()["context"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+
+    for payload in [
+        sessions.json(),
+        spec_list.json(),
+        spec_detail.json(),
+        signal_list.json(),
+        signal_detail.json(),
+        attempts.json(),
+        context.json(),
+    ]:
+        serialized = json.dumps(payload)
+        for marker in raw_markers:
+            assert marker not in serialized
+
+    assert bob.get("/api/ai-trading/agent-sessions/session:legacy-redaction/context").status_code == 404
+
+
 def test_ai_trading_runtime_summarizes_strategy_backtest_evidence(tmp_path):
     clients = _build_clients(tmp_path, usernames=("alice", "bob"))
     alice = clients["alice"]
