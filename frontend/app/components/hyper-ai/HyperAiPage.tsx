@@ -347,6 +347,7 @@ interface AiTradingRuntimeStatus {
     source?: string
     provider_supported?: boolean
     blockers?: string[]
+    next_actions?: string[]
     credential_present?: boolean
     credential_value_returned?: boolean
   }
@@ -1208,6 +1209,7 @@ export default function HyperAiPage() {
   const aiTradingModelAdjustment = aiTradingRuntime?.model_adjustment
   const aiTradingAgentContextBudget = aiTradingRuntime?.agent_sessions?.context_budget
   const aiTradingModelAdjustmentBlockers = aiTradingModelAdjustment?.blockers || []
+  const aiTradingModelAdjustmentNextActions = aiTradingModelAdjustment?.next_actions || []
   const aiTradingGatewayReady = Boolean(
     aiTradingRuntime?.gateway?.enabled &&
     aiTradingRuntime.gateway?.url_configured &&
@@ -1543,6 +1545,9 @@ export default function HyperAiPage() {
   const modelAdjustmentBlockerSummary = (): string => (
     Array.from(new Set(aiTradingModelAdjustmentBlockers.map(modelAdjustmentBlockerLabel))).join(', ')
   )
+  const modelAdjustmentNextActionSummary = (): string => (
+    Array.from(new Set(aiTradingModelAdjustmentNextActions.map(action => String(action).trim()).filter(Boolean))).slice(0, 2).join(' ')
+  )
   const modelAdjustmentStatusLabel = (): string => {
     if (aiTradingModelAdjustmentReady) {
       return t('hyperAi.aiTradingModelReady', 'Ready')
@@ -1580,10 +1585,18 @@ export default function HyperAiPage() {
   }
   const modelAdjustmentReadinessDetailLabel = (): string => {
     const identity = modelAdjustmentDetailLabel()
+    const nextAction = modelAdjustmentNextActionSummary()
+    if (nextAction) {
+      return nextAction
+    }
     const blockerSummary = modelAdjustmentBlockerSummary()
     return blockerSummary ? `${identity} / ${blockerSummary}` : identity
   }
   const modelAdjustmentUnavailableTitle = (): string => {
+    const nextAction = modelAdjustmentNextActionSummary()
+    if (nextAction) {
+      return nextAction
+    }
     const blockerSummary = modelAdjustmentBlockerSummary()
     return blockerSummary
       ? t('hyperAi.aiTradingModelAdjustmentBlockedBy', 'Model adjustment blocked: {{summary}}', {

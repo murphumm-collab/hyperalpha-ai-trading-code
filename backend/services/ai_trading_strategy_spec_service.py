@@ -3884,6 +3884,26 @@ def _summarize_strategy_backtest_evidence(
     return summary
 
 
+def _model_adjustment_next_actions(blockers: List[str]) -> List[str]:
+    labels = {
+        "model_profile_not_configured": (
+            "Create a Hyper AI model profile with DeepSeek or Qwen before model-adjust."
+        ),
+        "model_profile_credential_missing": (
+            "Add the user's API key to the Hyper AI profile; do not paste keys into strategy prompts or context."
+        ),
+        "model_profile_credential_unreadable": (
+            "Re-save the user-provided API key in the Hyper AI profile before model-adjust."
+        ),
+        "model_provider_not_deepseek_or_qwen": (
+            "Switch the Hyper AI profile provider to DeepSeek or Qwen for AI Trading V1."
+        ),
+        "model_name_missing": "Select a model name in the Hyper AI profile before model-adjust.",
+        "model_base_url_missing": "Set the provider endpoint in the Hyper AI profile before model-adjust.",
+    }
+    return list(dict.fromkeys(labels[blocker] for blocker in blockers if blocker in labels))
+
+
 def _summarize_model_adjustment_readiness(db: Session, *, user_id: int) -> Dict[str, Any]:
     blockers: List[str] = []
     profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).first()
@@ -3930,6 +3950,7 @@ def _summarize_model_adjustment_readiness(db: Session, *, user_id: int) -> Dict[
         "source": "hyper_ai_profile",
         "provider_supported": provider_supported,
         "blockers": blockers,
+        "next_actions": _model_adjustment_next_actions(blockers),
         "credential_present": credential_present,
         "credential_value_returned": False,
     }

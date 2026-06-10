@@ -316,6 +316,9 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     )
     assert runtime.json()["model_adjustment"]["ready"] is False
     assert runtime.json()["model_adjustment"]["blockers"] == ["model_profile_not_configured"]
+    assert runtime.json()["model_adjustment"]["next_actions"] == [
+        "Create a Hyper AI model profile with DeepSeek or Qwen before model-adjust."
+    ]
     assert runtime.json()["handoff_attempts"] == {
         "total": 0,
         "by_result": {},
@@ -821,11 +824,36 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
     assert unsupported_model["provider"] == "openai"
     assert unsupported_model["provider_supported"] is False
     assert "model_provider_not_deepseek_or_qwen" in unsupported_model["blockers"]
+    assert unsupported_model["next_actions"] == [
+        "Switch the Hyper AI profile provider to DeepSeek or Qwen for AI Trading V1."
+    ]
     assert unsupported_model["credential_present"] is True
     assert unsupported_model["credential_value_returned"] is False
     unsupported_serialized = str(unsupported_runtime.json())
     assert "secret-openai-key" not in unsupported_serialized
     assert "api.openai.example" not in unsupported_serialized
+
+    session = session_factory()
+    try:
+        profile = session.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).one()
+        profile.llm_provider = "qwen"
+        profile.llm_base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        profile.llm_model = "qwen-plus"
+        profile.llm_api_key_encrypted = ""
+        session.commit()
+    finally:
+        session.close()
+
+    missing_key_runtime = client.get("/api/ai-trading/runtime")
+    assert missing_key_runtime.status_code == 200
+    missing_key_model = missing_key_runtime.json()["model_adjustment"]
+    assert missing_key_model["ready"] is False
+    assert missing_key_model["blockers"] == ["model_profile_credential_missing"]
+    assert missing_key_model["next_actions"] == [
+        "Add the user's API key to the Hyper AI profile; do not paste keys into strategy prompts or context."
+    ]
+    missing_key_serialized = str(missing_key_runtime.json())
+    assert "dashscope.aliyuncs.com" not in missing_key_serialized
 
     session = session_factory()
     try:
@@ -849,6 +877,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
         "source": "hyper_ai_profile",
         "provider_supported": True,
         "blockers": [],
+        "next_actions": [],
         "credential_present": True,
         "credential_value_returned": False,
     }
