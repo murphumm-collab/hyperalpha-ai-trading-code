@@ -168,7 +168,7 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
             continue
         items[item_id] = {
             "status": "accepted",
-            "validated_at": "2026-06-10T12:00:00Z",
+            "validated_at": "2099-06-10T12:00:00Z",
             "validated_by": "ops-admin",
             "evidence_summary": summaries[item_id],
             "artifact_refs": [f"ops://ai-trading/{item_id}/acceptance"],
@@ -180,8 +180,8 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
         )
     return {
         "version": "hyperalpha.ai_trading.external_acceptance.v1",
-        "generated_at": "2026-06-10T12:05:00Z",
-        "expires_at": "2099-06-10T12:05:00Z",
+        "generated_at": "2099-06-10T12:05:00Z",
+        "expires_at": "2099-06-11T12:05:00Z",
         "secret_values_returned": False,
         "items": items,
     }
@@ -230,8 +230,9 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["production_evidence"]["required_count"] == 7
     assert explain["production_evidence"]["expires_at"] is None
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
+    assert explain["schema"]["max_evidence_validity_days"] == 7
     assert (
-        "expires_at=timezone-aware ISO-8601 timestamp after generated_at and in the future"
+        "expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within 7 days"
         in explain["schema"]["required_root_fields"]
     )
     assert explain["schema"]["required_item_fields"] == [

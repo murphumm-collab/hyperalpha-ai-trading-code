@@ -2276,6 +2276,9 @@ export default function SettingsPage() {
                       <div className="truncate text-xs text-muted-foreground" title={aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}>
                         {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}
                       </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceExplain.maxEvidenceValidityDays || '-'}d
+                      </div>
 
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                         {aiTradingEvidenceExplain.items.map((item) => (
@@ -2414,6 +2417,9 @@ export default function SettingsPage() {
                               </div>
                               <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}>
                                 {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceValidation.maxEvidenceValidityDays || '-'}d
                               </div>
                             </div>
                             <div className="rounded-md border p-3">

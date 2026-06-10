@@ -24,7 +24,7 @@ import ipaddress
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -56,10 +56,11 @@ MAX_PRODUCTION_EVIDENCE_NOTE_CHARS = 300
 MAX_PRODUCTION_EVIDENCE_NOTES = 12
 MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS = 300
 MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS = 5
+MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS = 7
 PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS = (
     f"version={EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION}",
     "generated_at=timezone-aware ISO-8601 timestamp",
-    "expires_at=timezone-aware ISO-8601 timestamp after generated_at and in the future",
+    f"expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days",
     "secret_values_returned=false",
     "items=documented external acceptance item ids only",
 )
@@ -89,7 +90,7 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
-    "generated_at, expires_at, and every item validated_at must be timezone-aware ISO-8601 timestamps, for example 2026-06-10T12:00:00Z; generated_at must not be earlier than any item validated_at, and expires_at must be after generated_at and still in the future.",
+    f"generated_at, expires_at, and every item validated_at must be timezone-aware ISO-8601 timestamps; generated_at must not be earlier than item validated_at, and expires_at must be after generated_at, still in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
@@ -269,7 +270,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Expiry Gate Accepted / Remote Push Skipped",
+            "Local V1 Evidence Expiry Window Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -281,6 +282,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence note safety | Done |",
             "| AI Trading production evidence summary terms | Done |",
             "| AI Trading production evidence expiry gate | Done |",
+            "| AI Trading production evidence expiry window | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -818,6 +820,12 @@ def _validate_external_evidence_payload(
     blockers.extend(expires_at_blockers)
     if generated_at_utc is not None and expires_at_utc is not None and expires_at_utc <= generated_at_utc:
         blockers.append("external_evidence_expires_at_not_after_generated_at")
+    if (
+        generated_at_utc is not None
+        and expires_at_utc is not None
+        and expires_at_utc > generated_at_utc + timedelta(days=MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS)
+    ):
+        blockers.append("external_evidence_expires_at_too_far")
     if expires_at_utc is not None and expires_at_utc <= datetime.now(timezone.utc):
         blockers.append("external_evidence_expired")
     if payload.get("secret_values_returned") is not False:
@@ -1067,6 +1075,7 @@ def _build_production_evidence_explain_from_report(
             "max_note_chars": MAX_PRODUCTION_EVIDENCE_NOTE_CHARS,
             "max_artifact_refs_per_item": MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS,
             "max_artifact_ref_chars": MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS,
+            "max_evidence_validity_days": MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS,
             "summary_chars": {
                 "min": MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
                 "max": MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
