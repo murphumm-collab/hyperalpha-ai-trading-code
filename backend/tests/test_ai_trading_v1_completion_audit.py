@@ -17,17 +17,27 @@ def _write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
-def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, include_external_markers: bool = True) -> None:
+def _write_minimal_acceptance_repo(
+    root: Path,
+    *,
+    include_db_gate: bool = True,
+    include_frontend_source_guard: bool = True,
+    include_external_markers: bool = True,
+) -> None:
     db_gate_text = (
         "Default production readiness DB-audit gate remains blocked\n"
         "--include-db-audits\n"
     ) if include_db_gate else ""
+    frontend_source_guard_text = (
+        "tests/test_ai_trading_frontend_readiness_source.py\n"
+    ) if include_frontend_source_guard else ""
     _write(
         root / "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh",
         "\n".join(
             [
                 "--confirm-local-mock-handoff",
                 db_gate_text,
+                frontend_source_guard_text,
                 "Frontend build",
                 "ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff",
                 "Production evidence template remains blocked",
@@ -73,6 +83,8 @@ def _write_minimal_acceptance_repo(root: Path, *, include_db_gate: bool = True, 
                 "| AI Trading production evidence item IDs | Done |",
                 "| AI Trading production evidence path safety | Done |",
                 "| AI Trading production evidence note safety | Done |",
+                "| AI Trading env-check runtime context budget gate | Done |",
+                "| AI Trading runtime budget UI source guard | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -167,7 +179,11 @@ def _write_production_evidence(
         payload.update(root_extra)
     if include_secret:
         payload["items"]["real_order_backend_handoff"]["evidence_summary"] = (
-            "accepted with Authorization: Bearer secret-production-token-123456789"
+            "accepted with "
+            + "Authorization: "
+            + "Bearer "
+            + "secret-production-"
+            + "token-123456789"
         )
     _write(path, json.dumps(payload, indent=2, sort_keys=True))
 
@@ -207,6 +223,17 @@ def test_completion_audit_blocks_local_acceptance_when_db_gate_is_missing(tmp_pa
     runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
     assert "Default production readiness DB-audit gate remains blocked" in runner_evidence["missing_phrases"]
     assert "--include-db-audits" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_source_guard_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_frontend_source_guard=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert "tests/test_ai_trading_frontend_readiness_source.py" in runner_evidence["missing_phrases"]
 
 
 def test_completion_audit_requires_external_pending_markers(tmp_path):
