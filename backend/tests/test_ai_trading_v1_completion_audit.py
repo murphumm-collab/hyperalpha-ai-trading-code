@@ -47,6 +47,10 @@ def _write_minimal_acceptance_repo(
                 "codex/ai-agent-multitenant-foundation",
                 "ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff",
                 "Production evidence template remains blocked",
+                "Production evidence initializer gate",
+                "--init-production-evidence-file",
+                "production_evidence_initializer_gate",
+                "real_order_backend_blocked",
                 "--production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production",
             ]
         ),
@@ -92,6 +96,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading production evidence path safety | Done |",
                 "| AI Trading production evidence note safety | Done |",
                 "| AI Trading production evidence initializer | Done |",
+                "| AI Trading aggregate production evidence initializer gate | Done |",
                 "| AI Trading env-check runtime context budget gate | Done |",
                 "| AI Trading runtime budget UI source guard | Done |",
                 "| AI Trading completion audit git governance gate | Done |",

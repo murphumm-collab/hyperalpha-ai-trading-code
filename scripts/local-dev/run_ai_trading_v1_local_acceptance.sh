@@ -21,6 +21,7 @@ Runs the AI Trading V1 local acceptance gate:
   - local V1 completion boundary audit must pass
   - local completion summary gate must confirm local accepted, live orders false, and Git governance accepted
   - production completion boundary audit must stay blocked
+  - production evidence initializer gate must create repo-external pending evidence and keep live orders false
   - production evidence template must stay blocked
   - frontend production build
   - local runtime readiness check
@@ -123,6 +124,99 @@ PY
   rm -f "$report_file"
 }
 
+run_production_evidence_initializer_gate() {
+  local evidence_file
+  local init_report_file
+  local audit_report_file
+  evidence_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence.XXXXXX.json")"
+  init_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-init.XXXXXX.json")"
+  audit_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-audit.XXXXXX.json")"
+  rm -f "$evidence_file"
+
+  (
+    cd backend
+    uv run python scripts/ai_trading_v1_completion_audit.py \
+      --init-production-evidence-file "$evidence_file" > "$init_report_file"
+  )
+  cat "$init_report_file"
+  python3 - "$init_report_file" <<'PY'
+import json
+import sys
+
+expected_item_ids = {
+    "macos_reboot_recovery",
+    "real_model_profile_live_acceptance",
+    "real_order_backend_handoff",
+    "production_auth_hard_risk_readiness",
+    "admin_readiness_real_auth_visual",
+    "production_agent_session_visual",
+    "real_exchange_execution",
+}
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+checks = {
+    "created": report.get("created") is True,
+    "blockers_empty": report.get("blockers") == [],
+    "production_evidence_ready_false": report.get("production_evidence_ready") is False,
+    "ready_for_live_orders_false": report.get("ready_for_live_orders") is False,
+    "item_ids_exact": set(report.get("item_ids") or []) == expected_item_ids,
+}
+failed = [name for name, ok in checks.items() if not ok]
+print(json.dumps({
+    "production_evidence_initializer_gate": "initialized" if not failed else "failed",
+    "checked": checks,
+    "path": report.get("path"),
+    "production_evidence_blockers": report.get("production_evidence_blockers"),
+}, ensure_ascii=False, indent=2, sort_keys=True))
+if failed:
+    raise SystemExit("Production evidence initializer gate failed: " + ", ".join(failed))
+PY
+
+  set +e
+  (
+    cd backend
+    uv run python scripts/ai_trading_v1_completion_audit.py \
+      --production-evidence-file "$evidence_file" \
+      --strict-production > "$audit_report_file"
+  )
+  local rc=$?
+  set -e
+  cat "$audit_report_file"
+  if [[ "$rc" -ne 1 ]]; then
+    echo "Expected initialized production evidence to keep strict-production blocked, got $rc" >&2
+    return 1
+  fi
+  python3 - "$audit_report_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+production_evidence = report.get("production_evidence") or {}
+blockers = production_evidence.get("blockers") or []
+checks = {
+    "production_evidence_provided": production_evidence.get("provided") is True,
+    "production_evidence_ready_false": production_evidence.get("ready") is False,
+    "repo_external": production_evidence.get("file_inside_repo") is False,
+    "ready_for_live_orders_false": report.get("ready_for_live_orders") is False,
+    "accepted_count_zero": production_evidence.get("accepted_count") == 0,
+    "generated_at_missing_blocker": "external_evidence_generated_at_missing" in blockers,
+    "real_order_backend_blocked": "external_evidence_item_blocked:real_order_backend_handoff" in blockers,
+}
+failed = [name for name, ok in checks.items() if not ok]
+print(json.dumps({
+    "production_evidence_initializer_strict_production_gate": "blocked_as_expected" if not failed else "failed",
+    "checked": checks,
+    "ready_for_live_orders": report.get("ready_for_live_orders"),
+}, ensure_ascii=False, indent=2, sort_keys=True))
+if failed:
+    raise SystemExit("Initialized evidence strict-production gate failed: " + ", ".join(failed))
+PY
+
+  rm -f "$evidence_file" "$init_report_file" "$audit_report_file"
+}
+
 cd "$REPO_ROOT"
 
 run_step "Backend compile check" \
@@ -151,6 +245,9 @@ run_step "Local V1 completion boundary audit" \
 
 run_expected_failure "Production completion boundary audit remains blocked" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-production"
+
+run_step "Production evidence initializer gate" \
+  run_production_evidence_initializer_gate
 
 run_expected_failure "Production evidence template remains blocked" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production"
