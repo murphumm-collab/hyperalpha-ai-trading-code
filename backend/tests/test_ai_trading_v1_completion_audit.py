@@ -58,6 +58,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_future_timestamp_guard_marker: bool = True,
     include_production_evidence_validation_age_guard_marker: bool = True,
     include_production_evidence_cutover_window_guard_marker: bool = True,
+    include_production_evidence_run_id_guard_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -126,6 +127,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_cutover_window_guard_marker = (
         "| AI Trading production evidence cutover window guard | Done |"
     ) if include_production_evidence_cutover_window_guard_marker else ""
+    production_evidence_run_id_guard_marker = (
+        "| AI Trading production evidence run id guard | Done |"
+    ) if include_production_evidence_run_id_guard_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -218,7 +222,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Cutover Window Guard Accepted / Remote Push Skipped",
+                "Local V1 Evidence Run ID Guard Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -246,6 +250,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_future_timestamp_guard_marker,
                 production_evidence_validation_age_guard_marker,
                 production_evidence_cutover_window_guard_marker,
+                production_evidence_run_id_guard_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -323,6 +328,7 @@ def _write_production_evidence(
     artifact_ref_override: str | None = None,
     empty_artifact_refs: bool = False,
     generated_at: object = _UNSET,
+    evidence_run_id: object = "ops-20260610-cutover-001",
     expires_at: object = _UNSET,
     cutover_window: object = _UNSET,
     cutover_approval_ref: object = "ops://ai-trading/production-cutover/approval",
@@ -368,6 +374,7 @@ def _write_production_evidence(
             items[requirement.id].update(item_extra)
     payload = {
         "version": completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
+        "evidence_run_id": evidence_run_id,
         "generated_at": generated_at,
         "expires_at": expires_at,
         "cutover_window": cutover_window,
@@ -419,6 +426,7 @@ def test_production_evidence_template_builder_uses_required_item_ids_without_sec
     payload = completion_audit.build_external_acceptance_evidence_template()
 
     assert payload["version"] == completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION
+    assert payload["evidence_run_id"] is None
     assert payload["generated_at"] is None
     assert payload["expires_at"] is None
     assert payload["cutover_window"] == {"start_at": None, "end_at": None}
@@ -449,6 +457,10 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
         in report["schema"]["required_root_fields"]
     )
     assert (
+        "evidence_run_id=safe unique run id, 12-80 chars, letters/numbers/._:- only"
+        in report["schema"]["required_root_fields"]
+    )
+    assert (
         "expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within 7 days"
         in report["schema"]["required_root_fields"]
     )
@@ -463,6 +475,8 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
     assert report["schema"]["max_clock_skew_seconds"] == 300
     assert report["schema"]["max_item_validation_age_days"] == 7
     assert report["schema"]["max_cutover_window_hours"] == 8
+    assert report["schema"]["min_evidence_run_id_chars"] == 12
+    assert report["schema"]["max_evidence_run_id_chars"] == 80
     assert "status=accepted" in report["schema"]["required_item_fields"]
     assert (
         "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future and not older than 7 days at generated_at"
@@ -544,6 +558,7 @@ def test_production_evidence_initializer_writes_repo_external_pending_template(t
     assert completion_report["production_evidence"]["provided"] is True
     assert completion_report["production_evidence"]["file_inside_repo"] is False
     assert completion_report["production_evidence"]["accepted_count"] == 0
+    assert "external_evidence_run_id_missing" in completion_report["production_evidence"]["blockers"]
     assert "external_evidence_generated_at_missing" in completion_report["production_evidence"]["blockers"]
     assert "external_evidence_expires_at_missing" in completion_report["production_evidence"]["blockers"]
     assert "external_evidence_cutover_approval_ref_missing" in completion_report["production_evidence"]["blockers"]
@@ -855,6 +870,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_cutov
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence cutover window guard | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_run_id_guard_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_run_id_guard_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence run id guard | Done |"
         in status_evidence["missing_phrases"]
     )
 
@@ -1454,6 +1487,61 @@ def test_completion_audit_rejects_missing_or_invalid_cutover_window(tmp_path):
         "external_evidence_generated_at_before_cutover_window"
         in generated_before_window_report["production_evidence"]["blockers"]
     )
+
+
+def test_completion_audit_rejects_missing_or_invalid_evidence_run_id(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    missing_run_id_path = tmp_path / "missing-run-id-evidence.json"
+    short_run_id_path = tmp_path / "short-run-id-evidence.json"
+    long_run_id_path = tmp_path / "long-run-id-evidence.json"
+    placeholder_run_id_path = tmp_path / "placeholder-run-id-evidence.json"
+    invalid_chars_run_id_path = tmp_path / "invalid-chars-run-id-evidence.json"
+    _write_production_evidence(missing_run_id_path, evidence_run_id=None)
+    _write_production_evidence(short_run_id_path, evidence_run_id="run-1")
+    _write_production_evidence(long_run_id_path, evidence_run_id="ops-" + "x" * 81)
+    _write_production_evidence(placeholder_run_id_path, evidence_run_id="placeholder")
+    _write_production_evidence(
+        invalid_chars_run_id_path,
+        evidence_run_id="https://ops.hyperalpha.org/cutover/run/001",
+    )
+
+    missing_run_id_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=missing_run_id_path,
+        allow_live_ready_from_evidence=True,
+    )
+    short_run_id_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=short_run_id_path,
+        allow_live_ready_from_evidence=True,
+    )
+    long_run_id_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=long_run_id_path,
+        allow_live_ready_from_evidence=True,
+    )
+    placeholder_run_id_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=placeholder_run_id_path,
+        allow_live_ready_from_evidence=True,
+    )
+    invalid_chars_run_id_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=invalid_chars_run_id_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert missing_run_id_report["ready_for_live_orders"] is False
+    assert "external_evidence_run_id_missing" in missing_run_id_report["production_evidence"]["blockers"]
+    assert missing_run_id_report["production_evidence"]["evidence_run_id_present"] is False
+    assert short_run_id_report["ready_for_live_orders"] is False
+    assert "external_evidence_run_id_too_short" in short_run_id_report["production_evidence"]["blockers"]
+    assert long_run_id_report["ready_for_live_orders"] is False
+    assert "external_evidence_run_id_too_long" in long_run_id_report["production_evidence"]["blockers"]
+    assert placeholder_run_id_report["ready_for_live_orders"] is False
+    assert "external_evidence_run_id_placeholder" in placeholder_run_id_report["production_evidence"]["blockers"]
+    assert invalid_chars_run_id_report["ready_for_live_orders"] is False
+    assert "external_evidence_run_id_invalid_chars" in invalid_chars_run_id_report["production_evidence"]["blockers"]
 
 
 def test_completion_audit_rejects_missing_or_unsafe_cutover_approval_ref(tmp_path):

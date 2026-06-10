@@ -18,6 +18,7 @@ export interface AiTradingProductionEvidenceSummary {
   ready: boolean
   acceptedCount: number
   requiredCount: number
+  evidenceRunIdPresent: boolean
   expiresAt: string | null
   cutoverWindowPresent: boolean
   cutoverWindowStartAt: string | null
@@ -56,6 +57,8 @@ export interface AiTradingProductionEvidenceExplainView {
   maxClockSkewSeconds: number
   maxItemValidationAgeDays: number
   maxCutoverWindowHours: number
+  minEvidenceRunIdChars: number
+  maxEvidenceRunIdChars: number
   items: AiTradingProductionEvidenceItemView[]
   nextActions: string[]
 }
@@ -134,6 +137,7 @@ export const extractAiTradingProductionEvidenceExplain = (
       ready: productionEvidenceSource.ready === true,
       acceptedCount: numberValue(productionEvidenceSource.accepted_count),
       requiredCount: numberValue(productionEvidenceSource.required_count),
+      evidenceRunIdPresent: productionEvidenceSource.evidence_run_id_present === true,
       expiresAt: typeof productionEvidenceSource.expires_at === 'string' ? productionEvidenceSource.expires_at : null,
       cutoverWindowPresent: productionEvidenceSource.cutover_window_present === true,
       cutoverWindowStartAt: typeof productionEvidenceSource.cutover_window_start_at === 'string' ? productionEvidenceSource.cutover_window_start_at : null,
@@ -148,6 +152,8 @@ export const extractAiTradingProductionEvidenceExplain = (
     maxClockSkewSeconds: numberValue(schemaSource.max_clock_skew_seconds),
     maxItemValidationAgeDays: numberValue(schemaSource.max_item_validation_age_days),
     maxCutoverWindowHours: numberValue(schemaSource.max_cutover_window_hours),
+    minEvidenceRunIdChars: numberValue(schemaSource.min_evidence_run_id_chars),
+    maxEvidenceRunIdChars: numberValue(schemaSource.max_evidence_run_id_chars),
     items: rawItems.reduce<AiTradingProductionEvidenceItemView[]>((acc, rawItem) => {
       if (!isRecord(rawItem)) return acc
       const id = typeof rawItem.id === 'string' ? rawItem.id : ''

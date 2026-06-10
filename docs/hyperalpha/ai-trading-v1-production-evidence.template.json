@@ -1,5 +1,6 @@
 {
   "version": "hyperalpha.ai_trading.external_acceptance.v1",
+  "evidence_run_id": null,
   "generated_at": null,
   "expires_at": null,
   "cutover_window": {
@@ -11,9 +12,10 @@
   "notes": [
     "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
-    "Use only documented schema fields. Root fields: version, generated_at, expires_at, cutover_window, cutover_approval_ref, secret_values_returned, notes, items. Item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
+    "Use only documented schema fields. Root fields: version, evidence_run_id, generated_at, expires_at, cutover_window, cutover_approval_ref, secret_values_returned, notes, items. Item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
+    "evidence_run_id must be a unique sanitized operations run id for this production acceptance attempt, 12-80 chars, using only letters, numbers, dot, underscore, colon, or hyphen.",
     "generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >300s in the future; item validation cannot be older than 7 days at generated_at; expires_at must be after generated_at, future, and within 7 days.",
     "cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than 8 hours.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window.",

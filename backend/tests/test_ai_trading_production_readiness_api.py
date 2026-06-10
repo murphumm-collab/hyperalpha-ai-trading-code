@@ -185,6 +185,7 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
         )
     return {
         "version": "hyperalpha.ai_trading.external_acceptance.v1",
+        "evidence_run_id": "ops-20260610-cutover-001",
         "generated_at": _utc_iso(timedelta(minutes=-2)),
         "expires_at": _utc_iso(timedelta(days=1)),
         "cutover_window": {
@@ -238,6 +239,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["production_evidence"]["provided"] is False
     assert explain["production_evidence"]["ready"] is False
     assert explain["production_evidence"]["required_count"] == 7
+    assert explain["production_evidence"]["evidence_run_id_present"] is False
     assert explain["production_evidence"]["expires_at"] is None
     assert explain["production_evidence"]["cutover_window_present"] is False
     assert explain["production_evidence"]["cutover_window_start_at"] is None
@@ -248,6 +250,12 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["schema"]["max_clock_skew_seconds"] == 300
     assert explain["schema"]["max_item_validation_age_days"] == 7
     assert explain["schema"]["max_cutover_window_hours"] == 8
+    assert explain["schema"]["min_evidence_run_id_chars"] == 12
+    assert explain["schema"]["max_evidence_run_id_chars"] == 80
+    assert (
+        "evidence_run_id=safe unique run id, 12-80 chars, letters/numbers/._:- only"
+        in explain["schema"]["required_root_fields"]
+    )
     assert (
         "generated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future"
         in explain["schema"]["required_root_fields"]
@@ -307,6 +315,7 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     assert "path" not in data
     template = data["template"]
     assert template["version"] == "hyperalpha.ai_trading.external_acceptance.v1"
+    assert template["evidence_run_id"] is None
     assert template["generated_at"] is None
     assert template["expires_at"] is None
     assert template["cutover_window"] == {"start_at": None, "end_at": None}
@@ -350,6 +359,7 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     assert validation["production_evidence"]["provided"] is True
     assert validation["production_evidence"]["path"] is None
     assert validation["production_evidence"]["ready"] is True
+    assert validation["production_evidence"]["evidence_run_id_present"] is True
     assert validation["production_evidence"]["accepted_count"] == 7
     assert validation["production_evidence"]["required_count"] == 7
     assert validation["production_evidence"]["cutover_approval_ref_present"] is True

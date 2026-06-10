@@ -2277,6 +2277,14 @@ export default function SettingsPage() {
                         {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}
                       </div>
                       <div className="text-xs text-muted-foreground">
+                        {t('settings.aiTradingEvidenceRunId', 'Evidence run ID')}: {aiTradingEvidenceExplain.productionEvidence.evidenceRunIdPresent
+                          ? t('settings.provided', 'Provided')
+                          : t('settings.notProvided', 'Not provided')}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.aiTradingEvidenceRunIdBounds', 'Run ID length')}: {aiTradingEvidenceExplain.minEvidenceRunIdChars || '-'}-{aiTradingEvidenceExplain.maxEvidenceRunIdChars || '-'}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
                         {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceExplain.maxEvidenceValidityDays || '-'}d
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -2439,6 +2447,14 @@ export default function SettingsPage() {
                               </div>
                               <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}>
                                 {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidenceRunId', 'Evidence run ID')}: {aiTradingEvidenceValidation.productionEvidence.evidenceRunIdPresent
+                                  ? t('settings.provided', 'Provided')
+                                  : t('settings.notProvided', 'Not provided')}
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidenceRunIdBounds', 'Run ID length')}: {aiTradingEvidenceValidation.minEvidenceRunIdChars || '-'}-{aiTradingEvidenceValidation.maxEvidenceRunIdChars || '-'}
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
                                 {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceValidation.maxEvidenceValidityDays || '-'}d

@@ -35,6 +35,7 @@ EXPECTED_LOCAL_DEVELOPMENT_BRANCH = "codex/ai-agent-multitenant-foundation"
 SAFE_ARTIFACT_REF_SCHEMES = {"https", "ops", "lark", "notion"}
 ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS = {
     "version",
+    "evidence_run_id",
     "generated_at",
     "expires_at",
     "cutover_window",
@@ -63,8 +64,12 @@ MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS = 7
 MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS = 300
 MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS = 7
 MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS = 8
+MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS = 12
+MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS = 80
+PRODUCTION_EVIDENCE_RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
 PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS = (
     f"version={EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION}",
+    f"evidence_run_id=safe unique run id, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, letters/numbers/._:- only",
     f"generated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future",
     f"expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days",
     f"cutover_window=start_at/end_at timezone-aware ISO-8601 window containing the production audit time and no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours",
@@ -95,9 +100,10 @@ PLACEHOLDER_EVIDENCE_VALUES = {
 PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
-    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, cutover_window, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
+    "Use only documented schema fields. Allowed root fields: version, evidence_run_id, generated_at, expires_at, cutover_window, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
+    f"evidence_run_id must be a unique sanitized operations run id for this production acceptance attempt, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars, using only letters, numbers, dot, underscore, colon, or hyphen.",
     f"generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >{MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS}s in the future; item validation cannot be older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at; expires_at must be after generated_at, future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
     f"cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window.",
@@ -280,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Cutover Window Guard Accepted / Remote Push Skipped",
+            "Local V1 Evidence Run ID Guard Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -297,6 +303,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence future timestamp guard | Done |",
             "| AI Trading production evidence validation age guard | Done |",
             "| AI Trading production evidence cutover window guard | Done |",
+            "| AI Trading production evidence run id guard | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -619,6 +626,26 @@ def _cutover_approval_ref_blockers(ref: Any) -> list[str]:
     ]
 
 
+def _evidence_run_id_blockers(value: Any) -> list[str]:
+    if not isinstance(value, str) or not value.strip():
+        return ["external_evidence_run_id_missing"]
+
+    run_id = value.strip()
+    blockers: list[str] = []
+    normalized = re.sub(r"\s+", " ", run_id).casefold()
+    if normalized in PLACEHOLDER_EVIDENCE_VALUES:
+        blockers.append("external_evidence_run_id_placeholder")
+    if len(run_id) < MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS:
+        blockers.append("external_evidence_run_id_too_short")
+    if len(run_id) > MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS:
+        blockers.append("external_evidence_run_id_too_long")
+    if PRODUCTION_EVIDENCE_RUN_ID_PATTERN.fullmatch(run_id) is None:
+        blockers.append("external_evidence_run_id_invalid_chars")
+    if _secret_pattern_hits(run_id):
+        blockers.append("external_evidence_run_id_secret_pattern_detected")
+    return blockers
+
+
 def _cutover_window_report(
     window: Any,
     *,
@@ -874,6 +901,7 @@ def _empty_external_evidence_report(
         "path": path,
         "ready": False,
         "version": None,
+        "evidence_run_id_present": False,
         "expires_at": None,
         "cutover_window_present": False,
         "cutover_window_start_at": None,
@@ -912,6 +940,8 @@ def _validate_external_evidence_payload(
         blockers.append("external_evidence_unexpected_root_fields")
     if version != EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION:
         blockers.append("external_evidence_version_mismatch")
+    evidence_run_id = payload.get("evidence_run_id")
+    blockers.extend(_evidence_run_id_blockers(evidence_run_id))
     generated_at_utc, timestamp_blockers = _parse_iso_timestamp(payload.get("generated_at"), "generated_at")
     blockers.extend(timestamp_blockers)
     expires_at_utc, expires_at_blockers = _parse_iso_timestamp(payload.get("expires_at"), "expires_at")
@@ -979,6 +1009,7 @@ def _validate_external_evidence_payload(
         "path": path,
         "ready": not blockers,
         "version": version,
+        "evidence_run_id_present": isinstance(evidence_run_id, str) and bool(evidence_run_id.strip()),
         "accepted_count": accepted_count,
         "required_count": len(required_ids),
         "blockers": blockers,
@@ -1042,6 +1073,7 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
     """Build a pending, secret-free external production evidence skeleton."""
     return {
         "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
+        "evidence_run_id": None,
         "generated_at": None,
         "expires_at": None,
         "cutover_window": {
@@ -1183,6 +1215,7 @@ def _build_production_evidence_explain_from_report(
             "provided": production_evidence["provided"],
             "path": production_evidence["path"],
             "ready": production_evidence["ready"],
+            "evidence_run_id_present": production_evidence.get("evidence_run_id_present", False),
             "accepted_count": production_evidence["accepted_count"],
             "required_count": production_evidence["required_count"],
             "blockers": list(production_evidence["blockers"]),
@@ -1209,6 +1242,8 @@ def _build_production_evidence_explain_from_report(
             "max_clock_skew_seconds": MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS,
             "max_item_validation_age_days": MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS,
             "max_cutover_window_hours": MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS,
+            "min_evidence_run_id_chars": MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS,
+            "max_evidence_run_id_chars": MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS,
             "summary_chars": {
                 "min": MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
                 "max": MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
