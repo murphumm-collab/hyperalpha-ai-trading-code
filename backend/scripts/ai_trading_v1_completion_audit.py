@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Progress Accepted / Remote Push Skipped",
+            "Local V1 Evidence Progress Actions Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -312,6 +312,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence template blocker labels | Done |",
             "| AI Trading production evidence explain root blocker labels | Done |",
             "| AI Trading production evidence progress summary | Done |",
+            "| AI Trading production evidence progress actions | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -1206,6 +1207,11 @@ def _build_production_evidence_progress(
     accepted_item_ids = [item["id"] for item in items if item["ready"]]
     pending_item_ids = [item["id"] for item in items if not item["ready"]]
     blocked_item_ids = [item["id"] for item in items if item["blockers"]]
+    next_required_actions = [
+        f"{item['id']}: {item['operator_guidance'][0]}"
+        for item in items
+        if not item["ready"] and item.get("operator_guidance")
+    ]
     live_order_gate_blockers: list[str] = []
 
     if not report["local_v1_accepted"]:
@@ -1228,6 +1234,7 @@ def _build_production_evidence_progress(
         "pending_item_ids": pending_item_ids,
         "blocked_item_ids": blocked_item_ids,
         "next_required_item_ids": pending_item_ids,
+        "next_required_actions": next_required_actions,
         "accepted_count": len(accepted_item_ids),
         "pending_count": len(pending_item_ids),
         "blocked_count": len(blocked_item_ids),

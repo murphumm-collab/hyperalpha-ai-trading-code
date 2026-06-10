@@ -2304,6 +2304,11 @@ export default function SettingsPage() {
                             {t('settings.aiTradingEvidenceNextRequired', 'Next required')}: {aiTradingEvidenceExplain.progress.nextRequiredItemIds.slice(0, 4).map(formatProductionEvidenceItemName).join(', ')}
                           </div>
                         )}
+                        {aiTradingEvidenceExplain.progress.nextRequiredActions.length > 0 && (
+                          <div className="mt-2 truncate text-xs text-muted-foreground" title={aiTradingEvidenceExplain.progress.nextRequiredActions.join(' | ')}>
+                            {t('settings.aiTradingEvidenceNextActions', 'Evidence Actions')}: {aiTradingEvidenceExplain.progress.nextRequiredActions.slice(0, 2).join(' | ')}
+                          </div>
+                        )}
                       </div>
                       <div className="truncate text-xs text-muted-foreground" title={aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}>
                         {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}
@@ -2510,6 +2515,11 @@ export default function SettingsPage() {
                               {aiTradingEvidenceValidation.progress.nextRequiredItemIds.length > 0 && (
                                 <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.progress.nextRequiredItemIds.map(formatProductionEvidenceItemName).join(', ')}>
                                   {t('settings.aiTradingEvidenceNextRequired', 'Next required')}: {aiTradingEvidenceValidation.progress.nextRequiredItemIds.slice(0, 3).map(formatProductionEvidenceItemName).join(', ')}
+                                </div>
+                              )}
+                              {aiTradingEvidenceValidation.progress.nextRequiredActions.length > 0 && (
+                                <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.progress.nextRequiredActions.join(' | ')}>
+                                  {t('settings.aiTradingEvidenceNextActions', 'Evidence Actions')}: {aiTradingEvidenceValidation.progress.nextRequiredActions.slice(0, 2).join(' | ')}
                                 </div>
                               )}
                               <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}>

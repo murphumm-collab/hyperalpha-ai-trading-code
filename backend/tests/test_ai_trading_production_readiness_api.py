@@ -256,6 +256,14 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["progress"]["blocked_count"] == 7
     assert explain["progress"]["required_count"] == 7
     assert explain["progress"]["live_order_gate_blockers"] == ["production_evidence_not_ready"]
+    assert len(explain["progress"]["next_required_actions"]) == 7
+    assert explain["progress"]["next_required_actions"][0].startswith(
+        "macos_reboot_recovery: After a real macOS reboot"
+    )
+    assert any(
+        action.startswith("real_order_backend_handoff: Configure the real HTTPS order-backend")
+        for action in explain["progress"]["next_required_actions"]
+    )
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
     assert explain["schema"]["max_evidence_validity_days"] == 7
     assert explain["schema"]["max_clock_skew_seconds"] == 300
@@ -383,6 +391,7 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     assert validation["progress"]["pending_count"] == 0
     assert validation["progress"]["blocked_count"] == 0
     assert validation["progress"]["required_count"] == 7
+    assert validation["progress"]["next_required_actions"] == []
     assert validation["progress"]["live_order_gate_blockers"] == [
         "explicit_live_ready_confirmation_required"
     ]

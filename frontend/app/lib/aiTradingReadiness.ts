@@ -50,6 +50,7 @@ export interface AiTradingProductionEvidenceProgressView {
   pendingItemIds: string[]
   blockedItemIds: string[]
   nextRequiredItemIds: string[]
+  nextRequiredActions: string[]
   acceptedCount: number
   pendingCount: number
   blockedCount: number
@@ -280,6 +281,7 @@ export const extractAiTradingProductionEvidenceExplain = (
       pendingItemIds: stringList(progressSource.pending_item_ids),
       blockedItemIds: stringList(progressSource.blocked_item_ids),
       nextRequiredItemIds: stringList(progressSource.next_required_item_ids),
+      nextRequiredActions: stringList(progressSource.next_required_actions),
       acceptedCount: numberValue(progressSource.accepted_count),
       pendingCount: numberValue(progressSource.pending_count),
       blockedCount: numberValue(progressSource.blocked_count),

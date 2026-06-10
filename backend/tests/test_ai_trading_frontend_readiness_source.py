@@ -60,6 +60,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "progress.requiredCount" in settings_source
     assert "progress.liveOrderGateBlockers" in settings_source
     assert "progress.nextRequiredItemIds" in settings_source
+    assert "progress.nextRequiredActions" in settings_source
     assert "artifactRefCount" in settings_source
     assert "requiredSummaryTerms" in settings_source
     assert "missingSummaryTerms" in settings_source
@@ -91,6 +92,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "pending_item_ids" in helper_source
     assert "blocked_item_ids" in helper_source
     assert "next_required_item_ids" in helper_source
+    assert "next_required_actions" in helper_source
     assert "live_order_gate_blockers" in helper_source
     assert "required_summary_terms" in helper_source
     assert "missing_summary_terms" in helper_source
@@ -219,8 +221,10 @@ def test_admin_production_evidence_progress_ui_uses_safe_projection() -> None:
     assert "progress.requiredCount" in progress_block
     assert "progress.liveOrderGateBlockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker)" in progress_block
     assert "progress.nextRequiredItemIds.slice(0, 4).map(formatProductionEvidenceItemName)" in progress_block
+    assert "progress.nextRequiredActions.slice(0, 2).join(' | ')" in progress_block
     assert "progress.liveOrderGateBlockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker)" in validation_progress_block
     assert "progress.nextRequiredItemIds.slice(0, 3).map(formatProductionEvidenceItemName)" in validation_progress_block
+    assert "progress.nextRequiredActions.slice(0, 2).join(' | ')" in validation_progress_block
     assert "formatReadinessCode" not in progress_block
     assert "formatReadinessCode" not in validation_progress_block
     assert "evidence_summary" not in progress_block
@@ -230,6 +234,7 @@ def test_admin_production_evidence_progress_ui_uses_safe_projection() -> None:
     assert "pending_item_ids" in helper_source
     assert "blocked_item_ids" in helper_source
     assert "next_required_item_ids" in helper_source
+    assert "next_required_actions" in helper_source
     assert "live_order_gate_blockers" in helper_source
 
 
