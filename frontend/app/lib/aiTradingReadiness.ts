@@ -18,6 +18,7 @@ export interface AiTradingProductionEvidenceSummary {
   ready: boolean
   acceptedCount: number
   requiredCount: number
+  expiresAt: string | null
   blockers: string[]
   warnings: string[]
 }
@@ -125,6 +126,7 @@ export const extractAiTradingProductionEvidenceExplain = (
       ready: productionEvidenceSource.ready === true,
       acceptedCount: numberValue(productionEvidenceSource.accepted_count),
       requiredCount: numberValue(productionEvidenceSource.required_count),
+      expiresAt: typeof productionEvidenceSource.expires_at === 'string' ? productionEvidenceSource.expires_at : null,
       blockers: stringList(productionEvidenceSource.blockers),
       warnings: stringList(productionEvidenceSource.warnings),
     },

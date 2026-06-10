@@ -181,6 +181,7 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
     return {
         "version": "hyperalpha.ai_trading.external_acceptance.v1",
         "generated_at": "2026-06-10T12:05:00Z",
+        "expires_at": "2099-06-10T12:05:00Z",
         "secret_values_returned": False,
         "items": items,
     }
@@ -227,7 +228,12 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["production_evidence"]["provided"] is False
     assert explain["production_evidence"]["ready"] is False
     assert explain["production_evidence"]["required_count"] == 7
+    assert explain["production_evidence"]["expires_at"] is None
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
+    assert (
+        "expires_at=timezone-aware ISO-8601 timestamp after generated_at and in the future"
+        in explain["schema"]["required_root_fields"]
+    )
     assert explain["schema"]["required_item_fields"] == [
         "status=accepted",
         "validated_at=timezone-aware ISO-8601 timestamp",
@@ -276,6 +282,7 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     template = data["template"]
     assert template["version"] == "hyperalpha.ai_trading.external_acceptance.v1"
     assert template["generated_at"] is None
+    assert template["expires_at"] is None
     assert template["secret_values_returned"] is False
     assert set(template["items"]) == {
         "macos_reboot_recovery",

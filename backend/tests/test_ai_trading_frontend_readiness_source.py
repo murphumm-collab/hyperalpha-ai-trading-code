@@ -37,6 +37,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "extractAiTradingProductionEvidenceExplain" in settings_source
     assert "AiTradingProductionEvidenceExplainView" in settings_source
     assert "productionEvidence.acceptedCount" in settings_source
+    assert "productionEvidence.expiresAt" in settings_source
     assert "readyForLiveOrders" in settings_source
     assert "artifactRefCount" in settings_source
     assert "requiredSummaryTerms" in settings_source
@@ -51,6 +52,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
 
     assert "production_evidence" in helper_source
     assert "ready_for_live_orders" in helper_source
+    assert "expires_at" in helper_source
     assert "artifact_ref_count" in helper_source
     assert "required_summary_terms" in helper_source
     assert "missing_summary_terms" in helper_source
@@ -71,6 +73,7 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "maxLength={AI_TRADING_EVIDENCE_MAX_JSON_CHARS}" in settings_source
     assert "aiTradingEvidenceValidationJson" in settings_source
     assert "aiTradingEvidenceValidation.productionEvidence.acceptedCount" in settings_source
+    assert "aiTradingEvidenceValidation.productionEvidence.expiresAt" in settings_source
     assert "aiTradingEvidenceValidation.readyForLiveOrders" in settings_source
     assert "extractAiTradingProductionEvidenceExplain(data.validation)" in settings_source
     assert "JSON.stringify(data.template || {}, null, 2)" in settings_source

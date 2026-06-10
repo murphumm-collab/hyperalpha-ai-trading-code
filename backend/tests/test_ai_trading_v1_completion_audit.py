@@ -44,6 +44,7 @@ def _write_minimal_acceptance_repo(
     include_admin_production_evidence_template_ui_marker: bool = True,
     include_admin_production_evidence_payload_bounds_marker: bool = True,
     include_production_evidence_summary_terms_marker: bool = True,
+    include_production_evidence_expiry_gate_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -94,6 +95,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_summary_terms_marker = (
         "| AI Trading production evidence summary terms | Done |"
     ) if include_production_evidence_summary_terms_marker else ""
+    production_evidence_expiry_gate_marker = (
+        "| AI Trading production evidence expiry gate | Done |"
+    ) if include_production_evidence_expiry_gate_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -186,7 +190,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Summary Terms Accepted / Remote Push Skipped",
+                "Local V1 Evidence Expiry Gate Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -208,6 +212,7 @@ def _write_minimal_acceptance_repo(
                 admin_template_ui_marker,
                 admin_payload_bounds_marker,
                 production_evidence_summary_terms_marker,
+                production_evidence_expiry_gate_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -285,6 +290,7 @@ def _write_production_evidence(
     artifact_ref_override: str | None = None,
     empty_artifact_refs: bool = False,
     generated_at: object = "2026-06-10T12:05:00Z",
+    expires_at: object = "2099-06-10T12:05:00Z",
     validated_at: object = "2026-06-10T12:00:00Z",
     validated_by: object = "ops-admin",
     evidence_summary: object | None = None,
@@ -316,6 +322,7 @@ def _write_production_evidence(
     payload = {
         "version": completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "generated_at": generated_at,
+        "expires_at": expires_at,
         "secret_values_returned": False,
         "items": items,
     }
@@ -364,8 +371,10 @@ def test_production_evidence_template_builder_uses_required_item_ids_without_sec
 
     assert payload["version"] == completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION
     assert payload["generated_at"] is None
+    assert payload["expires_at"] is None
     assert payload["secret_values_returned"] is False
     assert any("required non-secret proof terms" in note for note in payload["notes"])
+    assert all(len(note) <= completion_audit.MAX_PRODUCTION_EVIDENCE_NOTE_CHARS for note in payload["notes"])
     assert set(payload["items"]) == {requirement.id for requirement in completion_audit.EXTERNAL_REQUIREMENTS}
     assert all(item["status"] == "pending_external_acceptance" for item in payload["items"].values())
     assert all(item["secret_values_returned"] is False for item in payload["items"].values())
@@ -384,6 +393,10 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
     assert report["schema"]["required_item_ids"] == [
         requirement.id for requirement in completion_audit.EXTERNAL_REQUIREMENTS
     ]
+    assert (
+        "expires_at=timezone-aware ISO-8601 timestamp after generated_at and in the future"
+        in report["schema"]["required_root_fields"]
+    )
     assert "status=accepted" in report["schema"]["required_item_fields"]
     order_backend_item = next(
         item for item in report["items"] if item["id"] == "real_order_backend_handoff"
@@ -462,6 +475,7 @@ def test_production_evidence_initializer_writes_repo_external_pending_template(t
     assert completion_report["production_evidence"]["file_inside_repo"] is False
     assert completion_report["production_evidence"]["accepted_count"] == 0
     assert "external_evidence_generated_at_missing" in completion_report["production_evidence"]["blockers"]
+    assert "external_evidence_expires_at_missing" in completion_report["production_evidence"]["blockers"]
     assert "external_evidence_item_blocked:real_order_backend_handoff" in completion_report["production_evidence"]["blockers"]
 
 
@@ -662,6 +676,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_summa
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence summary terms | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_expiry_gate_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_expiry_gate_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence expiry gate | Done |"
         in status_evidence["missing_phrases"]
     )
 
@@ -1048,6 +1080,55 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
         if item["id"] == "real_order_backend_handoff"
     )
     assert "external_evidence_validated_at_after_generated_at" in generated_before_validated_item["blockers"]
+
+
+def test_completion_audit_rejects_missing_or_expired_production_evidence_expiry(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    missing_expiry_path = tmp_path / "missing-expiry-evidence.json"
+    invalid_expiry_path = tmp_path / "invalid-expiry-evidence.json"
+    expired_path = tmp_path / "expired-evidence.json"
+    expiry_before_generated_path = tmp_path / "expiry-before-generated-evidence.json"
+    _write_production_evidence(missing_expiry_path, expires_at=None)
+    _write_production_evidence(invalid_expiry_path, expires_at="2099-06-10T12:05:00")
+    _write_production_evidence(expired_path, expires_at="2000-01-01T00:00:00Z")
+    _write_production_evidence(
+        expiry_before_generated_path,
+        generated_at="2099-06-10T12:05:00Z",
+        expires_at="2099-06-10T12:00:00Z",
+    )
+
+    missing_expiry_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=missing_expiry_path,
+        allow_live_ready_from_evidence=True,
+    )
+    invalid_expiry_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=invalid_expiry_path,
+        allow_live_ready_from_evidence=True,
+    )
+    expired_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=expired_path,
+        allow_live_ready_from_evidence=True,
+    )
+    expiry_before_generated_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=expiry_before_generated_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert missing_expiry_report["ready_for_live_orders"] is False
+    assert "external_evidence_expires_at_missing" in missing_expiry_report["production_evidence"]["blockers"]
+    assert invalid_expiry_report["ready_for_live_orders"] is False
+    assert "external_evidence_expires_at_timezone_missing" in invalid_expiry_report["production_evidence"]["blockers"]
+    assert expired_report["ready_for_live_orders"] is False
+    assert "external_evidence_expired" in expired_report["production_evidence"]["blockers"]
+    assert expiry_before_generated_report["ready_for_live_orders"] is False
+    assert (
+        "external_evidence_expires_at_not_after_generated_at"
+        in expiry_before_generated_report["production_evidence"]["blockers"]
+    )
 
 
 def test_completion_audit_rejects_unexpected_production_evidence_fields(tmp_path):

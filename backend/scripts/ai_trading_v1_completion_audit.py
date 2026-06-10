@@ -36,6 +36,7 @@ SAFE_ARTIFACT_REF_SCHEMES = {"https", "ops", "lark", "notion"}
 ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS = {
     "version",
     "generated_at",
+    "expires_at",
     "secret_values_returned",
     "notes",
     "items",
@@ -55,6 +56,13 @@ MAX_PRODUCTION_EVIDENCE_NOTE_CHARS = 300
 MAX_PRODUCTION_EVIDENCE_NOTES = 12
 MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS = 300
 MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS = 5
+PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS = (
+    f"version={EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION}",
+    "generated_at=timezone-aware ISO-8601 timestamp",
+    "expires_at=timezone-aware ISO-8601 timestamp after generated_at and in the future",
+    "secret_values_returned=false",
+    "items=documented external acceptance item ids only",
+)
 PLACEHOLDER_EVIDENCE_VALUES = {
     "-",
     "accepted",
@@ -78,10 +86,10 @@ PLACEHOLDER_EVIDENCE_VALUES = {
 PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
-    "Use only documented evidence schema fields. Allowed root fields are version, generated_at, secret_values_returned, notes, and items. Allowed item fields are status, validated_at, validated_by, evidence_summary, artifact_refs, and secret_values_returned. Unknown root or item fields are rejected.",
+    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
-    "generated_at and every item validated_at must be timezone-aware ISO-8601 timestamps, for example 2026-06-10T12:00:00Z; generated_at must not be earlier than any item validated_at.",
+    "generated_at, expires_at, and every item validated_at must be timezone-aware ISO-8601 timestamps, for example 2026-06-10T12:00:00Z; generated_at must not be earlier than any item validated_at, and expires_at must be after generated_at and still in the future.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
@@ -261,7 +269,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Summary Terms Accepted / Remote Push Skipped",
+            "Local V1 Evidence Expiry Gate Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -272,6 +280,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence path safety | Done |",
             "| AI Trading production evidence note safety | Done |",
             "| AI Trading production evidence summary terms | Done |",
+            "| AI Trading production evidence expiry gate | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -770,6 +779,7 @@ def _empty_external_evidence_report(
         "path": path,
         "ready": False,
         "version": None,
+        "expires_at": None,
         "accepted_count": 0,
         "required_count": len(EXTERNAL_REQUIREMENTS),
         "blockers": blockers or [],
@@ -804,6 +814,12 @@ def _validate_external_evidence_payload(
         blockers.append("external_evidence_version_mismatch")
     generated_at_utc, timestamp_blockers = _parse_iso_timestamp(payload.get("generated_at"), "generated_at")
     blockers.extend(timestamp_blockers)
+    expires_at_utc, expires_at_blockers = _parse_iso_timestamp(payload.get("expires_at"), "expires_at")
+    blockers.extend(expires_at_blockers)
+    if generated_at_utc is not None and expires_at_utc is not None and expires_at_utc <= generated_at_utc:
+        blockers.append("external_evidence_expires_at_not_after_generated_at")
+    if expires_at_utc is not None and expires_at_utc <= datetime.now(timezone.utc):
+        blockers.append("external_evidence_expired")
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
     blockers.extend(_evidence_notes_blockers(payload.get("notes")))
@@ -849,6 +865,7 @@ def _validate_external_evidence_payload(
         "unexpected_item_ids": unexpected_item_ids,
         "file_inside_repo": file_inside_repo,
         "notes_count": len(payload.get("notes")) if isinstance(payload.get("notes"), list) else 0,
+        "expires_at": payload.get("expires_at") if isinstance(payload.get("expires_at"), str) else None,
     }
 
 
@@ -897,6 +914,7 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
     return {
         "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "generated_at": None,
+        "expires_at": None,
         "secret_values_returned": False,
         "notes": list(PRODUCTION_EVIDENCE_TEMPLATE_NOTES),
         "items": {
@@ -1036,10 +1054,12 @@ def _build_production_evidence_explain_from_report(
             "blockers": list(production_evidence["blockers"]),
             "warnings": list(production_evidence["warnings"]),
             "file_inside_repo": production_evidence.get("file_inside_repo", False),
+            "expires_at": production_evidence.get("expires_at"),
         },
         "schema": {
             "allowed_root_fields": sorted(ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS),
             "allowed_item_fields": sorted(ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS),
+            "required_root_fields": list(PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS),
             "required_item_ids": [requirement.id for requirement in EXTERNAL_REQUIREMENTS],
             "required_item_fields": list(PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS),
             "safe_artifact_ref_schemes": sorted(SAFE_ARTIFACT_REF_SCHEMES),
@@ -1178,7 +1198,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, ISO timestamps, and bounded safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, generated_at/validated_at/expires_at ISO timestamps, and bounded safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 
