@@ -51,6 +51,21 @@ def test_placeholder_url_missing_token_and_approval_are_blocked():
     assert "production_handoff_approval_flag_missing" in report["blockers"]
 
 
+def test_non_http_gateway_mode_is_blocked_without_leaking_token_value():
+    report = production_check.build_report(
+        _base_env(
+            AI_TRADING_SIGNAL_GATEWAY_MODE="rabbitmq",
+        )
+    )
+
+    assert report["production_handoff_ready"] is False
+    assert "signal_gateway_mode_must_be_http_json" in report["blockers"]
+    assert report["checks"]["gateway_mode"] == "rabbitmq"
+    assert report["checks"]["supported_gateway_modes"] == ["http"]
+    assert report["checks"]["token_value_returned"] is False
+    assert "secret-token-value" not in str(report)
+
+
 def test_private_network_https_gateway_is_blocked():
     report = production_check.build_report(
         _base_env(

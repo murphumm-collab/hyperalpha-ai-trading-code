@@ -51,6 +51,7 @@ def test_live_stack_acceptance_rejects_external_runtime_gateway(monkeypatch):
                 "gateway": {
                     "enabled": True,
                     "url_configured": True,
+                    "mode": "http",
                     "default_handoff_status": "available",
                     "target_kind": "external_order_backend",
                     "runtime_config_blockers": [],
@@ -76,3 +77,41 @@ def test_live_stack_acceptance_rejects_external_runtime_gateway(monkeypatch):
             None,
         )
     ]
+
+
+def test_live_stack_acceptance_rejects_unsupported_runtime_gateway_mode(monkeypatch):
+    monkeypatch.setattr(
+        live_acceptance,
+        "_json_from_url",
+        lambda url, timeout: {"ok": True, "service": "ai_trading_mock_signal_gateway"},
+    )
+
+    calls = []
+
+    def fake_call(self, method, path, payload=None):
+        calls.append((method, path, payload))
+        if path == "/runtime":
+            return {
+                "gateway": {
+                    "enabled": True,
+                    "url_configured": True,
+                    "mode": "rabbitmq",
+                    "default_handoff_status": "available",
+                    "target_kind": "local_mock",
+                    "runtime_config_blockers": [],
+                }
+            }
+        raise AssertionError("live-stack acceptance should stop before drafting a strategy")
+
+    monkeypatch.setattr(live_acceptance.ApiClient, "call", fake_call)
+
+    with pytest.raises(AssertionError, match="gateway mode=http"):
+        live_acceptance.run_acceptance(
+            base_url="http://127.0.0.1:8802",
+            mock_gateway_health_url="http://127.0.0.1:5621/health",
+            timeout=1,
+            symbol="BTC",
+            confirm_local_mock_handoff=True,
+        )
+
+    assert calls == [("GET", "/runtime", None)]

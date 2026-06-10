@@ -621,6 +621,38 @@ def test_ai_trading_signal_handoff_allows_local_mock_gateway_without_production_
     assert runtime["gateway"]["default_handoff_status"] == "available"
 
 
+def test_ai_trading_signal_handoff_blocks_unsupported_gateway_mode(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client, symbol="BTC")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_MODE", "rabbitmq")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "http://127.0.0.1:5621/api/ai-trading/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "local-mock-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", False)
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    eligibility = detail.json()["signal_event"]["handoff_eligibility"]
+    assert eligibility["eligible"] is False
+    assert eligibility["gateway_ready"] is False
+    assert "production_gateway_mode_must_be_http_json" in eligibility["blockers"]
+
+    runtime = client.get("/api/ai-trading/runtime").json()
+    assert runtime["gateway"]["mode"] == "rabbitmq"
+    assert runtime["gateway"]["target_kind"] == "local_mock"
+    assert runtime["gateway"]["runtime_config_blockers"] == ["production_gateway_mode_must_be_http_json"]
+    assert runtime["gateway"]["default_handoff_status"] == "disabled"
+
+    blocked_handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert blocked_handoff.status_code == 400
+    assert "production_gateway_mode_must_be_http_json" in blocked_handoff.json()["detail"]
+    assert "local-mock-token" not in str(runtime)
+
+
 def test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client, symbol="BTC")

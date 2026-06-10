@@ -24,11 +24,17 @@ Required flow:
 AI strategy/runtime
   -> structured signal
   -> hard risk validation
-  -> RabbitMQ or HTTP handoff
+  -> HTTP JSON handoff
   -> HyperAlpha order backend
   -> order/fill/reject event ingestion
   -> UI state and audit log
 ```
+
+Current V1 implementation supports HTTP JSON handoff only. The AI Trading
+runtime and production readiness checker expose `AI_TRADING_SIGNAL_GATEWAY_MODE`
+as a non-secret config field and fail closed unless it is `http`; RabbitMQ can
+still be used behind the HyperAlpha order backend, but a direct Agent-to-RabbitMQ
+adapter is not accepted in this V1 path.
 
 ## First Implementation Slice
 
@@ -86,10 +92,12 @@ Observed envelope:
 }
 ```
 
-Before coding the signal gateway, confirm whether a new queue such as `QUEUE_AI_TRADING_SIGNAL` is allowed or whether AI signals must be routed into an existing queue.
+If a future direct RabbitMQ handoff is required, confirm whether a new queue such
+as `QUEUE_AI_TRADING_SIGNAL` is allowed or whether AI signals must be routed into
+an existing queue, then add a separate adapter, readiness gate, and acceptance
+evidence before enabling it.
 
 ## Source Documents
 
 - Full PRD: `docs/hyperalpha/ai-trading-prd.md`
 - Lark backend API document: user-provided Hyper下单API link
-

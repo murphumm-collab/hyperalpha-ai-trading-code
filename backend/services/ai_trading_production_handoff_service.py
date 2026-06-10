@@ -10,6 +10,7 @@ from urllib import parse
 
 
 APPROVAL_ENV = "AI_TRADING_PRODUCTION_HANDOFF_APPROVED"
+SUPPORTED_GATEWAY_MODES = {"http"}
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 PLACEHOLDER_HOSTS = {
     "example.com",
@@ -94,6 +95,7 @@ def build_report(
     require_approval_flag: bool = True,
 ) -> Dict[str, Any]:
     gateway_enabled = _parse_bool(env.get("AI_TRADING_SIGNAL_GATEWAY_ENABLED"))
+    gateway_mode = str(env.get("AI_TRADING_SIGNAL_GATEWAY_MODE") or "http").strip().lower() or "http"
     gateway_url = str(env.get("AI_TRADING_SIGNAL_GATEWAY_URL") or "").strip()
     token_present = bool(str(env.get("AI_TRADING_SIGNAL_GATEWAY_TOKEN") or "").strip())
     timeout_seconds = _parse_float(env.get("AI_TRADING_SIGNAL_GATEWAY_TIMEOUT_SECONDS"), 10.0)
@@ -114,6 +116,8 @@ def build_report(
 
     if not gateway_enabled:
         blockers.append("signal_gateway_disabled")
+    if gateway_mode not in SUPPORTED_GATEWAY_MODES:
+        blockers.append("signal_gateway_mode_must_be_http_json")
     if not gateway_url:
         blockers.append("signal_gateway_url_missing")
     else:
@@ -149,6 +153,8 @@ def build_report(
         "warnings": warnings,
         "checks": {
             "gateway_enabled": gateway_enabled,
+            "gateway_mode": gateway_mode,
+            "supported_gateway_modes": sorted(SUPPORTED_GATEWAY_MODES),
             "gateway_url": url_parts,
             "token_present": token_present,
             "token_value_returned": False,
@@ -159,6 +165,7 @@ def build_report(
         },
         "next_actions": [
             "Keep AI_TRADING_SIGNAL_GATEWAY_ENABLED=false until the real order backend URL/token are configured.",
+            "Set AI_TRADING_SIGNAL_GATEWAY_MODE=http; V1 does not accept direct RabbitMQ handoff from the AI agent.",
             "Use an HTTPS order-backend URL that is not localhost, private-network, placeholder, or mock gateway.",
             f"Set {APPROVAL_ENV}=true only for an explicitly approved production handoff acceptance window.",
             "Run this check with --strict before any live order-backend handoff acceptance.",

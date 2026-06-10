@@ -333,6 +333,7 @@ interface AiTradingRuntimeStatus {
   gateway?: {
     enabled?: boolean
     url_configured?: boolean
+    mode?: string
     default_handoff_status?: string
     target_kind?: string
     max_handoff_age_seconds?: number | null
@@ -1445,6 +1446,7 @@ export default function HyperAiPage() {
       signal_allows_direct_ai_order_placement: t('hyperAi.aiTradingDirectAiOrderBlocked', 'Direct AI order not allowed'),
       signal_missing_order_backend_only_boundary: t('hyperAi.aiTradingOrderBackendOnlyMissing', 'Order backend boundary missing'),
       production_handoff_approval_required: t('hyperAi.aiTradingProductionApprovalRequired', 'Production approval required'),
+      production_gateway_mode_must_be_http_json: t('hyperAi.aiTradingProductionGatewayModeHttpRequired', 'HTTP gateway required'),
       production_gateway_url_must_be_https: t('hyperAi.aiTradingProductionGatewayHttpsRequired', 'HTTPS gateway required'),
       production_gateway_url_must_not_be_local_or_private: t('hyperAi.aiTradingProductionGatewayPublicRequired', 'Public gateway required'),
       production_gateway_url_must_not_be_placeholder: t('hyperAi.aiTradingProductionGatewayPlaceholderBlocked', 'Placeholder gateway blocked'),
@@ -1523,13 +1525,14 @@ export default function HyperAiPage() {
   )
   const gatewayTargetLabel = (): string => {
     const targetKind = aiTradingRuntime?.gateway?.target_kind
+    const mode = String(aiTradingRuntime?.gateway?.mode || 'http').toLowerCase()
     if (targetKind === 'local_mock') {
-      return t('hyperAi.aiTradingGatewayTargetLocalMock', 'Local mock')
+      return `${t('hyperAi.aiTradingGatewayTargetLocalMock', 'Local mock')} / ${mode}`
     }
     if (targetKind === 'external_order_backend') {
-      return t('hyperAi.aiTradingGatewayTargetExternalBackend', 'External backend')
+      return `${t('hyperAi.aiTradingGatewayTargetExternalBackend', 'External backend')} / ${mode}`
     }
-    return t('hyperAi.aiTradingGatewayTargetNotConfigured', 'Not configured')
+    return `${t('hyperAi.aiTradingGatewayTargetNotConfigured', 'Not configured')} / ${mode}`
   }
   const modelAdjustmentBlockerLabel = (blocker: string): string => {
     const labels: Record<string, string> = {

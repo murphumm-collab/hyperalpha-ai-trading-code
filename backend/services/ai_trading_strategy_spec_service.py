@@ -156,6 +156,8 @@ HIP3_INDEX_SYMBOLS = {
     "SILVER",
 }
 SIGNAL_GATEWAY_ENABLED = os.getenv("AI_TRADING_SIGNAL_GATEWAY_ENABLED", "false").lower() == "true"
+SIGNAL_GATEWAY_MODE = os.getenv("AI_TRADING_SIGNAL_GATEWAY_MODE", "http").strip().lower() or "http"
+SIGNAL_GATEWAY_SUPPORTED_MODES = {"http"}
 SIGNAL_GATEWAY_URL = os.getenv("AI_TRADING_SIGNAL_GATEWAY_URL", "").strip()
 SIGNAL_GATEWAY_TIMEOUT_SECONDS = float(os.getenv("AI_TRADING_SIGNAL_GATEWAY_TIMEOUT_SECONDS", "10"))
 SIGNAL_GATEWAY_TOKEN = os.getenv("AI_TRADING_SIGNAL_GATEWAY_TOKEN", "").strip()
@@ -3523,12 +3525,15 @@ def _signal_gateway_runtime_config_blockers() -> List[str]:
     """Return non-secret runtime blockers for live order-backend gateway config."""
     if not SIGNAL_GATEWAY_ENABLED or not SIGNAL_GATEWAY_URL:
         return []
+    mode_blockers: List[str] = []
+    if SIGNAL_GATEWAY_MODE not in SIGNAL_GATEWAY_SUPPORTED_MODES:
+        mode_blockers.append("production_gateway_mode_must_be_http_json")
     if _is_local_mock_signal_gateway_url(SIGNAL_GATEWAY_URL):
-        return []
+        return mode_blockers
 
     parsed = parse.urlparse(SIGNAL_GATEWAY_URL)
     host = (parsed.hostname or "").lower()
-    blockers: List[str] = []
+    blockers: List[str] = mode_blockers
     if parsed.scheme != "https":
         blockers.append("production_gateway_url_must_be_https")
     if _is_gateway_host_private_or_local(host):
@@ -4058,7 +4063,7 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
         "gateway": {
             "enabled": SIGNAL_GATEWAY_ENABLED,
             "url_configured": bool(SIGNAL_GATEWAY_URL),
-            "mode": "http",
+            "mode": SIGNAL_GATEWAY_MODE,
             "target_kind": gateway_target_kind,
             "timeout_seconds": SIGNAL_GATEWAY_TIMEOUT_SECONDS,
             "max_handoff_age_seconds": int(SIGNAL_MAX_HANDOFF_AGE_SECONDS) if SIGNAL_MAX_HANDOFF_AGE_SECONDS > 0 else None,

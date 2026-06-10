@@ -88,6 +88,20 @@ def test_ready_env_passes_without_returning_secret_values():
     assert "secret-deepseek-key" not in serialized
 
 
+def test_non_http_signal_gateway_mode_blocks_aggregate_readiness_without_secret_leakage():
+    report = readiness_check.build_report(
+        _ready_env(
+            AI_TRADING_SIGNAL_GATEWAY_MODE="rabbitmq",
+        )
+    )
+
+    assert report["production_ready"] is False
+    assert "signal_handoff:signal_gateway_mode_must_be_http_json" in report["blockers"]
+    assert report["checks"]["signal_handoff"]["checks"]["gateway_mode"] == "rabbitmq"
+    assert report["checks"]["signal_handoff"]["checks"]["supported_gateway_modes"] == ["http"]
+    assert "secret-order-gateway-token" not in str(report)
+
+
 def test_auth_and_distributed_ai_stream_blockers_are_specific():
     report = readiness_check.build_report(
         _ready_env(

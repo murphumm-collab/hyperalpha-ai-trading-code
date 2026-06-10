@@ -13,9 +13,16 @@ The downstream HyperAlpha order backend is the only component allowed to transla
 The gateway is off unless all required runtime config is present:
 
 - `AI_TRADING_SIGNAL_GATEWAY_ENABLED=true`
+- `AI_TRADING_SIGNAL_GATEWAY_MODE=http`
 - `AI_TRADING_SIGNAL_GATEWAY_URL=https://...`
 - `AI_TRADING_SIGNAL_GATEWAY_TOKEN=...` optional bearer token
 - `AI_TRADING_SIGNAL_MAX_HANDOFF_AGE_SECONDS=900` by default
+
+V1 supports HTTP JSON handoff only. Any other `AI_TRADING_SIGNAL_GATEWAY_MODE`
+value, including `rabbitmq`, fails the production handoff checker, aggregate
+production readiness, and runtime handoff preflight. This prevents an operator
+from assuming a RabbitMQ order path is connected before a dedicated adapter has
+been implemented and accepted.
 
 When the gateway is disabled or missing a URL, `/api/ai-trading/signal-events/{id}/handoff` returns `409` and writes a blocked audit attempt. It does not submit to the order backend.
 
@@ -27,8 +34,9 @@ uv run python scripts/ai_trading_production_handoff_check.py --strict
 uv run python scripts/ai_trading_v1_production_readiness_check.py --strict
 ```
 
-The handoff check requires a real HTTPS non-local/non-mock gateway URL, a bearer token,
-a bounded timeout, a positive handoff-age gate, and
+The handoff check requires `AI_TRADING_SIGNAL_GATEWAY_MODE=http`, a real HTTPS
+non-local/non-mock gateway URL, a bearer token, a bounded timeout, a positive
+handoff-age gate, and
 `AI_TRADING_PRODUCTION_HANDOFF_APPROVED=true`. It prints only sanitized URL
 parts and token presence, never the token value.
 
@@ -41,11 +49,12 @@ handoff. Local mock gateway URLs are allowed for local acceptance; external
 order-backend URLs are blocked until the runtime sees approved production-like
 config.
 
-Runtime status exposes a non-secret gateway `target_kind` only:
-`disabled_or_unconfigured`, `local_mock`, or `external_order_backend`. The local
-live-stack acceptance script requires `target_kind=local_mock` before it drafts
-or submits a test signal, so local acceptance cannot accidentally target the
-real order backend.
+Runtime status exposes only non-secret gateway `mode` and `target_kind` fields.
+`target_kind` is one of `disabled_or_unconfigured`, `local_mock`, or
+`external_order_backend`. The local live-stack acceptance script requires
+`mode=http`, `target_kind=local_mock`, and no runtime config blockers before it
+drafts or submits a test signal, so local acceptance cannot accidentally target
+the real order backend or an unsupported delivery mode.
 
 ## HTTP Request
 
@@ -166,6 +175,7 @@ Point the main backend at the mock gateway:
 
 ```bash
 AI_TRADING_SIGNAL_GATEWAY_ENABLED=true
+AI_TRADING_SIGNAL_GATEWAY_MODE=http
 AI_TRADING_SIGNAL_GATEWAY_URL=http://127.0.0.1:5621/api/ai-trading/signals
 AI_TRADING_SIGNAL_GATEWAY_TOKEN=local-mock-token
 ```

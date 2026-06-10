@@ -106,6 +106,26 @@ def test_ai_trading_runtime_context_budget_ui_uses_counts_only_projection() -> N
     assert "context_summary" not in sessions_card_block
 
 
+def test_ai_trading_gateway_mode_ui_uses_non_secret_runtime_projection() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    gateway_label_block = hyper_ai_source.split(
+        "const gatewayTargetLabel = (): string => {",
+        1,
+    )[1].split("const modelAdjustmentBlockerLabel", 1)[0]
+    gateway_card_block = hyper_ai_source.split(
+        "{t('hyperAi.aiTradingGateway', 'Gateway')}",
+        1,
+    )[1].split("{t('hyperAi.aiTradingModel', 'Model')}", 1)[0]
+
+    assert "aiTradingRuntime?.gateway?.mode" in gateway_label_block
+    assert "aiTradingRuntime?.gateway?.target_kind" in gateway_label_block
+    assert "production_gateway_mode_must_be_http_json" in hyper_ai_source
+    assert "gatewayTargetLabel()" in gateway_card_block
+    assert "AI_TRADING_SIGNAL_GATEWAY_TOKEN" not in hyper_ai_source
+    assert "gateway?.url" not in gateway_label_block
+    assert "gateway_url" not in gateway_label_block
+
+
 def test_ai_trading_session_context_prompt_uses_defensive_sanitizer() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     context_load_block = hyper_ai_source.split(
