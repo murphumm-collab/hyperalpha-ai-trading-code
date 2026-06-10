@@ -151,6 +151,58 @@ def test_admin_can_read_ai_trading_production_readiness_without_secret_leakage(t
     assert "secret-deepseek-key" not in serialized
 
 
+def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_leakage(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
+
+    response = client.get(f"/api/ai-trading/admin/production-evidence-explain?session_token={admin_token}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["requested_by_user_id"] == admin_id
+    explain = data["explain"]
+    assert explain["mode"] == "production_evidence_explain"
+    assert explain["github_upload"] == "deferred_by_user_request"
+    assert explain["local_v1_accepted"] is True
+    assert explain["ready_for_live_orders"] is False
+    assert explain["production_track"] == "pending_external_acceptance"
+    assert explain["production_evidence"]["provided"] is False
+    assert explain["production_evidence"]["ready"] is False
+    assert explain["production_evidence"]["required_count"] == 7
+    assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
+    assert explain["schema"]["required_item_fields"] == [
+        "status=accepted",
+        "validated_at=timezone-aware ISO-8601 timestamp",
+        "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
+        "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
+        "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion://",
+        "secret_values_returned=false",
+    ]
+    assert explain["schema"]["required_item_ids"] == [
+        "macos_reboot_recovery",
+        "real_model_profile_live_acceptance",
+        "real_order_backend_handoff",
+        "production_auth_hard_risk_readiness",
+        "admin_readiness_real_auth_visual",
+        "production_agent_session_visual",
+        "real_exchange_execution",
+    ]
+    items_by_id = {item["id"]: item for item in explain["items"]}
+    assert set(items_by_id) == set(explain["schema"]["required_item_ids"])
+    order_backend_item = items_by_id["real_order_backend_handoff"]
+    assert order_backend_item["evidence_status"] == "not_provided"
+    assert order_backend_item["ready"] is False
+    assert order_backend_item["blockers"] == ["external_evidence_item_not_provided"]
+    assert order_backend_item["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
+    assert "API keys" in order_backend_item["forbidden_values"]
+    assert "bearer tokens" in order_backend_item["forbidden_values"]
+    assert any("real HTTPS order-backend" in action for action in order_backend_item["operator_guidance"])
+    serialized = str(data)
+    assert "secret-order-gateway-token" not in serialized
+    assert "secret-deepseek-key" not in serialized
+
+
 def test_admin_readiness_reports_handoff_attempt_audit_warnings_without_attempt_secrets(tmp_path, monkeypatch):
     _set_ready_env(monkeypatch)
     client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
@@ -379,6 +431,17 @@ def test_ai_trading_production_readiness_api_requires_admin_session(tmp_path, mo
 
     anonymous = client.get("/api/ai-trading/admin/production-readiness")
     ordinary = client.get(f"/api/ai-trading/admin/production-readiness?session_token={ordinary_token}")
+
+    assert anonymous.status_code == 401
+    assert ordinary.status_code == 403
+
+
+def test_ai_trading_production_evidence_explain_api_requires_admin_session(tmp_path, monkeypatch):
+    _clear_relevant_env(monkeypatch)
+    client, _admin_token, ordinary_token, _admin_id = _build_client(tmp_path)
+
+    anonymous = client.get("/api/ai-trading/admin/production-evidence-explain")
+    ordinary = client.get(f"/api/ai-trading/admin/production-evidence-explain?session_token={ordinary_token}")
 
     assert anonymous.status_code == 401
     assert ordinary.status_code == 403

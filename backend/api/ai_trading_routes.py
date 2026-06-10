@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path as FilesystemPath
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
@@ -10,6 +11,9 @@ from sqlalchemy.orm import Session
 from api.auth_utils import get_admin_user_dependency, get_current_user_dependency
 from database.connection import get_db
 from database.models import User
+from scripts.ai_trading_v1_completion_audit import (
+    build_production_evidence_explain as build_ai_trading_production_evidence_explain,
+)
 from services.ai_trading_market_universe_service import get_ai_trading_market_universe
 from services.ai_trading_production_readiness_service import (
     build_agent_session_context_audit_report,
@@ -62,6 +66,7 @@ from services.ai_trading_strategy_spec_service import (
 
 
 router = APIRouter(prefix="/api/ai-trading", tags=["AI Trading"])
+AI_TRADING_REPO_ROOT = FilesystemPath(__file__).resolve().parents[2]
 
 
 class StrategySpecDraftRequest(BaseModel):
@@ -242,6 +247,18 @@ def ai_trading_production_readiness_endpoint(
             handoff_attempt_audit_report=build_handoff_attempt_audit_report(db),
             agent_session_context_audit_report=build_agent_session_context_audit_report(db),
         ),
+    }
+
+
+@router.get("/admin/production-evidence-explain")
+def ai_trading_production_evidence_explain_endpoint(
+    current_user: User = Depends(get_admin_user_dependency),
+):
+    """Return admin-only, no-network live-order evidence requirements without secrets."""
+    return {
+        "success": True,
+        "requested_by_user_id": current_user.id,
+        "explain": build_ai_trading_production_evidence_explain(AI_TRADING_REPO_ROOT),
     }
 
 
