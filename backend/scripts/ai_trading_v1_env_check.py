@@ -103,6 +103,12 @@ def _next_actions_for_blockers(blockers: List[str]) -> List[str]:
         )
     if "backend_gateway_runtime_config_blocked" in blocker_set:
         actions.append("Clear backend runtime gateway blockers before submitting a local mock handoff acceptance.")
+    if "backend_agent_context_budget_missing" in blocker_set:
+        actions.append(
+            "Restart/sync the backend so `/api/ai-trading/runtime` returns counts-only `agent_sessions.context_budget`."
+        )
+    if "backend_agent_context_budget_secret_policy_invalid" in blocker_set:
+        actions.append("Keep runtime agent-session context budget counts-only and do not return raw summary text.")
     if "frontend_ai_trading_page_unreachable" in blocker_set:
         actions.append("Start the frontend and open `/app/ai-trading` for browser acceptance.")
     if not actions:
@@ -135,6 +141,16 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
         if isinstance(runtime_payload.get("model_adjustment"), dict)
         else {}
     )
+    runtime_agent_sessions = (
+        runtime_payload.get("agent_sessions")
+        if isinstance(runtime_payload.get("agent_sessions"), dict)
+        else {}
+    )
+    runtime_agent_context_budget = (
+        runtime_agent_sessions.get("context_budget")
+        if isinstance(runtime_agent_sessions.get("context_budget"), dict)
+        else {}
+    )
 
     blockers: List[str] = []
     if not frontend.get("ok"):
@@ -150,6 +166,10 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
             blockers.append("backend_gateway_target_not_local_mock")
         if runtime_gateway.get("runtime_config_blockers"):
             blockers.append("backend_gateway_runtime_config_blocked")
+        if not runtime_agent_context_budget:
+            blockers.append("backend_agent_context_budget_missing")
+        elif runtime_agent_context_budget.get("secret_policy") != "counts_only_no_summary_text":
+            blockers.append("backend_agent_context_budget_secret_policy_invalid")
     if not mock_gateway.get("ok"):
         blockers.append("mock_signal_gateway_unreachable")
 
@@ -170,6 +190,7 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
                 "runtime": backend_runtime,
                 "runtime_gateway": runtime_gateway,
                 "runtime_model_adjustment": runtime_model_adjustment,
+                "runtime_agent_context_budget": runtime_agent_context_budget,
             },
             "mock_gateway_5621": {"tcp_open": mock_gateway_open, "health": mock_gateway},
         },
