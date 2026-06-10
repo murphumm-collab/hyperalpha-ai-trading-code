@@ -105,6 +105,96 @@ def test_env_check_ready_requires_local_mock_gateway(monkeypatch):
     ]
 
 
+def test_env_check_reports_current_runtime_mirror_when_metadata_matches(monkeypatch, tmp_path):
+    _patch_ready_dependencies(
+        monkeypatch,
+        runtime_gateway={
+            "enabled": True,
+            "url_configured": True,
+            "target_kind": "local_mock",
+            "runtime_config_blockers": [],
+        },
+    )
+    monkeypatch.setattr(
+        env_check,
+        "_tracked_tree_digest",
+        lambda repo_root: {"available": True, "digest": "digest-a", "tracked_file_count": 2},
+    )
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    (runtime_root / env_check.RUNTIME_SYNC_METADATA_FILE).write_text(
+        (
+            '{"version":"hyperalpha.local_runtime_sync.v1",'
+            '"source_git_branch":"codex/ai-agent-multitenant-foundation",'
+            '"source_git_commit":"abc123",'
+            '"source_tree_digest":"digest-a",'
+            '"synced_at":"2026-06-10T00:00:00Z"}'
+        ),
+        encoding="utf-8",
+    )
+
+    report = env_check.build_report(
+        frontend_url="http://127.0.0.1:5174/app/ai-trading",
+        backend_url="http://127.0.0.1:8802",
+        mock_gateway_url="http://127.0.0.1:5621",
+        repo_root=tmp_path,
+        runtime_root=runtime_root,
+        require_runtime_mirror_current=True,
+    )
+
+    runtime_mirror = report["checks"]["runtime_mirror"]
+    assert report["ready"] is True
+    assert report["blockers"] == []
+    assert runtime_mirror["current"] is True
+    assert runtime_mirror["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert runtime_mirror["metadata"]["source_tree_digest"] == "digest-a"
+
+
+def test_env_check_blocks_stale_runtime_mirror_when_required(monkeypatch, tmp_path):
+    _patch_ready_dependencies(
+        monkeypatch,
+        runtime_gateway={
+            "enabled": True,
+            "url_configured": True,
+            "target_kind": "local_mock",
+            "runtime_config_blockers": [],
+        },
+    )
+    monkeypatch.setattr(
+        env_check,
+        "_tracked_tree_digest",
+        lambda repo_root: {"available": True, "digest": "digest-current", "tracked_file_count": 2},
+    )
+    runtime_root = tmp_path / "runtime"
+    runtime_root.mkdir()
+    (runtime_root / env_check.RUNTIME_SYNC_METADATA_FILE).write_text(
+        (
+            '{"version":"hyperalpha.local_runtime_sync.v1",'
+            '"source_git_branch":"codex/ai-agent-multitenant-foundation",'
+            '"source_git_commit":"abc123",'
+            '"source_tree_digest":"digest-old",'
+            '"synced_at":"2026-06-10T00:00:00Z"}'
+        ),
+        encoding="utf-8",
+    )
+
+    report = env_check.build_report(
+        frontend_url="http://127.0.0.1:5174/app/ai-trading",
+        backend_url="http://127.0.0.1:8802",
+        mock_gateway_url="http://127.0.0.1:5621",
+        repo_root=tmp_path,
+        runtime_root=runtime_root,
+        require_runtime_mirror_current=True,
+    )
+
+    assert report["ready"] is False
+    assert "runtime_mirror_source_tree_digest_mismatch" in report["blockers"]
+    assert report["checks"]["runtime_mirror"]["current"] is False
+    assert report["next_actions"] == [
+        "Run `scripts/local-dev/install_launch_agent.sh` to sync the LaunchAgent runtime mirror to the current source tree."
+    ]
+
+
 def test_env_check_blocks_external_runtime_gateway(monkeypatch):
     _patch_ready_dependencies(
         monkeypatch,

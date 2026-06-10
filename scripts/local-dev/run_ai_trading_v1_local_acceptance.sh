@@ -24,6 +24,7 @@ Runs the AI Trading V1 local acceptance gate:
   - production evidence initializer gate must create repo-external pending evidence and keep live orders false
   - production evidence template must stay blocked
   - frontend production build
+  - local LaunchAgent runtime mirror sync
   - local runtime readiness check
   - live LaunchAgent/mock-gateway handoff acceptance
 
@@ -217,6 +218,29 @@ PY
   rm -f "$evidence_file" "$init_report_file" "$audit_report_file"
 }
 
+run_runtime_readiness_with_retry() {
+  local attempts=12
+  local delay_seconds=5
+  local attempt
+
+  for attempt in $(seq 1 "$attempts"); do
+    echo "Runtime readiness attempt $attempt/$attempts"
+    if (
+      cd backend
+      uv run python scripts/ai_trading_v1_env_check.py --strict --require-runtime-mirror-current
+    ); then
+      return 0
+    fi
+    if [[ "$attempt" -lt "$attempts" ]]; then
+      echo "Runtime not ready after LaunchAgent sync; waiting ${delay_seconds}s before retry..."
+      sleep "$delay_seconds"
+    fi
+  done
+
+  echo "Runtime readiness failed after $attempts attempts" >&2
+  return 1
+}
+
 cd "$REPO_ROOT"
 
 run_step "Backend compile check" \
@@ -255,8 +279,11 @@ run_expected_failure "Production evidence template remains blocked" \
 run_step "Frontend build" \
   bash -lc "cd frontend && npm run build"
 
+run_step "Local LaunchAgent runtime sync" \
+  bash -lc "scripts/local-dev/install_launch_agent.sh"
+
 run_step "Local runtime readiness" \
-  bash -lc "cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict"
+  run_runtime_readiness_with_retry
 
 run_step "Live local mock handoff acceptance" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff"

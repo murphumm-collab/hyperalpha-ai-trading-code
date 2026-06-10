@@ -12,6 +12,7 @@ Use --strict to exit non-zero when any required component is missing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import socket
@@ -19,7 +20,13 @@ import subprocess
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
 from typing import Any, Dict, List
+
+
+DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_RUNTIME_ROOT = Path.home() / "Library/Application Support/HyperAlpha/runtime/hyperalpha-ai-trading"
+RUNTIME_SYNC_METADATA_FILE = ".hyperalpha-runtime-sync.json"
 
 
 def _tcp_open(host: str, port: int, timeout: float = 1.0) -> bool:
@@ -86,6 +93,90 @@ def _docker_ready() -> Dict[str, Any]:
     }
 
 
+def _tracked_tree_digest(repo_root: Path) -> Dict[str, Any]:
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_root), "ls-files", "-z"],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
+    except Exception as exc:
+        return {
+            "available": False,
+            "error": exc.__class__.__name__,
+            "message": str(exc)[:200],
+        }
+
+    paths = [
+        raw_path.decode("utf-8", errors="surrogateescape")
+        for raw_path in result.stdout.split(b"\0")
+        if raw_path
+    ]
+    digest = hashlib.sha256()
+    file_count = 0
+    for relative_path in sorted(paths):
+        path = repo_root / relative_path
+        if not path.is_file():
+            continue
+        digest.update(relative_path.encode("utf-8", errors="surrogateescape"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+        file_count += 1
+    return {
+        "available": True,
+        "digest": digest.hexdigest(),
+        "tracked_file_count": file_count,
+    }
+
+
+def _runtime_mirror_report(repo_root: str | Path, runtime_root: str | Path) -> Dict[str, Any]:
+    repo = Path(repo_root).expanduser().resolve()
+    runtime = Path(runtime_root).expanduser().resolve()
+    metadata_path = runtime / RUNTIME_SYNC_METADATA_FILE
+    source_digest = _tracked_tree_digest(repo)
+    blockers: List[str] = []
+    metadata: Dict[str, Any] = {}
+
+    if not metadata_path.exists():
+        blockers.append("runtime_mirror_metadata_missing")
+    else:
+        try:
+            parsed = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            blockers.append("runtime_mirror_metadata_invalid_json")
+        else:
+            metadata = parsed if isinstance(parsed, dict) else {}
+            if metadata.get("version") != "hyperalpha.local_runtime_sync.v1":
+                blockers.append("runtime_mirror_metadata_version_invalid")
+            if not metadata.get("source_tree_digest"):
+                blockers.append("runtime_mirror_source_tree_digest_missing")
+
+    if not source_digest.get("available"):
+        blockers.append("runtime_mirror_source_digest_unavailable")
+    elif metadata and metadata.get("source_tree_digest") != source_digest.get("digest"):
+        blockers.append("runtime_mirror_source_tree_digest_mismatch")
+
+    return {
+        "current": not blockers,
+        "blockers": blockers,
+        "repo_root": str(repo),
+        "runtime_root": str(runtime),
+        "metadata_path": str(metadata_path),
+        "metadata_present": metadata_path.exists(),
+        "source_tree_digest": source_digest,
+        "metadata": {
+            "version": metadata.get("version"),
+            "source_git_branch": metadata.get("source_git_branch"),
+            "source_git_commit": metadata.get("source_git_commit"),
+            "source_tree_digest": metadata.get("source_tree_digest"),
+            "synced_at": metadata.get("synced_at"),
+        } if metadata else {},
+        "secret_policy": "metadata_only_no_env_or_credentials",
+    }
+
+
 def _next_actions_for_blockers(blockers: List[str]) -> List[str]:
     actions: List[str] = []
     blocker_set = set(blockers)
@@ -109,6 +200,12 @@ def _next_actions_for_blockers(blockers: List[str]) -> List[str]:
         )
     if "backend_agent_context_budget_secret_policy_invalid" in blocker_set:
         actions.append("Keep runtime agent-session context budget counts-only and do not return raw summary text.")
+    if "runtime_mirror_metadata_missing" in blocker_set or "runtime_mirror_source_tree_digest_mismatch" in blocker_set:
+        actions.append("Run `scripts/local-dev/install_launch_agent.sh` to sync the LaunchAgent runtime mirror to the current source tree.")
+    if "runtime_mirror_metadata_invalid_json" in blocker_set or "runtime_mirror_metadata_version_invalid" in blocker_set:
+        actions.append("Reinstall the local LaunchAgent runtime mirror so sync metadata is regenerated.")
+    if "runtime_mirror_source_digest_unavailable" in blocker_set:
+        actions.append("Run env-check from a valid Git worktree so the local runtime mirror can be compared safely.")
     if "frontend_ai_trading_page_unreachable" in blocker_set:
         actions.append("Start the frontend and open `/app/ai-trading` for browser acceptance.")
     if not actions:
@@ -118,7 +215,15 @@ def _next_actions_for_blockers(blockers: List[str]) -> List[str]:
     return actions
 
 
-def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> Dict[str, Any]:
+def build_report(
+    frontend_url: str,
+    backend_url: str,
+    mock_gateway_url: str,
+    *,
+    repo_root: str | Path | None = None,
+    runtime_root: str | Path | None = None,
+    require_runtime_mirror_current: bool = False,
+) -> Dict[str, Any]:
     docker = _docker_ready()
     postgres_open = _tcp_open("127.0.0.1", 5432)
     backend_port = _backend_port(backend_url)
@@ -151,6 +256,11 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
         if isinstance(runtime_agent_sessions.get("context_budget"), dict)
         else {}
     )
+    runtime_mirror = (
+        _runtime_mirror_report(repo_root, runtime_root)
+        if repo_root is not None and runtime_root is not None
+        else {}
+    )
 
     blockers: List[str] = []
     if not frontend.get("ok"):
@@ -170,6 +280,8 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
             blockers.append("backend_agent_context_budget_missing")
         elif runtime_agent_context_budget.get("secret_policy") != "counts_only_no_summary_text":
             blockers.append("backend_agent_context_budget_secret_policy_invalid")
+    if require_runtime_mirror_current and runtime_mirror and not runtime_mirror.get("current"):
+        blockers.extend(runtime_mirror.get("blockers") or ["runtime_mirror_not_current"])
     if not mock_gateway.get("ok"):
         blockers.append("mock_signal_gateway_unreachable")
 
@@ -193,6 +305,7 @@ def build_report(frontend_url: str, backend_url: str, mock_gateway_url: str) -> 
                 "runtime_agent_context_budget": runtime_agent_context_budget,
             },
             "mock_gateway_5621": {"tcp_open": mock_gateway_open, "health": mock_gateway},
+            "runtime_mirror": runtime_mirror,
         },
         "next_actions": _next_actions_for_blockers(blockers),
     }
@@ -203,6 +316,13 @@ def main() -> None:
     parser.add_argument("--frontend-url", default="http://127.0.0.1:5174/app/ai-trading")
     parser.add_argument("--backend-url", default="http://127.0.0.1:8802")
     parser.add_argument("--mock-gateway-url", default="http://127.0.0.1:5621")
+    parser.add_argument("--repo-root", default=str(DEFAULT_REPO_ROOT))
+    parser.add_argument("--runtime-root", default=str(DEFAULT_RUNTIME_ROOT))
+    parser.add_argument(
+        "--require-runtime-mirror-current",
+        action="store_true",
+        help="Exit non-zero when the LaunchAgent runtime mirror metadata is missing or stale.",
+    )
     parser.add_argument("--strict", action="store_true", help="Exit 1 when any readiness blocker exists.")
     args = parser.parse_args()
 
@@ -210,6 +330,9 @@ def main() -> None:
         frontend_url=args.frontend_url,
         backend_url=args.backend_url,
         mock_gateway_url=args.mock_gateway_url,
+        repo_root=args.repo_root,
+        runtime_root=args.runtime_root,
+        require_runtime_mirror_current=args.require_runtime_mirror_current,
     )
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     if args.strict and not report["ready"]:

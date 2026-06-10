@@ -51,6 +51,11 @@ def _write_minimal_acceptance_repo(
                 "--init-production-evidence-file",
                 "production_evidence_initializer_gate",
                 "real_order_backend_blocked",
+                "Local LaunchAgent runtime sync",
+                "scripts/local-dev/install_launch_agent.sh",
+                "--require-runtime-mirror-current",
+                "Runtime readiness attempt",
+                "run_runtime_readiness_with_retry",
                 "--production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production",
             ]
         ),
@@ -85,7 +90,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Production Evidence Gate Accepted / Remote Push Skipped",
+                "Local V1 Runtime Mirror Freshness Gate Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -97,6 +102,8 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading production evidence note safety | Done |",
                 "| AI Trading production evidence initializer | Done |",
                 "| AI Trading aggregate production evidence initializer gate | Done |",
+                "| AI Trading runtime mirror freshness gate | Done |",
+                "| AI Trading runtime readiness cold-start retry | Done |",
                 "| AI Trading env-check runtime context budget gate | Done |",
                 "| AI Trading runtime budget UI source guard | Done |",
                 "| AI Trading completion audit git governance gate | Done |",
