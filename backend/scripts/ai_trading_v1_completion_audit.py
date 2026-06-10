@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Template Blocker Labels Accepted / Remote Push Skipped",
+            "Local V1 Evidence Explain Root Blockers Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -310,6 +310,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence artifact ref item uniqueness | Done |",
             "| AI Trading production evidence blocker labels | Done |",
             "| AI Trading production evidence template blocker labels | Done |",
+            "| AI Trading production evidence explain root blocker labels | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",

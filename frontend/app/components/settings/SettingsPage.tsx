@@ -2310,6 +2310,24 @@ export default function SettingsPage() {
                           ? t('settings.provided', 'Provided')
                           : t('settings.notProvided', 'Not provided')}
                       </div>
+                      {aiTradingEvidenceExplain.productionEvidence.blockers.length > 0 && (
+                        <div className="rounded-md border p-3">
+                          <div className="mb-2 text-sm font-medium">
+                            {t('settings.readinessBlockers', 'Blockers')}
+                          </div>
+                          <div className="grid gap-1 md:grid-cols-2">
+                            {aiTradingEvidenceExplain.productionEvidence.blockers.slice(0, 8).map((blocker) => (
+                              <div
+                                key={blocker}
+                                className="truncate text-xs text-red-500"
+                                title={formatAiTradingProductionEvidenceBlocker(blocker)}
+                              >
+                                {formatAiTradingProductionEvidenceBlocker(blocker)}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                         {aiTradingEvidenceExplain.items.map((item) => (

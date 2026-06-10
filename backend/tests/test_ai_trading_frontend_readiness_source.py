@@ -154,6 +154,10 @@ def test_admin_production_evidence_blockers_use_readable_labels() -> None:
     assert "external_evidence_item_blocked:" in helper_source
     assert "external_evidence_summary_missing_required_term:" in helper_source
 
+    explain_root_block = settings_source.split(
+        "aiTradingEvidenceExplain.productionEvidence.blockers.length > 0",
+        1,
+    )[1].split("aiTradingEvidenceExplain.items.map((item) => (", 1)[0]
     explain_block = settings_source.split(
         "aiTradingEvidenceExplain.items.map((item) => (",
         1,
@@ -167,6 +171,9 @@ def test_admin_production_evidence_blockers_use_readable_labels() -> None:
         1,
     )[1].split("</div>\n                            </div>", 1)[0]
 
+    assert "aiTradingEvidenceExplain.productionEvidence.blockers.slice(0, 8)" in explain_root_block
+    assert "formatAiTradingProductionEvidenceBlocker(blocker)" in explain_root_block
+    assert "formatReadinessCode(blocker)" not in explain_root_block
     assert "formatAiTradingProductionEvidenceBlocker(blocker)" in explain_block
     assert "formatReadinessCode(blocker)" not in explain_block
     assert "formatAiTradingProductionEvidenceBlocker(blocker)" in validation_block
