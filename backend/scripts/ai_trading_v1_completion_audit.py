@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Explain Root Blockers Accepted / Remote Push Skipped",
+            "Local V1 Evidence Progress Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -311,6 +311,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence blocker labels | Done |",
             "| AI Trading production evidence template blocker labels | Done |",
             "| AI Trading production evidence explain root blocker labels | Done |",
+            "| AI Trading production evidence progress summary | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -1197,6 +1198,44 @@ def build_production_evidence_payload_validation(repo_root: Path | str, payload:
     return validation
 
 
+def _build_production_evidence_progress(
+    report: dict[str, Any],
+    items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    production_evidence = report["production_evidence"]
+    accepted_item_ids = [item["id"] for item in items if item["ready"]]
+    pending_item_ids = [item["id"] for item in items if not item["ready"]]
+    blocked_item_ids = [item["id"] for item in items if item["blockers"]]
+    live_order_gate_blockers: list[str] = []
+
+    if not report["local_v1_accepted"]:
+        live_order_gate_blockers.append("local_v1_not_accepted")
+    if not production_evidence["ready"]:
+        live_order_gate_blockers.append("production_evidence_not_ready")
+    elif not report["ready_for_live_orders"]:
+        live_order_gate_blockers.append("explicit_live_ready_confirmation_required")
+
+    if report["ready_for_live_orders"]:
+        status = "live_ready"
+    elif production_evidence["ready"]:
+        status = "external_evidence_accepted_pending_explicit_confirmation"
+    else:
+        status = "pending_external_acceptance"
+
+    return {
+        "status": status,
+        "accepted_item_ids": accepted_item_ids,
+        "pending_item_ids": pending_item_ids,
+        "blocked_item_ids": blocked_item_ids,
+        "next_required_item_ids": pending_item_ids,
+        "accepted_count": len(accepted_item_ids),
+        "pending_count": len(pending_item_ids),
+        "blocked_count": len(blocked_item_ids),
+        "required_count": len(items),
+        "live_order_gate_blockers": live_order_gate_blockers,
+    }
+
+
 def _build_production_evidence_explain_from_report(
     report: dict[str, Any],
     *,
@@ -1285,6 +1324,7 @@ def _build_production_evidence_explain_from_report(
             "cutover_window_end_at": production_evidence.get("cutover_window_end_at"),
             "cutover_approval_ref_present": production_evidence.get("cutover_approval_ref_present", False),
         },
+        "progress": _build_production_evidence_progress(report, items),
         "schema": {
             "allowed_root_fields": sorted(ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS),
             "allowed_item_fields": sorted(ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS),

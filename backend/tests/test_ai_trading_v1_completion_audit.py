@@ -66,6 +66,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_blocker_labels_marker: bool = True,
     include_production_evidence_template_blocker_labels_marker: bool = True,
     include_production_evidence_explain_root_blocker_labels_marker: bool = True,
+    include_production_evidence_progress_summary_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -158,6 +159,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_explain_root_blocker_labels_marker = (
         "| AI Trading production evidence explain root blocker labels | Done |"
     ) if include_production_evidence_explain_root_blocker_labels_marker else ""
+    production_evidence_progress_summary_marker = (
+        "| AI Trading production evidence progress summary | Done |"
+    ) if include_production_evidence_progress_summary_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -250,7 +254,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Explain Root Blockers Accepted / Remote Push Skipped",
+                "Local V1 Evidence Progress Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -286,6 +290,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_blocker_labels_marker,
                 production_evidence_template_blocker_labels_marker,
                 production_evidence_explain_root_blocker_labels_marker,
+                production_evidence_progress_summary_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -1052,6 +1057,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_expla
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence explain root blocker labels | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_progress_summary_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_progress_summary_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence progress summary | Done |"
         in status_evidence["missing_phrases"]
     )
 

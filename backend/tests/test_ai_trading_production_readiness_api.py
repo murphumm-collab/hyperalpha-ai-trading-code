@@ -246,6 +246,16 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["production_evidence"]["cutover_window_start_at"] is None
     assert explain["production_evidence"]["cutover_window_end_at"] is None
     assert explain["production_evidence"]["cutover_approval_ref_present"] is False
+    assert explain["progress"]["status"] == "pending_external_acceptance"
+    assert explain["progress"]["accepted_item_ids"] == []
+    assert explain["progress"]["pending_item_ids"] == explain["schema"]["required_item_ids"]
+    assert explain["progress"]["blocked_item_ids"] == explain["schema"]["required_item_ids"]
+    assert explain["progress"]["next_required_item_ids"] == explain["schema"]["required_item_ids"]
+    assert explain["progress"]["accepted_count"] == 0
+    assert explain["progress"]["pending_count"] == 7
+    assert explain["progress"]["blocked_count"] == 7
+    assert explain["progress"]["required_count"] == 7
+    assert explain["progress"]["live_order_gate_blockers"] == ["production_evidence_not_ready"]
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
     assert explain["schema"]["max_evidence_validity_days"] == 7
     assert explain["schema"]["max_clock_skew_seconds"] == 300
@@ -364,6 +374,18 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     assert validation["production_evidence"]["accepted_count"] == 7
     assert validation["production_evidence"]["required_count"] == 7
     assert validation["production_evidence"]["cutover_approval_ref_present"] is True
+    assert validation["progress"]["status"] == "external_evidence_accepted_pending_explicit_confirmation"
+    assert validation["progress"]["accepted_item_ids"] == validation["schema"]["required_item_ids"]
+    assert validation["progress"]["pending_item_ids"] == []
+    assert validation["progress"]["blocked_item_ids"] == []
+    assert validation["progress"]["next_required_item_ids"] == []
+    assert validation["progress"]["accepted_count"] == 7
+    assert validation["progress"]["pending_count"] == 0
+    assert validation["progress"]["blocked_count"] == 0
+    assert validation["progress"]["required_count"] == 7
+    assert validation["progress"]["live_order_gate_blockers"] == [
+        "explicit_live_ready_confirmation_required"
+    ]
     assert validation["items"][0]["required_fields"]
     assert all(item["ready"] for item in validation["items"])
     serialized = str(data)

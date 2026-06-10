@@ -54,6 +54,12 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "minEvidenceRunIdChars" in settings_source
     assert "maxEvidenceRunIdChars" in settings_source
     assert "readyForLiveOrders" in settings_source
+    assert "progress.acceptedCount" in settings_source
+    assert "progress.pendingCount" in settings_source
+    assert "progress.blockedCount" in settings_source
+    assert "progress.requiredCount" in settings_source
+    assert "progress.liveOrderGateBlockers" in settings_source
+    assert "progress.nextRequiredItemIds" in settings_source
     assert "artifactRefCount" in settings_source
     assert "requiredSummaryTerms" in settings_source
     assert "missingSummaryTerms" in settings_source
@@ -66,6 +72,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "DASHSCOPE_API_KEY" not in settings_source
 
     assert "production_evidence" in helper_source
+    assert "progress" in helper_source
     assert "ready_for_live_orders" in helper_source
     assert "evidence_run_id_present" in helper_source
     assert "expires_at" in helper_source
@@ -80,6 +87,11 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "min_evidence_run_id_chars" in helper_source
     assert "max_evidence_run_id_chars" in helper_source
     assert "artifact_ref_count" in helper_source
+    assert "accepted_item_ids" in helper_source
+    assert "pending_item_ids" in helper_source
+    assert "blocked_item_ids" in helper_source
+    assert "next_required_item_ids" in helper_source
+    assert "live_order_gate_blockers" in helper_source
     assert "required_summary_terms" in helper_source
     assert "missing_summary_terms" in helper_source
     assert "operator_guidance" in helper_source
@@ -124,6 +136,9 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "aiTradingEvidenceValidation.minEvidenceRunIdChars" in settings_source
     assert "aiTradingEvidenceValidation.maxEvidenceRunIdChars" in settings_source
     assert "aiTradingEvidenceValidation.readyForLiveOrders" in settings_source
+    assert "aiTradingEvidenceValidation.progress.pendingCount" in settings_source
+    assert "aiTradingEvidenceValidation.progress.liveOrderGateBlockers" in settings_source
+    assert "aiTradingEvidenceValidation.progress.nextRequiredItemIds" in settings_source
     assert "extractAiTradingProductionEvidenceExplain(data.validation)" in settings_source
     assert "JSON.stringify(data.template || {}, null, 2)" in settings_source
     assert "production_evidence_file" not in settings_source
@@ -151,6 +166,10 @@ def test_admin_production_evidence_blockers_use_readable_labels() -> None:
     assert "Evidence summary missing" in helper_source
     assert "external_evidence_validated_by_missing" in helper_source
     assert "Validator name missing" in helper_source
+    assert "production_evidence_not_ready" in helper_source
+    assert "Production evidence is not ready" in helper_source
+    assert "explicit_live_ready_confirmation_required" in helper_source
+    assert "Explicit live-order confirmation required" in helper_source
     assert "external_evidence_item_blocked:" in helper_source
     assert "external_evidence_summary_missing_required_term:" in helper_source
 
@@ -180,6 +199,38 @@ def test_admin_production_evidence_blockers_use_readable_labels() -> None:
     assert "formatReadinessCode(blocker)" not in validation_block
     assert "item.blockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker).join(', ')" in validation_item_block
     assert "item.blockers.slice(0, 2).map(formatReadinessCode).join(', ')" not in validation_item_block
+
+
+def test_admin_production_evidence_progress_ui_uses_safe_projection() -> None:
+    settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    progress_block = settings_source.split(
+        "{t('settings.aiTradingEvidenceProgress', 'Evidence progress')}",
+        1,
+    )[1].split("{aiTradingEvidenceExplain.productionEvidence.blockers.length > 0", 1)[0]
+    validation_progress_block = settings_source.split(
+        "aiTradingEvidenceValidation.progress.pendingCount",
+        1,
+    )[1].split("aiTradingEvidenceValidation.productionEvidence.expiresAt", 1)[0]
+
+    assert "progress.acceptedCount" in progress_block
+    assert "progress.pendingCount" in progress_block
+    assert "progress.blockedCount" in progress_block
+    assert "progress.requiredCount" in progress_block
+    assert "progress.liveOrderGateBlockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker)" in progress_block
+    assert "progress.nextRequiredItemIds.slice(0, 4).map(formatProductionEvidenceItemName)" in progress_block
+    assert "progress.liveOrderGateBlockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker)" in validation_progress_block
+    assert "progress.nextRequiredItemIds.slice(0, 3).map(formatProductionEvidenceItemName)" in validation_progress_block
+    assert "formatReadinessCode" not in progress_block
+    assert "formatReadinessCode" not in validation_progress_block
+    assert "evidence_summary" not in progress_block
+    assert "production_evidence_file" not in progress_block
+    assert "secret_values_returned" not in progress_block
+    assert "accepted_item_ids" in helper_source
+    assert "pending_item_ids" in helper_source
+    assert "blocked_item_ids" in helper_source
+    assert "next_required_item_ids" in helper_source
+    assert "live_order_gate_blockers" in helper_source
 
 
 def test_ai_trading_runtime_context_budget_ui_uses_counts_only_projection() -> None:

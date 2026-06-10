@@ -2274,6 +2274,37 @@ export default function SettingsPage() {
                           </div>
                         </div>
                       </div>
+                      <div className="rounded-md border p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <div className="text-sm font-medium">
+                            {t('settings.aiTradingEvidenceProgress', 'Evidence progress')}
+                          </div>
+                          <Badge variant={getReadinessBadgeVariant(aiTradingEvidenceExplain.progress.pendingCount === 0)}>
+                            {aiTradingEvidenceExplain.progress.status || aiTradingEvidenceExplain.productionTrack || '-'}
+                          </Badge>
+                        </div>
+                        <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
+                          <div>
+                            {t('settings.aiTradingEvidenceAccepted', 'Accepted')}: {aiTradingEvidenceExplain.progress.acceptedCount}/{aiTradingEvidenceExplain.progress.requiredCount}
+                          </div>
+                          <div>
+                            {t('settings.aiTradingEvidencePending', 'Pending')}: {aiTradingEvidenceExplain.progress.pendingCount}
+                          </div>
+                          <div>
+                            {t('settings.readinessBlockers', 'Blockers')}: {aiTradingEvidenceExplain.progress.blockedCount}
+                          </div>
+                          <div className="truncate" title={aiTradingEvidenceExplain.progress.liveOrderGateBlockers.map(formatAiTradingProductionEvidenceBlocker).join(', ') || '-'}>
+                            {t('settings.aiTradingEvidenceGate', 'Gate')}: {aiTradingEvidenceExplain.progress.liveOrderGateBlockers.length > 0
+                              ? aiTradingEvidenceExplain.progress.liveOrderGateBlockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker).join(', ')
+                              : t('settings.ready', 'Ready')}
+                          </div>
+                        </div>
+                        {aiTradingEvidenceExplain.progress.nextRequiredItemIds.length > 0 && (
+                          <div className="mt-2 truncate text-xs text-muted-foreground" title={aiTradingEvidenceExplain.progress.nextRequiredItemIds.map(formatProductionEvidenceItemName).join(', ')}>
+                            {t('settings.aiTradingEvidenceNextRequired', 'Next required')}: {aiTradingEvidenceExplain.progress.nextRequiredItemIds.slice(0, 4).map(formatProductionEvidenceItemName).join(', ')}
+                          </div>
+                        )}
+                      </div>
                       <div className="truncate text-xs text-muted-foreground" title={aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}>
                         {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}
                       </div>
@@ -2468,6 +2499,19 @@ export default function SettingsPage() {
                                     : t('settings.blocked', 'Blocked')
                                 }
                               </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidencePending', 'Pending')}: {aiTradingEvidenceValidation.progress.pendingCount}
+                              </div>
+                              <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.progress.liveOrderGateBlockers.map(formatAiTradingProductionEvidenceBlocker).join(', ') || '-'}>
+                                {t('settings.aiTradingEvidenceGate', 'Gate')}: {aiTradingEvidenceValidation.progress.liveOrderGateBlockers.length > 0
+                                  ? aiTradingEvidenceValidation.progress.liveOrderGateBlockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker).join(', ')
+                                  : t('settings.ready', 'Ready')}
+                              </div>
+                              {aiTradingEvidenceValidation.progress.nextRequiredItemIds.length > 0 && (
+                                <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.progress.nextRequiredItemIds.map(formatProductionEvidenceItemName).join(', ')}>
+                                  {t('settings.aiTradingEvidenceNextRequired', 'Next required')}: {aiTradingEvidenceValidation.progress.nextRequiredItemIds.slice(0, 3).map(formatProductionEvidenceItemName).join(', ')}
+                                </div>
+                              )}
                               <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}>
                                 {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}
                               </div>

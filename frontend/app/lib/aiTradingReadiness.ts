@@ -44,6 +44,19 @@ export interface AiTradingProductionEvidenceItemView {
   operatorGuidance: string[]
 }
 
+export interface AiTradingProductionEvidenceProgressView {
+  status: string
+  acceptedItemIds: string[]
+  pendingItemIds: string[]
+  blockedItemIds: string[]
+  nextRequiredItemIds: string[]
+  acceptedCount: number
+  pendingCount: number
+  blockedCount: number
+  requiredCount: number
+  liveOrderGateBlockers: string[]
+}
+
 export interface AiTradingProductionEvidenceExplainView {
   mode: string
   githubUpload: string | null
@@ -51,6 +64,7 @@ export interface AiTradingProductionEvidenceExplainView {
   readyForLiveOrders: boolean
   productionTrack: string | null
   productionEvidence: AiTradingProductionEvidenceSummary
+  progress: AiTradingProductionEvidenceProgressView
   requiredItemIds: string[]
   safeArtifactRefSchemes: string[]
   maxEvidenceValidityDays: number
@@ -97,6 +111,7 @@ const readableEvidenceSuffix = (value: string): string => {
 }
 
 const PRODUCTION_EVIDENCE_BLOCKER_LABELS: Record<string, string> = {
+  explicit_live_ready_confirmation_required: 'Explicit live-order confirmation required',
   external_evidence_accepted_pending_explicit_confirmation: 'Explicit production confirmation still required',
   external_evidence_artifact_ref_credentials_embedded: 'Artifact ref embeds credentials',
   external_evidence_artifact_ref_duplicate_in_item: 'Duplicate artifact ref in item',
@@ -183,6 +198,8 @@ const PRODUCTION_EVIDENCE_BLOCKER_LABELS: Record<string, string> = {
   external_evidence_validated_by_too_long: 'Validator name is too long',
   external_evidence_validated_by_too_short: 'Validator name is too short',
   external_evidence_version_mismatch: 'Evidence version mismatch',
+  local_v1_not_accepted: 'Local V1 acceptance is not complete',
+  production_evidence_not_ready: 'Production evidence is not ready',
 }
 
 export const formatAiTradingProductionEvidenceBlocker = (code: string): string => {
@@ -233,6 +250,7 @@ export const extractAiTradingProductionEvidenceExplain = (
   if (!isRecord(source)) return null
 
   const productionEvidenceSource = isRecord(source.production_evidence) ? source.production_evidence : {}
+  const progressSource = isRecord(source.progress) ? source.progress : {}
   const schemaSource = isRecord(source.schema) ? source.schema : {}
   const rawItems = Array.isArray(source.items) ? source.items : []
 
@@ -255,6 +273,18 @@ export const extractAiTradingProductionEvidenceExplain = (
       cutoverApprovalRefPresent: productionEvidenceSource.cutover_approval_ref_present === true,
       blockers: stringList(productionEvidenceSource.blockers),
       warnings: stringList(productionEvidenceSource.warnings),
+    },
+    progress: {
+      status: typeof progressSource.status === 'string' ? progressSource.status : '',
+      acceptedItemIds: stringList(progressSource.accepted_item_ids),
+      pendingItemIds: stringList(progressSource.pending_item_ids),
+      blockedItemIds: stringList(progressSource.blocked_item_ids),
+      nextRequiredItemIds: stringList(progressSource.next_required_item_ids),
+      acceptedCount: numberValue(progressSource.accepted_count),
+      pendingCount: numberValue(progressSource.pending_count),
+      blockedCount: numberValue(progressSource.blocked_count),
+      requiredCount: numberValue(progressSource.required_count),
+      liveOrderGateBlockers: stringList(progressSource.live_order_gate_blockers),
     },
     requiredItemIds: stringList(schemaSource.required_item_ids),
     safeArtifactRefSchemes: stringList(schemaSource.safe_artifact_ref_schemes),
