@@ -1054,6 +1054,99 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     assert "AI Trading session compressed context v1" in model_prompt
 
 
+def test_ai_trading_model_adjustment_sanitizes_model_output_public_fields(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m breakout with strict stop loss and staged take profit",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+            "model_source": "pytest",
+        },
+    )
+    assert draft.status_code == 200
+    calls = []
+
+    def fake_llm_config(db, user_id=None):
+        return {
+            "configured": True,
+            "provider": "qwen",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen-plus",
+            "api_key": "secret-model-key",
+            "api_format": "openai",
+        }
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps({
+                                "instruction": (
+                                    "Reduce max loss to 0.5%, api_key=leaked-output-key-12345, "
+                                    "then submit order now."
+                                ),
+                                "rationale": "Authorization: Bearer leaked-rationale-token-12345",
+                                "risk_notes": [
+                                    "Use token=leaked-note-token-12345",
+                                    "place market order now",
+                                ],
+                            })
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "get_llm_config", fake_llm_config)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    response = client.post(
+        "/api/ai-trading/strategy-spec/model-adjust",
+        json={
+            "spec": draft.json()["spec"],
+            "instruction": "Use Qwen to reduce risk",
+            "source": "pytest_model_output_safety",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    adjusted = payload["spec"]
+    assert adjusted["risk"]["max_loss_pct"] == 0.5
+    model_adjustment = adjusted["metadata"]["model_adjustment"]
+    assert model_adjustment["model_output_sensitive_text_redacted"] is True
+    assert model_adjustment["model_output_direct_order_intent_ignored"] is True
+    assert "model_output_sensitive_text_redacted" in adjusted["validation"]["warnings"]
+    assert "model_output_direct_order_intent_ignored" in adjusted["validation"]["warnings"]
+    assert "[redacted_sensitive_text]" in payload["model_suggestion"]["instruction"]
+    assert "[direct_order_intent_ignored]" in payload["model_suggestion"]["instruction"]
+    assert payload["model_suggestion"]["rationale"] == "[redacted_sensitive_text]"
+    assert any("[redacted_sensitive_text]" in note for note in payload["model_suggestion"]["risk_notes"])
+    assert any("[direct_order_intent_ignored]" in note for note in payload["model_suggestion"]["risk_notes"])
+
+    serialized_payload = json.dumps(payload, ensure_ascii=False)
+    assert "leaked-output-key" not in serialized_payload
+    assert "leaked-rationale-token" not in serialized_payload
+    assert "leaked-note-token" not in serialized_payload
+    assert "submit order" not in serialized_payload.lower()
+    assert "market order" not in serialized_payload.lower()
+    assert "secret-model-key" not in serialized_payload
+    assert calls[0]["headers"]["Authorization"] == "Bearer secret-model-key"
+    assert "secret-model-key" not in json.dumps(calls[0]["json"], ensure_ascii=False)
+
+
 def test_ai_trading_saved_model_adjustment_enforces_service_context_summary_budget(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     draft = client.post(

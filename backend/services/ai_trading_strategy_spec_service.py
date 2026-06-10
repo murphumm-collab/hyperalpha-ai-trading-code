@@ -113,10 +113,26 @@ SENSITIVE_AI_TRADING_KEY_PATTERN = re.compile(
     r"(api[_-]?key|secret|token|private[_-]?key|password|authorization|bearer)",
     re.IGNORECASE,
 )
+SENSITIVE_AI_TRADING_TEXT_PATTERNS = (
+    re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE),
+    re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{6,}", re.IGNORECASE),
+    re.compile(
+        r"\b(api[_-]?key|password|private[_-]?key|access[_-]?token|refresh[_-]?token|token|secret)"
+        r"\s*[:=]\s*['\"]?[^'\"\s,;}]{4,}",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\bsk-[A-Za-z0-9]{12,}\b"),
+)
 AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS = {"context_summary", "agent_context_summary"}
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
     r"direct\s+order|立即下单|直接下单|市价单|限价单)",
+    re.IGNORECASE,
+)
+MODEL_OUTPUT_DIRECT_ORDER_TEXT_PATTERN = re.compile(
+    r"(submit\s+(?:an?\s+)?order|place\s+(?:an?\s+)?order\s+now|market\s+order|"
+    r"limit\s+order|auto\s*execute|direct\s+execution|direct\s+order|"
+    r"立即下单|直接下单|市价单|限价单)",
     re.IGNORECASE,
 )
 AGENT_SESSION_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$")
@@ -203,6 +219,25 @@ def _clean_text(value: Any, max_length: int = 4000) -> str:
     text = str(value or "").strip()
     text = re.sub(r"\s+", " ", text)
     return text[:max_length]
+
+
+def _model_adjustment_text_has_sensitive_value(value: Any) -> bool:
+    text = str(value or "")
+    return any(pattern.search(text) for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS)
+
+
+def _model_adjustment_text_has_direct_order(value: Any) -> bool:
+    return bool(MODEL_OUTPUT_DIRECT_ORDER_TEXT_PATTERN.search(str(value or "")))
+
+
+def _sanitize_model_adjustment_output_text(value: Any, max_length: int = 1000) -> str:
+    text = _clean_text(value, max_length)
+    if not text:
+        return ""
+    for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS:
+        text = pattern.sub("[redacted_sensitive_text]", text)
+    text = MODEL_OUTPUT_DIRECT_ORDER_TEXT_PATTERN.sub("[direct_order_intent_ignored]", text)
+    return _clean_text(text, max_length)
 
 
 def _build_ai_model_config(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -1622,7 +1657,22 @@ def adjust_strategy_spec_with_model(
         except Exception as exc:
             last_error = f"LLM request failed: {exc.__class__.__name__}"
 
-    model_instruction = _clean_text(parsed.get("instruction"), 4000)
+    raw_model_instruction = _clean_text(parsed.get("instruction"), 4000)
+    raw_rationale = _clean_text(parsed.get("rationale"), 1000)
+    raw_risk_notes = [
+        _clean_text(note, 300)
+        for note in (parsed.get("risk_notes") if isinstance(parsed.get("risk_notes"), list) else [])
+        if _clean_text(note, 300)
+    ][:8]
+    model_output_sensitive_text_redacted = any(
+        _model_adjustment_text_has_sensitive_value(value)
+        for value in [raw_model_instruction, raw_rationale, *raw_risk_notes]
+    )
+    model_output_direct_order_intent_ignored = any(
+        _model_adjustment_text_has_direct_order(value)
+        for value in [raw_model_instruction, raw_rationale, *raw_risk_notes]
+    )
+    model_instruction = _sanitize_model_adjustment_output_text(raw_model_instruction, 4000)
     if not model_instruction:
         raise ValueError(last_error or "LLM adjustment response missing instruction")
 
@@ -1632,17 +1682,31 @@ def adjust_strategy_spec_with_model(
         user_id=user_id,
         source=source,
     )
+    if model_output_sensitive_text_redacted or model_output_direct_order_intent_ignored:
+        validation = adjusted_spec.get("validation") if isinstance(adjusted_spec.get("validation"), dict) else {}
+        warnings = list(validation.get("warnings") or [])
+        if model_output_sensitive_text_redacted:
+            warnings.append("model_output_sensitive_text_redacted")
+        if model_output_direct_order_intent_ignored:
+            warnings.append("model_output_direct_order_intent_ignored")
+        validation["warnings"] = list(dict.fromkeys(warnings))
+        adjusted_spec["validation"] = validation
     metadata = adjusted_spec.get("metadata") if isinstance(adjusted_spec.get("metadata"), dict) else {}
     metadata["model_adjustment"] = {
         "provider": provider,
         "model": model,
         "source": "hyper_ai_profile",
         "agent_session_context": agent_context,
-        "rationale": _clean_text(parsed.get("rationale"), 1000),
+        "model_output_sensitive_text_redacted": model_output_sensitive_text_redacted,
+        "model_output_direct_order_intent_ignored": model_output_direct_order_intent_ignored,
+        "rationale": _sanitize_model_adjustment_output_text(raw_rationale, 1000),
         "risk_notes": [
-            _clean_text(note, 300)
-            for note in (parsed.get("risk_notes") if isinstance(parsed.get("risk_notes"), list) else [])
-            if _clean_text(note, 300)
+            sanitized_note
+            for sanitized_note in (
+                _sanitize_model_adjustment_output_text(note, 300)
+                for note in raw_risk_notes
+            )
+            if sanitized_note
         ][:8],
     }
     adjusted_spec["metadata"] = metadata
