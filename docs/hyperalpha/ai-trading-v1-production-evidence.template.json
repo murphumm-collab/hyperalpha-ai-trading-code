@@ -19,7 +19,7 @@
     "generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >300s in the future; item validation cannot be older than 7 days at generated_at; expires_at must be after generated_at, future, and within 7 days.",
     "cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than 8 hours.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window and include evidence_run_id.",
-    "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, include evidence_run_id plus the item id, and do not embed credentials or point to localhost/private-network URLs.",
+    "artifact_refs must be non-empty item-specific sanitized refs using https://, ops://, lark://, or notion:// only; use no more than 5 per item, each <=300 chars, include evidence_run_id plus item id, never reuse refs across items, and avoid credentials/local/private URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected."
   ],

@@ -107,7 +107,7 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     f"generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >{MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS}s in the future; item validation cannot be older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at; expires_at must be after generated_at, future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
     f"cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window and include evidence_run_id.",
-    "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, include evidence_run_id plus the item id, and do not embed credentials or point to localhost/private-network URLs.",
+    "artifact_refs must be non-empty item-specific sanitized refs using https://, ops://, lark://, or notion:// only; use no more than 5 per item, each <=300 chars, include evidence_run_id plus item id, never reuse refs across items, and avoid credentials/local/private URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
 )
@@ -116,7 +116,7 @@ PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS = (
     f"validated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future and not older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at",
     "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
     "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
-    "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id plus the item id",
+    "artifact_refs=1-5 unique item-specific safe refs using https://, ops://, lark://, or notion:// and containing evidence_run_id plus the item id",
     "secret_values_returned=false",
 )
 PRODUCTION_EVIDENCE_COMMON_FORBIDDEN = (
@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Item Artifact Traceability Accepted / Remote Push Skipped",
+            "Local V1 Evidence Artifact Uniqueness Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -306,6 +306,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence run id guard | Done |",
             "| AI Trading production evidence run id traceability | Done |",
             "| AI Trading production evidence item artifact traceability | Done |",
+            "| AI Trading production evidence artifact ref uniqueness | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -902,6 +903,15 @@ def _validate_external_evidence_item(
     }
 
 
+def _non_empty_artifact_ref_texts(item: Any) -> list[str]:
+    if not isinstance(item, dict):
+        return []
+    artifact_refs = item.get("artifact_refs")
+    if not isinstance(artifact_refs, list):
+        return []
+    return [ref.strip() for ref in artifact_refs if isinstance(ref, str) and ref.strip()]
+
+
 def _path_is_relative_to(path: Path, parent: Path) -> bool:
     try:
         path.relative_to(parent)
@@ -1020,6 +1030,24 @@ def _validate_external_evidence_payload(
         )
         for item_id in required_ids
     ]
+    item_reports_by_id = {item["id"]: item for item in item_reports}
+    artifact_ref_item_ids: dict[str, set[str]] = {}
+    for item_id in required_ids:
+        for ref_text in _non_empty_artifact_ref_texts(items_payload.get(item_id)):
+            artifact_ref_item_ids.setdefault(ref_text, set()).add(item_id)
+    duplicate_artifact_ref_item_ids = [
+        sorted(item_ids)
+        for item_ids in artifact_ref_item_ids.values()
+        if len(item_ids) > 1
+    ]
+    for item_ids in duplicate_artifact_ref_item_ids:
+        for item_id in item_ids:
+            item_report = item_reports_by_id.get(item_id)
+            if not item_report:
+                continue
+            if "external_evidence_artifact_ref_reused_across_items" not in item_report["blockers"]:
+                item_report["blockers"].append("external_evidence_artifact_ref_reused_across_items")
+            item_report["ready"] = False
     accepted_count = sum(1 for item in item_reports if item["ready"])
     item_blockers = [item["id"] for item in item_reports if not item["ready"]]
     if item_blockers:
@@ -1398,7 +1426,7 @@ def build_completion_report(
             "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
-            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, generated_at/validated_at/expires_at ISO timestamps, and bounded safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
+            "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, generated_at/validated_at/expires_at ISO timestamps, and unique item-specific safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }
 
