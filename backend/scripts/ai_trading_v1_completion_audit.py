@@ -107,7 +107,7 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     f"generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >{MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS}s in the future; item validation cannot be older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at; expires_at must be after generated_at, future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
     f"cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window and include evidence_run_id.",
-    "artifact_refs must be non-empty item-specific sanitized refs using https://, ops://, lark://, or notion:// only; use no more than 5 per item, each <=300 chars, include evidence_run_id plus item id, never reuse refs across items, and avoid credentials/local/private URLs.",
+    "artifact_refs must be non-empty item-specific sanitized refs using https://, ops://, lark://, or notion:// only; use no more than 5 per item, each <=300 chars, include evidence_run_id plus item id, never repeat or reuse refs, and avoid credentials/local/private URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
 )
@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Artifact Uniqueness Accepted / Remote Push Skipped",
+            "Local V1 Evidence Artifact Ref Dedup Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -307,6 +307,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence run id traceability | Done |",
             "| AI Trading production evidence item artifact traceability | Done |",
             "| AI Trading production evidence artifact ref uniqueness | Done |",
+            "| AI Trading production evidence artifact ref item uniqueness | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -881,6 +882,9 @@ def _validate_external_evidence_item(
     else:
         if len(artifact_refs) > MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS:
             blockers.append("external_evidence_artifact_refs_too_many")
+        ref_texts = _non_empty_artifact_ref_texts(item)
+        if len(set(ref_texts)) < len(ref_texts):
+            blockers.append("external_evidence_artifact_ref_duplicate_in_item")
         for ref in artifact_refs:
             blockers.extend(_artifact_ref_blockers(ref, evidence_run_id=evidence_run_id, item_id=item_id))
     if item.get("secret_values_returned") is not False:

@@ -62,6 +62,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_run_id_traceability_marker: bool = True,
     include_production_evidence_item_artifact_traceability_marker: bool = True,
     include_production_evidence_artifact_ref_uniqueness_marker: bool = True,
+    include_production_evidence_artifact_ref_item_uniqueness_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -142,6 +143,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_artifact_ref_uniqueness_marker = (
         "| AI Trading production evidence artifact ref uniqueness | Done |"
     ) if include_production_evidence_artifact_ref_uniqueness_marker else ""
+    production_evidence_artifact_ref_item_uniqueness_marker = (
+        "| AI Trading production evidence artifact ref item uniqueness | Done |"
+    ) if include_production_evidence_artifact_ref_item_uniqueness_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -234,7 +238,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Artifact Uniqueness Accepted / Remote Push Skipped",
+                "Local V1 Evidence Artifact Ref Dedup Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -266,6 +270,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_run_id_traceability_marker,
                 production_evidence_item_artifact_traceability_marker,
                 production_evidence_artifact_ref_uniqueness_marker,
+                production_evidence_artifact_ref_item_uniqueness_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -960,6 +965,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_artif
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence artifact ref uniqueness | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_artifact_ref_item_uniqueness_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_artifact_ref_item_uniqueness_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence artifact ref item uniqueness | Done |"
         in status_evidence["missing_phrases"]
     )
 
@@ -1712,6 +1735,35 @@ def test_completion_audit_rejects_artifact_refs_reused_across_items(tmp_path):
         "external_evidence_artifact_ref_missing_item_id"
         not in items_by_id["production_auth_hard_risk_readiness"]["blockers"]
     )
+
+
+def test_completion_audit_rejects_duplicate_artifact_refs_inside_item(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    duplicate_ref_path = tmp_path / "duplicate-artifact-ref-in-item-evidence.json"
+    _write_production_evidence(duplicate_ref_path)
+    payload = json.loads(duplicate_ref_path.read_text(encoding="utf-8"))
+    duplicate_ref = "ops://ai-trading/ops-20260610-cutover-001/real_order_backend_handoff/acceptance"
+    payload["items"]["real_order_backend_handoff"]["artifact_refs"] = [
+        duplicate_ref,
+        duplicate_ref + " ",
+    ]
+    duplicate_ref_path.write_text(json.dumps(payload), encoding="utf-8")
+
+    report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=duplicate_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert report["ready_for_live_orders"] is False
+    order_backend_item = next(
+        item
+        for item in report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_artifact_ref_duplicate_in_item" in order_backend_item["blockers"]
+    assert "external_evidence_artifact_ref_reused_across_items" not in order_backend_item["blockers"]
+    assert "external_evidence_artifact_ref_missing_item_id" not in order_backend_item["blockers"]
 
 
 def test_completion_audit_rejects_missing_or_unsafe_cutover_approval_ref(tmp_path):
