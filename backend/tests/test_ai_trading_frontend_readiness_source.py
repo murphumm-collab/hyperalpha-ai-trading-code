@@ -32,6 +32,10 @@ def test_admin_readiness_context_locator_ui_uses_secret_safe_projection() -> Non
 def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    helper_projection_source = (
+        helper_source.split("const PRODUCTION_EVIDENCE_BLOCKER_LABELS", 1)[0]
+        + helper_source.split("export const extractAiTradingAgentContextLocators", 1)[1]
+    )
 
     assert "/api/ai-trading/admin/production-evidence-explain" in settings_source
     assert "extractAiTradingProductionEvidenceExplain" in settings_source
@@ -79,9 +83,9 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "required_summary_terms" in helper_source
     assert "missing_summary_terms" in helper_source
     assert "operator_guidance" in helper_source
-    assert "evidence_summary" not in helper_source
+    assert "evidence_summary" not in helper_projection_source
     helper_without_safe_cutover_fields = (
-        helper_source
+        helper_projection_source
         .replace("cutover_window_present", "")
         .replace("cutover_window_start_at", "")
         .replace("cutover_window_end_at", "")
@@ -89,14 +93,14 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     )
     assert "cutover_window" not in helper_without_safe_cutover_fields
     helper_without_safe_run_id_fields = (
-        helper_source
+        helper_projection_source
         .replace("evidence_run_id_present", "")
         .replace("min_evidence_run_id_chars", "")
         .replace("max_evidence_run_id_chars", "")
     )
     assert "evidence_run_id" not in helper_without_safe_run_id_fields
-    assert "cutover_approval_ref\"" not in helper_source
-    assert "secret_values_returned" not in helper_source
+    assert "cutover_approval_ref\"" not in helper_projection_source
+    assert "secret_values_returned" not in helper_projection_source
     assert "production_evidence_file" not in helper_source
 
 
@@ -127,6 +131,40 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "DEEPSEEK_API_KEY" not in settings_source
     assert "QWEN_API_KEY" not in settings_source
     assert "DASHSCOPE_API_KEY" not in settings_source
+
+
+def test_admin_production_evidence_blockers_use_readable_labels() -> None:
+    settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+
+    assert "formatAiTradingProductionEvidenceBlocker" in settings_source
+    assert "formatAiTradingProductionEvidenceBlocker" in helper_source
+    assert "external_evidence_artifact_ref_duplicate_in_item" in helper_source
+    assert "Duplicate artifact ref in item" in helper_source
+    assert "external_evidence_artifact_ref_reused_across_items" in helper_source
+    assert "Artifact ref reused across items" in helper_source
+    assert "external_evidence_item_blocked:" in helper_source
+    assert "external_evidence_summary_missing_required_term:" in helper_source
+
+    explain_block = settings_source.split(
+        "aiTradingEvidenceExplain.items.map((item) => (",
+        1,
+    )[1].split("aiTradingEvidenceExplain.nextActions.length", 1)[0]
+    validation_block = settings_source.split(
+        "aiTradingEvidenceValidation.productionEvidence.blockers.slice(0, 8)",
+        1,
+    )[1].split("aiTradingEvidenceValidation.items.some((item) => !item.ready)", 1)[0]
+    validation_item_block = settings_source.split(
+        "aiTradingEvidenceValidation.items.filter((item) => !item.ready)",
+        1,
+    )[1].split("</div>\n                            </div>", 1)[0]
+
+    assert "formatAiTradingProductionEvidenceBlocker(blocker)" in explain_block
+    assert "formatReadinessCode(blocker)" not in explain_block
+    assert "formatAiTradingProductionEvidenceBlocker(blocker)" in validation_block
+    assert "formatReadinessCode(blocker)" not in validation_block
+    assert "item.blockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker).join(', ')" in validation_item_block
+    assert "item.blockers.slice(0, 2).map(formatReadinessCode).join(', ')" not in validation_item_block
 
 
 def test_ai_trading_runtime_context_budget_ui_uses_counts_only_projection() -> None:

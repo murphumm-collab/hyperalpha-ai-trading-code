@@ -32,6 +32,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   extractAiTradingAgentContextLocators,
   extractAiTradingProductionEvidenceExplain,
+  formatAiTradingProductionEvidenceBlocker,
 } from '@/lib/aiTradingReadiness'
 import type {
   HyperliquidSymbolMeta,
@@ -2340,8 +2341,12 @@ export default function SettingsPage() {
                             {item.blockers.length > 0 && (
                               <div className="mt-2 space-y-1">
                                 {item.blockers.slice(0, 3).map((blocker) => (
-                                  <div key={blocker} className="truncate text-xs text-red-500" title={blocker}>
-                                    {formatReadinessCode(blocker)}
+                                  <div
+                                    key={blocker}
+                                    className="truncate text-xs text-red-500"
+                                    title={formatAiTradingProductionEvidenceBlocker(blocker)}
+                                  >
+                                    {formatAiTradingProductionEvidenceBlocker(blocker)}
                                   </div>
                                 ))}
                                 {item.blockers.length > 3 && (
@@ -2489,8 +2494,12 @@ export default function SettingsPage() {
                               {aiTradingEvidenceValidation.productionEvidence.blockers.length > 0 ? (
                                 <div className="grid gap-1 md:grid-cols-2">
                                   {aiTradingEvidenceValidation.productionEvidence.blockers.slice(0, 8).map((blocker) => (
-                                    <div key={blocker} className="truncate text-xs text-red-500" title={blocker}>
-                                      {formatReadinessCode(blocker)}
+                                    <div
+                                      key={blocker}
+                                      className="truncate text-xs text-red-500"
+                                      title={formatAiTradingProductionEvidenceBlocker(blocker)}
+                                    >
+                                      {formatAiTradingProductionEvidenceBlocker(blocker)}
                                     </div>
                                   ))}
                                 </div>
@@ -2507,7 +2516,7 @@ export default function SettingsPage() {
                                         {formatProductionEvidenceItemName(item.id)}
                                       </div>
                                       <div className="truncate text-xs text-muted-foreground">
-                                        {item.blockers.slice(0, 2).map(formatReadinessCode).join(', ')}
+                                        {item.blockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker).join(', ')}
                                       </div>
                                     </div>
                                   ))}
