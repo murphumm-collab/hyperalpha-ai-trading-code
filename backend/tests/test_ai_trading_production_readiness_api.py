@@ -182,6 +182,7 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
         "version": "hyperalpha.ai_trading.external_acceptance.v1",
         "generated_at": "2099-06-10T12:05:00Z",
         "expires_at": "2099-06-11T12:05:00Z",
+        "cutover_approval_ref": "ops://ai-trading/production-cutover/approval",
         "secret_values_returned": False,
         "items": items,
     }
@@ -229,6 +230,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["production_evidence"]["ready"] is False
     assert explain["production_evidence"]["required_count"] == 7
     assert explain["production_evidence"]["expires_at"] is None
+    assert explain["production_evidence"]["cutover_approval_ref_present"] is False
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
     assert explain["schema"]["max_evidence_validity_days"] == 7
     assert (
@@ -284,6 +286,7 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     assert template["version"] == "hyperalpha.ai_trading.external_acceptance.v1"
     assert template["generated_at"] is None
     assert template["expires_at"] is None
+    assert template["cutover_approval_ref"] is None
     assert template["secret_values_returned"] is False
     assert set(template["items"]) == {
         "macos_reboot_recovery",
@@ -325,6 +328,7 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     assert validation["production_evidence"]["ready"] is True
     assert validation["production_evidence"]["accepted_count"] == 7
     assert validation["production_evidence"]["required_count"] == 7
+    assert validation["production_evidence"]["cutover_approval_ref_present"] is True
     assert validation["items"][0]["required_fields"]
     assert all(item["ready"] for item in validation["items"])
     serialized = str(data)

@@ -37,6 +37,7 @@ ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS = {
     "version",
     "generated_at",
     "expires_at",
+    "cutover_approval_ref",
     "secret_values_returned",
     "notes",
     "items",
@@ -61,6 +62,7 @@ PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS = (
     f"version={EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION}",
     "generated_at=timezone-aware ISO-8601 timestamp",
     f"expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days",
+    "cutover_approval_ref=1 safe ops/lark/notion/https approval ref for the live-order cutover",
     "secret_values_returned=false",
     "items=documented external acceptance item ids only",
 )
@@ -87,10 +89,11 @@ PLACEHOLDER_EVIDENCE_VALUES = {
 PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
-    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
+    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
     f"generated_at, expires_at, and every item validated_at must be timezone-aware ISO-8601 timestamps; generated_at must not be earlier than item validated_at, and expires_at must be after generated_at, still in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
+    "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected.",
@@ -270,7 +273,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Expiry Window Accepted / Remote Push Skipped",
+            "Local V1 Evidence Cutover Approval Ref Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -283,6 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence summary terms | Done |",
             "| AI Trading production evidence expiry gate | Done |",
             "| AI Trading production evidence expiry window | Done |",
+            "| AI Trading production evidence cutover approval ref | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -596,6 +600,15 @@ def _artifact_ref_blockers(ref: Any) -> list[str]:
     return blockers
 
 
+def _cutover_approval_ref_blockers(ref: Any) -> list[str]:
+    if not isinstance(ref, str) or not ref.strip():
+        return ["external_evidence_cutover_approval_ref_missing"]
+    return [
+        blocker.replace("external_evidence_artifact_ref_", "external_evidence_cutover_approval_ref_", 1)
+        for blocker in _artifact_ref_blockers(ref)
+    ]
+
+
 def _parse_iso_timestamp(value: Any, field_name: str) -> tuple[datetime | None, list[str]]:
     if not isinstance(value, str) or not value.strip():
         return None, [f"external_evidence_{field_name}_missing"]
@@ -782,6 +795,7 @@ def _empty_external_evidence_report(
         "ready": False,
         "version": None,
         "expires_at": None,
+        "cutover_approval_ref_present": False,
         "accepted_count": 0,
         "required_count": len(EXTERNAL_REQUIREMENTS),
         "blockers": blockers or [],
@@ -830,6 +844,8 @@ def _validate_external_evidence_payload(
         blockers.append("external_evidence_expired")
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
+    cutover_approval_ref = payload.get("cutover_approval_ref")
+    blockers.extend(_cutover_approval_ref_blockers(cutover_approval_ref))
     blockers.extend(_evidence_notes_blockers(payload.get("notes")))
 
     secret_hits = _secret_pattern_hits(payload)
@@ -874,6 +890,7 @@ def _validate_external_evidence_payload(
         "file_inside_repo": file_inside_repo,
         "notes_count": len(payload.get("notes")) if isinstance(payload.get("notes"), list) else 0,
         "expires_at": payload.get("expires_at") if isinstance(payload.get("expires_at"), str) else None,
+        "cutover_approval_ref_present": isinstance(cutover_approval_ref, str) and bool(cutover_approval_ref.strip()),
     }
 
 
@@ -923,6 +940,7 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
         "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "generated_at": None,
         "expires_at": None,
+        "cutover_approval_ref": None,
         "secret_values_returned": False,
         "notes": list(PRODUCTION_EVIDENCE_TEMPLATE_NOTES),
         "items": {
@@ -1063,6 +1081,7 @@ def _build_production_evidence_explain_from_report(
             "warnings": list(production_evidence["warnings"]),
             "file_inside_repo": production_evidence.get("file_inside_repo", False),
             "expires_at": production_evidence.get("expires_at"),
+            "cutover_approval_ref_present": production_evidence.get("cutover_approval_ref_present", False),
         },
         "schema": {
             "allowed_root_fields": sorted(ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS),

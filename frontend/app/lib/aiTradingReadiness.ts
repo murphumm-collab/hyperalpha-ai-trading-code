@@ -19,6 +19,7 @@ export interface AiTradingProductionEvidenceSummary {
   acceptedCount: number
   requiredCount: number
   expiresAt: string | null
+  cutoverApprovalRefPresent: boolean
   blockers: string[]
   warnings: string[]
 }
@@ -128,6 +129,7 @@ export const extractAiTradingProductionEvidenceExplain = (
       acceptedCount: numberValue(productionEvidenceSource.accepted_count),
       requiredCount: numberValue(productionEvidenceSource.required_count),
       expiresAt: typeof productionEvidenceSource.expires_at === 'string' ? productionEvidenceSource.expires_at : null,
+      cutoverApprovalRefPresent: productionEvidenceSource.cutover_approval_ref_present === true,
       blockers: stringList(productionEvidenceSource.blockers),
       warnings: stringList(productionEvidenceSource.warnings),
     },

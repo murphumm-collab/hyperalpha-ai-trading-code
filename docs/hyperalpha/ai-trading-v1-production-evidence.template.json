@@ -2,14 +2,16 @@
   "version": "hyperalpha.ai_trading.external_acceptance.v1",
   "generated_at": null,
   "expires_at": null,
+  "cutover_approval_ref": null,
   "secret_values_returned": false,
   "notes": [
     "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
-    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
+    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
     "generated_at, expires_at, and every item validated_at must be timezone-aware ISO-8601 timestamps; generated_at must not be earlier than item validated_at, and expires_at must be after generated_at, still in the future, and within 7 days.",
+    "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
     "When an item is status=accepted, evidence_summary must mention that item's required non-secret proof terms from --explain-production-evidence; generic summaries are rejected."

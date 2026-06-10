@@ -2279,6 +2279,11 @@ export default function SettingsPage() {
                       <div className="text-xs text-muted-foreground">
                         {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceExplain.maxEvidenceValidityDays || '-'}d
                       </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.aiTradingEvidenceCutoverApproval', 'Cutover approval')}: {aiTradingEvidenceExplain.productionEvidence.cutoverApprovalRefPresent
+                          ? t('settings.provided', 'Provided')
+                          : t('settings.notProvided', 'Not provided')}
+                      </div>
 
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                         {aiTradingEvidenceExplain.items.map((item) => (
@@ -2420,6 +2425,11 @@ export default function SettingsPage() {
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
                                 {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceValidation.maxEvidenceValidityDays || '-'}d
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidenceCutoverApproval', 'Cutover approval')}: {aiTradingEvidenceValidation.productionEvidence.cutoverApprovalRefPresent
+                                  ? t('settings.provided', 'Provided')
+                                  : t('settings.notProvided', 'Not provided')}
                               </div>
                             </div>
                             <div className="rounded-md border p-3">

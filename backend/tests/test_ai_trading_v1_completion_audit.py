@@ -46,6 +46,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_summary_terms_marker: bool = True,
     include_production_evidence_expiry_gate_marker: bool = True,
     include_production_evidence_expiry_window_marker: bool = True,
+    include_production_evidence_cutover_approval_ref_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -102,6 +103,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_expiry_window_marker = (
         "| AI Trading production evidence expiry window | Done |"
     ) if include_production_evidence_expiry_window_marker else ""
+    production_evidence_cutover_approval_ref_marker = (
+        "| AI Trading production evidence cutover approval ref | Done |"
+    ) if include_production_evidence_cutover_approval_ref_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -194,7 +198,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Expiry Window Accepted / Remote Push Skipped",
+                "Local V1 Evidence Cutover Approval Ref Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -218,6 +222,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_summary_terms_marker,
                 production_evidence_expiry_gate_marker,
                 production_evidence_expiry_window_marker,
+                production_evidence_cutover_approval_ref_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -296,6 +301,7 @@ def _write_production_evidence(
     empty_artifact_refs: bool = False,
     generated_at: object = "2099-06-10T12:05:00Z",
     expires_at: object = "2099-06-11T12:05:00Z",
+    cutover_approval_ref: object = "ops://ai-trading/production-cutover/approval",
     validated_at: object = "2099-06-10T12:00:00Z",
     validated_by: object = "ops-admin",
     evidence_summary: object | None = None,
@@ -328,6 +334,7 @@ def _write_production_evidence(
         "version": completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "generated_at": generated_at,
         "expires_at": expires_at,
+        "cutover_approval_ref": cutover_approval_ref,
         "secret_values_returned": False,
         "items": items,
     }
@@ -377,6 +384,7 @@ def test_production_evidence_template_builder_uses_required_item_ids_without_sec
     assert payload["version"] == completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION
     assert payload["generated_at"] is None
     assert payload["expires_at"] is None
+    assert payload["cutover_approval_ref"] is None
     assert payload["secret_values_returned"] is False
     assert any("required non-secret proof terms" in note for note in payload["notes"])
     assert all(len(note) <= completion_audit.MAX_PRODUCTION_EVIDENCE_NOTE_CHARS for note in payload["notes"])
@@ -400,6 +408,10 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
     ]
     assert (
         "expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within 7 days"
+        in report["schema"]["required_root_fields"]
+    )
+    assert (
+        "cutover_approval_ref=1 safe ops/lark/notion/https approval ref for the live-order cutover"
         in report["schema"]["required_root_fields"]
     )
     assert "status=accepted" in report["schema"]["required_item_fields"]
@@ -481,6 +493,7 @@ def test_production_evidence_initializer_writes_repo_external_pending_template(t
     assert completion_report["production_evidence"]["accepted_count"] == 0
     assert "external_evidence_generated_at_missing" in completion_report["production_evidence"]["blockers"]
     assert "external_evidence_expires_at_missing" in completion_report["production_evidence"]["blockers"]
+    assert "external_evidence_cutover_approval_ref_missing" in completion_report["production_evidence"]["blockers"]
     assert "external_evidence_item_blocked:real_order_backend_handoff" in completion_report["production_evidence"]["blockers"]
 
 
@@ -717,6 +730,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_expir
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence expiry window | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_cutover_approval_ref_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_cutover_approval_ref_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence cutover approval ref | Done |"
         in status_evidence["missing_phrases"]
     )
 
@@ -1165,6 +1196,45 @@ def test_completion_audit_rejects_missing_or_expired_production_evidence_expiry(
     )
     assert expiry_too_far_report["ready_for_live_orders"] is False
     assert "external_evidence_expires_at_too_far" in expiry_too_far_report["production_evidence"]["blockers"]
+
+
+def test_completion_audit_rejects_missing_or_unsafe_cutover_approval_ref(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    missing_ref_path = tmp_path / "missing-cutover-approval-ref-evidence.json"
+    local_ref_path = tmp_path / "local-cutover-approval-ref-evidence.json"
+    secret_ref_path = tmp_path / "secret-cutover-approval-ref-evidence.json"
+    _write_production_evidence(missing_ref_path, cutover_approval_ref=None)
+    _write_production_evidence(local_ref_path, cutover_approval_ref="http://127.0.0.1:8802/approval")
+    _write_production_evidence(
+        secret_ref_path,
+        cutover_approval_ref="ops://ai-trading/cutover?access_token=secret-production-token-123456",
+    )
+
+    missing_ref_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=missing_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+    local_ref_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=local_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+    secret_ref_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=secret_ref_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert missing_ref_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_approval_ref_missing" in missing_ref_report["production_evidence"]["blockers"]
+    assert missing_ref_report["production_evidence"]["cutover_approval_ref_present"] is False
+    assert local_ref_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_approval_ref_scheme_not_allowed" in local_ref_report["production_evidence"]["blockers"]
+    assert "external_evidence_cutover_approval_ref_local_host" in local_ref_report["production_evidence"]["blockers"]
+    assert secret_ref_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_approval_ref_secret_pattern_detected" in secret_ref_report["production_evidence"]["blockers"]
+    assert "external_evidence_secret_pattern_detected" in secret_ref_report["production_evidence"]["blockers"]
 
 
 def test_completion_audit_rejects_unexpected_production_evidence_fields(tmp_path):
