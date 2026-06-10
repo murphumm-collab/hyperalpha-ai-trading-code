@@ -119,3 +119,29 @@ def test_ai_trading_session_context_prompt_uses_defensive_sanitizer() -> None:
     assert "const promptContext = sanitizeAiTradingAgentSessionContextForPrompt(context)" in context_load_block
     assert "JSON.stringify(promptContext, null, 2)" in context_load_block
     assert "JSON.stringify(context, null, 2)" not in context_load_block
+
+
+def test_ai_trading_model_adjust_output_safety_is_visible_in_frontend() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    model_adjust_block = hyper_ai_source.split(
+        "const handleModelAdjustStrategyDraft = async",
+        1,
+    )[1].split("const handleAttachBacktestSummary = async", 1)[0]
+    current_strategy_safety_block = hyper_ai_source.split(
+        'data-testid="ai-trading-model-output-safety-warning"',
+        1,
+    )[1].split("{currentStrategyActionBlockedByArchivedSession", 1)[0]
+
+    assert "AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING" in hyper_ai_source
+    assert "AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING" in hyper_ai_source
+    assert "model_output_sensitive_text_redacted" in hyper_ai_source
+    assert "model_output_direct_order_intent_ignored" in hyper_ai_source
+    assert "currentStrategyModelOutputSafetyLabels" in hyper_ai_source
+    assert "model_output_safety" in model_adjust_block
+    assert "AI_TRADING_MODEL_OUTPUT_SAFETY_WARNINGS" in model_adjust_block
+    assert "sensitive_text_redacted" in model_adjust_block
+    assert "direct_order_intent_ignored" in model_adjust_block
+    assert "validation_warnings" in model_adjust_block
+    assert "currentStrategyModelOutputSafetyLabels.join" in current_strategy_safety_block
+    assert "aiTradingModelOutputSensitiveRedacted" in hyper_ai_source
+    assert "aiTradingModelOutputDirectOrderIgnored" in hyper_ai_source

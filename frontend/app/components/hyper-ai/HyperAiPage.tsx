@@ -138,6 +138,7 @@ interface Message {
 interface AiTradingStrategySpec {
   symbol?: string
   timeframe?: string
+  metadata?: Record<string, unknown>
   backtest?: AiTradingBacktestSummary
   entry?: {
     bias?: string
@@ -448,6 +449,12 @@ const AI_TRADING_NEW_AGENT_SESSION_VALUE = '__new_ai_trading_agent_session__'
 
 const AI_TRADING_ACTION_TIMEOUT_MS = 45_000
 const AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE = '{"total_return":0,"max_drawdown":0,"sharpe":0,"trade_count":1}'
+const AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING = 'model_output_sensitive_text_redacted'
+const AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING = 'model_output_direct_order_intent_ignored'
+const AI_TRADING_MODEL_OUTPUT_SAFETY_WARNINGS = [
+  AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING,
+  AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING,
+]
 
 const AI_TRADING_BACKTEST_ROUTE_RE = /^\/(?:app\/)?ai-trading\/backtests\/(\d+)\/?$/
 const AI_TRADING_AGENT_SESSION_ROUTE_RE = /^\/(?:app\/)?ai-trading\/sessions\/([^/?#]+)\/?$/
@@ -1553,6 +1560,26 @@ export default function HyperAiPage() {
     'hyperAi.aiTradingAgentSessionArchivedActionBlocked',
     'Agent session archived; create a new session or select an active session before changing strategy, backtest, signal, or handoff state.'
   )
+  const currentStrategyValidationWarnings = Array.from(new Set([
+    ...(strategyDraftRecord?.validation?.warnings || []),
+    ...(strategyDraftRecord?.spec?.validation?.warnings || []),
+    ...(strategyDraft?.validation?.warnings || []),
+  ].map(String)))
+  const currentStrategyModelAdjustmentMetadata = asRecord(asRecord(strategyDraft?.metadata).model_adjustment)
+  const currentStrategyModelOutputSafetyLabels = [
+    (
+      currentStrategyValidationWarnings.includes(AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING) ||
+      currentStrategyModelAdjustmentMetadata.model_output_sensitive_text_redacted === true
+    )
+      ? t('hyperAi.aiTradingModelOutputSensitiveRedacted', 'Model output redacted')
+      : null,
+    (
+      currentStrategyValidationWarnings.includes(AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING) ||
+      currentStrategyModelAdjustmentMetadata.model_output_direct_order_intent_ignored === true
+    )
+      ? t('hyperAi.aiTradingModelOutputDirectOrderIgnored', 'Direct order intent ignored')
+      : null,
+  ].filter(Boolean) as string[]
   const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
   const currentStrategyBacktestReady = isBacktestReady(currentStrategyBacktest)
   const currentStrategyRecordArchivedSessionBlocked = isStrategyRecordActionBlockedByArchivedSession(strategyDraftRecord)
@@ -2407,9 +2434,18 @@ export default function HyperAiPage() {
       setStrategyBacktestEvidenceDetail(null)
       refreshAiTradingState()
 
+      const modelAdjustmentMetadata = asRecord(asRecord(spec.metadata).model_adjustment)
+      const modelOutputSafetyWarnings = (spec.validation?.warnings || [])
+        .map(String)
+        .filter(warning => AI_TRADING_MODEL_OUTPUT_SAFETY_WARNINGS.includes(warning))
       const reviewPacket = {
         model_context: data.model_context,
         model_suggestion: data.model_suggestion,
+        model_output_safety: {
+          sensitive_text_redacted: modelAdjustmentMetadata.model_output_sensitive_text_redacted === true,
+          direct_order_intent_ignored: modelAdjustmentMetadata.model_output_direct_order_intent_ignored === true,
+          validation_warnings: modelOutputSafetyWarnings,
+        },
         adjusted_spec: spec,
       }
       const reviewPrompt = currentLang === 'zh'
@@ -5021,6 +5057,15 @@ export default function HyperAiPage() {
                   <div className="mt-2 flex items-start gap-1.5 text-yellow-600">
                     <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span className="break-words">{strategyDraft.validation.issues.slice(0, 3).join(', ')}</span>
+                  </div>
+                )}
+                {currentStrategyModelOutputSafetyLabels.length > 0 && (
+                  <div
+                    data-testid="ai-trading-model-output-safety-warning"
+                    className="mt-2 flex items-start gap-1.5 rounded bg-yellow-500/10 px-2 py-1 text-[11px] text-yellow-700 dark:text-yellow-300"
+                  >
+                    <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                    <span className="break-words">{currentStrategyModelOutputSafetyLabels.join(' · ')}</span>
                   </div>
                 )}
                 {currentStrategyActionBlockedByArchivedSession && (
