@@ -143,6 +143,14 @@ def test_admin_production_evidence_blockers_use_readable_labels() -> None:
     assert "Duplicate artifact ref in item" in helper_source
     assert "external_evidence_artifact_ref_reused_across_items" in helper_source
     assert "Artifact ref reused across items" in helper_source
+    assert "external_evidence_cutover_window_start_at_missing" in helper_source
+    assert "Cutover window start time missing" in helper_source
+    assert "external_evidence_cutover_window_end_at_missing" in helper_source
+    assert "Cutover window end time missing" in helper_source
+    assert "external_evidence_summary_missing" in helper_source
+    assert "Evidence summary missing" in helper_source
+    assert "external_evidence_validated_by_missing" in helper_source
+    assert "Validator name missing" in helper_source
     assert "external_evidence_item_blocked:" in helper_source
     assert "external_evidence_summary_missing_required_term:" in helper_source
 
