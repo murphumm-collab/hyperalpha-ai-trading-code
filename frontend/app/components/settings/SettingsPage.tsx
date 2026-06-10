@@ -2280,6 +2280,9 @@ export default function SettingsPage() {
                         {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceExplain.maxEvidenceValidityDays || '-'}d
                       </div>
                       <div className="text-xs text-muted-foreground">
+                        {t('settings.aiTradingEvidenceClockSkew', 'Clock skew')}: {aiTradingEvidenceExplain.maxClockSkewSeconds || '-'}s
+                      </div>
+                      <div className="text-xs text-muted-foreground">
                         {t('settings.aiTradingEvidenceCutoverApproval', 'Cutover approval')}: {aiTradingEvidenceExplain.productionEvidence.cutoverApprovalRefPresent
                           ? t('settings.provided', 'Provided')
                           : t('settings.notProvided', 'Not provided')}
@@ -2425,6 +2428,9 @@ export default function SettingsPage() {
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
                                 {t('settings.aiTradingEvidenceMaxValidity', 'Max validity')}: {aiTradingEvidenceValidation.maxEvidenceValidityDays || '-'}d
+                              </div>
+                              <div className="mt-1 text-xs text-muted-foreground">
+                                {t('settings.aiTradingEvidenceClockSkew', 'Clock skew')}: {aiTradingEvidenceValidation.maxClockSkewSeconds || '-'}s
                               </div>
                               <div className="mt-1 text-xs text-muted-foreground">
                                 {t('settings.aiTradingEvidenceCutoverApproval', 'Cutover approval')}: {aiTradingEvidenceValidation.productionEvidence.cutoverApprovalRefPresent

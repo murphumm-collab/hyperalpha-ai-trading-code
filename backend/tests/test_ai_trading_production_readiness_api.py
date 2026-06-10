@@ -52,6 +52,11 @@ RELEVANT_ENV_NAMES = {
 }
 
 
+def _utc_iso(offset: timedelta = timedelta()) -> str:
+    value = datetime.now(timezone.utc) + offset
+    return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
 def _build_client(tmp_path):
     db_path = tmp_path / "ai_trading_readiness_api.db"
     engine = create_engine(f"sqlite:///{db_path}")
@@ -168,7 +173,7 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
             continue
         items[item_id] = {
             "status": "accepted",
-            "validated_at": "2099-06-10T12:00:00Z",
+            "validated_at": _utc_iso(timedelta(minutes=-5)),
             "validated_by": "ops-admin",
             "evidence_summary": summaries[item_id],
             "artifact_refs": [f"ops://ai-trading/{item_id}/acceptance"],
@@ -180,8 +185,8 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
         )
     return {
         "version": "hyperalpha.ai_trading.external_acceptance.v1",
-        "generated_at": "2099-06-10T12:05:00Z",
-        "expires_at": "2099-06-11T12:05:00Z",
+        "generated_at": _utc_iso(timedelta(minutes=-2)),
+        "expires_at": _utc_iso(timedelta(days=1)),
         "cutover_approval_ref": "ops://ai-trading/production-cutover/approval",
         "secret_values_returned": False,
         "items": items,
@@ -233,13 +238,18 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["production_evidence"]["cutover_approval_ref_present"] is False
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
     assert explain["schema"]["max_evidence_validity_days"] == 7
+    assert explain["schema"]["max_clock_skew_seconds"] == 300
+    assert (
+        "generated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future"
+        in explain["schema"]["required_root_fields"]
+    )
     assert (
         "expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within 7 days"
         in explain["schema"]["required_root_fields"]
     )
     assert explain["schema"]["required_item_fields"] == [
         "status=accepted",
-        "validated_at=timezone-aware ISO-8601 timestamp",
+        "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future",
         "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
         "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
         "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion://",
@@ -383,7 +393,7 @@ def test_admin_evidence_payload_validation_rejects_too_many_item_keys(tmp_path, 
     for index in range(20):
         payload["items"][f"unexpected_evidence_item_{index}"] = {
             "status": "accepted",
-            "validated_at": "2026-06-10T12:00:00Z",
+            "validated_at": _utc_iso(timedelta(minutes=-5)),
             "validated_by": "ops-admin",
             "evidence_summary": "unexpected item should be rejected before deep validation.",
             "artifact_refs": ["ops://ai-trading/unexpected/acceptance"],

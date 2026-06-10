@@ -58,9 +58,10 @@ MAX_PRODUCTION_EVIDENCE_NOTES = 12
 MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS = 300
 MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS = 5
 MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS = 7
+MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS = 300
 PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS = (
     f"version={EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION}",
-    "generated_at=timezone-aware ISO-8601 timestamp",
+    f"generated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future",
     f"expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days",
     "cutover_approval_ref=1 safe ops/lark/notion/https approval ref for the live-order cutover",
     "secret_values_returned=false",
@@ -92,7 +93,7 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
-    f"generated_at, expires_at, and every item validated_at must be timezone-aware ISO-8601 timestamps; generated_at must not be earlier than item validated_at, and expires_at must be after generated_at, still in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
+    f"generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >{MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS}s in the future; generated_at cannot be earlier than item validation; expires_at must be after generated_at, future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
@@ -100,7 +101,7 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
 )
 PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS = (
     "status=accepted",
-    "validated_at=timezone-aware ISO-8601 timestamp",
+    f"validated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future",
     "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
     "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
     "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion://",
@@ -273,7 +274,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Cutover Approval Ref Accepted / Remote Push Skipped",
+            "Local V1 Evidence Future Timestamp Guard Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -287,6 +288,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence expiry gate | Done |",
             "| AI Trading production evidence expiry window | Done |",
             "| AI Trading production evidence cutover approval ref | Done |",
+            "| AI Trading production evidence future timestamp guard | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -698,6 +700,7 @@ def _validate_external_evidence_item(
     item: Any,
     *,
     generated_at_utc: datetime | None = None,
+    now_utc: datetime | None = None,
 ) -> dict[str, Any]:
     if not isinstance(item, dict):
         return {
@@ -720,6 +723,12 @@ def _validate_external_evidence_item(
     blockers.extend(timestamp_blockers)
     if generated_at_utc is not None and validated_at_utc is not None and validated_at_utc > generated_at_utc:
         blockers.append("external_evidence_validated_at_after_generated_at")
+    if (
+        now_utc is not None
+        and validated_at_utc is not None
+        and validated_at_utc > now_utc + timedelta(seconds=MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS)
+    ):
+        blockers.append("external_evidence_validated_at_in_future")
     blockers.extend(
         _evidence_text_quality_blockers(
             item.get("validated_by"),
@@ -812,6 +821,7 @@ def _validate_external_evidence_payload(
 ) -> dict[str, Any]:
     blockers: list[str] = []
     warnings: list[str] = []
+    now_utc = datetime.now(timezone.utc)
 
     if not isinstance(payload, dict):
         return _empty_external_evidence_report(
@@ -832,6 +842,11 @@ def _validate_external_evidence_payload(
     blockers.extend(timestamp_blockers)
     expires_at_utc, expires_at_blockers = _parse_iso_timestamp(payload.get("expires_at"), "expires_at")
     blockers.extend(expires_at_blockers)
+    if (
+        generated_at_utc is not None
+        and generated_at_utc > now_utc + timedelta(seconds=MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS)
+    ):
+        blockers.append("external_evidence_generated_at_in_future")
     if generated_at_utc is not None and expires_at_utc is not None and expires_at_utc <= generated_at_utc:
         blockers.append("external_evidence_expires_at_not_after_generated_at")
     if (
@@ -840,7 +855,7 @@ def _validate_external_evidence_payload(
         and expires_at_utc > generated_at_utc + timedelta(days=MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS)
     ):
         blockers.append("external_evidence_expires_at_too_far")
-    if expires_at_utc is not None and expires_at_utc <= datetime.now(timezone.utc):
+    if expires_at_utc is not None and expires_at_utc <= now_utc:
         blockers.append("external_evidence_expired")
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
@@ -864,7 +879,12 @@ def _validate_external_evidence_payload(
             blockers.append("external_evidence_unexpected_item_ids")
 
     item_reports = [
-        _validate_external_evidence_item(item_id, items_payload.get(item_id), generated_at_utc=generated_at_utc)
+        _validate_external_evidence_item(
+            item_id,
+            items_payload.get(item_id),
+            generated_at_utc=generated_at_utc,
+            now_utc=now_utc,
+        )
         for item_id in required_ids
     ]
     accepted_count = sum(1 for item in item_reports if item["ready"])
@@ -1095,6 +1115,7 @@ def _build_production_evidence_explain_from_report(
             "max_artifact_refs_per_item": MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS,
             "max_artifact_ref_chars": MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS,
             "max_evidence_validity_days": MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS,
+            "max_clock_skew_seconds": MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS,
             "summary_chars": {
                 "min": MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
                 "max": MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS,

@@ -2,6 +2,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -12,10 +13,17 @@ assert SPEC.loader is not None
 sys.modules[SPEC.name] = completion_audit
 SPEC.loader.exec_module(completion_audit)
 
+_UNSET = object()
+
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _utc_iso(offset: timedelta = timedelta()) -> str:
+    value = datetime.now(timezone.utc) + offset
+    return value.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _default_evidence_summary(item_id: str) -> str:
@@ -47,6 +55,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_expiry_gate_marker: bool = True,
     include_production_evidence_expiry_window_marker: bool = True,
     include_production_evidence_cutover_approval_ref_marker: bool = True,
+    include_production_evidence_future_timestamp_guard_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -106,6 +115,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_cutover_approval_ref_marker = (
         "| AI Trading production evidence cutover approval ref | Done |"
     ) if include_production_evidence_cutover_approval_ref_marker else ""
+    production_evidence_future_timestamp_guard_marker = (
+        "| AI Trading production evidence future timestamp guard | Done |"
+    ) if include_production_evidence_future_timestamp_guard_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -198,7 +210,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Cutover Approval Ref Accepted / Remote Push Skipped",
+                "Local V1 Evidence Future Timestamp Guard Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -223,6 +235,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_expiry_gate_marker,
                 production_evidence_expiry_window_marker,
                 production_evidence_cutover_approval_ref_marker,
+                production_evidence_future_timestamp_guard_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -299,15 +312,22 @@ def _write_production_evidence(
     missing_item: str | None = None,
     artifact_ref_override: str | None = None,
     empty_artifact_refs: bool = False,
-    generated_at: object = "2099-06-10T12:05:00Z",
-    expires_at: object = "2099-06-11T12:05:00Z",
+    generated_at: object = _UNSET,
+    expires_at: object = _UNSET,
     cutover_approval_ref: object = "ops://ai-trading/production-cutover/approval",
-    validated_at: object = "2099-06-10T12:00:00Z",
+    validated_at: object = _UNSET,
     validated_by: object = "ops-admin",
     evidence_summary: object | None = None,
     root_extra: dict[str, object] | None = None,
     item_extra: dict[str, object] | None = None,
 ) -> None:
+    if generated_at is _UNSET:
+        generated_at = _utc_iso(timedelta(minutes=-2))
+    if expires_at is _UNSET:
+        expires_at = _utc_iso(timedelta(days=1))
+    if validated_at is _UNSET:
+        validated_at = _utc_iso(timedelta(minutes=-5))
+
     items = {}
     for requirement in completion_audit.EXTERNAL_REQUIREMENTS:
         if requirement.id == missing_item:
@@ -407,6 +427,10 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
         requirement.id for requirement in completion_audit.EXTERNAL_REQUIREMENTS
     ]
     assert (
+        "generated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future"
+        in report["schema"]["required_root_fields"]
+    )
+    assert (
         "expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within 7 days"
         in report["schema"]["required_root_fields"]
     )
@@ -414,7 +438,12 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
         "cutover_approval_ref=1 safe ops/lark/notion/https approval ref for the live-order cutover"
         in report["schema"]["required_root_fields"]
     )
+    assert report["schema"]["max_clock_skew_seconds"] == 300
     assert "status=accepted" in report["schema"]["required_item_fields"]
+    assert (
+        "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future"
+        in report["schema"]["required_item_fields"]
+    )
     order_backend_item = next(
         item for item in report["items"] if item["id"] == "real_order_backend_handoff"
     )
@@ -748,6 +777,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_cutov
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence cutover approval ref | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_future_timestamp_guard_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_future_timestamp_guard_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence future timestamp guard | Done |"
         in status_evidence["missing_phrases"]
     )
 
@@ -1086,13 +1133,25 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
     invalid_validated_path = tmp_path / "invalid-validated-at-evidence.json"
     timezone_missing_path = tmp_path / "timezone-missing-evidence.json"
     generated_before_validated_path = tmp_path / "generated-before-validated-evidence.json"
+    future_generated_path = tmp_path / "future-generated-at-evidence.json"
+    future_validated_path = tmp_path / "future-validated-at-evidence.json"
     _write_production_evidence(missing_generated_path, generated_at=None)
     _write_production_evidence(invalid_validated_path, validated_at="2026/06/10 12:00 UTC")
     _write_production_evidence(timezone_missing_path, generated_at="2026-06-10T12:05:00")
     _write_production_evidence(
         generated_before_validated_path,
-        generated_at="2026-06-10T12:00:00Z",
-        validated_at="2026-06-10T12:05:00Z",
+        generated_at=_utc_iso(timedelta(minutes=-10)),
+        validated_at=_utc_iso(timedelta(minutes=-5)),
+    )
+    _write_production_evidence(
+        future_generated_path,
+        generated_at=_utc_iso(timedelta(minutes=30)),
+        expires_at=_utc_iso(timedelta(days=1)),
+    )
+    _write_production_evidence(
+        future_validated_path,
+        generated_at=_utc_iso(timedelta(minutes=-1)),
+        validated_at=_utc_iso(timedelta(minutes=30)),
     )
 
     missing_generated_report = completion_audit.build_completion_report(
@@ -1115,6 +1174,16 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
         production_evidence_file=generated_before_validated_path,
         allow_live_ready_from_evidence=True,
     )
+    future_generated_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=future_generated_path,
+        allow_live_ready_from_evidence=True,
+    )
+    future_validated_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=future_validated_path,
+        allow_live_ready_from_evidence=True,
+    )
 
     assert missing_generated_report["ready_for_live_orders"] is False
     assert "external_evidence_generated_at_missing" in missing_generated_report["production_evidence"]["blockers"]
@@ -1134,6 +1203,15 @@ def test_completion_audit_rejects_malformed_production_evidence_timestamps(tmp_p
         if item["id"] == "real_order_backend_handoff"
     )
     assert "external_evidence_validated_at_after_generated_at" in generated_before_validated_item["blockers"]
+    assert future_generated_report["ready_for_live_orders"] is False
+    assert "external_evidence_generated_at_in_future" in future_generated_report["production_evidence"]["blockers"]
+    assert future_validated_report["ready_for_live_orders"] is False
+    future_validated_item = next(
+        item
+        for item in future_validated_report["production_evidence"]["items"]
+        if item["id"] == "real_order_backend_handoff"
+    )
+    assert "external_evidence_validated_at_in_future" in future_validated_item["blockers"]
 
 
 def test_completion_audit_rejects_missing_or_expired_production_evidence_expiry(tmp_path):
@@ -1148,13 +1226,13 @@ def test_completion_audit_rejects_missing_or_expired_production_evidence_expiry(
     _write_production_evidence(expired_path, expires_at="2000-01-01T00:00:00Z")
     _write_production_evidence(
         expiry_before_generated_path,
-        generated_at="2099-06-10T12:05:00Z",
-        expires_at="2099-06-10T12:00:00Z",
+        generated_at=_utc_iso(timedelta(minutes=-5)),
+        expires_at=_utc_iso(timedelta(minutes=-10)),
     )
     _write_production_evidence(
         expiry_too_far_path,
-        generated_at="2099-06-10T12:05:00Z",
-        expires_at="2099-06-18T12:05:01Z",
+        generated_at=_utc_iso(timedelta(minutes=-5)),
+        expires_at=_utc_iso(timedelta(days=8)),
     )
 
     missing_expiry_report = completion_audit.build_completion_report(
@@ -1275,7 +1353,7 @@ def test_completion_audit_rejects_unexpected_production_evidence_item_ids(tmp_pa
     payload = json.loads(evidence_path.read_text(encoding="utf-8"))
     payload["items"]["legacy_manual_acceptance"] = {
         "status": "accepted",
-        "validated_at": "2026-06-10T12:00:00Z",
+        "validated_at": _utc_iso(timedelta(minutes=-5)),
         "validated_by": "ops-admin",
         "evidence_summary": "Legacy acceptance item should not be accepted by the production schema.",
         "artifact_refs": ["ops://ai-trading/legacy-manual-acceptance"],
