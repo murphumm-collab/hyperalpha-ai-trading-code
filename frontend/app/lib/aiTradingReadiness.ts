@@ -51,6 +51,7 @@ export interface AiTradingProductionEvidenceExplainView {
   safeArtifactRefSchemes: string[]
   maxEvidenceValidityDays: number
   maxClockSkewSeconds: number
+  maxItemValidationAgeDays: number
   items: AiTradingProductionEvidenceItemView[]
   nextActions: string[]
 }
@@ -138,6 +139,7 @@ export const extractAiTradingProductionEvidenceExplain = (
     safeArtifactRefSchemes: stringList(schemaSource.safe_artifact_ref_schemes),
     maxEvidenceValidityDays: numberValue(schemaSource.max_evidence_validity_days),
     maxClockSkewSeconds: numberValue(schemaSource.max_clock_skew_seconds),
+    maxItemValidationAgeDays: numberValue(schemaSource.max_item_validation_age_days),
     items: rawItems.reduce<AiTradingProductionEvidenceItemView[]>((acc, rawItem) => {
       if (!isRecord(rawItem)) return acc
       const id = typeof rawItem.id === 'string' ? rawItem.id : ''

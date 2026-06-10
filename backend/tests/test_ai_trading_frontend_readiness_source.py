@@ -41,6 +41,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "productionEvidence.cutoverApprovalRefPresent" in settings_source
     assert "maxEvidenceValidityDays" in settings_source
     assert "maxClockSkewSeconds" in settings_source
+    assert "maxItemValidationAgeDays" in settings_source
     assert "readyForLiveOrders" in settings_source
     assert "artifactRefCount" in settings_source
     assert "requiredSummaryTerms" in settings_source
@@ -59,6 +60,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "cutover_approval_ref_present" in helper_source
     assert "max_evidence_validity_days" in helper_source
     assert "max_clock_skew_seconds" in helper_source
+    assert "max_item_validation_age_days" in helper_source
     assert "artifact_ref_count" in helper_source
     assert "required_summary_terms" in helper_source
     assert "missing_summary_terms" in helper_source
@@ -82,6 +84,7 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "aiTradingEvidenceValidation.productionEvidence.acceptedCount" in settings_source
     assert "aiTradingEvidenceValidation.productionEvidence.expiresAt" in settings_source
     assert "aiTradingEvidenceValidation.maxClockSkewSeconds" in settings_source
+    assert "aiTradingEvidenceValidation.maxItemValidationAgeDays" in settings_source
     assert "aiTradingEvidenceValidation.readyForLiveOrders" in settings_source
     assert "extractAiTradingProductionEvidenceExplain(data.validation)" in settings_source
     assert "JSON.stringify(data.template || {}, null, 2)" in settings_source

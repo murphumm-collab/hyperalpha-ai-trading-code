@@ -239,6 +239,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
     assert explain["schema"]["max_evidence_validity_days"] == 7
     assert explain["schema"]["max_clock_skew_seconds"] == 300
+    assert explain["schema"]["max_item_validation_age_days"] == 7
     assert (
         "generated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future"
         in explain["schema"]["required_root_fields"]
@@ -249,7 +250,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     )
     assert explain["schema"]["required_item_fields"] == [
         "status=accepted",
-        "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future",
+        "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future and not older than 7 days at generated_at",
         "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
         "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
         "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion://",
