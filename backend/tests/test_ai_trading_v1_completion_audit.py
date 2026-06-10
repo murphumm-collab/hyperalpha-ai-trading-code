@@ -32,6 +32,7 @@ def _write_minimal_acceptance_repo(
     include_admin_production_evidence_template_ui_marker: bool = True,
     include_admin_production_evidence_payload_bounds_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
+    include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_external_markers: bool = True,
     git_branch: str = "codex/ai-agent-multitenant-foundation",
 ) -> None:
@@ -71,6 +72,9 @@ def _write_minimal_acceptance_repo(
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
+    frontend_session_context_prompt_sanitizer_marker = (
+        "| AI Trading frontend session context prompt sanitizer | Done |"
+    ) if include_frontend_session_context_prompt_sanitizer_marker else ""
     _write(
         root / "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh",
         "\n".join(
@@ -130,7 +134,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Agent Session Response Context Redaction Accepted / Remote Push Skipped",
+                "Local V1 Frontend Session Context Prompt Sanitizer Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -152,6 +156,7 @@ def _write_minimal_acceptance_repo(
                 admin_template_ui_marker,
                 admin_payload_bounds_marker,
                 agent_session_response_context_redaction_marker,
+                frontend_session_context_prompt_sanitizer_marker,
                 "| AI Trading runtime mirror freshness gate | Done |",
                 "| AI Trading runtime readiness cold-start retry | Done |",
                 "| AI Trading agent-session manual context secret rejection | Done |",
@@ -592,6 +597,24 @@ def test_completion_audit_blocks_local_acceptance_when_agent_session_response_re
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading agent-session response context redaction | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_session_context_prompt_sanitizer_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_session_context_prompt_sanitizer_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend session context prompt sanitizer | Done |"
         in status_evidence["missing_phrases"]
     )
 

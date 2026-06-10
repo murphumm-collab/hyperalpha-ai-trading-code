@@ -104,3 +104,18 @@ def test_ai_trading_runtime_context_budget_ui_uses_counts_only_projection() -> N
     )
     assert "context_summary" not in budget_block_without_allowed_count_fields
     assert "context_summary" not in sessions_card_block
+
+
+def test_ai_trading_session_context_prompt_uses_defensive_sanitizer() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    context_load_block = hyper_ai_source.split(
+        "const fetchAiTradingAgentSessionContext = async",
+        1,
+    )[1].split("const handleCompressAgentSessionContext = async", 1)[0]
+
+    assert "sanitizeAiTradingAgentSessionContextForPrompt" in hyper_ai_source
+    assert "AI_TRADING_CONTEXT_SUMMARY_KEY_PATTERN" in hyper_ai_source
+    assert "authorization|bearer" in hyper_ai_source
+    assert "const promptContext = sanitizeAiTradingAgentSessionContextForPrompt(context)" in context_load_block
+    assert "JSON.stringify(promptContext, null, 2)" in context_load_block
+    assert "JSON.stringify(context, null, 2)" not in context_load_block

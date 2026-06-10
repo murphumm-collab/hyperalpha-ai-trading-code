@@ -589,7 +589,8 @@ function formatAiTradingContextBudget(
   return `${chars} / ${maxChars}`
 }
 
-const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password)/i
+const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password|authorization|bearer)/i
+const AI_TRADING_CONTEXT_SUMMARY_KEY_PATTERN = /^(agent_)?context_summary$/i
 
 function maskToolArgValue(key: string, value: unknown): unknown {
   if (SENSITIVE_TOOL_ARG_KEY_PATTERN.test(key)) {
@@ -603,6 +604,31 @@ function maskToolArgValue(key: string, value: unknown): unknown {
       Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
         childKey,
         maskToolArgValue(childKey, childValue),
+      ])
+    )
+  }
+  return value
+}
+
+function sanitizeAiTradingAgentSessionContextForPrompt(value: unknown, key = ''): unknown {
+  if (
+    AI_TRADING_CONTEXT_SUMMARY_KEY_PATTERN.test(key) &&
+    typeof value === 'string' &&
+    SENSITIVE_TOOL_ARG_KEY_PATTERN.test(value)
+  ) {
+    return '[redacted_sensitive_context]'
+  }
+  if (SENSITIVE_TOOL_ARG_KEY_PATTERN.test(key)) {
+    return '***'
+  }
+  if (Array.isArray(value)) {
+    return value.map(item => sanitizeAiTradingAgentSessionContextForPrompt(item))
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
+        childKey,
+        sanitizeAiTradingAgentSessionContextForPrompt(childValue, childKey),
       ])
     )
   }
@@ -1982,9 +2008,10 @@ export default function HyperAiPage() {
       const context = data.context as AiTradingAgentSessionContext
       setAgentSessionContext(context)
       if (loadIntoChat) {
+        const promptContext = sanitizeAiTradingAgentSessionContextForPrompt(context)
         const prompt = currentLang === 'zh'
-          ? `请基于这个 AI Trading Agent Session context packet 复核当前会话：总结策略状态、信号 handoff 状态、缺失的回测/风控约束，以及下一步应该让用户确认什么。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(context, null, 2)}\n\`\`\``
-          : `Review this AI Trading Agent Session context packet. Summarize strategy state, signal handoff state, missing backtest/risk constraints, and what the user should confirm next. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(context, null, 2)}\n\`\`\``
+          ? `请基于这个 AI Trading Agent Session context packet 复核当前会话：总结策略状态、信号 handoff 状态、缺失的回测/风控约束，以及下一步应该让用户确认什么。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(promptContext, null, 2)}\n\`\`\``
+          : `Review this AI Trading Agent Session context packet. Summarize strategy state, signal handoff state, missing backtest/risk constraints, and what the user should confirm next. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(promptContext, null, 2)}\n\`\`\``
         setInputValue(prompt)
         setTimeout(() => textareaRef.current?.focus(), 50)
       }
