@@ -19,6 +19,9 @@ export interface AiTradingProductionEvidenceSummary {
   acceptedCount: number
   requiredCount: number
   expiresAt: string | null
+  cutoverWindowPresent: boolean
+  cutoverWindowStartAt: string | null
+  cutoverWindowEndAt: string | null
   cutoverApprovalRefPresent: boolean
   blockers: string[]
   warnings: string[]
@@ -52,6 +55,7 @@ export interface AiTradingProductionEvidenceExplainView {
   maxEvidenceValidityDays: number
   maxClockSkewSeconds: number
   maxItemValidationAgeDays: number
+  maxCutoverWindowHours: number
   items: AiTradingProductionEvidenceItemView[]
   nextActions: string[]
 }
@@ -131,6 +135,9 @@ export const extractAiTradingProductionEvidenceExplain = (
       acceptedCount: numberValue(productionEvidenceSource.accepted_count),
       requiredCount: numberValue(productionEvidenceSource.required_count),
       expiresAt: typeof productionEvidenceSource.expires_at === 'string' ? productionEvidenceSource.expires_at : null,
+      cutoverWindowPresent: productionEvidenceSource.cutover_window_present === true,
+      cutoverWindowStartAt: typeof productionEvidenceSource.cutover_window_start_at === 'string' ? productionEvidenceSource.cutover_window_start_at : null,
+      cutoverWindowEndAt: typeof productionEvidenceSource.cutover_window_end_at === 'string' ? productionEvidenceSource.cutover_window_end_at : null,
       cutoverApprovalRefPresent: productionEvidenceSource.cutover_approval_ref_present === true,
       blockers: stringList(productionEvidenceSource.blockers),
       warnings: stringList(productionEvidenceSource.warnings),
@@ -140,6 +147,7 @@ export const extractAiTradingProductionEvidenceExplain = (
     maxEvidenceValidityDays: numberValue(schemaSource.max_evidence_validity_days),
     maxClockSkewSeconds: numberValue(schemaSource.max_clock_skew_seconds),
     maxItemValidationAgeDays: numberValue(schemaSource.max_item_validation_age_days),
+    maxCutoverWindowHours: numberValue(schemaSource.max_cutover_window_hours),
     items: rawItems.reduce<AiTradingProductionEvidenceItemView[]>((acc, rawItem) => {
       if (!isRecord(rawItem)) return acc
       const id = typeof rawItem.id === 'string' ? rawItem.id : ''

@@ -187,6 +187,10 @@ def _production_evidence_payload(*, include_secret: bool = False, missing_item: 
         "version": "hyperalpha.ai_trading.external_acceptance.v1",
         "generated_at": _utc_iso(timedelta(minutes=-2)),
         "expires_at": _utc_iso(timedelta(days=1)),
+        "cutover_window": {
+            "start_at": _utc_iso(timedelta(minutes=-10)),
+            "end_at": _utc_iso(timedelta(hours=2)),
+        },
         "cutover_approval_ref": "ops://ai-trading/production-cutover/approval",
         "secret_values_returned": False,
         "items": items,
@@ -235,17 +239,25 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert explain["production_evidence"]["ready"] is False
     assert explain["production_evidence"]["required_count"] == 7
     assert explain["production_evidence"]["expires_at"] is None
+    assert explain["production_evidence"]["cutover_window_present"] is False
+    assert explain["production_evidence"]["cutover_window_start_at"] is None
+    assert explain["production_evidence"]["cutover_window_end_at"] is None
     assert explain["production_evidence"]["cutover_approval_ref_present"] is False
     assert explain["schema"]["safe_artifact_ref_schemes"] == ["https", "lark", "notion", "ops"]
     assert explain["schema"]["max_evidence_validity_days"] == 7
     assert explain["schema"]["max_clock_skew_seconds"] == 300
     assert explain["schema"]["max_item_validation_age_days"] == 7
+    assert explain["schema"]["max_cutover_window_hours"] == 8
     assert (
         "generated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future"
         in explain["schema"]["required_root_fields"]
     )
     assert (
         "expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within 7 days"
+        in explain["schema"]["required_root_fields"]
+    )
+    assert (
+        "cutover_window=start_at/end_at timezone-aware ISO-8601 window containing the production audit time and no longer than 8 hours"
         in explain["schema"]["required_root_fields"]
     )
     assert explain["schema"]["required_item_fields"] == [
@@ -297,6 +309,7 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     assert template["version"] == "hyperalpha.ai_trading.external_acceptance.v1"
     assert template["generated_at"] is None
     assert template["expires_at"] is None
+    assert template["cutover_window"] == {"start_at": None, "end_at": None}
     assert template["cutover_approval_ref"] is None
     assert template["secret_values_returned"] is False
     assert set(template["items"]) == {

@@ -57,6 +57,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_cutover_approval_ref_marker: bool = True,
     include_production_evidence_future_timestamp_guard_marker: bool = True,
     include_production_evidence_validation_age_guard_marker: bool = True,
+    include_production_evidence_cutover_window_guard_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -122,6 +123,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_validation_age_guard_marker = (
         "| AI Trading production evidence validation age guard | Done |"
     ) if include_production_evidence_validation_age_guard_marker else ""
+    production_evidence_cutover_window_guard_marker = (
+        "| AI Trading production evidence cutover window guard | Done |"
+    ) if include_production_evidence_cutover_window_guard_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -214,7 +218,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Validation Age Guard Accepted / Remote Push Skipped",
+                "Local V1 Evidence Cutover Window Guard Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -241,6 +245,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_cutover_approval_ref_marker,
                 production_evidence_future_timestamp_guard_marker,
                 production_evidence_validation_age_guard_marker,
+                production_evidence_cutover_window_guard_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -319,6 +324,7 @@ def _write_production_evidence(
     empty_artifact_refs: bool = False,
     generated_at: object = _UNSET,
     expires_at: object = _UNSET,
+    cutover_window: object = _UNSET,
     cutover_approval_ref: object = "ops://ai-trading/production-cutover/approval",
     validated_at: object = _UNSET,
     validated_by: object = "ops-admin",
@@ -332,6 +338,11 @@ def _write_production_evidence(
         expires_at = _utc_iso(timedelta(days=1))
     if validated_at is _UNSET:
         validated_at = _utc_iso(timedelta(minutes=-5))
+    if cutover_window is _UNSET:
+        cutover_window = {
+            "start_at": _utc_iso(timedelta(minutes=-10)),
+            "end_at": _utc_iso(timedelta(hours=2)),
+        }
 
     items = {}
     for requirement in completion_audit.EXTERNAL_REQUIREMENTS:
@@ -359,6 +370,7 @@ def _write_production_evidence(
         "version": completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "generated_at": generated_at,
         "expires_at": expires_at,
+        "cutover_window": cutover_window,
         "cutover_approval_ref": cutover_approval_ref,
         "secret_values_returned": False,
         "items": items,
@@ -409,6 +421,7 @@ def test_production_evidence_template_builder_uses_required_item_ids_without_sec
     assert payload["version"] == completion_audit.EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION
     assert payload["generated_at"] is None
     assert payload["expires_at"] is None
+    assert payload["cutover_window"] == {"start_at": None, "end_at": None}
     assert payload["cutover_approval_ref"] is None
     assert payload["secret_values_returned"] is False
     assert any("required non-secret proof terms" in note for note in payload["notes"])
@@ -440,11 +453,16 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
         in report["schema"]["required_root_fields"]
     )
     assert (
+        "cutover_window=start_at/end_at timezone-aware ISO-8601 window containing the production audit time and no longer than 8 hours"
+        in report["schema"]["required_root_fields"]
+    )
+    assert (
         "cutover_approval_ref=1 safe ops/lark/notion/https approval ref for the live-order cutover"
         in report["schema"]["required_root_fields"]
     )
     assert report["schema"]["max_clock_skew_seconds"] == 300
     assert report["schema"]["max_item_validation_age_days"] == 7
+    assert report["schema"]["max_cutover_window_hours"] == 8
     assert "status=accepted" in report["schema"]["required_item_fields"]
     assert (
         "validated_at=timezone-aware ISO-8601 timestamp not more than 300 seconds in the future and not older than 7 days at generated_at"
@@ -819,6 +837,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_valid
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence validation age guard | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_cutover_window_guard_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_cutover_window_guard_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence cutover window guard | Done |"
         in status_evidence["missing_phrases"]
     )
 
@@ -1316,6 +1352,108 @@ def test_completion_audit_rejects_missing_or_expired_production_evidence_expiry(
     )
     assert expiry_too_far_report["ready_for_live_orders"] is False
     assert "external_evidence_expires_at_too_far" in expiry_too_far_report["production_evidence"]["blockers"]
+
+
+def test_completion_audit_rejects_missing_or_invalid_cutover_window(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    missing_window_path = tmp_path / "missing-cutover-window-evidence.json"
+    unexpected_field_path = tmp_path / "unexpected-cutover-window-field-evidence.json"
+    future_window_path = tmp_path / "future-cutover-window-evidence.json"
+    ended_window_path = tmp_path / "ended-cutover-window-evidence.json"
+    too_long_window_path = tmp_path / "too-long-cutover-window-evidence.json"
+    generated_before_window_path = tmp_path / "generated-before-cutover-window-evidence.json"
+    _write_production_evidence(missing_window_path, cutover_window=None)
+    _write_production_evidence(
+        unexpected_field_path,
+        cutover_window={
+            "start_at": _utc_iso(timedelta(minutes=-10)),
+            "end_at": _utc_iso(timedelta(hours=2)),
+            "raw_window_note": "not allowed",
+        },
+    )
+    _write_production_evidence(
+        future_window_path,
+        cutover_window={
+            "start_at": _utc_iso(timedelta(hours=1)),
+            "end_at": _utc_iso(timedelta(hours=2)),
+        },
+    )
+    _write_production_evidence(
+        ended_window_path,
+        generated_at=_utc_iso(timedelta(hours=-2)),
+        validated_at=_utc_iso(timedelta(hours=-2, minutes=-5)),
+        expires_at=_utc_iso(timedelta(days=1)),
+        cutover_window={
+            "start_at": _utc_iso(timedelta(hours=-3)),
+            "end_at": _utc_iso(timedelta(hours=-1)),
+        },
+    )
+    _write_production_evidence(
+        too_long_window_path,
+        cutover_window={
+            "start_at": _utc_iso(timedelta(minutes=-10)),
+            "end_at": _utc_iso(timedelta(hours=9)),
+        },
+    )
+    _write_production_evidence(
+        generated_before_window_path,
+        generated_at=_utc_iso(timedelta(minutes=-20)),
+        validated_at=_utc_iso(timedelta(minutes=-25)),
+        expires_at=_utc_iso(timedelta(days=1)),
+        cutover_window={
+            "start_at": _utc_iso(timedelta(minutes=-5)),
+            "end_at": _utc_iso(timedelta(hours=2)),
+        },
+    )
+
+    missing_window_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=missing_window_path,
+        allow_live_ready_from_evidence=True,
+    )
+    unexpected_field_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=unexpected_field_path,
+        allow_live_ready_from_evidence=True,
+    )
+    future_window_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=future_window_path,
+        allow_live_ready_from_evidence=True,
+    )
+    ended_window_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=ended_window_path,
+        allow_live_ready_from_evidence=True,
+    )
+    too_long_window_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=too_long_window_path,
+        allow_live_ready_from_evidence=True,
+    )
+    generated_before_window_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=generated_before_window_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert missing_window_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_window_missing" in missing_window_report["production_evidence"]["blockers"]
+    assert missing_window_report["production_evidence"]["cutover_window_present"] is False
+    assert unexpected_field_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_window_unexpected_fields" in unexpected_field_report["production_evidence"]["blockers"]
+    assert unexpected_field_report["production_evidence"]["cutover_window_unexpected_fields"] == ["raw_window_note"]
+    assert future_window_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_window_not_started" in future_window_report["production_evidence"]["blockers"]
+    assert ended_window_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_window_ended" in ended_window_report["production_evidence"]["blockers"]
+    assert too_long_window_report["ready_for_live_orders"] is False
+    assert "external_evidence_cutover_window_too_long" in too_long_window_report["production_evidence"]["blockers"]
+    assert generated_before_window_report["ready_for_live_orders"] is False
+    assert (
+        "external_evidence_generated_at_before_cutover_window"
+        in generated_before_window_report["production_evidence"]["blockers"]
+    )
 
 
 def test_completion_audit_rejects_missing_or_unsafe_cutover_approval_ref(tmp_path):

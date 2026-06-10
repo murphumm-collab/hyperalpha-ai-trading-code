@@ -37,11 +37,13 @@ ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS = {
     "version",
     "generated_at",
     "expires_at",
+    "cutover_window",
     "cutover_approval_ref",
     "secret_values_returned",
     "notes",
     "items",
 }
+ALLOWED_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_FIELDS = {"start_at", "end_at"}
 ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS = {
     "status",
     "validated_at",
@@ -60,10 +62,12 @@ MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS = 5
 MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS = 7
 MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS = 300
 MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS = 7
+MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS = 8
 PRODUCTION_EVIDENCE_REQUIRED_ROOT_FIELDS = (
     f"version={EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION}",
     f"generated_at=timezone-aware ISO-8601 timestamp not more than {MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS} seconds in the future",
     f"expires_at=timezone-aware ISO-8601 timestamp after generated_at, in the future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days",
+    f"cutover_window=start_at/end_at timezone-aware ISO-8601 window containing the production audit time and no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours",
     "cutover_approval_ref=1 safe ops/lark/notion/https approval ref for the live-order cutover",
     "secret_values_returned=false",
     "items=documented external acceptance item ids only",
@@ -91,10 +95,11 @@ PLACEHOLDER_EVIDENCE_VALUES = {
 PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "Copy this file outside the code repository or into a private ops evidence location before filling it; repo-local production evidence files cannot unlock live-order readiness.",
     "Do not include API keys, bearer tokens, database URLs, private keys, raw Authorization headers, or user secrets.",
-    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
+    "Use only documented schema fields. Allowed root fields: version, generated_at, expires_at, cutover_window, cutover_approval_ref, secret_values_returned, notes, items. Allowed item fields: status, validated_at, validated_by, evidence_summary, artifact_refs, secret_values_returned.",
     "Root notes are optional and must be a bounded list of concise strings; do not use notes for raw logs, model output, traces, or pasted operational dumps.",
     "The items object must contain only the documented external acceptance item ids in this template; unknown item ids are rejected.",
     f"generated_at, expires_at, and item validated_at must be timezone-aware ISO-8601; generated_at/validated_at cannot be >{MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS}s in the future; item validation cannot be older than {MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS} days at generated_at; expires_at must be after generated_at, future, and within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days.",
+    f"cutover_window.start_at/end_at must be timezone-aware ISO-8601, contain the production audit time, and be no longer than {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours.",
     "cutover_approval_ref must point to one sanitized ops://, lark://, notion://, or https:// approval record for the exact live-order cutover window.",
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
@@ -275,7 +280,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Validation Age Guard Accepted / Remote Push Skipped",
+            "Local V1 Evidence Cutover Window Guard Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -291,6 +296,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence cutover approval ref | Done |",
             "| AI Trading production evidence future timestamp guard | Done |",
             "| AI Trading production evidence validation age guard | Done |",
+            "| AI Trading production evidence cutover window guard | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -613,6 +619,63 @@ def _cutover_approval_ref_blockers(ref: Any) -> list[str]:
     ]
 
 
+def _cutover_window_report(
+    window: Any,
+    *,
+    generated_at_utc: datetime | None,
+    now_utc: datetime,
+) -> dict[str, Any]:
+    report = {
+        "present": False,
+        "start_at": None,
+        "end_at": None,
+        "blockers": [],
+        "unexpected_fields": [],
+    }
+    blockers: list[str] = report["blockers"]
+
+    if not isinstance(window, dict):
+        blockers.append("external_evidence_cutover_window_missing")
+        return report
+
+    report["present"] = True
+    unexpected_fields = _unexpected_fields(window, ALLOWED_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_FIELDS)
+    report["unexpected_fields"] = unexpected_fields
+    if unexpected_fields:
+        blockers.append("external_evidence_cutover_window_unexpected_fields")
+
+    start_at_utc, start_blockers = _parse_iso_timestamp(
+        window.get("start_at"),
+        "cutover_window_start_at",
+    )
+    end_at_utc, end_blockers = _parse_iso_timestamp(
+        window.get("end_at"),
+        "cutover_window_end_at",
+    )
+    blockers.extend(start_blockers)
+    blockers.extend(end_blockers)
+    report["start_at"] = window.get("start_at") if isinstance(window.get("start_at"), str) else None
+    report["end_at"] = window.get("end_at") if isinstance(window.get("end_at"), str) else None
+
+    if start_at_utc is None or end_at_utc is None:
+        return report
+    if end_at_utc <= start_at_utc:
+        blockers.append("external_evidence_cutover_window_end_not_after_start")
+    if end_at_utc - start_at_utc > timedelta(hours=MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS):
+        blockers.append("external_evidence_cutover_window_too_long")
+    if now_utc < start_at_utc - timedelta(seconds=MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS):
+        blockers.append("external_evidence_cutover_window_not_started")
+    if now_utc > end_at_utc:
+        blockers.append("external_evidence_cutover_window_ended")
+    if generated_at_utc is not None:
+        if generated_at_utc < start_at_utc - timedelta(seconds=MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS):
+            blockers.append("external_evidence_generated_at_before_cutover_window")
+        if generated_at_utc > end_at_utc + timedelta(seconds=MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS):
+            blockers.append("external_evidence_generated_at_after_cutover_window")
+
+    return report
+
+
 def _parse_iso_timestamp(value: Any, field_name: str) -> tuple[datetime | None, list[str]]:
     if not isinstance(value, str) or not value.strip():
         return None, [f"external_evidence_{field_name}_missing"]
@@ -812,6 +875,9 @@ def _empty_external_evidence_report(
         "ready": False,
         "version": None,
         "expires_at": None,
+        "cutover_window_present": False,
+        "cutover_window_start_at": None,
+        "cutover_window_end_at": None,
         "cutover_approval_ref_present": False,
         "accepted_count": 0,
         "required_count": len(EXTERNAL_REQUIREMENTS),
@@ -865,6 +931,12 @@ def _validate_external_evidence_payload(
         blockers.append("external_evidence_expires_at_too_far")
     if expires_at_utc is not None and expires_at_utc <= now_utc:
         blockers.append("external_evidence_expired")
+    cutover_window = _cutover_window_report(
+        payload.get("cutover_window"),
+        generated_at_utc=generated_at_utc,
+        now_utc=now_utc,
+    )
+    blockers.extend(cutover_window["blockers"])
     if payload.get("secret_values_returned") is not False:
         blockers.append("external_evidence_secret_values_returned_must_be_false")
     cutover_approval_ref = payload.get("cutover_approval_ref")
@@ -918,6 +990,10 @@ def _validate_external_evidence_payload(
         "file_inside_repo": file_inside_repo,
         "notes_count": len(payload.get("notes")) if isinstance(payload.get("notes"), list) else 0,
         "expires_at": payload.get("expires_at") if isinstance(payload.get("expires_at"), str) else None,
+        "cutover_window_present": cutover_window["present"],
+        "cutover_window_start_at": cutover_window["start_at"],
+        "cutover_window_end_at": cutover_window["end_at"],
+        "cutover_window_unexpected_fields": cutover_window["unexpected_fields"],
         "cutover_approval_ref_present": isinstance(cutover_approval_ref, str) and bool(cutover_approval_ref.strip()),
     }
 
@@ -968,6 +1044,10 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
         "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
         "generated_at": None,
         "expires_at": None,
+        "cutover_window": {
+            "start_at": None,
+            "end_at": None,
+        },
         "cutover_approval_ref": None,
         "secret_values_returned": False,
         "notes": list(PRODUCTION_EVIDENCE_TEMPLATE_NOTES),
@@ -1109,6 +1189,9 @@ def _build_production_evidence_explain_from_report(
             "warnings": list(production_evidence["warnings"]),
             "file_inside_repo": production_evidence.get("file_inside_repo", False),
             "expires_at": production_evidence.get("expires_at"),
+            "cutover_window_present": production_evidence.get("cutover_window_present", False),
+            "cutover_window_start_at": production_evidence.get("cutover_window_start_at"),
+            "cutover_window_end_at": production_evidence.get("cutover_window_end_at"),
             "cutover_approval_ref_present": production_evidence.get("cutover_approval_ref_present", False),
         },
         "schema": {
@@ -1125,6 +1208,7 @@ def _build_production_evidence_explain_from_report(
             "max_evidence_validity_days": MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS,
             "max_clock_skew_seconds": MAX_PRODUCTION_EVIDENCE_CLOCK_SKEW_SECONDS,
             "max_item_validation_age_days": MAX_PRODUCTION_EVIDENCE_ITEM_VALIDATION_AGE_DAYS,
+            "max_cutover_window_hours": MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS,
             "summary_chars": {
                 "min": MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
                 "max": MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
