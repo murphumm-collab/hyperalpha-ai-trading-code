@@ -12,6 +12,9 @@ Run from backend:
 Use --strict-production only for a production cutover audit. It intentionally
 fails unless a complete sanitized production evidence file is supplied and the
 caller also passes --allow-live-ready-from-evidence.
+
+Use --explain-production-evidence to print an item-level, non-secret operations
+checklist for filling or fixing the external production evidence file.
 """
 
 from __future__ import annotations
@@ -82,6 +85,53 @@ PRODUCTION_EVIDENCE_TEMPLATE_NOTES = (
     "artifact_refs must be non-empty sanitized references using https://, ops://, lark://, or notion:// only; use no more than 5 refs per item, keep each ref at 300 characters or less, and do not embed credentials or point to localhost/private-network URLs.",
     "Each item must become status=accepted with validated_at, a non-placeholder validated_by of 3-120 characters, a concrete evidence_summary of 24-600 characters, artifact_refs, and secret_values_returned=false before production cutover audit can pass.",
 )
+PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS = (
+    "status=accepted",
+    "validated_at=timezone-aware ISO-8601 timestamp",
+    "validated_by=non-placeholder reviewer/operator name, 3-120 chars",
+    "evidence_summary=concrete sanitized acceptance summary, 24-600 chars",
+    "artifact_refs=1-5 safe refs using https://, ops://, lark://, or notion://",
+    "secret_values_returned=false",
+)
+PRODUCTION_EVIDENCE_COMMON_FORBIDDEN = (
+    "API keys",
+    "bearer tokens",
+    "database URLs",
+    "private keys",
+    "raw Authorization headers",
+    "raw model output",
+    "raw operational dumps",
+)
+PRODUCTION_EVIDENCE_ITEM_GUIDANCE: dict[str, tuple[str, ...]] = {
+    "macos_reboot_recovery": (
+        "After a real macOS reboot, prove LaunchAgent restored frontend, backend, mock gateway, and Postgres readiness.",
+        "Use ai_trading_v1_env_check.py --strict --require-runtime-mirror-current as the sanitized readiness artifact.",
+    ),
+    "real_model_profile_live_acceptance": (
+        "Configure a user's Hyper AI profile with DeepSeek or Qwen credentials outside the evidence file.",
+        "Run ai_trading_model_adjust_live_acceptance.py with explicit live-model confirmation and record only sanitized outcome metadata.",
+    ),
+    "real_order_backend_handoff": (
+        "Configure the real HTTPS order-backend signal gateway and token outside the evidence file.",
+        "Run the production handoff checker and capture sanitized proof that the gateway is external, token-present, and explicitly approved.",
+    ),
+    "production_auth_hard_risk_readiness": (
+        "Validate production Auth/JWKS, issuer, audience, algorithms, hard TP/SL/notional/leverage caps, and production handoff approval.",
+        "Use production readiness output that confirms no token, API key, DB URL, or raw authorization value is returned.",
+    ),
+    "admin_readiness_real_auth_visual": (
+        "Under real auth, verify an admin/operator can see the Settings AI Trading production readiness panel.",
+        "Record a sanitized visual artifact reference without cookies, tokens, or raw API responses.",
+    ),
+    "production_agent_session_visual": (
+        "Under real production login, verify the agent-session detail page renders only the current user's session audit/context budget.",
+        "Record a sanitized visual artifact reference proving no raw context_summary secrets are rendered.",
+    ),
+    "real_exchange_execution": (
+        "Run this as a separate production live-trading acceptance outside local V1.",
+        "Record only bounded sanitized execution evidence after the order backend, not the AI agent, performs the exchange action.",
+    ),
+}
 SECRET_VALUE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"Authorization\s*:\s*Bearer\s+\S+", re.IGNORECASE),
     re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{12,}", re.IGNORECASE),
@@ -159,10 +209,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the local agent-session context secret-rejection gate as accepted and remote push as skipped.",
+        description="Feature status marks the local production evidence explain mode as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Agent Session Context Secret Rejection Accepted / Remote Push Skipped",
+            "Local V1 Production Evidence Explain Mode Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -174,6 +224,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence note safety | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
+            "| AI Trading production evidence explain mode | Done |",
             "| AI Trading runtime mirror freshness gate | Done |",
             "| AI Trading runtime readiness cold-start retry | Done |",
             "| AI Trading agent-session manual context secret rejection | Done |",
@@ -752,6 +803,114 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
     }
 
 
+def build_production_evidence_explain(
+    repo_root: Path | str,
+    *,
+    production_evidence_file: Path | str | None = None,
+    allow_live_ready_from_evidence: bool = False,
+) -> dict[str, Any]:
+    """Explain what sanitized external evidence is still needed for live-order readiness."""
+    report = build_completion_report(
+        repo_root,
+        production_evidence_file=production_evidence_file,
+        allow_live_ready_from_evidence=allow_live_ready_from_evidence,
+    )
+    production_evidence = report["production_evidence"]
+    external_status_by_id = {
+        item["id"]: item
+        for item in report["external_acceptance"]
+    }
+    evidence_item_by_id = {
+        item["id"]: item
+        for item in production_evidence.get("items", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+
+    items: list[dict[str, Any]] = []
+    for requirement in EXTERNAL_REQUIREMENTS:
+        evidence_item = evidence_item_by_id.get(requirement.id)
+        if evidence_item is None:
+            evidence_blockers = [
+                "external_evidence_item_not_provided"
+                if not production_evidence.get("provided")
+                else "external_evidence_item_not_reported"
+            ]
+            evidence_ready = False
+            evidence_status = "not_provided"
+            artifact_ref_count = 0
+            secret_pattern_count = 0
+            unexpected_fields: list[str] = []
+        else:
+            evidence_blockers = list(evidence_item.get("blockers") or [])
+            evidence_ready = bool(evidence_item.get("ready"))
+            evidence_status = str(evidence_item.get("status") or "missing")
+            artifact_ref_count = int(evidence_item.get("artifact_ref_count") or 0)
+            secret_pattern_count = int(evidence_item.get("secret_pattern_count") or 0)
+            unexpected_fields = list(evidence_item.get("unexpected_fields") or [])
+
+        documentation_status = external_status_by_id.get(requirement.id, {}).get("status")
+        items.append(
+            {
+                "id": requirement.id,
+                "description": requirement.description,
+                "documentation_status": documentation_status,
+                "evidence_status": evidence_status,
+                "ready": evidence_ready,
+                "blockers": evidence_blockers,
+                "artifact_ref_count": artifact_ref_count,
+                "secret_pattern_count": secret_pattern_count,
+                "unexpected_fields": unexpected_fields,
+                "required_fields": list(PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS),
+                "safe_artifact_ref_schemes": sorted(SAFE_ARTIFACT_REF_SCHEMES),
+                "forbidden_values": list(PRODUCTION_EVIDENCE_COMMON_FORBIDDEN),
+                "operator_guidance": list(PRODUCTION_EVIDENCE_ITEM_GUIDANCE.get(requirement.id, ())),
+            }
+        )
+
+    return {
+        "mode": "production_evidence_explain",
+        "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
+        "repo_root": report["repo_root"],
+        "github_upload": report["github_upload"],
+        "local_v1_accepted": report["local_v1_accepted"],
+        "ready_for_live_orders": report["ready_for_live_orders"],
+        "production_track": report["summary"]["production_track"],
+        "production_evidence": {
+            "provided": production_evidence["provided"],
+            "path": production_evidence["path"],
+            "ready": production_evidence["ready"],
+            "accepted_count": production_evidence["accepted_count"],
+            "required_count": production_evidence["required_count"],
+            "blockers": list(production_evidence["blockers"]),
+            "warnings": list(production_evidence["warnings"]),
+            "file_inside_repo": production_evidence.get("file_inside_repo", False),
+        },
+        "schema": {
+            "allowed_root_fields": sorted(ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS),
+            "allowed_item_fields": sorted(ALLOWED_PRODUCTION_EVIDENCE_ITEM_FIELDS),
+            "required_item_ids": [requirement.id for requirement in EXTERNAL_REQUIREMENTS],
+            "required_item_fields": list(PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS),
+            "safe_artifact_ref_schemes": sorted(SAFE_ARTIFACT_REF_SCHEMES),
+            "max_notes": MAX_PRODUCTION_EVIDENCE_NOTES,
+            "max_note_chars": MAX_PRODUCTION_EVIDENCE_NOTE_CHARS,
+            "max_artifact_refs_per_item": MAX_PRODUCTION_EVIDENCE_ARTIFACT_REFS,
+            "max_artifact_ref_chars": MAX_PRODUCTION_EVIDENCE_ARTIFACT_REF_CHARS,
+            "summary_chars": {
+                "min": MIN_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
+                "max": MAX_PRODUCTION_EVIDENCE_SUMMARY_CHARS,
+            },
+        },
+        "items": items,
+        "next_actions": [
+            "Generate a repo-external skeleton with --init-production-evidence-file if no evidence file exists yet.",
+            "Fill only the required schema fields after each real external acceptance is completed.",
+            "Keep the filled evidence outside the code repository or in a private ops evidence location.",
+            "Run --explain-production-evidence with --production-evidence-file to see item-level blockers before strict production cutover.",
+            "Run --strict-production with --allow-live-ready-from-evidence only during an explicitly approved live-order cutover window.",
+        ],
+    }
+
+
 def write_external_acceptance_evidence_template(
     output_path: Path | str,
     *,
@@ -909,6 +1068,11 @@ def main() -> int:
         action="store_true",
         help="Allow --init-production-evidence-file to replace an existing output file.",
     )
+    parser.add_argument(
+        "--explain-production-evidence",
+        action="store_true",
+        help="Print a non-secret item-level checklist for the external production evidence file.",
+    )
     args = parser.parse_args()
 
     if args.init_production_evidence_file:
@@ -919,6 +1083,19 @@ def main() -> int:
         )
         print(json.dumps(init_report, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if init_report["created"] else 1
+
+    if args.explain_production_evidence:
+        explain_report = build_production_evidence_explain(
+            args.repo_root,
+            production_evidence_file=args.production_evidence_file,
+            allow_live_ready_from_evidence=args.allow_live_ready_from_evidence,
+        )
+        print(json.dumps(explain_report, ensure_ascii=False, indent=2, sort_keys=True))
+        if args.strict_local and not explain_report["local_v1_accepted"]:
+            return 1
+        if args.strict_production and not explain_report["ready_for_live_orders"]:
+            return 1
+        return 0
 
     report = build_completion_report(
         args.repo_root,

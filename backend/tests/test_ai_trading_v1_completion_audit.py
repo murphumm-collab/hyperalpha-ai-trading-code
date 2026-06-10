@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -90,7 +91,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Agent Session Context Secret Rejection Accepted / Remote Push Skipped",
+                "Local V1 Production Evidence Explain Mode Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -102,6 +103,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading production evidence note safety | Done |",
                 "| AI Trading production evidence initializer | Done |",
                 "| AI Trading aggregate production evidence initializer gate | Done |",
+                "| AI Trading production evidence explain mode | Done |",
                 "| AI Trading runtime mirror freshness gate | Done |",
                 "| AI Trading runtime readiness cold-start retry | Done |",
                 "| AI Trading agent-session manual context secret rejection | Done |",
@@ -251,6 +253,70 @@ def test_production_evidence_template_builder_uses_required_item_ids_without_sec
     assert set(payload["items"]) == {requirement.id for requirement in completion_audit.EXTERNAL_REQUIREMENTS}
     assert all(item["status"] == "pending_external_acceptance" for item in payload["items"].values())
     assert all(item["secret_values_returned"] is False for item in payload["items"].values())
+    assert completion_audit._secret_pattern_hits(payload) == []
+
+
+def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+
+    report = completion_audit.build_production_evidence_explain(tmp_path)
+
+    assert report["mode"] == "production_evidence_explain"
+    assert report["local_v1_accepted"] is True
+    assert report["ready_for_live_orders"] is False
+    assert report["production_evidence"]["provided"] is False
+    assert report["schema"]["required_item_ids"] == [
+        requirement.id for requirement in completion_audit.EXTERNAL_REQUIREMENTS
+    ]
+    assert "status=accepted" in report["schema"]["required_item_fields"]
+    order_backend_item = next(
+        item for item in report["items"] if item["id"] == "real_order_backend_handoff"
+    )
+    assert order_backend_item["ready"] is False
+    assert "external_evidence_item_not_provided" in order_backend_item["blockers"]
+    assert "API keys" in order_backend_item["forbidden_values"]
+    assert "Configure the real HTTPS order-backend signal gateway" in order_backend_item["operator_guidance"][0]
+
+
+def test_production_evidence_explain_keeps_live_orders_blocked_without_explicit_confirmation(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    evidence_path = _outside_repo_evidence_path(tmp_path, "production-evidence.json")
+    _write_production_evidence(evidence_path)
+
+    report = completion_audit.build_production_evidence_explain(
+        tmp_path,
+        production_evidence_file=evidence_path,
+    )
+
+    assert report["production_evidence"]["ready"] is True
+    assert report["production_evidence"]["accepted_count"] == len(completion_audit.EXTERNAL_REQUIREMENTS)
+    assert report["production_track"] == "external_evidence_accepted_pending_explicit_confirmation"
+    assert report["ready_for_live_orders"] is False
+    assert all(item["ready"] is True for item in report["items"])
+    assert all(item["blockers"] == [] for item in report["items"])
+
+
+def test_production_evidence_explain_cli_outputs_non_secret_checklist(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+
+    completed = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--repo-root",
+            str(tmp_path),
+            "--explain-production-evidence",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(completed.stdout)
+
+    assert payload["mode"] == "production_evidence_explain"
+    assert payload["github_upload"] == "deferred_by_user_request"
+    assert payload["production_evidence"]["ready"] is False
+    assert "bearer tokens" in payload["items"][0]["forbidden_values"]
     assert completion_audit._secret_pattern_hits(payload) == []
 
 
