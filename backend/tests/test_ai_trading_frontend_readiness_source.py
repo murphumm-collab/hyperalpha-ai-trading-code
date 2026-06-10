@@ -29,6 +29,31 @@ def test_admin_readiness_context_locator_ui_uses_secret_safe_projection() -> Non
     assert "context_summary" not in helper_without_allowed_locator_fields
 
 
+def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
+    settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+
+    assert "/api/ai-trading/admin/production-evidence-explain" in settings_source
+    assert "extractAiTradingProductionEvidenceExplain" in settings_source
+    assert "AiTradingProductionEvidenceExplainView" in settings_source
+    assert "productionEvidence.acceptedCount" in settings_source
+    assert "readyForLiveOrders" in settings_source
+    assert "artifactRefCount" in settings_source
+    assert "operatorGuidance" in settings_source
+    assert "production_evidence_file" not in settings_source
+    assert "AI_TRADING_SIGNAL_GATEWAY_TOKEN" not in settings_source
+    assert "DEEPSEEK_API_KEY" not in settings_source
+    assert "QWEN_API_KEY" not in settings_source
+    assert "DASHSCOPE_API_KEY" not in settings_source
+
+    assert "production_evidence" in helper_source
+    assert "ready_for_live_orders" in helper_source
+    assert "artifact_ref_count" in helper_source
+    assert "operator_guidance" in helper_source
+    assert "secret_values_returned" not in helper_source
+    assert "production_evidence_file" not in helper_source
+
+
 def test_ai_trading_runtime_context_budget_ui_uses_counts_only_projection() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     budget_block = hyper_ai_source.split(

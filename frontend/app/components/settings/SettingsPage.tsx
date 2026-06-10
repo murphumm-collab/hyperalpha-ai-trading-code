@@ -28,7 +28,10 @@ import {
 } from '@/lib/api'
 import { authFetch } from '@/lib/authFetch'
 import { useAuth } from '@/contexts/AuthContext'
-import { extractAiTradingAgentContextLocators } from '@/lib/aiTradingReadiness'
+import {
+  extractAiTradingAgentContextLocators,
+  extractAiTradingProductionEvidenceExplain,
+} from '@/lib/aiTradingReadiness'
 import type {
   HyperliquidSymbolMeta,
   BinanceSymbolMeta,
@@ -39,6 +42,7 @@ import type {
 import type {
   AiTradingAgentContextLocatorMeta,
   AiTradingAgentContextLocatorView,
+  AiTradingProductionEvidenceExplainView,
   AiTradingProductionComponent,
   AiTradingProductionReadiness,
 } from '@/lib/aiTradingReadiness'
@@ -225,6 +229,10 @@ export default function SettingsPage() {
   const [aiTradingReadiness, setAiTradingReadiness] = useState<AiTradingProductionReadiness | null>(null)
   const [aiTradingReadinessLoading, setAiTradingReadinessLoading] = useState(false)
   const [aiTradingReadinessError, setAiTradingReadinessError] = useState<string | null>(null)
+  const [aiTradingEvidenceExplain, setAiTradingEvidenceExplain] =
+    useState<AiTradingProductionEvidenceExplainView | null>(null)
+  const [aiTradingEvidenceExplainLoading, setAiTradingEvidenceExplainLoading] = useState(false)
+  const [aiTradingEvidenceExplainError, setAiTradingEvidenceExplainError] = useState<string | null>(null)
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -393,14 +401,40 @@ export default function SettingsPage() {
     }
   }, [])
 
+  const fetchAiTradingEvidenceExplain = useCallback(async () => {
+    setAiTradingEvidenceExplainLoading(true)
+    setAiTradingEvidenceExplainError(null)
+    try {
+      const res = await authFetch('/api/ai-trading/admin/production-evidence-explain')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to load AI Trading production evidence checklist')
+      }
+      setAiTradingEvidenceExplain(extractAiTradingProductionEvidenceExplain(data.explain) || null)
+    } catch (err) {
+      setAiTradingEvidenceExplainError(
+        err instanceof Error ? err.message : 'Failed to load AI Trading production evidence checklist'
+      )
+    } finally {
+      setAiTradingEvidenceExplainLoading(false)
+    }
+  }, [])
+
   const fetchAdminData = useCallback(async () => {
     await Promise.all([
       fetchAdminUsers(),
       fetchAdminAuditLogs(),
       fetchAiRuntimeStats(),
       fetchAiTradingReadiness(),
+      fetchAiTradingEvidenceExplain(),
     ])
-  }, [fetchAdminAuditLogs, fetchAdminUsers, fetchAiRuntimeStats, fetchAiTradingReadiness])
+  }, [
+    fetchAdminAuditLogs,
+    fetchAdminUsers,
+    fetchAiRuntimeStats,
+    fetchAiTradingEvidenceExplain,
+    fetchAiTradingReadiness,
+  ])
 
   useEffect(() => {
     if (
@@ -410,10 +444,12 @@ export default function SettingsPage() {
       && adminAuditLogs.length === 0
       && !aiRuntimeStats
       && !aiTradingReadiness
+      && !aiTradingEvidenceExplain
       && !adminUsersLoading
       && !adminAuditLoading
       && !aiRuntimeLoading
       && !aiTradingReadinessLoading
+      && !aiTradingEvidenceExplainLoading
     ) {
       fetchAdminData()
     }
@@ -423,6 +459,8 @@ export default function SettingsPage() {
     adminAuditLogs.length,
     adminUsers.length,
     adminUsersLoading,
+    aiTradingEvidenceExplain,
+    aiTradingEvidenceExplainLoading,
     aiTradingReadiness,
     aiTradingReadinessLoading,
     aiRuntimeLoading,
@@ -731,6 +769,19 @@ export default function SettingsPage() {
       ),
     }
     return labels[code] || code.replace(/_/g, ' ')
+  }
+
+  const formatProductionEvidenceItemName = (id: string) => {
+    const labels: Record<string, string> = {
+      macos_reboot_recovery: t('settings.aiTradingEvidenceMacosReboot', 'macOS reboot recovery'),
+      real_model_profile_live_acceptance: t('settings.aiTradingEvidenceModelProfile', 'Live model profile'),
+      real_order_backend_handoff: t('settings.aiTradingEvidenceOrderBackend', 'Order backend handoff'),
+      production_auth_hard_risk_readiness: t('settings.aiTradingEvidenceAuthRisk', 'Auth and hard risk'),
+      admin_readiness_real_auth_visual: t('settings.aiTradingEvidenceAdminVisual', 'Admin readiness visual'),
+      production_agent_session_visual: t('settings.aiTradingEvidenceSessionVisual', 'Agent session visual'),
+      real_exchange_execution: t('settings.aiTradingEvidenceExchangeExecution', 'Exchange execution'),
+    }
+    return labels[id] || id.replace(/_/g, ' ')
   }
 
   const getAgentContextLocators = (report: AiTradingProductionComponent): AiTradingAgentContextLocatorView[] => {
@@ -1660,10 +1711,26 @@ export default function SettingsPage() {
                     size="sm"
                     variant="outline"
                     onClick={fetchAdminData}
-                    disabled={adminUsersLoading || adminAuditLoading || aiRuntimeLoading || aiTradingReadinessLoading}
+                    disabled={
+                      adminUsersLoading
+                      || adminAuditLoading
+                      || aiRuntimeLoading
+                      || aiTradingReadinessLoading
+                      || aiTradingEvidenceExplainLoading
+                    }
                     className="w-full gap-2 md:w-auto"
                   >
-                    <RefreshCw className={`h-4 w-4 ${adminUsersLoading || adminAuditLoading || aiRuntimeLoading || aiTradingReadinessLoading ? 'animate-spin' : ''}`} />
+                    <RefreshCw
+                      className={`h-4 w-4 ${
+                        adminUsersLoading
+                        || adminAuditLoading
+                        || aiRuntimeLoading
+                        || aiTradingReadinessLoading
+                        || aiTradingEvidenceExplainLoading
+                          ? 'animate-spin'
+                          : ''
+                      }`}
+                    />
                     {t('common.refresh', 'Refresh')}
                   </Button>
                 </div>
@@ -2060,6 +2127,143 @@ export default function SettingsPage() {
                   ) : (
                     <div className="text-sm text-muted-foreground">
                       {t('settings.noAiTradingReadiness', 'No AI Trading readiness report loaded')}
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t pt-4 space-y-3">
+                  <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="text-sm font-medium">
+                        {t('settings.aiTradingEvidenceChecklist', 'AI Trading Production Evidence')}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {t('settings.aiTradingEvidenceChecklistDesc', 'External acceptance checklist for live-order cutover')}
+                      </div>
+                    </div>
+                    {aiTradingEvidenceExplain && (
+                      <Badge variant={getReadinessBadgeVariant(aiTradingEvidenceExplain.readyForLiveOrders)}>
+                        {aiTradingEvidenceExplain.readyForLiveOrders
+                          ? t('settings.ready', 'Ready')
+                          : t('settings.blocked', 'Blocked')}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {aiTradingEvidenceExplainError && (
+                    <div className="text-sm text-red-500">{aiTradingEvidenceExplainError}</div>
+                  )}
+
+                  {aiTradingEvidenceExplainLoading && !aiTradingEvidenceExplain ? (
+                    <div className="text-sm text-muted-foreground">{t('common.loading', 'Loading...')}</div>
+                  ) : aiTradingEvidenceExplain ? (
+                    <div className="space-y-3">
+                      <div className="grid gap-4 sm:grid-cols-4">
+                        <div>
+                          <div className="text-sm text-muted-foreground">
+                            {t('settings.aiTradingEvidenceAccepted', 'Accepted')}
+                          </div>
+                          <div className="text-xl font-semibold">
+                            {aiTradingEvidenceExplain.productionEvidence.acceptedCount}/{aiTradingEvidenceExplain.productionEvidence.requiredCount}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">
+                            {t('settings.aiTradingEvidenceProvided', 'Evidence')}
+                          </div>
+                          <div className="text-xl font-semibold">
+                            {aiTradingEvidenceExplain.productionEvidence.provided
+                              ? t('settings.provided', 'Provided')
+                              : t('settings.notProvided', 'Not provided')}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">
+                            {t('settings.aiTradingEvidenceItems', 'Items')}
+                          </div>
+                          <div className="text-xl font-semibold">
+                            {aiTradingEvidenceExplain.items.filter((item) => item.ready).length}/{aiTradingEvidenceExplain.items.length}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-sm text-muted-foreground">
+                            {t('settings.aiTradingEvidenceLiveOrders', 'Live orders')}
+                          </div>
+                          <div className="text-xl font-semibold">
+                            {aiTradingEvidenceExplain.readyForLiveOrders
+                              ? t('settings.ready', 'Ready')
+                              : t('settings.blocked', 'Blocked')}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {aiTradingEvidenceExplain.items.map((item) => (
+                          <div key={item.id} className="min-w-0 rounded-md border p-3 text-sm">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="truncate font-medium">{formatProductionEvidenceItemName(item.id)}</div>
+                                <div className="truncate text-xs text-muted-foreground" title={item.id}>
+                                  {item.evidenceStatus}
+                                </div>
+                              </div>
+                              <Badge variant={getReadinessBadgeVariant(item.ready)}>
+                                {item.ready ? t('settings.ready', 'Ready') : t('settings.blocked', 'Blocked')}
+                              </Badge>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                              <div>
+                                {t('settings.readinessBlockers', 'Blockers')}: {item.blockers.length}
+                              </div>
+                              <div>
+                                {t('settings.aiTradingEvidenceArtifactRefs', 'Artifact refs')}: {item.artifactRefCount}
+                              </div>
+                            </div>
+                            {item.blockers.length > 0 && (
+                              <div className="mt-2 space-y-1">
+                                {item.blockers.slice(0, 3).map((blocker) => (
+                                  <div key={blocker} className="truncate text-xs text-red-500" title={blocker}>
+                                    {formatReadinessCode(blocker)}
+                                  </div>
+                                ))}
+                                {item.blockers.length > 3 && (
+                                  <div className="text-xs text-muted-foreground">
+                                    {t('settings.readinessMoreBlockers', '+{{count}} more', { count: item.blockers.length - 3 })}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                            {item.operatorGuidance.length > 0 && (
+                              <div className="mt-3 space-y-1 border-t pt-2">
+                                {item.operatorGuidance.slice(0, 2).map((guidance) => (
+                                  <div key={guidance} className="text-xs text-muted-foreground">
+                                    {guidance}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+
+                      {aiTradingEvidenceExplain.nextActions.length > 0 && (
+                        <div className="rounded-md border p-3">
+                          <div className="mb-2 text-sm font-medium">
+                            {t('settings.aiTradingEvidenceNextActions', 'Evidence Actions')}
+                          </div>
+                          <div className="grid gap-2 md:grid-cols-2">
+                            {aiTradingEvidenceExplain.nextActions.slice(0, 5).map((action) => (
+                              <div key={action} className="text-xs text-muted-foreground">
+                                {action}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      {t('settings.noAiTradingEvidenceChecklist', 'No AI Trading production evidence checklist loaded')}
                     </div>
                   )}
                 </div>
