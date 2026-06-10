@@ -473,6 +473,9 @@ export default function SettingsPage() {
         throw new Error(data.detail || 'Failed to validate AI Trading production evidence')
       }
       setAiTradingEvidenceValidation(extractAiTradingProductionEvidenceExplain(data.validation) || null)
+      setAiTradingEvidenceTemplateGuidance(
+        extractAiTradingProductionEvidenceTemplateGuidance(data.guidance) || null
+      )
     } catch (err) {
       setAiTradingEvidenceValidationError(
         err instanceof Error ? err.message : 'Failed to validate AI Trading production evidence'
@@ -2625,6 +2628,22 @@ export default function SettingsPage() {
                                       <div className="truncate text-xs text-muted-foreground">
                                         {item.blockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker).join(', ')}
                                       </div>
+                                      {item.missingSummaryTerms.length > 0 && (
+                                        <div
+                                          className="truncate text-xs text-muted-foreground"
+                                          title={item.missingSummaryTerms.join(', ')}
+                                        >
+                                          {t('settings.aiTradingEvidenceMissingTerms', 'Missing terms')}: {item.missingSummaryTerms.slice(0, 2).join(', ')}
+                                        </div>
+                                      )}
+                                      {item.operatorGuidance.length > 0 && (
+                                        <div
+                                          className="truncate text-xs text-muted-foreground"
+                                          title={item.operatorGuidance.join(' | ')}
+                                        >
+                                          {t('settings.aiTradingEvidenceFixHint', 'Fix')}: {item.operatorGuidance[0]}
+                                        </div>
+                                      )}
                                     </div>
                                   ))}
                                 </div>

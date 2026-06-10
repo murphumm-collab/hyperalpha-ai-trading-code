@@ -51,6 +51,7 @@ def _write_minimal_acceptance_repo(
     include_admin_production_evidence_template_api_marker: bool = True,
     include_admin_production_evidence_template_ui_marker: bool = True,
     include_production_evidence_template_guidance_marker: bool = True,
+    include_production_evidence_validation_guidance_marker: bool = True,
     include_admin_production_evidence_payload_bounds_marker: bool = True,
     include_production_evidence_summary_terms_marker: bool = True,
     include_production_evidence_expiry_gate_marker: bool = True,
@@ -116,6 +117,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_template_guidance_marker = (
         "| AI Trading production evidence template guidance | Done |"
     ) if include_production_evidence_template_guidance_marker else ""
+    production_evidence_validation_guidance_marker = (
+        "| AI Trading production evidence validation guidance | Done |"
+    ) if include_production_evidence_validation_guidance_marker else ""
     admin_payload_bounds_marker = (
         "| AI Trading admin production evidence payload bounds | Done |"
     ) if include_admin_production_evidence_payload_bounds_marker else ""
@@ -262,7 +266,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Template Guidance Accepted / Remote Push Skipped",
+                "Local V1 Evidence Validation Guidance Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -283,6 +287,7 @@ def _write_minimal_acceptance_repo(
                 admin_template_api_marker,
                 admin_template_ui_marker,
                 production_evidence_template_guidance_marker,
+                production_evidence_validation_guidance_marker,
                 admin_payload_bounds_marker,
                 production_evidence_summary_terms_marker,
                 production_evidence_expiry_gate_marker,
@@ -1143,6 +1148,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_templ
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence template guidance | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_validation_guidance_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_validation_guidance_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence validation guidance | Done |"
         in status_evidence["missing_phrases"]
     )
 

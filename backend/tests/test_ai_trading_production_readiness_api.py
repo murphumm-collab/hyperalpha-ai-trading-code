@@ -381,6 +381,12 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     data = response.json()
     assert data["success"] is True
     assert data["requested_by_user_id"] == admin_id
+    assert data["guidance"]["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert len(data["guidance"]["next_required_actions"]) == 7
+    assert any(
+        action.startswith("real_order_backend_handoff: Configure the real HTTPS order-backend")
+        for action in data["guidance"]["next_required_actions"]
+    )
     validation = data["validation"]
     assert validation["mode"] == "production_evidence_payload_validation"
     assert validation["github_upload"] == "deferred_by_user_request"

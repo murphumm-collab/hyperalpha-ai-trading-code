@@ -320,6 +320,7 @@ def ai_trading_production_evidence_validate_endpoint(
             AI_TRADING_REPO_ROOT,
             request.evidence,
         ),
+        "guidance": build_ai_trading_external_acceptance_evidence_template_guidance(),
     }
 
 

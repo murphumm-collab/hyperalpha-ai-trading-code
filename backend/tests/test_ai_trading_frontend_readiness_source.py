@@ -130,6 +130,11 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "aiTradingEvidenceTemplateGuidance.items.slice(0, 4).map" in settings_source
     assert "item.requiredSummaryTerms.slice(0, 2).join(', ')" in settings_source
     assert "item.operatorGuidance[0] || item.description" in settings_source
+    assert "setAiTradingEvidenceTemplateGuidance(" in settings_source
+    assert "extractAiTradingProductionEvidenceTemplateGuidance(data.guidance)" in settings_source
+    assert "item.missingSummaryTerms.slice(0, 2).join(', ')" in settings_source
+    assert "item.operatorGuidance[0]" in settings_source
+    assert "settings.aiTradingEvidenceFixHint" in settings_source
     assert "extractAiTradingProductionEvidenceTemplateGuidance" in helper_source
     assert "secret_policy" in helper_source
     assert "next_required_actions" in helper_source
