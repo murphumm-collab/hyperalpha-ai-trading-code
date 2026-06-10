@@ -50,6 +50,7 @@ def _write_minimal_acceptance_repo(
     include_admin_production_evidence_validation_ui_marker: bool = True,
     include_admin_production_evidence_template_api_marker: bool = True,
     include_admin_production_evidence_template_ui_marker: bool = True,
+    include_production_evidence_template_guidance_marker: bool = True,
     include_admin_production_evidence_payload_bounds_marker: bool = True,
     include_production_evidence_summary_terms_marker: bool = True,
     include_production_evidence_expiry_gate_marker: bool = True,
@@ -112,6 +113,9 @@ def _write_minimal_acceptance_repo(
     admin_template_ui_marker = (
         "| AI Trading admin production evidence template UI | Done |"
     ) if include_admin_production_evidence_template_ui_marker else ""
+    production_evidence_template_guidance_marker = (
+        "| AI Trading production evidence template guidance | Done |"
+    ) if include_production_evidence_template_guidance_marker else ""
     admin_payload_bounds_marker = (
         "| AI Trading admin production evidence payload bounds | Done |"
     ) if include_admin_production_evidence_payload_bounds_marker else ""
@@ -258,7 +262,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Progress Actions Accepted / Remote Push Skipped",
+                "Local V1 Evidence Template Guidance Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -278,6 +282,7 @@ def _write_minimal_acceptance_repo(
                 admin_validation_ui_marker,
                 admin_template_api_marker,
                 admin_template_ui_marker,
+                production_evidence_template_guidance_marker,
                 admin_payload_bounds_marker,
                 production_evidence_summary_terms_marker,
                 production_evidence_expiry_gate_marker,
@@ -486,6 +491,20 @@ def test_production_evidence_template_builder_uses_required_item_ids_without_sec
     assert all(item["status"] == "pending_external_acceptance" for item in payload["items"].values())
     assert all(item["secret_values_returned"] is False for item in payload["items"].values())
     assert completion_audit._secret_pattern_hits(payload) == []
+
+
+def test_production_evidence_template_guidance_uses_required_item_ids_without_secrets():
+    guidance = completion_audit.build_external_acceptance_evidence_template_guidance()
+
+    assert guidance["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert len(guidance["items"]) == len(completion_audit.EXTERNAL_REQUIREMENTS)
+    assert len(guidance["next_required_actions"]) == len(completion_audit.EXTERNAL_REQUIREMENTS)
+    order_backend_item = next(item for item in guidance["items"] if item["id"] == "real_order_backend_handoff")
+    assert "mode=http / gateway mode=http / gateway_mode=http" in order_backend_item["required_summary_terms"]
+    assert any("real HTTPS order-backend" in action for action in order_backend_item["operator_guidance"])
+    assert "bearer tokens" in order_backend_item["forbidden_values"]
+    assert "ops" in order_backend_item["safe_artifact_ref_schemes"]
+    assert completion_audit._secret_pattern_hits(guidance) == []
 
 
 def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_path):
@@ -1106,6 +1125,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_progr
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence progress actions | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_template_guidance_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_template_guidance_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence template guidance | Done |"
         in status_evidence["missing_phrases"]
     )
 

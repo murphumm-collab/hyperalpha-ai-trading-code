@@ -286,7 +286,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Progress Actions Accepted / Remote Push Skipped",
+            "Local V1 Evidence Template Guidance Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -323,6 +323,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading admin production evidence validation UI | Done |",
             "| AI Trading admin production evidence template API | Done |",
             "| AI Trading admin production evidence template UI | Done |",
+            "| AI Trading production evidence template guidance | Done |",
             "| AI Trading admin production evidence payload bounds | Done |",
             "| AI Trading agent-session response context redaction | Done |",
             "| AI Trading frontend session context prompt sanitizer | Done |",
@@ -1154,6 +1155,37 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
             }
             for requirement in EXTERNAL_REQUIREMENTS
         },
+    }
+
+
+def build_external_acceptance_evidence_template_guidance() -> dict[str, Any]:
+    """Build non-secret operator guidance for filling the pending evidence template."""
+    items: list[dict[str, Any]] = []
+    for requirement in EXTERNAL_REQUIREMENTS:
+        guidance = list(PRODUCTION_EVIDENCE_ITEM_GUIDANCE.get(requirement.id, ()))
+        items.append(
+            {
+                "id": requirement.id,
+                "description": requirement.description,
+                "required_fields": list(PRODUCTION_EVIDENCE_REQUIRED_ITEM_FIELDS),
+                "required_summary_terms": [
+                    _summary_term_label(term_group)
+                    for term_group in PRODUCTION_EVIDENCE_ITEM_REQUIRED_SUMMARY_TERMS.get(requirement.id, ())
+                ],
+                "operator_guidance": guidance,
+                "safe_artifact_ref_schemes": sorted(SAFE_ARTIFACT_REF_SCHEMES),
+                "forbidden_values": list(PRODUCTION_EVIDENCE_COMMON_FORBIDDEN),
+            }
+        )
+
+    return {
+        "secret_policy": "metadata_only_no_env_or_credentials",
+        "items": items,
+        "next_required_actions": [
+            f"{item['id']}: {item['operator_guidance'][0]}"
+            for item in items
+            if item.get("operator_guidance")
+        ],
     }
 
 

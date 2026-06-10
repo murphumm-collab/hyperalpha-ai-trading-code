@@ -32,6 +32,7 @@ import { useAuth } from '@/contexts/AuthContext'
 import {
   extractAiTradingAgentContextLocators,
   extractAiTradingProductionEvidenceExplain,
+  extractAiTradingProductionEvidenceTemplateGuidance,
   formatAiTradingProductionEvidenceBlocker,
 } from '@/lib/aiTradingReadiness'
 import type {
@@ -45,6 +46,7 @@ import type {
   AiTradingAgentContextLocatorMeta,
   AiTradingAgentContextLocatorView,
   AiTradingProductionEvidenceExplainView,
+  AiTradingProductionEvidenceTemplateGuidanceView,
   AiTradingProductionComponent,
   AiTradingProductionReadiness,
 } from '@/lib/aiTradingReadiness'
@@ -243,6 +245,8 @@ export default function SettingsPage() {
   const [aiTradingEvidenceValidationLoading, setAiTradingEvidenceValidationLoading] = useState(false)
   const [aiTradingEvidenceValidationError, setAiTradingEvidenceValidationError] = useState<string | null>(null)
   const [aiTradingEvidenceTemplateLoading, setAiTradingEvidenceTemplateLoading] = useState(false)
+  const [aiTradingEvidenceTemplateGuidance, setAiTradingEvidenceTemplateGuidance] =
+    useState<AiTradingProductionEvidenceTemplateGuidanceView | null>(null)
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -489,6 +493,9 @@ export default function SettingsPage() {
         throw new Error(data.detail || 'Failed to load AI Trading production evidence template')
       }
       setAiTradingEvidenceValidationJson(JSON.stringify(data.template || {}, null, 2))
+      setAiTradingEvidenceTemplateGuidance(
+        extractAiTradingProductionEvidenceTemplateGuidance(data.guidance) || null
+      )
     } catch (err) {
       setAiTradingEvidenceValidationError(
         err instanceof Error ? err.message : 'Failed to load AI Trading production evidence template'
@@ -2477,6 +2484,34 @@ export default function SettingsPage() {
                           maxLength={AI_TRADING_EVIDENCE_MAX_JSON_CHARS}
                           className="min-h-[120px] resize-y font-mono text-xs"
                         />
+                        {aiTradingEvidenceTemplateGuidance && (
+                          <div className="mt-3 border-t pt-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium">
+                                {t('settings.aiTradingEvidenceTemplateGuidance', 'Template guidance')}
+                              </div>
+                              <Badge variant="outline">{aiTradingEvidenceTemplateGuidance.secretPolicy || 'metadata_only'}</Badge>
+                            </div>
+                            {aiTradingEvidenceTemplateGuidance.nextRequiredActions.length > 0 && (
+                              <div className="mb-2 truncate text-xs text-muted-foreground" title={aiTradingEvidenceTemplateGuidance.nextRequiredActions.join(' | ')}>
+                                {t('settings.aiTradingEvidenceNextActions', 'Evidence Actions')}: {aiTradingEvidenceTemplateGuidance.nextRequiredActions.slice(0, 2).join(' | ')}
+                              </div>
+                            )}
+                            <div className="grid gap-2 md:grid-cols-2">
+                              {aiTradingEvidenceTemplateGuidance.items.slice(0, 4).map((item) => (
+                                <div key={item.id} className="min-w-0 border-t pt-2">
+                                  <div className="truncate text-xs font-medium">{formatProductionEvidenceItemName(item.id)}</div>
+                                  <div className="truncate text-xs text-muted-foreground" title={item.operatorGuidance.join(' | ')}>
+                                    {item.operatorGuidance[0] || item.description}
+                                  </div>
+                                  <div className="truncate text-xs text-muted-foreground" title={item.requiredSummaryTerms.join(', ')}>
+                                    {t('settings.aiTradingEvidenceSummaryTerms', 'Summary terms')}: {item.requiredSummaryTerms.slice(0, 2).join(', ') || '-'}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                         {aiTradingEvidenceValidationError && (
                           <div className="mt-2 text-sm text-red-500">{aiTradingEvidenceValidationError}</div>
                         )}

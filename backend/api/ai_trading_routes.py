@@ -14,6 +14,7 @@ from database.connection import get_db
 from database.models import User
 from scripts.ai_trading_v1_completion_audit import (
     build_external_acceptance_evidence_template as build_ai_trading_external_acceptance_evidence_template,
+    build_external_acceptance_evidence_template_guidance as build_ai_trading_external_acceptance_evidence_template_guidance,
     build_production_evidence_explain as build_ai_trading_production_evidence_explain,
     build_production_evidence_payload_validation as build_ai_trading_production_evidence_payload_validation,
 )
@@ -294,6 +295,7 @@ def ai_trading_production_evidence_template_endpoint(
         "success": True,
         "requested_by_user_id": current_user.id,
         "template": build_ai_trading_external_acceptance_evidence_template(),
+        "guidance": build_ai_trading_external_acceptance_evidence_template_guidance(),
         "ready_for_live_orders": False,
         "persistence": "not_stored",
         "next_actions": [

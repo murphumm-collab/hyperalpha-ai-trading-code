@@ -120,10 +120,20 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
 
 def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
 
     assert "/api/ai-trading/admin/production-evidence-template" in settings_source
     assert "/api/ai-trading/admin/production-evidence-validate" in settings_source
     assert "loadAiTradingEvidenceTemplate" in settings_source
+    assert "extractAiTradingProductionEvidenceTemplateGuidance(data.guidance)" in settings_source
+    assert "aiTradingEvidenceTemplateGuidance.nextRequiredActions" in settings_source
+    assert "aiTradingEvidenceTemplateGuidance.items.slice(0, 4).map" in settings_source
+    assert "item.requiredSummaryTerms.slice(0, 2).join(', ')" in settings_source
+    assert "item.operatorGuidance[0] || item.description" in settings_source
+    assert "extractAiTradingProductionEvidenceTemplateGuidance" in helper_source
+    assert "secret_policy" in helper_source
+    assert "next_required_actions" in helper_source
+    assert "safe_artifact_ref_schemes" in helper_source
     assert "AI_TRADING_EVIDENCE_MAX_JSON_CHARS" in settings_source
     assert "aiTradingEvidenceValidationTooLarge" in settings_source
     assert "maxLength={AI_TRADING_EVIDENCE_MAX_JSON_CHARS}" in settings_source

@@ -332,6 +332,18 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     assert data["ready_for_live_orders"] is False
     assert data["persistence"] == "not_stored"
     assert "path" not in data
+    assert data["guidance"]["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert len(data["guidance"]["items"]) == 7
+    assert len(data["guidance"]["next_required_actions"]) == 7
+    assert any(
+        action.startswith("real_order_backend_handoff: Configure the real HTTPS order-backend")
+        for action in data["guidance"]["next_required_actions"]
+    )
+    order_guidance = next(
+        item for item in data["guidance"]["items"] if item["id"] == "real_order_backend_handoff"
+    )
+    assert "mode=http / gateway mode=http / gateway_mode=http" in order_guidance["required_summary_terms"]
+    assert "bearer tokens" in order_guidance["forbidden_values"]
     template = data["template"]
     assert template["version"] == "hyperalpha.ai_trading.external_acceptance.v1"
     assert template["evidence_run_id"] is None

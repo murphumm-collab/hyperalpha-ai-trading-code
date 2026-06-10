@@ -78,6 +78,22 @@ export interface AiTradingProductionEvidenceExplainView {
   nextActions: string[]
 }
 
+export interface AiTradingProductionEvidenceTemplateGuidanceItemView {
+  id: string
+  description: string
+  requiredFields: string[]
+  requiredSummaryTerms: string[]
+  operatorGuidance: string[]
+  safeArtifactRefSchemes: string[]
+  forbiddenValues: string[]
+}
+
+export interface AiTradingProductionEvidenceTemplateGuidanceView {
+  secretPolicy: string
+  items: AiTradingProductionEvidenceTemplateGuidanceItemView[]
+  nextRequiredActions: string[]
+}
+
 export interface AiTradingAgentContextLocatorMeta {
   key: string
   label: string
@@ -319,5 +335,32 @@ export const extractAiTradingProductionEvidenceExplain = (
       return acc
     }, []),
     nextActions: stringList(source.next_actions),
+  }
+}
+
+export const extractAiTradingProductionEvidenceTemplateGuidance = (
+  source: unknown
+): AiTradingProductionEvidenceTemplateGuidanceView | null => {
+  if (!isRecord(source)) return null
+  const rawItems = Array.isArray(source.items) ? source.items : []
+
+  return {
+    secretPolicy: typeof source.secret_policy === 'string' ? source.secret_policy : '',
+    nextRequiredActions: stringList(source.next_required_actions),
+    items: rawItems.reduce<AiTradingProductionEvidenceTemplateGuidanceItemView[]>((acc, rawItem) => {
+      if (!isRecord(rawItem)) return acc
+      const id = typeof rawItem.id === 'string' ? rawItem.id : ''
+      if (!id) return acc
+      acc.push({
+        id,
+        description: typeof rawItem.description === 'string' ? rawItem.description : id,
+        requiredFields: stringList(rawItem.required_fields),
+        requiredSummaryTerms: stringList(rawItem.required_summary_terms),
+        operatorGuidance: stringList(rawItem.operator_guidance),
+        safeArtifactRefSchemes: stringList(rawItem.safe_artifact_ref_schemes),
+        forbiddenValues: stringList(rawItem.forbidden_values),
+      })
+      return acc
+    }, []),
   }
 }
