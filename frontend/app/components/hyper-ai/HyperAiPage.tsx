@@ -1552,6 +1552,15 @@ export default function HyperAiPage() {
     }
     return t('hyperAi.aiTradingModelNotConfigured', 'Not configured')
   }
+  const aiTradingValidationWarningLabel = (warning: string): string => {
+    if (warning === AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING) {
+      return t('hyperAi.aiTradingModelOutputSensitiveRedacted', 'Model output redacted')
+    }
+    if (warning === AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING) {
+      return t('hyperAi.aiTradingModelOutputDirectOrderIgnored', 'Direct order intent ignored')
+    }
+    return warning
+  }
   const archivedSessionActionBlockerLabel = t(
     'hyperAi.aiTradingAgentSessionArchivedBlocker',
     'Agent session archived'
@@ -1571,13 +1580,13 @@ export default function HyperAiPage() {
       currentStrategyValidationWarnings.includes(AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING) ||
       currentStrategyModelAdjustmentMetadata.model_output_sensitive_text_redacted === true
     )
-      ? t('hyperAi.aiTradingModelOutputSensitiveRedacted', 'Model output redacted')
+      ? aiTradingValidationWarningLabel(AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING)
       : null,
     (
       currentStrategyValidationWarnings.includes(AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING) ||
       currentStrategyModelAdjustmentMetadata.model_output_direct_order_intent_ignored === true
     )
-      ? t('hyperAi.aiTradingModelOutputDirectOrderIgnored', 'Direct order intent ignored')
+      ? aiTradingValidationWarningLabel(AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING)
       : null,
   ].filter(Boolean) as string[]
   const currentStrategyBacktest = strategyDraftRecord?.spec?.backtest || strategyDraft?.backtest
@@ -3832,6 +3841,9 @@ export default function HyperAiPage() {
                       const spec = asRecord(item)
                       const risk = asRecord(spec.risk)
                       const backtest = asRecord(spec.backtest)
+                      const validationWarnings = Array.isArray(asRecord(spec.validation).warnings)
+                        ? (asRecord(spec.validation).warnings as unknown[]).map(String)
+                        : []
                       return (
                         <div key={`detail-spec-${textValue(spec.id)}`} className="rounded-md border bg-background/70 p-3">
                           <div className="flex items-start justify-between gap-3">
@@ -3865,9 +3877,9 @@ export default function HyperAiPage() {
                               <div className="truncate">{textValue(asRecord(spec.ai_model).provider, '-')}</div>
                             </div>
                           </div>
-                          {Array.isArray(asRecord(spec.validation).warnings) && (asRecord(spec.validation).warnings as unknown[]).length > 0 && (
+                          {validationWarnings.length > 0 && (
                             <div className="mt-2 truncate text-xs text-yellow-600">
-                              {(asRecord(spec.validation).warnings as unknown[]).slice(0, 3).map(String).join(', ')}
+                              {validationWarnings.slice(0, 3).map(aiTradingValidationWarningLabel).join(', ')}
                             </div>
                           )}
                         </div>

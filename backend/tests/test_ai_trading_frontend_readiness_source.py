@@ -145,3 +145,16 @@ def test_ai_trading_model_adjust_output_safety_is_visible_in_frontend() -> None:
     assert "currentStrategyModelOutputSafetyLabels.join" in current_strategy_safety_block
     assert "aiTradingModelOutputSensitiveRedacted" in hyper_ai_source
     assert "aiTradingModelOutputDirectOrderIgnored" in hyper_ai_source
+
+
+def test_ai_trading_session_detail_validation_warnings_use_readable_labels() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    session_detail_specs_block = hyper_ai_source.split(
+        "agentSessionDetailSpecs.map",
+        1,
+    )[1].split("agentSessionDetailSpecs.length === 0", 1)[0]
+
+    assert "aiTradingValidationWarningLabel" in hyper_ai_source
+    assert "validationWarnings" in session_detail_specs_block
+    assert "validationWarnings.slice(0, 3).map(aiTradingValidationWarningLabel).join" in session_detail_specs_block
+    assert "(asRecord(spec.validation).warnings as unknown[]).slice(0, 3).map(String).join" not in session_detail_specs_block
