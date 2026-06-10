@@ -161,6 +161,14 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
         "onClick={handleModelAdjustStrategyDraft}",
         1,
     )[1].split("{strategyModelAdjusting ?", 1)[0]
+    model_config_saved_block = hyper_ai_source.split(
+        "const handleLLMConfigSaved = () => {",
+        1,
+    )[1].split("const fetchAiTradingAgentSessionContext", 1)[0]
+    llm_config_modal_block = hyper_ai_source.split(
+        "<LLMConfigModal",
+        1,
+    )[1].split("<MemoryModal", 1)[0]
 
     assert "model_profile_not_configured" in model_readiness_helper_block
     assert "model_profile_credential_missing" in model_readiness_helper_block
@@ -177,6 +185,9 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
     assert 'data-testid="ai-trading-model-config-button"' in model_runtime_card_block
     assert "setShowConfigModal(true)" in model_runtime_card_block
     assert "Configure DeepSeek/Qwen model" in model_runtime_card_block
+    assert "fetchProfile()" in model_config_saved_block
+    assert "refreshAiTradingState()" in model_config_saved_block
+    assert "onSaved={handleLLMConfigSaved}" in llm_config_modal_block
 
     safe_ui_blocks = model_runtime_card_block + model_adjust_button_block
     assert "llm_api_key" not in safe_ui_blocks

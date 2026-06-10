@@ -2076,6 +2076,11 @@ export default function HyperAiPage() {
     fetchAiTradingRecords()
   }
 
+  const handleLLMConfigSaved = () => {
+    fetchProfile()
+    refreshAiTradingState()
+  }
+
   const fetchAiTradingAgentSessionContext = async (agentSessionId: string, loadIntoChat = false) => {
     if (!agentSessionId || agentSessionId === AI_TRADING_NEW_AGENT_SESSION_VALUE) {
       setAgentSessionContext(null)
@@ -5800,7 +5805,7 @@ export default function HyperAiPage() {
         onClose={() => setShowConfigModal(false)}
         providers={providers}
         currentProfile={profile}
-        onSaved={fetchProfile}
+        onSaved={handleLLMConfigSaved}
       />
 
       {/* Memory Modal */}
