@@ -6,7 +6,7 @@
 - 目标是防止后续有人从一键本地验收 runner 中删除 `tests/test_ai_trading_frontend_readiness_source.py`，却仍把 local V1 标记为 accepted。
 - `ai_trading_v1_completion_audit.py --strict-local` 现在要求一键本地验收脚本保留 frontend readiness source guard，并要求 status 文档保留 `AI Trading env-check runtime context budget gate` / `AI Trading runtime budget UI source guard` Done 标记。
 - 这个切片不改变下单、handoff、模型 provider、Auth 或 runtime 行为；只增强完成度边界和审计证据。
-- GitHub 上传：按用户要求跳过；本轮只做本地验证和本地 commit，不 push、不 merge。
+- GitHub 上传：按用户要求跳过；本轮只在 `codex/ai-agent-multitenant-foundation` 做本地验证和本地 commit，不 push、不 merge。
 - 继续保留 local V1 边界：`scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` 必须通过。
 - default production readiness DB-audit blocker 必须仍在一键验收中被覆盖，避免把本地 mock V1 误判为 production ready。
 - 真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key 仍是外部验收 blocker，未完成前 `ready_for_live_orders=false` 是正确状态。

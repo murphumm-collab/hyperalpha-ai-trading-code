@@ -23,6 +23,7 @@ def _write_minimal_acceptance_repo(
     include_db_gate: bool = True,
     include_frontend_source_guard: bool = True,
     include_external_markers: bool = True,
+    git_branch: str = "codex/ai-agent-multitenant-foundation",
 ) -> None:
     db_gate_text = (
         "Default production readiness DB-audit gate remains blocked\n"
@@ -61,6 +62,7 @@ def _write_minimal_acceptance_repo(
         root / "docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md",
         "\n".join(
             [
+                "Git：只在 `codex/ai-agent-multitenant-foundation` 分支本地提交；GitHub 上传按当前用户要求暂不处理。",
                 "一键本地 V1 验收通过",
                 "默认生产 DB-audit readiness gate 阻断",
                 "当前未验收",
@@ -73,6 +75,7 @@ def _write_minimal_acceptance_repo(
         root / "docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         "\n".join(
             [
+                "Branch: `codex/ai-agent-multitenant-foundation`",
                 "Local V1 Production Evidence Gate Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
@@ -85,6 +88,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading production evidence note safety | Done |",
                 "| AI Trading env-check runtime context budget gate | Done |",
                 "| AI Trading runtime budget UI source guard | Done |",
+                "| AI Trading completion audit git governance gate | Done |",
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -125,12 +129,15 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "GitHub 上传：按用户要求跳过",
+                "codex/ai-agent-multitenant-foundation",
+                "不 push、不 merge",
                 "default production readiness DB-audit blocker",
                 "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
                 "真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key",
             ]
         ),
     )
+    _write(root / ".git/HEAD", f"ref: refs/heads/{git_branch}\n")
 
 
 def _write_production_evidence(
@@ -200,6 +207,8 @@ def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
     assert report["local_v1_accepted"] is True
     assert report["ready_for_live_orders"] is False
     assert report["github_upload"] == "deferred_by_user_request"
+    assert report["git_governance"]["status"] == "accepted"
+    assert report["git_governance"]["current_branch"] == "codex/ai-agent-multitenant-foundation"
     assert report["summary"]["local_track"] == "accepted"
     assert report["summary"]["production_track"] == "pending_external_acceptance"
     assert report["summary"]["local_blockers"] == []
@@ -234,6 +243,17 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_source_guard_is_
     assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
     runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
     assert "tests/test_ai_trading_frontend_readiness_source.py" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_branch_is_not_thread_branch(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, git_branch="main")
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "git_governance" in report["summary"]["local_blockers"]
+    assert report["git_governance"]["current_branch"] == "main"
+    assert "unexpected_branch" in report["git_governance"]["blockers"]
 
 
 def test_completion_audit_requires_external_pending_markers(tmp_path):

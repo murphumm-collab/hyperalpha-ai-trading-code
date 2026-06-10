@@ -28,6 +28,7 @@ from urllib.parse import urlparse
 
 
 EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION = "hyperalpha.ai_trading.external_acceptance.v1"
+EXPECTED_LOCAL_DEVELOPMENT_BRANCH = "codex/ai-agent-multitenant-foundation"
 SAFE_ARTIFACT_REF_SCHEMES = {"https", "ops", "lark", "notion"}
 ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS = {
     "version",
@@ -149,6 +150,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence note safety | Done |",
             "| AI Trading env-check runtime context budget gate | Done |",
             "| AI Trading runtime budget UI source guard | Done |",
+            "| AI Trading completion audit git governance gate | Done |",
             "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
         ),
     ),
@@ -296,6 +298,8 @@ def _latest_memory_report(repo_root: Path) -> dict[str, Any]:
     memory_text = _read_text(repo_root, memory_path) if memory_path else None
     required_memory_phrases = (
         "GitHub 上传：按用户要求跳过",
+        EXPECTED_LOCAL_DEVELOPMENT_BRANCH,
+        "不 push、不 merge",
         "default production readiness DB-audit blocker",
         "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
         "真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key",
@@ -316,6 +320,77 @@ def _latest_memory_report(repo_root: Path) -> dict[str, Any]:
         "path": latest_path,
         "memory_path": memory_path or None,
         "missing_phrases": missing_phrases,
+        "missing_patterns": [],
+    }
+
+
+def _read_git_branch(repo_root: Path) -> dict[str, Any]:
+    git_metadata_path = repo_root / ".git"
+    if not git_metadata_path.exists():
+        return {"branch": None, "detached": False, "metadata_available": False}
+
+    git_dir = git_metadata_path
+    if git_metadata_path.is_file():
+        gitdir_text = git_metadata_path.read_text(encoding="utf-8", errors="replace").strip()
+        if not gitdir_text.startswith("gitdir:"):
+            return {"branch": None, "detached": False, "metadata_available": False}
+        git_dir = (repo_root / gitdir_text.removeprefix("gitdir:").strip()).resolve()
+
+    head_path = git_dir / "HEAD"
+    try:
+        head_text = head_path.read_text(encoding="utf-8", errors="replace").strip()
+    except FileNotFoundError:
+        return {"branch": None, "detached": False, "metadata_available": False}
+
+    if head_text.startswith("ref: refs/heads/"):
+        return {
+            "branch": head_text.removeprefix("ref: refs/heads/"),
+            "detached": False,
+            "metadata_available": True,
+        }
+    return {"branch": None, "detached": bool(head_text), "metadata_available": True}
+
+
+def _git_governance_report(repo_root: Path) -> dict[str, Any]:
+    branch_report = _read_git_branch(repo_root)
+    acceptance_text = _read_text(repo_root, "docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md") or ""
+    status_text = _read_text(repo_root, "docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md") or ""
+    latest_memory = _latest_memory_report(repo_root)
+    memory_path = latest_memory.get("memory_path")
+    memory_text = _read_text(repo_root, str(memory_path)) if memory_path else ""
+    memory_text = memory_text or ""
+    blockers: list[str] = []
+
+    if not branch_report["metadata_available"]:
+        blockers.append("git_metadata_unavailable")
+    elif branch_report["detached"]:
+        blockers.append("detached_head")
+    elif branch_report["branch"] != EXPECTED_LOCAL_DEVELOPMENT_BRANCH:
+        blockers.append("unexpected_branch")
+
+    if f"`{EXPECTED_LOCAL_DEVELOPMENT_BRANCH}` 分支本地提交" not in acceptance_text:
+        blockers.append("acceptance_checklist_missing_local_branch_boundary")
+    if "GitHub 上传按当前用户要求暂不处理" not in acceptance_text:
+        blockers.append("acceptance_checklist_missing_github_upload_deferred_boundary")
+    if f"Branch: `{EXPECTED_LOCAL_DEVELOPMENT_BRANCH}`" not in status_text:
+        blockers.append("status_missing_expected_branch")
+    if "| Remote push | Deferred | GitHub upload intentionally skipped per user request |" not in status_text:
+        blockers.append("status_missing_remote_push_deferred")
+    if EXPECTED_LOCAL_DEVELOPMENT_BRANCH not in memory_text or "不 push、不 merge" not in memory_text:
+        blockers.append("latest_memory_missing_branch_or_no_push_boundary")
+
+    return {
+        "id": "git_governance",
+        "track": "governance",
+        "description": "Local V1 must stay on the approved codex branch, with GitHub upload deferred and no merge/push boundary recorded.",
+        "status": "accepted" if not blockers else "incomplete_evidence",
+        "path": ".git/HEAD",
+        "expected_branch": EXPECTED_LOCAL_DEVELOPMENT_BRANCH,
+        "current_branch": branch_report["branch"],
+        "detached": branch_report["detached"],
+        "github_upload": "deferred_by_user_request",
+        "blockers": blockers,
+        "missing_phrases": [],
         "missing_patterns": [],
     }
 
@@ -634,7 +709,7 @@ def build_completion_report(
 ) -> dict[str, Any]:
     root = Path(repo_root).resolve()
     local_items = [_evaluate_requirement(root, requirement) for requirement in LOCAL_REQUIREMENTS]
-    governance_items = [_latest_memory_report(root)]
+    governance_items = [_latest_memory_report(root), _git_governance_report(root)]
     external_items = [_evaluate_requirement(root, requirement) for requirement in EXTERNAL_REQUIREMENTS]
     production_evidence = _validate_external_evidence_file(production_evidence_file, repo_root=root)
 
@@ -672,6 +747,7 @@ def build_completion_report(
         "local_v1_accepted": local_v1_accepted,
         "ready_for_live_orders": ready_for_live_orders,
         "github_upload": "deferred_by_user_request",
+        "git_governance": next(item for item in governance_items if item["id"] == "git_governance"),
         "repo_root": str(root),
         "summary": {
             "local_track": "accepted" if not local_blockers and not missing_external_markers else "incomplete",
