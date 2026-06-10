@@ -3,6 +3,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "settings" / "SettingsPage.tsx"
+HYPER_AI_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiPage.tsx"
 READINESS_HELPER = REPO_ROOT / "frontend" / "app" / "lib" / "aiTradingReadiness.ts"
 
 
@@ -26,3 +27,34 @@ def test_admin_readiness_context_locator_ui_uses_secret_safe_projection() -> Non
         .replace("context_summary_chars", "")
     )
     assert "context_summary" not in helper_without_allowed_locator_fields
+
+
+def test_ai_trading_runtime_context_budget_ui_uses_counts_only_projection() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    budget_block = hyper_ai_source.split(
+        "const aiTradingAgentContextBudget = aiTradingRuntime?.agent_sessions?.context_budget",
+        1,
+    )[1].split("const aiTradingAgentSessions = useMemo", 1)[0]
+    sessions_card_block = hyper_ai_source.split(
+        "{t('hyperAi.aiTradingSessions', 'Sessions')}",
+        1,
+    )[1].split("{t('hyperAi.aiTradingSpecs', 'Specs')}", 1)[0]
+
+    assert "aiTradingAgentContextBudget?.near_budget_count" in budget_block
+    assert "aiTradingAgentContextBudget?.redacted_context_summary_count" in budget_block
+    assert "aiTradingAgentContextBudget?.sensitive_context_summary_count" in budget_block
+    assert "aiTradingAgentContextBudget?.over_budget_count" in budget_block
+    assert "aiTradingAgentContextBudget.max_context_summary_chars" in budget_block
+    assert "aiTradingAgentContextBudget.context_summary_max_chars" in budget_block
+    assert "aiTradingAgentContextBudgetLabel()" in sessions_card_block
+    assert "aiTradingAgentContextBudgetTone" in sessions_card_block
+
+    budget_block_without_allowed_count_fields = (
+        budget_block
+        .replace("redacted_context_summary_count", "")
+        .replace("sensitive_context_summary_count", "")
+        .replace("max_context_summary_chars", "")
+        .replace("context_summary_max_chars", "")
+    )
+    assert "context_summary" not in budget_block_without_allowed_count_fields
+    assert "context_summary" not in sessions_card_block
