@@ -362,6 +362,21 @@ interface AiTradingRuntimeStatus {
   }
   agent_sessions?: {
     total?: number
+    context_budget?: {
+      total?: number
+      active?: number
+      archived?: number
+      with_context_summary?: number
+      empty_context_summary?: number
+      context_summary_max_chars?: number
+      near_budget_threshold_chars?: number
+      max_context_summary_chars?: number
+      near_budget_count?: number
+      over_budget_count?: number
+      redacted_context_summary_count?: number
+      sensitive_context_summary_count?: number
+      secret_policy?: string
+    }
   }
   signal_events?: {
     total?: number
@@ -1158,6 +1173,7 @@ export default function HyperAiPage() {
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const aiTradingGatewayRuntimeBlockers = aiTradingRuntime?.gateway?.runtime_config_blockers || []
   const aiTradingModelAdjustment = aiTradingRuntime?.model_adjustment
+  const aiTradingAgentContextBudget = aiTradingRuntime?.agent_sessions?.context_budget
   const aiTradingModelAdjustmentBlockers = aiTradingModelAdjustment?.blockers || []
   const aiTradingGatewayReady = Boolean(
     aiTradingRuntime?.gateway?.enabled &&
@@ -1170,6 +1186,36 @@ export default function HyperAiPage() {
       ? aiTradingModelAdjustment.ready
       : profile?.llm_configured && ['deepseek', 'qwen'].includes(String(profile?.llm_provider || '').toLowerCase())
   )
+  const aiTradingAgentContextWatchCount = (
+    (aiTradingAgentContextBudget?.near_budget_count || 0) +
+    (aiTradingAgentContextBudget?.redacted_context_summary_count || 0) +
+    (aiTradingAgentContextBudget?.sensitive_context_summary_count || 0)
+  )
+  const aiTradingAgentContextOverBudgetCount = aiTradingAgentContextBudget?.over_budget_count || 0
+  const aiTradingAgentContextBudgetLabel = (): string => {
+    if (!aiTradingAgentContextBudget) {
+      return t('hyperAi.aiTradingContextBudgetUnavailable', 'ctx pending')
+    }
+    if (aiTradingAgentContextOverBudgetCount > 0) {
+      return t('hyperAi.aiTradingContextBudgetOver', 'ctx over {{count}}', {
+        count: aiTradingAgentContextOverBudgetCount,
+      })
+    }
+    if (aiTradingAgentContextWatchCount > 0) {
+      return t('hyperAi.aiTradingContextBudgetWatch', 'ctx watch {{count}}', {
+        count: aiTradingAgentContextWatchCount,
+      })
+    }
+    return t('hyperAi.aiTradingContextBudgetMax', 'ctx max {{used}} / {{limit}}', {
+      used: aiTradingAgentContextBudget.max_context_summary_chars || 0,
+      limit: aiTradingAgentContextBudget.context_summary_max_chars || 2000,
+    })
+  }
+  const aiTradingAgentContextBudgetTone = aiTradingAgentContextOverBudgetCount > 0
+    ? 'text-red-600'
+    : aiTradingAgentContextWatchCount > 0
+      ? 'text-yellow-600'
+      : 'text-muted-foreground'
   const aiTradingAgentSessions = useMemo(
     () => [...recentAgentSessions, ...archivedAgentSessions],
     [recentAgentSessions, archivedAgentSessions]
@@ -4428,6 +4474,9 @@ export default function HyperAiPage() {
                       {' '}
                       {t('hyperAi.aiTradingActive', 'active')}
                     </span>
+                  </div>
+                  <div className={`truncate text-[10px] ${aiTradingAgentContextBudgetTone}`} title={aiTradingAgentContextBudgetLabel()}>
+                    {aiTradingAgentContextBudgetLabel()}
                   </div>
                 </div>
                 <div className="min-w-0">

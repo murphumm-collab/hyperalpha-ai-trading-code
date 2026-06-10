@@ -15,6 +15,7 @@ from database.connection import Base, get_db
 from database.models import (
     Account,
     AccountProgramBinding,
+    AiTradingAgentSessionRecord,
     AiTradingSignalEventRecord,
     AiTradingSignalHandoffAttemptRecord,
     AiTradingStrategySpecRecord,
@@ -854,6 +855,93 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
     ready_serialized = str(ready_runtime.json())
     assert "secret-qwen-key" not in ready_serialized
     assert "dashscope.aliyuncs.com" not in ready_serialized
+
+
+def test_ai_trading_runtime_reports_current_user_agent_context_budget_without_summaries(tmp_path):
+    clients = _build_clients(tmp_path, usernames=("alice", "bob"))
+    alice = clients["alice"]
+    session_factory = alice._ai_trading_session_factory
+    alice_user_id = alice._ai_trading_user_ids["alice"]
+    bob_user_id = alice._ai_trading_user_ids["bob"]
+    sensitive_context = "api_key=placeholder-test-value"
+    near_budget_context = "n" * 1800
+    over_budget_context = ("o" * 2000) + "TAIL_SHOULD_NOT_LEAK"
+
+    session = session_factory()
+    try:
+        session.add_all([
+            AiTradingAgentSessionRecord(
+                user_id=alice_user_id,
+                agent_session_id="session:alice-normal",
+                name="Alice Normal",
+                context_summary="Alice normal risk notes.",
+                status="active",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=alice_user_id,
+                agent_session_id="session:alice-near-budget",
+                name="Alice Near Budget",
+                context_summary=near_budget_context,
+                status="active",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=alice_user_id,
+                agent_session_id="session:alice-over-budget",
+                name="Alice Over Budget",
+                context_summary=over_budget_context,
+                status="active",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=alice_user_id,
+                agent_session_id="session:alice-redacted",
+                name="Alice Redacted",
+                context_summary="[redacted_sensitive_context]",
+                status="archived",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=alice_user_id,
+                agent_session_id="session:alice-sensitive",
+                name="Alice Sensitive",
+                context_summary=sensitive_context,
+                status="active",
+            ),
+            AiTradingAgentSessionRecord(
+                user_id=bob_user_id,
+                agent_session_id="session:bob-over-budget",
+                name="Bob Over Budget",
+                context_summary="b" * 2001,
+                status="active",
+            ),
+        ])
+        session.commit()
+    finally:
+        session.close()
+
+    runtime = alice.get("/api/ai-trading/runtime")
+    assert runtime.status_code == 200
+    agent_sessions = runtime.json()["agent_sessions"]
+    assert agent_sessions["total"] == 4
+    context_budget = agent_sessions["context_budget"]
+    assert context_budget == {
+        "total": 5,
+        "active": 4,
+        "archived": 1,
+        "with_context_summary": 5,
+        "empty_context_summary": 0,
+        "context_summary_max_chars": 2000,
+        "near_budget_threshold_chars": 1800,
+        "max_context_summary_chars": len(over_budget_context),
+        "near_budget_count": 1,
+        "over_budget_count": 1,
+        "redacted_context_summary_count": 1,
+        "sensitive_context_summary_count": 1,
+        "secret_policy": "counts_only_no_summary_text",
+    }
+    serialized_runtime = json.dumps(runtime.json(), ensure_ascii=False)
+    assert "Alice normal risk notes" not in serialized_runtime
+    assert "TAIL_SHOULD_NOT_LEAK" not in serialized_runtime
+    assert "placeholder-test-value" not in serialized_runtime
+    assert "session:bob-over-budget" not in serialized_runtime
 
 
 def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_adjusts(tmp_path, monkeypatch):

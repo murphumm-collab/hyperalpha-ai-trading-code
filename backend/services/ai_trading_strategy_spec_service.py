@@ -3846,6 +3846,58 @@ def _summarize_model_adjustment_readiness(db: Session, *, user_id: int) -> Dict[
     }
 
 
+def _summarize_agent_session_context_budget(db: Session, *, user_id: int) -> Dict[str, Any]:
+    records = db.query(AiTradingAgentSessionRecord).filter(
+        AiTradingAgentSessionRecord.user_id == user_id,
+    ).all()
+    near_budget_threshold = int(AGENT_CONTEXT_SUMMARY_MAX_CHARS * 0.9)
+    summary = {
+        "total": len(records),
+        "active": 0,
+        "archived": 0,
+        "with_context_summary": 0,
+        "empty_context_summary": 0,
+        "context_summary_max_chars": AGENT_CONTEXT_SUMMARY_MAX_CHARS,
+        "near_budget_threshold_chars": near_budget_threshold,
+        "max_context_summary_chars": 0,
+        "near_budget_count": 0,
+        "over_budget_count": 0,
+        "redacted_context_summary_count": 0,
+        "sensitive_context_summary_count": 0,
+        "secret_policy": "counts_only_no_summary_text",
+    }
+
+    for record in records:
+        status = str(record.status or "unknown")
+        if status == AGENT_SESSION_ACTIVE_STATUS:
+            summary["active"] += 1
+        elif status == AGENT_SESSION_ARCHIVED_STATUS:
+            summary["archived"] += 1
+
+        context_summary = str(record.context_summary or "")
+        context_summary_chars = len(context_summary)
+        summary["max_context_summary_chars"] = max(
+            summary["max_context_summary_chars"],
+            context_summary_chars,
+        )
+        if context_summary:
+            summary["with_context_summary"] += 1
+        if context_summary == "[redacted_sensitive_context]":
+            summary["redacted_context_summary_count"] += 1
+        elif context_summary and SENSITIVE_AI_TRADING_KEY_PATTERN.search(context_summary):
+            summary["sensitive_context_summary_count"] += 1
+        if near_budget_threshold <= context_summary_chars <= AGENT_CONTEXT_SUMMARY_MAX_CHARS:
+            summary["near_budget_count"] += 1
+        if context_summary_chars > AGENT_CONTEXT_SUMMARY_MAX_CHARS:
+            summary["over_budget_count"] += 1
+
+    summary["empty_context_summary"] = max(
+        0,
+        summary["total"] - summary["with_context_summary"],
+    )
+    return summary
+
+
 def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any]:
     """Return non-sensitive AI Trading runtime status for the current user."""
     spec_rows = db.query(
@@ -3913,6 +3965,7 @@ def get_ai_trading_runtime_status(db: Session, *, user_id: int) -> Dict[str, Any
         },
         "agent_sessions": {
             "total": int(agent_session_count),
+            "context_budget": _summarize_agent_session_context_budget(db, user_id=user_id),
         },
         "model_adjustment": _summarize_model_adjustment_readiness(db, user_id=user_id),
         "signal_events": {
