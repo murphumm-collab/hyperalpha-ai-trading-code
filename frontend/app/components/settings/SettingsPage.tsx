@@ -239,6 +239,7 @@ export default function SettingsPage() {
     useState<AiTradingProductionEvidenceExplainView | null>(null)
   const [aiTradingEvidenceValidationLoading, setAiTradingEvidenceValidationLoading] = useState(false)
   const [aiTradingEvidenceValidationError, setAiTradingEvidenceValidationError] = useState<string | null>(null)
+  const [aiTradingEvidenceTemplateLoading, setAiTradingEvidenceTemplateLoading] = useState(false)
 
   // Determine current exchange from active tab
   const currentExchange = activeTab === 'hyperliquid-data' ? 'hyperliquid' : activeTab === 'binance-data' ? 'binance' : null
@@ -467,6 +468,26 @@ export default function SettingsPage() {
       setAiTradingEvidenceValidationLoading(false)
     }
   }, [aiTradingEvidenceValidationJson, t])
+
+  const loadAiTradingEvidenceTemplate = useCallback(async () => {
+    setAiTradingEvidenceTemplateLoading(true)
+    setAiTradingEvidenceValidationError(null)
+    setAiTradingEvidenceValidation(null)
+    try {
+      const res = await authFetch('/api/ai-trading/admin/production-evidence-template')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.detail || 'Failed to load AI Trading production evidence template')
+      }
+      setAiTradingEvidenceValidationJson(JSON.stringify(data.template || {}, null, 2))
+    } catch (err) {
+      setAiTradingEvidenceValidationError(
+        err instanceof Error ? err.message : 'Failed to load AI Trading production evidence template'
+      )
+    } finally {
+      setAiTradingEvidenceTemplateLoading(false)
+    }
+  }, [])
 
   const fetchAdminData = useCallback(async () => {
     await Promise.all([
@@ -2319,15 +2340,27 @@ export default function SettingsPage() {
                               {t('settings.aiTradingEvidenceValidateDesc', 'Admin-only dry run for sanitized external evidence')}
                             </div>
                           </div>
-                          <Button
-                            size="sm"
-                            onClick={validateAiTradingEvidence}
-                            disabled={aiTradingEvidenceValidationLoading}
-                          >
-                            {aiTradingEvidenceValidationLoading
-                              ? t('common.loading', 'Loading...')
-                              : t('settings.aiTradingEvidenceValidateAction', 'Validate')}
-                          </Button>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={loadAiTradingEvidenceTemplate}
+                              disabled={aiTradingEvidenceTemplateLoading || aiTradingEvidenceValidationLoading}
+                            >
+                              {aiTradingEvidenceTemplateLoading
+                                ? t('common.loading', 'Loading...')
+                                : t('settings.aiTradingEvidenceTemplateAction', 'Load template')}
+                            </Button>
+                            <Button
+                              size="sm"
+                              onClick={validateAiTradingEvidence}
+                              disabled={aiTradingEvidenceValidationLoading || aiTradingEvidenceTemplateLoading}
+                            >
+                              {aiTradingEvidenceValidationLoading
+                                ? t('common.loading', 'Loading...')
+                                : t('settings.aiTradingEvidenceValidateAction', 'Validate')}
+                            </Button>
+                          </div>
                         </div>
                         <Textarea
                           value={aiTradingEvidenceValidationJson}

@@ -57,11 +57,14 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
 def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
 
+    assert "/api/ai-trading/admin/production-evidence-template" in settings_source
     assert "/api/ai-trading/admin/production-evidence-validate" in settings_source
+    assert "loadAiTradingEvidenceTemplate" in settings_source
     assert "aiTradingEvidenceValidationJson" in settings_source
     assert "aiTradingEvidenceValidation.productionEvidence.acceptedCount" in settings_source
     assert "aiTradingEvidenceValidation.readyForLiveOrders" in settings_source
     assert "extractAiTradingProductionEvidenceExplain(data.validation)" in settings_source
+    assert "JSON.stringify(data.template || {}, null, 2)" in settings_source
     assert "production_evidence_file" not in settings_source
     assert "AI_TRADING_SIGNAL_GATEWAY_TOKEN" not in settings_source
     assert "DEEPSEEK_API_KEY" not in settings_source

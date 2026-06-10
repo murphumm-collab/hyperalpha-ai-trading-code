@@ -212,10 +212,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the local admin production evidence validation as accepted and remote push as skipped.",
+        description="Feature status marks the local admin production evidence template flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Admin Production Evidence Validation Accepted / Remote Push Skipped",
+            "Local V1 Admin Production Evidence Template Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -233,6 +233,8 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading admin production evidence UI | Done |",
             "| AI Trading admin production evidence validation API | Done |",
             "| AI Trading admin production evidence validation UI | Done |",
+            "| AI Trading admin production evidence template API | Done |",
+            "| AI Trading admin production evidence template UI | Done |",
             "| AI Trading runtime mirror freshness gate | Done |",
             "| AI Trading runtime readiness cold-start retry | Done |",
             "| AI Trading agent-session manual context secret rejection | Done |",

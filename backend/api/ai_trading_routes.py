@@ -12,6 +12,7 @@ from api.auth_utils import get_admin_user_dependency, get_current_user_dependenc
 from database.connection import get_db
 from database.models import User
 from scripts.ai_trading_v1_completion_audit import (
+    build_external_acceptance_evidence_template as build_ai_trading_external_acceptance_evidence_template,
     build_production_evidence_explain as build_ai_trading_production_evidence_explain,
     build_production_evidence_payload_validation as build_ai_trading_production_evidence_payload_validation,
 )
@@ -264,6 +265,25 @@ def ai_trading_production_evidence_explain_endpoint(
         "success": True,
         "requested_by_user_id": current_user.id,
         "explain": build_ai_trading_production_evidence_explain(AI_TRADING_REPO_ROOT),
+    }
+
+
+@router.get("/admin/production-evidence-template")
+def ai_trading_production_evidence_template_endpoint(
+    current_user: User = Depends(get_admin_user_dependency),
+):
+    """Return a pending, secret-free production evidence template without storing it."""
+    return {
+        "success": True,
+        "requested_by_user_id": current_user.id,
+        "template": build_ai_trading_external_acceptance_evidence_template(),
+        "ready_for_live_orders": False,
+        "persistence": "not_stored",
+        "next_actions": [
+            "Fill the template only after each real external acceptance item is complete.",
+            "Keep filled evidence outside the code repository or in a private ops evidence location.",
+            "Validate the filled JSON with the admin dry-run endpoint before any production cutover audit.",
+        ],
     }
 
 

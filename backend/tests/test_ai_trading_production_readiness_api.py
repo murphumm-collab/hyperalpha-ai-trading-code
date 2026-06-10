@@ -237,6 +237,39 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert "secret-deepseek-key" not in serialized
 
 
+def test_admin_can_load_ai_trading_production_evidence_template_without_secret_leakage(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
+
+    response = client.get(f"/api/ai-trading/admin/production-evidence-template?session_token={admin_token}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["requested_by_user_id"] == admin_id
+    assert data["ready_for_live_orders"] is False
+    assert data["persistence"] == "not_stored"
+    assert "path" not in data
+    template = data["template"]
+    assert template["version"] == "hyperalpha.ai_trading.external_acceptance.v1"
+    assert template["generated_at"] is None
+    assert template["secret_values_returned"] is False
+    assert set(template["items"]) == {
+        "macos_reboot_recovery",
+        "real_model_profile_live_acceptance",
+        "real_order_backend_handoff",
+        "production_auth_hard_risk_readiness",
+        "admin_readiness_real_auth_visual",
+        "production_agent_session_visual",
+        "real_exchange_execution",
+    }
+    assert all(item["status"] == "pending_external_acceptance" for item in template["items"].values())
+    assert all(item["artifact_refs"] == [] for item in template["items"].values())
+    serialized = str(data)
+    assert "secret-order-gateway-token" not in serialized
+    assert "secret-deepseek-key" not in serialized
+
+
 def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_unlock(tmp_path, monkeypatch):
     _set_ready_env(monkeypatch)
     client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
@@ -528,6 +561,17 @@ def test_ai_trading_production_evidence_explain_api_requires_admin_session(tmp_p
 
     anonymous = client.get("/api/ai-trading/admin/production-evidence-explain")
     ordinary = client.get(f"/api/ai-trading/admin/production-evidence-explain?session_token={ordinary_token}")
+
+    assert anonymous.status_code == 401
+    assert ordinary.status_code == 403
+
+
+def test_ai_trading_production_evidence_template_api_requires_admin_session(tmp_path, monkeypatch):
+    _clear_relevant_env(monkeypatch)
+    client, _admin_token, ordinary_token, _admin_id = _build_client(tmp_path)
+
+    anonymous = client.get("/api/ai-trading/admin/production-evidence-template")
+    ordinary = client.get(f"/api/ai-trading/admin/production-evidence-template?session_token={ordinary_token}")
 
     assert anonymous.status_code == 401
     assert ordinary.status_code == 403
