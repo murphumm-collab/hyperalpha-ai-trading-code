@@ -19,6 +19,7 @@ Runs the AI Trading V1 local acceptance gate:
   - default production readiness gate must stay blocked
   - default production readiness DB-audit gate must stay blocked
   - local V1 completion boundary audit must pass
+  - local completion summary gate must confirm local accepted, live orders false, and Git governance accepted
   - production completion boundary audit must stay blocked
   - production evidence template must stay blocked
   - frontend production build
@@ -80,6 +81,48 @@ run_expected_failure() {
   echo "Expected blocker confirmed with exit status 1"
 }
 
+run_local_completion_summary_gate() {
+  local report_file
+  report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-completion-audit.XXXXXX.json")"
+  (
+    cd backend
+    uv run python scripts/ai_trading_v1_completion_audit.py --strict-local > "$report_file"
+  )
+  cat "$report_file"
+  python3 - "$report_file" <<'PY'
+import json
+import sys
+
+expected_branch = "codex/ai-agent-multitenant-foundation"
+report_path = sys.argv[1]
+with open(report_path, encoding="utf-8") as handle:
+    report = json.load(handle)
+
+git_governance = report.get("git_governance") or {}
+summary = report.get("summary") or {}
+checks = {
+    "local_v1_accepted": report.get("local_v1_accepted") is True,
+    "ready_for_live_orders_false": report.get("ready_for_live_orders") is False,
+    "github_upload_deferred": report.get("github_upload") == "deferred_by_user_request",
+    "git_governance.status": git_governance.get("status") == "accepted",
+    "git_governance.current_branch": git_governance.get("current_branch") == expected_branch,
+    "local_blockers_empty": summary.get("local_blockers") == [],
+    "production_track_pending": summary.get("production_track") == "pending_external_acceptance",
+}
+failed = [name for name, ok in checks.items() if not ok]
+print(json.dumps({
+    "local_completion_summary_gate": "accepted" if not failed else "failed",
+    "checked": checks,
+    "current_branch": git_governance.get("current_branch"),
+    "github_upload": report.get("github_upload"),
+    "ready_for_live_orders": report.get("ready_for_live_orders"),
+}, ensure_ascii=False, indent=2, sort_keys=True))
+if failed:
+    raise SystemExit("Local completion summary gate failed: " + ", ".join(failed))
+PY
+  rm -f "$report_file"
+}
+
 cd "$REPO_ROOT"
 
 run_step "Backend compile check" \
@@ -104,7 +147,7 @@ run_expected_failure "Default production readiness DB-audit gate remains blocked
   bash -lc "cd backend && env -u AUTH_REQUIRE_VERIFIED_BEARER -u AUTH_JWKS_URL -u AUTH_JWT_ISSUER -u AUTH_JWT_AUDIENCE -u AUTH_JWT_ALGORITHMS -u AUTH_ADMIN_USERNAMES -u AI_TRADING_SIGNAL_GATEWAY_ENABLED -u AI_TRADING_SIGNAL_GATEWAY_URL -u AI_TRADING_SIGNAL_GATEWAY_TOKEN -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED -u AI_HARD_MAX_ORDER_NOTIONAL_USD -u AI_HARD_REQUIRE_STOP_LOSS -u AI_HARD_REQUIRE_TAKE_PROFIT uv run python scripts/ai_trading_v1_production_readiness_check.py --strict --include-db-audits"
 
 run_step "Local V1 completion boundary audit" \
-  bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-local"
+  run_local_completion_summary_gate
 
 run_expected_failure "Production completion boundary audit remains blocked" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-production"
