@@ -68,6 +68,7 @@ import {
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
 import { authFetch } from '@/lib/authFetch'
+import { formatAiTradingSignalActionApiError } from '@/lib/aiTradingReadiness'
 import BotIntegrationModal from './BotIntegrationModal'
 import NotificationConfigModal from './NotificationConfigModal'
 import ToolConfigModal, { type ToolInfo } from './ToolConfigModal'
@@ -3098,6 +3099,7 @@ export default function HyperAiPage() {
 
     setSignalHandoffLoadingId(eventId)
     setStrategyDraftError(null)
+    const fallback = 'Failed to submit signal handoff'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/signal-events/${eventId}/handoff`, {
         method: 'POST',
@@ -3109,8 +3111,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const detail = data.detail
-        throw new Error(typeof detail === 'string' ? detail : 'Failed to submit signal handoff')
+        setStrategyDraftError(formatAiTradingSignalActionApiError(res.status, data.detail, fallback))
+        return
       }
       const event = data.signal_event as AiTradingSignalEventRecord
       const prompt = currentLang === 'zh'
@@ -3121,7 +3123,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to submit AI trading signal handoff:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to submit signal handoff')
+      setStrategyDraftError(formatAiTradingSignalActionApiError(0, null, fallback))
     } finally {
       setSignalHandoffLoadingId(null)
     }
@@ -3130,12 +3132,13 @@ export default function HyperAiPage() {
   const handleInspectSignalHandoffAttempts = async (eventId: number) => {
     setSignalHandoffAttemptsLoadingId(eventId)
     setStrategyDraftError(null)
+    const fallback = 'Failed to load handoff attempts'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/signal-events/${eventId}/handoff-attempts?limit=10`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const detail = data.detail
-        throw new Error(typeof detail === 'string' ? detail : 'Failed to load handoff attempts')
+        setStrategyDraftError(formatAiTradingSignalActionApiError(res.status, data.detail, fallback))
+        return
       }
       const attempts = Array.isArray(data.attempts)
         ? data.attempts as AiTradingSignalHandoffAttemptRecord[]
@@ -3147,7 +3150,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to load AI trading signal handoff attempts:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load handoff attempts')
+      setStrategyDraftError(formatAiTradingSignalActionApiError(0, null, fallback))
     } finally {
       setSignalHandoffAttemptsLoadingId(null)
     }
@@ -3156,6 +3159,7 @@ export default function HyperAiPage() {
   const handleRejectSignalEvent = async (eventId: number) => {
     setSignalRejectLoadingId(eventId)
     setStrategyDraftError(null)
+    const fallback = 'Failed to reject signal event'
     try {
       const reason = currentLang === 'zh'
         ? 'User rejected this signal candidate from the Hyper AI panel before handoff.'
@@ -3167,8 +3171,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const detail = data.detail
-        throw new Error(typeof detail === 'string' ? detail : 'Failed to reject signal event')
+        setStrategyDraftError(formatAiTradingSignalActionApiError(res.status, data.detail, fallback))
+        return
       }
       const event = data.signal_event as AiTradingSignalEventRecord
       const prompt = currentLang === 'zh'
@@ -3179,7 +3183,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to reject AI trading signal event:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to reject signal event')
+      setStrategyDraftError(formatAiTradingSignalActionApiError(0, null, fallback))
     } finally {
       setSignalRejectLoadingId(null)
     }

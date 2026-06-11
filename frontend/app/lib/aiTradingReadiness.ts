@@ -301,6 +301,112 @@ export const formatAiTradingProductionEvidenceApiError = (
   return `${statusLabel}: ${safeDetail}`
 }
 
+const SIGNAL_ACTION_API_DETAIL_LABELS: Record<string, string> = {
+  'AI Trading signal gateway is disabled': 'Signal gateway is disabled',
+  'Only review_candidate signal events can be rejected': 'Only review-candidate signals can be rejected',
+  'Signal event not found': 'Signal event was not found',
+  'Signal handoff requires explicit user confirmation': 'Explicit user confirmation is required',
+  agent_session_archived: 'Agent session is archived',
+  event_status_not_review_candidate: 'Signal is not a review candidate',
+  execution_boundary_missing: 'Signal execution boundary is missing',
+  gateway_disabled: 'Signal gateway is disabled',
+  gateway_url_not_configured: 'Signal gateway is not configured',
+  handoff_already_submitted: 'Signal handoff was already submitted',
+  production_gateway_mode_must_be_http_json: 'Gateway mode must be HTTP JSON',
+  production_gateway_timeout_invalid: 'Gateway timeout is invalid',
+  production_gateway_timeout_too_high: 'Gateway timeout is too high',
+  production_gateway_token_required: 'Production gateway token is required',
+  production_gateway_url_must_be_https: 'Production gateway URL must use HTTPS',
+  production_gateway_url_must_not_be_local_or_private: 'Production gateway URL cannot be local or private',
+  production_gateway_url_must_not_be_placeholder: 'Production gateway URL cannot be a placeholder',
+  production_gateway_url_must_not_embed_credentials_or_query: 'Production gateway URL cannot embed credentials or query text',
+  production_handoff_approval_required: 'Production handoff approval is required',
+  production_signal_max_handoff_age_required: 'Signal max-age gate is required',
+  production_signal_max_handoff_age_too_high: 'Signal max-age gate is too high',
+  signal_action_not_tradeable: 'Signal action is not tradeable',
+  signal_allows_direct_ai_order_placement: 'Signal allows direct AI order placement',
+  signal_candidate_type_invalid: 'Signal candidate type is invalid',
+  signal_event_action_mismatch: 'Signal action does not match the audit event',
+  signal_event_created_at_missing: 'Signal creation time is missing',
+  signal_event_stale_for_handoff: 'Signal is stale for handoff',
+  signal_event_symbol_mismatch: 'Signal symbol does not match the audit event',
+  signal_missing_not_an_order_boundary: 'Signal is missing the not-an-order boundary',
+  signal_missing_order_backend_only_boundary: 'Signal is missing the order-backend-only boundary',
+  signal_missing_signal_only_boundary: 'Signal is missing the signal-only boundary',
+  signal_missing_user_confirmation_boundary: 'Signal is missing the user-confirmation boundary',
+  signal_not_eligible_for_backend_handoff: 'Signal is not eligible for backend handoff',
+  signal_payload_missing: 'Signal payload is missing',
+  signal_symbol_missing: 'Signal symbol is missing',
+  signal_venue_must_be_hyperliquid: 'Signal venue must be Hyperliquid',
+  signal_version_mismatch: 'Signal version does not match',
+  strategy_backtest_required_before_handoff: 'Handoff-ready backtest evidence is required',
+}
+
+const SIGNAL_ACTION_API_STATUS_LABELS: Record<number, string> = {
+  400: 'Signal action was rejected by safety checks',
+  401: 'Authentication required',
+  403: 'Permission denied',
+  404: 'Signal event was not found',
+  409: 'Signal gateway is disabled',
+  422: 'Signal action request is invalid',
+}
+
+const readableSignalActionSuffix = (value: string): string => {
+  return value
+    .replace(/^signal_/, '')
+    .replace(/^production_/, '')
+    .replace(/[:_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+const formatSignalActionCodes = (codes: string[]): string | null => {
+  const labels = codes
+    .map(code => SIGNAL_ACTION_API_DETAIL_LABELS[code.trim()])
+    .filter((label): label is string => Boolean(label))
+  if (!labels.length) {
+    return null
+  }
+  return labels.slice(0, 3).join(', ')
+}
+
+const safeSignalActionApiDetailLabel = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    const exactLabel = SIGNAL_ACTION_API_DETAIL_LABELS[detail]
+    if (exactLabel) return exactLabel
+
+    if (detail.startsWith('Signal event is not eligible for handoff:')) {
+      const codes = detail.split(':').slice(1).join(':').split(',')
+      return formatSignalActionCodes(codes) || 'Signal is not eligible for handoff'
+    }
+
+    if (detail.startsWith('Signal gateway handoff failed:')) {
+      const statusMatch = detail.match(/\(status\s+(\d{3})\)/)
+      return statusMatch ? `Order-backend handoff failed with HTTP ${statusMatch[1]}` : 'Order-backend handoff failed'
+    }
+
+    return null
+  }
+
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    return SIGNAL_ACTION_API_DETAIL_LABELS[detail.code] || null
+  }
+
+  return null
+}
+
+export const formatAiTradingSignalActionApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeDetail = safeSignalActionApiDetailLabel(detail)
+    || SIGNAL_ACTION_API_STATUS_LABELS[status]
+    || fallback
+  return `${statusLabel}: ${safeDetail || readableSignalActionSuffix(fallback)}`
+}
+
 export const extractAiTradingAgentContextLocators = (
   report: AiTradingProductionComponent,
   locatorMeta: AiTradingAgentContextLocatorMeta[]

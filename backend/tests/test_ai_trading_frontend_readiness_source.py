@@ -362,6 +362,42 @@ def test_ai_trading_gateway_mode_ui_uses_non_secret_runtime_projection() -> None
     assert "gateway_url" not in gateway_label_block
 
 
+def test_ai_trading_handoff_error_paths_use_safe_formatter() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    submit_block = hyper_ai_source.split(
+        "const handleSubmitSignalEventHandoff = async",
+        1,
+    )[1].split("const handleInspectSignalHandoffAttempts = async", 1)[0]
+    attempts_block = hyper_ai_source.split(
+        "const handleInspectSignalHandoffAttempts = async",
+        1,
+    )[1].split("const handleRejectSignalEvent = async", 1)[0]
+    reject_block = hyper_ai_source.split(
+        "const handleRejectSignalEvent = async",
+        1,
+    )[1].split("const fetchConversations = async", 1)[0]
+
+    assert "formatAiTradingSignalActionApiError" in hyper_ai_source
+    assert "formatAiTradingSignalActionApiError" in helper_source
+    assert "SIGNAL_ACTION_API_DETAIL_LABELS" in helper_source
+    assert "SIGNAL_ACTION_API_STATUS_LABELS" in helper_source
+    assert "safeSignalActionApiDetailLabel" in helper_source
+    assert "Signal event is not eligible for handoff:" in helper_source
+    assert "Signal gateway handoff failed:" in helper_source
+    assert "production_handoff_approval_required" in helper_source
+    assert "signal_event_stale_for_handoff" in helper_source
+    assert "agent_session_archived" in helper_source
+
+    for safe_error_block in (submit_block, attempts_block, reject_block):
+        assert "formatAiTradingSignalActionApiError(res.status, data.detail, fallback)" in safe_error_block
+        assert "formatAiTradingSignalActionApiError(0, null, fallback)" in safe_error_block
+        assert "throw new Error(data.detail" not in safe_error_block
+        assert "const detail = data.detail" not in safe_error_block
+        assert "typeof detail === 'string'" not in safe_error_block
+        assert "e instanceof Error ? e.message" not in safe_error_block
+
+
 def test_ai_trading_session_context_prompt_uses_defensive_sanitizer() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     context_load_block = hyper_ai_source.split(
