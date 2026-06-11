@@ -275,9 +275,16 @@ PY
 }
 
 run_runtime_readiness_with_retry() {
-  local attempts=12
-  local delay_seconds=5
+  local attempts="${AI_TRADING_RUNTIME_READINESS_ATTEMPTS:-24}"
+  local delay_seconds="${AI_TRADING_RUNTIME_READINESS_SLEEP_SECONDS:-5}"
   local attempt
+
+  if [[ -z "$attempts" || "$attempts" =~ [^0-9] || "$attempts" -lt 1 ]]; then
+    attempts=24
+  fi
+  if [[ -z "$delay_seconds" || "$delay_seconds" =~ [^0-9] || "$delay_seconds" -lt 1 ]]; then
+    delay_seconds=5
+  fi
 
   for attempt in $(seq 1 "$attempts"); do
     echo "Runtime readiness attempt $attempt/$attempts"
@@ -293,7 +300,7 @@ run_runtime_readiness_with_retry() {
     fi
   done
 
-  echo "Runtime readiness failed after $attempts attempts" >&2
+  echo "Runtime readiness still blocked after $attempts attempts; runtime mirror freshness remained enforced." >&2
   return 1
 }
 
