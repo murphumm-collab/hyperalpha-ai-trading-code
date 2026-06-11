@@ -141,6 +141,9 @@ BACKTEST_NOTE_MAX_CHARS = 1000
 REDACTED_SENSITIVE_BACKTEST_ID = "[redacted_sensitive_backtest_id]"
 REDACTED_SENSITIVE_BACKTEST_SOURCE = "[redacted_sensitive_backtest_source]"
 REDACTED_SENSITIVE_BACKTEST_NOTE = "[redacted_sensitive_backtest_note]"
+MARKET_CONTEXT_TEXT_MAX_CHARS = 100
+MARKET_CONTEXT_EXTRA_TEXT_MAX_CHARS = 1000
+REDACTED_SENSITIVE_MARKET_CONTEXT_TEXT = "[redacted_sensitive_market_context_text]"
 SENSITIVE_ERROR_MESSAGE_URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
@@ -621,6 +624,114 @@ def _clean_backtest_note(value: Any, *, reject_sensitive: bool = False) -> Optio
     return note
 
 
+def _clean_market_context_text(
+    value: Any,
+    *,
+    field_name: str,
+    fallback: Optional[str] = None,
+    reject_sensitive: bool = False,
+) -> Optional[str]:
+    text = _clean_text(value, MARKET_CONTEXT_TEXT_MAX_CHARS)
+    if not text:
+        text = fallback or ""
+    if not text:
+        return None
+    if _error_message_contains_sensitive_value(text):
+        if reject_sensitive:
+            raise ValueError(
+                f"AI Trading market context {field_name} must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_MARKET_CONTEXT_TEXT
+    return text
+
+
+def _clean_market_context_number(value: Any, *, reject_sensitive: bool = False) -> Optional[float]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        if _error_message_contains_sensitive_value(value):
+            if reject_sensitive:
+                raise ValueError(
+                    "AI Trading market context numeric fields must not contain API keys, "
+                    "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+                )
+            return None
+        try:
+            return float(value)
+        except ValueError:
+            return None
+    return None
+
+
+def _redact_market_context_extra(value: Any) -> Any:
+    if isinstance(value, dict):
+        redacted: Dict[str, Any] = {}
+        for key, child in value.items():
+            key_text = str(key)
+            if SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
+                redacted[key] = "***"
+            else:
+                redacted[key] = _redact_market_context_extra(child)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_market_context_extra(item) for item in value]
+    if isinstance(value, str):
+        text = _clean_text(value, MARKET_CONTEXT_EXTRA_TEXT_MAX_CHARS)
+        if _error_message_contains_sensitive_value(text):
+            return REDACTED_SENSITIVE_MARKET_CONTEXT_TEXT
+        return text
+    return value
+
+
+def _clean_market_context_payload(
+    payload: Any,
+    *,
+    reject_sensitive: bool = False,
+    include_extra: bool = True,
+) -> Dict[str, Any]:
+    context = payload if isinstance(payload, dict) else {}
+    cleaned: Dict[str, Any] = {
+        "mark_price": _clean_market_context_number(
+            context.get("mark_price"),
+            reject_sensitive=reject_sensitive,
+        ),
+        "open_interest": _clean_market_context_number(
+            context.get("open_interest"),
+            reject_sensitive=reject_sensitive,
+        ),
+        "volume_24h_usd": _clean_market_context_number(
+            context.get("volume_24h_usd"),
+            reject_sensitive=reject_sensitive,
+        ),
+        "regime": _clean_market_context_text(
+            context.get("regime"),
+            field_name="regime",
+            reject_sensitive=reject_sensitive,
+        ),
+        "source": _clean_market_context_text(
+            context.get("source"),
+            field_name="source",
+            fallback="user_or_runtime_supplied",
+            reject_sensitive=reject_sensitive,
+        ),
+    }
+    if include_extra:
+        for key, child in context.items():
+            if key in cleaned:
+                continue
+            key_text = str(key)
+            if SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
+                cleaned[key] = "***"
+            else:
+                cleaned[key] = _redact_market_context_extra(child)
+    return cleaned
+
+
 def _redact_sensitive_payload(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: Dict[str, Any] = {}
@@ -657,6 +768,8 @@ def _redact_sensitive_payload(value: Any) -> Any:
                     if "notes" in child:
                         redacted_backtest["notes"] = _clean_backtest_note(child.get("notes"))
                 redacted[key] = redacted_backtest
+            elif key_text == "market_context" and isinstance(child, dict):
+                redacted[key] = _clean_market_context_payload(child, include_extra=True)
             elif key_text == "name" and _display_name_contains_sensitive_value(child):
                 redacted[key] = REDACTED_SENSITIVE_NAME
             elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
@@ -3014,7 +3127,11 @@ def build_signal_preview_from_strategy_spec_record(
     if not validation.get("valid") or not validation.get("safe_to_emit_signal"):
         raise ValueError("Strategy spec is not valid for signal preview")
 
-    market_context = market_context or {}
+    market_context = _clean_market_context_payload(
+        market_context or {},
+        reject_sensitive=True,
+        include_extra=False,
+    )
     market_identity = (
         spec.get("market") if isinstance(spec.get("market"), dict) else _build_market_identity(spec.get("symbol"))
     )

@@ -2053,6 +2053,157 @@ def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tm
     assert "secret-private-key" not in str(calls[0]["json"])
 
 
+def test_ai_trading_signal_market_context_rejects_sensitive_values_without_creating_event(tmp_path):
+    client = _build_client(tmp_path)
+    spec, event = _create_approved_signal_event(client)
+    spec_id = spec["id"]
+
+    cases = [
+        (
+            "signal-preview",
+            {"source": "api_key=secret-market-source https://order-backend.test/signals"},
+            "market context source must not contain",
+            "secret-market-source",
+        ),
+        (
+            "signal-events",
+            {"regime": "Authorization: Bearer secret-market-regime"},
+            "market context regime must not contain",
+            "secret-market-regime",
+        ),
+        (
+            "signal-events",
+            {"mark_price": "api_key=secret-market-price"},
+            "market context numeric fields must not contain",
+            "secret-market-price",
+        ),
+    ]
+
+    for endpoint, market_override, detail_phrase, secret_marker in cases:
+        rejected = client.post(
+            f"/api/ai-trading/strategy-specs/{spec_id}/{endpoint}",
+            json={
+                "market_context": {
+                    "mark_price": 100000,
+                    "source": "pytest",
+                    **market_override,
+                },
+            },
+        )
+        assert rejected.status_code == 400
+        assert detail_phrase in rejected.json()["detail"]
+        assert secret_marker not in str(rejected.json())
+        assert "order-backend.test" not in str(rejected.json())
+
+    session = client._ai_trading_session_factory()
+    try:
+        event_rows = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.strategy_spec_id == spec_id
+        ).all()
+        assert [row.id for row in event_rows] == [event["id"]]
+    finally:
+        session.close()
+
+
+def test_ai_trading_signal_market_context_responses_redact_legacy_sensitive_values_without_mutating_audit_json(
+    tmp_path,
+    monkeypatch,
+):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+    sensitive_source = "api_key=secret-market-source https://order-backend.test/signals"
+    sensitive_regime = "Authorization: Bearer secret-market-regime"
+    sensitive_price = "api_key=secret-market-price"
+    sensitive_note = "refresh_token=secret-market-note"
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        signal = json.loads(row.signal_json)
+        signal["market_context"]["source"] = sensitive_source
+        signal["market_context"]["regime"] = sensitive_regime
+        signal["market_context"]["mark_price"] = sensitive_price
+        signal["market_context"]["provider_note"] = sensitive_note
+        signal["market_context"]["nested"] = {
+            "raw": "https://order-backend.test/secret-market-nested",
+        }
+        signal["market_context"]["access_token"] = "secret-market-token"
+        row.signal_json = json.dumps(signal)
+        session.commit()
+        assert "secret-market-source" in row.signal_json
+        assert "secret-market-price" in row.signal_json
+        assert "secret-market-note" in row.signal_json
+    finally:
+        session.close()
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    market_context = detail.json()["signal_event"]["signal"]["market_context"]
+    assert market_context["source"] == "[redacted_sensitive_market_context_text]"
+    assert market_context["regime"] == "[redacted_sensitive_market_context_text]"
+    assert market_context["mark_price"] is None
+    assert market_context["provider_note"] == "[redacted_sensitive_market_context_text]"
+    assert market_context["nested"]["raw"] == "[redacted_sensitive_market_context_text]"
+    assert market_context["access_token"] == "***"
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 202
+
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest_market_context_redaction"},
+    )
+    assert handoff.status_code == 200
+    assert calls
+    gateway_market_context = calls[0]["json"]["market_context"]
+    gateway_signal_market_context = calls[0]["json"]["signal"]["market_context"]
+    assert gateway_market_context["source"] == "[redacted_sensitive_market_context_text]"
+    assert gateway_market_context["regime"] == "[redacted_sensitive_market_context_text]"
+    assert gateway_market_context["mark_price"] is None
+    assert gateway_market_context["provider_note"] == "[redacted_sensitive_market_context_text]"
+    assert gateway_market_context["nested"]["raw"] == "[redacted_sensitive_market_context_text]"
+    assert gateway_market_context["access_token"] == "***"
+    assert gateway_signal_market_context == gateway_market_context
+    serialized = json.dumps({
+        "detail": detail.json(),
+        "gateway": calls[0]["json"],
+    })
+    assert "secret-market-source" not in serialized
+    assert "secret-market-regime" not in serialized
+    assert "secret-market-price" not in serialized
+    assert "secret-market-note" not in serialized
+    assert "secret-market-token" not in serialized
+    assert "order-backend.test" not in serialized
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        assert "secret-market-source" in row.signal_json
+        assert "secret-market-price" in row.signal_json
+        assert "secret-market-note" in row.signal_json
+    finally:
+        session.close()
+
+
 def test_ai_trading_signal_handoff_rejects_sensitive_confirmation_source(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(client)
