@@ -133,6 +133,8 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "aiTradingEvidenceDryRun.maxPayloadBytes" in settings_source
     assert "aiTradingEvidenceDryRun.itemKeyCount" in settings_source
     assert "aiTradingEvidenceDryRun.maxItemKeys" in settings_source
+    assert "aiTradingEvidenceDryRun.rootIsObject" in settings_source
+    assert "aiTradingEvidenceDryRun.expectedInput" in settings_source
     assert "aiTradingEvidenceDryRun.liveOrdersUnlocked" in settings_source
     assert "formatAiTradingEvidenceDryRunCalls(aiTradingEvidenceDryRun)" in settings_source
     assert "aiTradingEvidenceTemplateGuidance.nextRequiredActions" in settings_source
@@ -157,6 +159,8 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "max_payload_bytes" in helper_source
     assert "item_key_count" in helper_source
     assert "max_item_keys" in helper_source
+    assert "root_is_object" in helper_source
+    assert "expected_input" in helper_source
     assert "live_orders_unlocked" in helper_source
     assert "network_calls" in helper_source
     assert "order_backend_calls" in helper_source

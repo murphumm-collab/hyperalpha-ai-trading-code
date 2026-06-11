@@ -2585,10 +2585,18 @@ export default function SettingsPage() {
                                 {t('settings.aiTradingEvidenceItemKeys', 'Item keys')}: {aiTradingEvidenceDryRun.itemKeyCount}/{aiTradingEvidenceDryRun.maxItemKeys}
                               </div>
                               <div>
-                                {t('settings.aiTradingEvidenceLiveOrders', 'Live orders')}: {aiTradingEvidenceDryRun.liveOrdersUnlocked
-                                  ? t('settings.ready', 'Ready')
-                                  : t('settings.blocked', 'Blocked')}
+                                {t('settings.aiTradingEvidenceRootObject', 'Root object')}: {aiTradingEvidenceDryRun.rootIsObject
+                                  ? t('settings.provided', 'Provided')
+                                  : t('settings.notProvided', 'Not provided')}
                               </div>
+                            </div>
+                            <div className="mt-2 truncate text-xs text-muted-foreground" title={`${aiTradingEvidenceDryRun.acceptedInput || '-'} -> ${aiTradingEvidenceDryRun.expectedInput || '-'}`}>
+                              {t('settings.aiTradingEvidenceExpectedInput', 'Expected input')}: {aiTradingEvidenceDryRun.expectedInput || '-'}
+                            </div>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              {t('settings.aiTradingEvidenceLiveOrders', 'Live orders')}: {aiTradingEvidenceDryRun.liveOrdersUnlocked
+                                ? t('settings.ready', 'Ready')
+                                : t('settings.blocked', 'Blocked')}
                             </div>
                             <div className="mt-2 truncate text-xs text-muted-foreground" title={formatAiTradingEvidenceDryRunCalls(aiTradingEvidenceDryRun)}>
                               {t('settings.aiTradingEvidenceDryRunCalls', 'Calls')}: {formatAiTradingEvidenceDryRunCalls(aiTradingEvidenceDryRun)}

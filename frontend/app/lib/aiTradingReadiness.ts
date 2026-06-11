@@ -24,6 +24,7 @@ export interface AiTradingProductionEvidenceSummary {
   cutoverWindowStartAt: string | null
   cutoverWindowEndAt: string | null
   cutoverApprovalRefPresent: boolean
+  secretPatternCount: number
   blockers: string[]
   warnings: string[]
 }
@@ -108,6 +109,8 @@ export interface AiTradingProductionEvidenceTemplateGuidanceView {
 export interface AiTradingProductionEvidenceDryRunView {
   mode: string
   acceptedInput: string
+  expectedInput: string
+  rootIsObject: boolean
   persistence: string
   payloadBytes: number
   maxPayloadBytes: number
@@ -317,6 +320,7 @@ export const extractAiTradingProductionEvidenceExplain = (
       cutoverWindowStartAt: typeof productionEvidenceSource.cutover_window_start_at === 'string' ? productionEvidenceSource.cutover_window_start_at : null,
       cutoverWindowEndAt: typeof productionEvidenceSource.cutover_window_end_at === 'string' ? productionEvidenceSource.cutover_window_end_at : null,
       cutoverApprovalRefPresent: productionEvidenceSource.cutover_approval_ref_present === true,
+      secretPatternCount: numberValue(productionEvidenceSource.secret_pattern_count),
       blockers: stringList(productionEvidenceSource.blockers),
       warnings: stringList(productionEvidenceSource.warnings),
     },
@@ -418,6 +422,8 @@ export const extractAiTradingProductionEvidenceDryRun = (
   return {
     mode: typeof source.mode === 'string' ? source.mode : '',
     acceptedInput: typeof source.accepted_input === 'string' ? source.accepted_input : '',
+    expectedInput: typeof source.expected_input === 'string' ? source.expected_input : '',
+    rootIsObject: source.root_is_object === true,
     persistence: typeof source.persistence === 'string' ? source.persistence : '',
     payloadBytes: numberValue(source.payload_bytes),
     maxPayloadBytes: numberValue(source.max_payload_bytes),

@@ -407,7 +407,9 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     assert data["requested_by_user_id"] == admin_id
     assert data["dry_run"] == {
         "mode": "admin_payload_validation_only",
-        "accepted_input": "json_object_only",
+        "accepted_input": "json_value_for_safe_validation",
+        "expected_input": "json_object",
+        "root_is_object": True,
         "persistence": "not_stored",
         "payload_bytes": data["dry_run"]["payload_bytes"],
         "max_payload_bytes": 40000,
@@ -472,6 +474,35 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     serialized = str(data)
     assert "secret-order-gateway-token" not in serialized
     assert "secret-deepseek-key" not in serialized
+
+
+def test_admin_evidence_payload_validation_handles_non_object_without_echoing_secret(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, _admin_id = _build_client(tmp_path)
+
+    response = client.post(
+        f"/api/ai-trading/admin/production-evidence-validate?session_token={admin_token}",
+        json={"evidence": "Authorization: Bearer secret-production-token-123456789"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["dry_run"]["mode"] == "admin_payload_validation_only"
+    assert data["dry_run"]["accepted_input"] == "json_value_for_safe_validation"
+    assert data["dry_run"]["expected_input"] == "json_object"
+    assert data["dry_run"]["root_is_object"] is False
+    assert data["dry_run"]["item_key_count"] == 0
+    assert data["dry_run"]["live_orders_unlocked"] is False
+    validation = data["validation"]
+    assert validation["ready_for_live_orders"] is False
+    assert validation["production_evidence"]["ready"] is False
+    assert validation["production_evidence"]["secret_pattern_count"] >= 1
+    assert "external_evidence_root_must_be_object" in validation["production_evidence"]["blockers"]
+    assert "external_evidence_secret_pattern_detected" in validation["production_evidence"]["blockers"]
+    assert validation["progress"]["root_next_required_actions"][0].startswith("root.schema:")
+    serialized = str(data)
+    assert "secret-production-token-123456789" not in serialized
+    assert "Authorization: Bearer" not in serialized
 
 
 def test_admin_evidence_payload_validation_reports_secret_blocker_without_echoing_secret(tmp_path, monkeypatch):

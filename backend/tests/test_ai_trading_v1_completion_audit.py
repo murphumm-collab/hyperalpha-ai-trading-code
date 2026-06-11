@@ -74,6 +74,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_progress_actions_marker: bool = True,
     include_production_evidence_progress_root_actions_marker: bool = True,
     include_production_evidence_dry_run_safety_metadata_marker: bool = True,
+    include_production_evidence_non_object_dry_run_safety_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -190,6 +191,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_dry_run_safety_metadata_marker = (
         "| AI Trading production evidence dry-run safety metadata | Done |"
     ) if include_production_evidence_dry_run_safety_metadata_marker else ""
+    production_evidence_non_object_dry_run_safety_marker = (
+        "| AI Trading production evidence non-object dry-run safety | Done |"
+    ) if include_production_evidence_non_object_dry_run_safety_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -282,7 +286,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Dry-Run Safety Metadata Accepted / Remote Push Skipped",
+                "Local V1 Evidence Non-Object Dry-Run Safety Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -326,6 +330,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_progress_actions_marker,
                 production_evidence_progress_root_actions_marker,
                 production_evidence_dry_run_safety_metadata_marker,
+                production_evidence_non_object_dry_run_safety_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -617,6 +622,27 @@ def test_production_evidence_explain_reports_item_level_missing_evidence(tmp_pat
     assert "HTTPS" in order_backend_item["required_summary_terms"]
     assert "mode=http / gateway mode=http / gateway_mode=http" in order_backend_item["required_summary_terms"]
     assert "Configure the real HTTPS order-backend signal gateway" in order_backend_item["operator_guidance"][0]
+
+
+def test_production_evidence_payload_validation_handles_non_object_without_secret_echo(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+
+    report = completion_audit.build_production_evidence_payload_validation(
+        tmp_path,
+        "Authorization: Bearer secret-production-token-123456789",
+    )
+
+    assert report["mode"] == "production_evidence_payload_validation"
+    assert report["ready_for_live_orders"] is False
+    assert report["production_evidence"]["ready"] is False
+    assert report["production_evidence"]["path"] is None
+    assert report["production_evidence"]["secret_pattern_count"] >= 1
+    assert "external_evidence_root_must_be_object" in report["production_evidence"]["blockers"]
+    assert "external_evidence_secret_pattern_detected" in report["production_evidence"]["blockers"]
+    assert report["progress"]["root_next_required_actions"][0].startswith("root.schema:")
+    serialized = json.dumps(report, ensure_ascii=False)
+    assert "secret-production-token-123456789" not in serialized
+    assert "Authorization: Bearer" not in serialized
 
 
 def test_production_evidence_explain_keeps_live_orders_blocked_without_explicit_confirmation(tmp_path):
@@ -1214,6 +1240,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_dry_r
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence dry-run safety metadata | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_non_object_dry_run_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_non_object_dry_run_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence non-object dry-run safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

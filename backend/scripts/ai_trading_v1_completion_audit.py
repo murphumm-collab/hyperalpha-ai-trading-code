@@ -388,7 +388,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Dry-Run Safety Metadata Accepted / Remote Push Skipped",
+            "Local V1 Evidence Non-Object Dry-Run Safety Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -417,6 +417,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence progress actions | Done |",
             "| AI Trading production evidence progress root actions | Done |",
             "| AI Trading production evidence dry-run safety metadata | Done |",
+            "| AI Trading production evidence non-object dry-run safety | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -1042,6 +1043,7 @@ def _empty_external_evidence_report(
     provided: bool,
     path: str | None,
     blockers: list[str] | None = None,
+    secret_pattern_count: int = 0,
 ) -> dict[str, Any]:
     return {
         "provided": provided,
@@ -1059,6 +1061,7 @@ def _empty_external_evidence_report(
         "blockers": blockers or [],
         "warnings": [],
         "items": [],
+        "secret_pattern_count": secret_pattern_count,
     }
 
 
@@ -1073,10 +1076,15 @@ def _validate_external_evidence_payload(
     now_utc = datetime.now(timezone.utc)
 
     if not isinstance(payload, dict):
+        secret_hits = _secret_pattern_hits(payload)
+        non_object_blockers = ["external_evidence_root_must_be_object"]
+        if secret_hits:
+            non_object_blockers.append("external_evidence_secret_pattern_detected")
         return _empty_external_evidence_report(
             provided=True,
             path=path,
-            blockers=["external_evidence_root_must_be_object"],
+            blockers=non_object_blockers,
+            secret_pattern_count=len(secret_hits),
         )
 
     version = payload.get("version")
@@ -1502,6 +1510,7 @@ def _build_production_evidence_explain_from_report(
             "required_count": production_evidence["required_count"],
             "blockers": list(production_evidence["blockers"]),
             "warnings": list(production_evidence["warnings"]),
+            "secret_pattern_count": production_evidence.get("secret_pattern_count", 0),
             "file_inside_repo": production_evidence.get("file_inside_repo", False),
             "expires_at": production_evidence.get("expires_at"),
             "cutover_window_present": production_evidence.get("cutover_window_present", False),

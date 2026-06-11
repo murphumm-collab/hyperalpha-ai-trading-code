@@ -94,7 +94,7 @@ class StrategySpecDraftRequest(BaseModel):
 
 
 class ProductionEvidenceValidateRequest(BaseModel):
-    evidence: Dict[str, Any] = Field(..., description="Sanitized external acceptance evidence JSON object.")
+    evidence: Any = Field(..., description="Sanitized external acceptance evidence JSON value for dry-run validation.")
 
 
 class StrategySpecValidateRequest(BaseModel):
@@ -209,7 +209,7 @@ def _model_dump(model: BaseModel) -> Dict[str, Any]:
     return model.dict()
 
 
-def _production_evidence_dry_run_metadata(evidence: Dict[str, Any]) -> Dict[str, Any]:
+def _production_evidence_dry_run_metadata(evidence: Any) -> Dict[str, Any]:
     try:
         serialized = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
@@ -219,14 +219,17 @@ def _production_evidence_dry_run_metadata(evidence: Dict[str, Any]) -> Dict[str,
     if payload_bytes > AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES:
         raise HTTPException(status_code=413, detail="production_evidence_payload_too_large")
 
-    items = evidence.get("items")
+    root_is_object = isinstance(evidence, dict)
+    items = evidence.get("items") if root_is_object else None
     item_key_count = len(items) if isinstance(items, dict) else 0
     if isinstance(items, dict) and len(items) > AI_TRADING_PRODUCTION_EVIDENCE_MAX_ITEM_KEYS:
         raise HTTPException(status_code=413, detail="production_evidence_items_too_many")
 
     return {
         "mode": "admin_payload_validation_only",
-        "accepted_input": "json_object_only",
+        "accepted_input": "json_value_for_safe_validation",
+        "expected_input": "json_object",
+        "root_is_object": root_is_object,
         "persistence": "not_stored",
         "payload_bytes": payload_bytes,
         "max_payload_bytes": AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES,
