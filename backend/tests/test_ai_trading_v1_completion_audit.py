@@ -7,6 +7,7 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "ai_trading_v1_completion_audit.py"
+RUNNER_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
 SPEC = importlib.util.spec_from_file_location("ai_trading_v1_completion_audit", SCRIPT_PATH)
 completion_audit = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -43,6 +44,7 @@ def _write_minimal_acceptance_repo(
     *,
     include_db_gate: bool = True,
     include_local_dev_shell_syntax_gate: bool = True,
+    include_local_acceptance_transient_retry_gate: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -102,6 +104,18 @@ def _write_minimal_acceptance_repo(
     local_dev_shell_syntax_text = (
         "Local dev shell syntax\n"
     ) if include_local_dev_shell_syntax_gate else ""
+    local_acceptance_transient_retry_runner_text = (
+        "AI_TRADING_TRANSIENT_RETRY_ATTEMPTS\n"
+        "AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS\n"
+        "Transient local resource failure\n"
+        "run_command_with_transient_retry\n"
+        "Resource temporarily unavailable\n"
+        "Failed to spawn\n"
+        "fork failed\n"
+    ) if include_local_acceptance_transient_retry_gate else ""
+    local_acceptance_transient_retry_status_marker = (
+        "| AI Trading local acceptance transient retry | Done |"
+    ) if include_local_acceptance_transient_retry_gate else ""
     frontend_source_guard_text = (
         "tests/test_ai_trading_frontend_readiness_source.py\n"
     ) if include_frontend_source_guard else ""
@@ -262,6 +276,7 @@ def _write_minimal_acceptance_repo(
             [
                 "--confirm-local-mock-handoff",
                 local_dev_shell_syntax_text,
+                local_acceptance_transient_retry_runner_text,
                 db_gate_text,
                 frontend_source_guard_text,
                 "Frontend build",
@@ -317,7 +332,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Env-Check Docker Probe Fallback Accepted / Remote Push Skipped",
+                "Local V1 Transient Retry Runner Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -366,6 +381,7 @@ def _write_minimal_acceptance_repo(
                 frontend_handoff_error_safety_marker,
                 local_supervisor_fork_resilience_marker,
                 env_check_docker_probe_fallback_marker,
+                local_acceptance_transient_retry_status_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -797,6 +813,39 @@ def test_completion_audit_blocks_local_acceptance_when_local_dev_shell_syntax_ga
     assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
     runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
     assert "Local dev shell syntax" in runner_evidence["missing_phrases"]
+
+
+def test_local_acceptance_runner_retries_transient_resource_failures_without_masking_contract_errors():
+    runner_source = RUNNER_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert "run_command_with_transient_retry" in runner_source
+    assert "AI_TRADING_TRANSIENT_RETRY_ATTEMPTS" in runner_source
+    assert "AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS" in runner_source
+    assert "Transient local resource failure" in runner_source
+    assert "Resource temporarily unavailable" in runner_source
+    assert "Failed to spawn" in runner_source
+    assert "fork failed" in runner_source
+    assert '"$rc" -eq 2 || "$rc" -eq 128' in runner_source
+    assert 'if [[ "$rc" -eq 1 ]]; then' in runner_source
+    assert "Expected blocker confirmed with exit status 1" in runner_source
+    assert "Expected exit status 1, got $rc" in runner_source
+
+
+def test_completion_audit_blocks_local_acceptance_when_transient_retry_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_local_acceptance_transient_retry_gate=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert "AI_TRADING_TRANSIENT_RETRY_ATTEMPTS" in runner_evidence["missing_phrases"]
+    assert "AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS" in runner_evidence["missing_phrases"]
+    assert "Transient local resource failure" in runner_evidence["missing_phrases"]
+    assert "run_command_with_transient_retry" in runner_evidence["missing_phrases"]
+    assert "| AI Trading local acceptance transient retry | Done |" in status_evidence["missing_phrases"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_runtime_readiness_retry_grace_is_missing(tmp_path):

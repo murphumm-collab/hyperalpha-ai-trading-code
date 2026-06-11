@@ -27,11 +27,16 @@ Runs the AI Trading V1 local acceptance gate:
   - frontend production build
   - local LaunchAgent runtime mirror sync
   - local runtime readiness check
+  - transient local fork/spawn retry for resource-pressure failures
   - live LaunchAgent/mock-gateway handoff acceptance
 
 The confirmation flag is required because the final step submits one signal to
 the local mock gateway and creates local audit records. The live-stack runner
 still refuses non-local URLs and requires runtime gateway target_kind=local_mock.
+
+Transient local runner retries can be tuned with:
+  AI_TRADING_TRANSIENT_RETRY_ATTEMPTS (default 3)
+  AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS (default 5)
 EOF
 }
 
@@ -60,28 +65,128 @@ if [[ "$CONFIRM_LOCAL_MOCK_HANDOFF" != "true" ]]; then
   exit 2
 fi
 
+positive_int_or_default() {
+  local value="$1"
+  local fallback="$2"
+
+  if [[ -z "$value" || "$value" =~ [^0-9] || "$value" -lt 1 ]]; then
+    printf '%s\n' "$fallback"
+  else
+    printf '%s\n' "$value"
+  fi
+}
+
+transient_retry_attempts() {
+  positive_int_or_default "${AI_TRADING_TRANSIENT_RETRY_ATTEMPTS:-}" 3
+}
+
+transient_retry_sleep_seconds() {
+  positive_int_or_default "${AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS:-}" 5
+}
+
+is_transient_resource_failure() {
+  local rc="$1"
+  local output_file="$2"
+  local line
+
+  [[ "$rc" -eq 2 || "$rc" -eq 128 ]] || return 1
+
+  while IFS= read -r line; do
+    case "$line" in
+      *"Resource temporarily unavailable"*|*"Failed to spawn"*|*"fork failed"*)
+        return 0
+        ;;
+    esac
+  done < "$output_file"
+
+  return 1
+}
+
+run_command_with_transient_retry() {
+  local name="$1"
+  shift
+  local attempts
+  local delay_seconds
+  local attempt
+  local output_file
+  local rc
+
+  attempts="$(transient_retry_attempts)"
+  delay_seconds="$(transient_retry_sleep_seconds)"
+
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-step.XXXXXX.log")"
+    set +e
+    "$@" > "$output_file" 2>&1
+    rc=$?
+    set -e
+    cat "$output_file"
+
+    if [[ "$rc" -eq 0 ]]; then
+      rm -f "$output_file"
+      return 0
+    fi
+
+    if is_transient_resource_failure "$rc" "$output_file" && [[ "$attempt" -lt "$attempts" ]]; then
+      echo "Transient local resource failure during $name (exit $rc); retrying in ${delay_seconds}s ($attempt/$attempts)..." >&2
+      rm -f "$output_file"
+      sleep "$delay_seconds"
+      continue
+    fi
+
+    rm -f "$output_file"
+    return "$rc"
+  done
+}
+
 run_step() {
   local name="$1"
   shift
   echo
   echo "==> $name"
-  "$@"
+  run_command_with_transient_retry "$name" "$@"
 }
 
 run_expected_failure() {
   local name="$1"
   shift
+  local attempts
+  local delay_seconds
+  local attempt
+  local output_file
+  local rc
+
   echo
   echo "==> $name"
-  set +e
-  "$@"
-  local rc=$?
-  set -e
-  if [[ "$rc" -ne 1 ]]; then
+
+  attempts="$(transient_retry_attempts)"
+  delay_seconds="$(transient_retry_sleep_seconds)"
+
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-expected-failure.XXXXXX.log")"
+    set +e
+    "$@" > "$output_file" 2>&1
+    rc=$?
+    set -e
+    cat "$output_file"
+
+    if [[ "$rc" -eq 1 ]]; then
+      rm -f "$output_file"
+      echo "Expected blocker confirmed with exit status 1"
+      return 0
+    fi
+
+    if is_transient_resource_failure "$rc" "$output_file" && [[ "$attempt" -lt "$attempts" ]]; then
+      echo "Transient local resource failure during $name (exit $rc); retrying in ${delay_seconds}s ($attempt/$attempts)..." >&2
+      rm -f "$output_file"
+      sleep "$delay_seconds"
+      continue
+    fi
+
+    rm -f "$output_file"
     echo "Expected exit status 1, got $rc" >&2
     return 1
-  fi
-  echo "Expected blocker confirmed with exit status 1"
+  done
 }
 
 run_local_completion_summary_gate() {
