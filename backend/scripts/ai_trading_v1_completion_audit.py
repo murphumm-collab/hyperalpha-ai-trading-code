@@ -388,7 +388,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Root Actions Accepted / Remote Push Skipped",
+            "Local V1 Evidence Progress Root Actions Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -415,6 +415,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence explain root blocker labels | Done |",
             "| AI Trading production evidence progress summary | Done |",
             "| AI Trading production evidence progress actions | Done |",
+            "| AI Trading production evidence progress root actions | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",
@@ -1365,6 +1366,7 @@ def _build_production_evidence_progress(
         for item in items
         if not item["ready"] and item.get("operator_guidance")
     ]
+    root_next_required_actions = _build_production_evidence_progress_root_actions(production_evidence)
     live_order_gate_blockers: list[str] = []
 
     if not report["local_v1_accepted"]:
@@ -1388,12 +1390,34 @@ def _build_production_evidence_progress(
         "blocked_item_ids": blocked_item_ids,
         "next_required_item_ids": pending_item_ids,
         "next_required_actions": next_required_actions,
+        "root_next_required_actions": root_next_required_actions,
         "accepted_count": len(accepted_item_ids),
         "pending_count": len(pending_item_ids),
         "blocked_count": len(blocked_item_ids),
         "required_count": len(items),
         "live_order_gate_blockers": live_order_gate_blockers,
     }
+
+
+def _build_production_evidence_progress_root_actions(production_evidence: dict[str, Any]) -> list[str]:
+    """Return safe root-level actions for missing or blocked production evidence fields."""
+    blockers = {str(blocker) for blocker in production_evidence.get("blockers") or []}
+    include_all_root_fields = production_evidence.get("provided") is not True
+    actions: list[str] = []
+
+    if "external_evidence_root_must_be_object" in blockers:
+        actions.append("root.schema: Provide evidence as one JSON object using the generated production evidence template.")
+    if "external_evidence_unexpected_root_fields" in blockers:
+        actions.append("root.schema: Remove unexpected root fields and keep only the generated template root fields.")
+    if "external_evidence_file_must_be_outside_repo" in blockers:
+        actions.append("evidence_file: Move sanitized production evidence outside the code repository or into a private ops evidence store.")
+
+    for item in PRODUCTION_EVIDENCE_ROOT_GUIDANCE:
+        related_blockers = {str(blocker) for blocker in item["related_blockers"]}
+        if include_all_root_fields or blockers.intersection(related_blockers):
+            actions.append(f"root.{item['field']}: {item['operator_guidance'][0]}")
+
+    return actions
 
 
 def _build_production_evidence_explain_from_report(

@@ -2319,6 +2319,11 @@ export default function SettingsPage() {
                             {t('settings.aiTradingEvidenceNextActions', 'Evidence Actions')}: {aiTradingEvidenceExplain.progress.nextRequiredActions.slice(0, 2).join(' | ')}
                           </div>
                         )}
+                        {aiTradingEvidenceExplain.progress.rootNextRequiredActions.length > 0 && (
+                          <div className="mt-2 truncate text-xs text-muted-foreground" title={aiTradingEvidenceExplain.progress.rootNextRequiredActions.join(' | ')}>
+                            {t('settings.aiTradingEvidenceRootActions', 'Root Actions')}: {aiTradingEvidenceExplain.progress.rootNextRequiredActions.slice(0, 3).join(' | ')}
+                          </div>
+                        )}
                       </div>
                       <div className="truncate text-xs text-muted-foreground" title={aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}>
                         {t('settings.aiTradingEvidenceExpiresAt', 'Evidence expires')}: {aiTradingEvidenceExplain.productionEvidence.expiresAt || '-'}
@@ -2581,6 +2586,11 @@ export default function SettingsPage() {
                               {aiTradingEvidenceValidation.progress.nextRequiredActions.length > 0 && (
                                 <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.progress.nextRequiredActions.join(' | ')}>
                                   {t('settings.aiTradingEvidenceNextActions', 'Evidence Actions')}: {aiTradingEvidenceValidation.progress.nextRequiredActions.slice(0, 2).join(' | ')}
+                                </div>
+                              )}
+                              {aiTradingEvidenceValidation.progress.rootNextRequiredActions.length > 0 && (
+                                <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.progress.rootNextRequiredActions.join(' | ')}>
+                                  {t('settings.aiTradingEvidenceRootActions', 'Root Actions')}: {aiTradingEvidenceValidation.progress.rootNextRequiredActions.slice(0, 3).join(' | ')}
                                 </div>
                               )}
                               <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceValidation.productionEvidence.expiresAt || '-'}>

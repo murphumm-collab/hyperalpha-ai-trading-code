@@ -61,6 +61,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "progress.liveOrderGateBlockers" in settings_source
     assert "progress.nextRequiredItemIds" in settings_source
     assert "progress.nextRequiredActions" in settings_source
+    assert "progress.rootNextRequiredActions" in settings_source
     assert "artifactRefCount" in settings_source
     assert "requiredSummaryTerms" in settings_source
     assert "missingSummaryTerms" in settings_source
@@ -93,6 +94,7 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "blocked_item_ids" in helper_source
     assert "next_required_item_ids" in helper_source
     assert "next_required_actions" in helper_source
+    assert "root_next_required_actions" in helper_source
     assert "live_order_gate_blockers" in helper_source
     assert "required_summary_terms" in helper_source
     assert "missing_summary_terms" in helper_source
@@ -165,6 +167,7 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "aiTradingEvidenceValidation.progress.pendingCount" in settings_source
     assert "aiTradingEvidenceValidation.progress.liveOrderGateBlockers" in settings_source
     assert "aiTradingEvidenceValidation.progress.nextRequiredItemIds" in settings_source
+    assert "aiTradingEvidenceValidation.progress.rootNextRequiredActions" in settings_source
     assert "extractAiTradingProductionEvidenceExplain(data.validation)" in settings_source
     assert "JSON.stringify(data.template || {}, null, 2)" in settings_source
     assert "production_evidence_file" not in settings_source
