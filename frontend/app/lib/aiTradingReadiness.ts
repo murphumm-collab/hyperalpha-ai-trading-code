@@ -276,6 +276,25 @@ const PRODUCTION_EVIDENCE_API_STATUS_LABELS: Record<number, string> = {
   422: 'Evidence request was rejected by the safe validator',
 }
 
+const MODEL_CONFIG_API_DETAIL_LABELS: Record<string, string> = {
+  'Base URL is required for custom provider': 'Base URL is required for custom provider',
+  'Connection test failed': 'Model connection test failed',
+  'Connection timeout': 'Model provider connection timed out',
+  'Invalid Base URL': 'Base URL is invalid',
+  'Invalid provider': 'Model provider is not supported',
+  'base_url is required for custom provider': 'Base URL is required for custom provider',
+}
+
+const MODEL_CONFIG_API_STATUS_LABELS: Record<number, string> = {
+  400: 'Model connection test failed',
+  401: 'Authentication required',
+  403: 'Model configuration is not allowed',
+  422: 'Model configuration request is invalid',
+  429: 'Too many model configuration requests',
+  500: 'Model configuration service failed',
+  503: 'Model provider service is unavailable',
+}
+
 const safeProductionEvidenceApiDetailCode = (detail: unknown): string | null => {
   if (typeof detail === 'string') {
     const knownLabel = PRODUCTION_EVIDENCE_API_ERROR_LABELS[detail] || PRODUCTION_EVIDENCE_BLOCKER_LABELS[detail]
@@ -299,6 +318,41 @@ export const formatAiTradingProductionEvidenceApiError = (
     ? PRODUCTION_EVIDENCE_API_ERROR_LABELS[safeCode] || PRODUCTION_EVIDENCE_BLOCKER_LABELS[safeCode]
     : PRODUCTION_EVIDENCE_API_STATUS_LABELS[status] || fallback
   return `${statusLabel}: ${safeDetail}`
+}
+
+const safeModelConfigApiDetailLabel = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    const exactLabel = MODEL_CONFIG_API_DETAIL_LABELS[detail]
+    if (exactLabel) return exactLabel
+
+    if (detail.startsWith('Unknown provider:')) {
+      return 'Model provider is not supported'
+    }
+    if (detail.startsWith('Connection failed:')) {
+      return 'Model provider connection failed'
+    }
+    if (detail.startsWith('HTTP ')) {
+      return 'Model provider rejected the connection test'
+    }
+
+    return null
+  }
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    return MODEL_CONFIG_API_DETAIL_LABELS[detail.code] || null
+  }
+  return null
+}
+
+export const formatAiTradingModelConfigApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeDetail = safeModelConfigApiDetailLabel(detail)
+    || MODEL_CONFIG_API_STATUS_LABELS[status]
+    || fallback
+  return `${statusLabel}: ${safeDetail || readableEvidenceSuffix(fallback)}`
 }
 
 const SIGNAL_ACTION_API_DETAIL_LABELS: Record<string, string> = {

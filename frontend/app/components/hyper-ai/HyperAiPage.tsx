@@ -70,6 +70,7 @@ import { pollAiStream } from '@/lib/pollAiStream'
 import { authFetch } from '@/lib/authFetch'
 import {
   formatAiTradingAgentSessionApiError,
+  formatAiTradingModelConfigApiError,
   formatAiTradingSignalActionApiError,
   formatAiTradingStrategyActionApiError,
 } from '@/lib/aiTradingReadiness'
@@ -887,6 +888,7 @@ function LLMConfigModal({
 
     setSaving(true)
     setError('')
+    const fallback = 'Failed to save model configuration'
 
     try {
       const res = await authFetch('/api/hyper-ai/profile/llm', {
@@ -901,8 +903,9 @@ function LLMConfigModal({
       })
 
       if (!res.ok) {
-        const errData = await res.json()
-        throw new Error(errData.detail || 'Connection test failed')
+        const data = await res.json().catch(() => ({}))
+        setError(formatAiTradingModelConfigApiError(res.status, data.detail, fallback))
+        return
       }
 
       setSuccess(true)
@@ -910,8 +913,9 @@ function LLMConfigModal({
         onSaved()
         onClose()
       }, 800)
-    } catch (e: any) {
-      setError(e.message || 'Failed to save')
+    } catch (e) {
+      console.error('Failed to save Hyper AI model config:', e)
+      setError(formatAiTradingModelConfigApiError(0, null, fallback))
     } finally {
       setSaving(false)
     }

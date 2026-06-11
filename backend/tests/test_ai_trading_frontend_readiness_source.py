@@ -623,6 +623,30 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
     assert "base_url" not in safe_ui_blocks
 
 
+def test_ai_trading_model_config_modal_uses_safe_api_error_formatter() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    modal_block = hyper_ai_source.split(
+        "function LLMConfigModal",
+        1,
+    )[1].split("if (!open) return null", 1)[0]
+
+    assert "formatAiTradingModelConfigApiError" in hyper_ai_source
+    assert "formatAiTradingModelConfigApiError" in helper_source
+    assert "MODEL_CONFIG_API_DETAIL_LABELS" in helper_source
+    assert "MODEL_CONFIG_API_STATUS_LABELS" in helper_source
+    assert "Unknown provider:" in helper_source
+    assert "Connection failed:" in helper_source
+    assert "Model provider connection failed" in helper_source
+
+    assert "formatAiTradingModelConfigApiError(res.status, data.detail, fallback)" in modal_block
+    assert "formatAiTradingModelConfigApiError(0, null, fallback)" in modal_block
+    assert "throw new Error(errData.detail" not in modal_block
+    assert "errData.detail ||" not in modal_block
+    assert "setError(e.message" not in modal_block
+    assert "setError(e instanceof Error ? e.message" not in modal_block
+
+
 def test_ai_trading_session_detail_validation_warnings_use_readable_labels() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     session_detail_specs_block = hyper_ai_source.split(
