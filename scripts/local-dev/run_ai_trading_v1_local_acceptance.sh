@@ -18,6 +18,7 @@ Runs the AI Trading V1 local acceptance gate:
   - default production handoff gate must stay blocked
   - default production readiness gate must stay blocked
   - default production readiness DB-audit gate must stay blocked
+  - default production operator preflight must stay blocked
   - local V1 completion boundary audit must pass
   - local completion summary gate must confirm local accepted, live orders false, and Git governance accepted
   - production completion boundary audit must stay blocked
@@ -379,6 +380,68 @@ PY
   rm -f "$explain_report_file"
 }
 
+run_production_operator_preflight_gate() {
+  local preflight_report_file
+  preflight_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-operator-preflight.json.XXXXXX")"
+  set +e
+  (
+    cd backend
+    env \
+      -u AUTH_REQUIRE_VERIFIED_BEARER \
+      -u AUTH_JWKS_URL \
+      -u AUTH_JWT_ISSUER \
+      -u AUTH_JWT_AUDIENCE \
+      -u AUTH_JWT_ALGORITHMS \
+      -u AUTH_ADMIN_USERNAMES \
+      -u AI_TRADING_SIGNAL_GATEWAY_ENABLED \
+      -u AI_TRADING_SIGNAL_GATEWAY_URL \
+      -u AI_TRADING_SIGNAL_GATEWAY_TOKEN \
+      -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED \
+      -u AI_HARD_MAX_ORDER_NOTIONAL_USD \
+      -u AI_HARD_REQUIRE_STOP_LOSS \
+      -u AI_HARD_REQUIRE_TAKE_PROFIT \
+      uv run python scripts/ai_trading_v1_production_operator_preflight.py --skip-local-runtime --strict \
+        > "$preflight_report_file"
+  )
+  local rc=$?
+  set -e
+  cat "$preflight_report_file"
+  if [[ "$rc" -ne 1 ]]; then
+    echo "Expected production operator preflight to stay blocked with exit status 1, got $rc" >&2
+    rm -f "$preflight_report_file"
+    return 1
+  fi
+  python3 - "$preflight_report_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
+
+components = report.get("components") or {}
+local_runtime = components.get("local_runtime") or {}
+summary = report.get("summary") or {}
+blockers = report.get("blockers") or []
+checks = {
+    "mode": report.get("mode") == "ai_trading_production_operator_preflight",
+    "preflight_ready_false": report.get("preflight_ready") is False,
+    "live_orders_false": report.get("ready_for_live_orders") is False,
+    "completion_blocker": "completion:live_orders_not_ready" in blockers,
+    "production_readiness_blocker": "production_readiness:not_ready" in blockers,
+    "github_upload_deferred": summary.get("github_upload") == "deferred_by_user_request",
+    "local_runtime_skipped": local_runtime.get("skipped") is True,
+}
+failed = [name for name, ok in checks.items() if not ok]
+print(json.dumps({
+    "production_operator_preflight_gate": "blocked_as_expected" if not failed else "failed",
+    "checked": checks,
+}, ensure_ascii=False, indent=2, sort_keys=True))
+if failed:
+    raise SystemExit("Production operator preflight gate failed: " + ", ".join(failed))
+PY
+  rm -f "$preflight_report_file"
+}
+
 run_runtime_readiness_with_retry() {
   local attempts="${AI_TRADING_RUNTIME_READINESS_ATTEMPTS:-24}"
   local delay_seconds="${AI_TRADING_RUNTIME_READINESS_SLEEP_SECONDS:-5}"
@@ -415,10 +478,10 @@ run_step "Local dev shell syntax" \
   bash -lc "bash -n scripts/local-dev/run_ai_trading_v1_local_acceptance.sh scripts/local-dev/install_launch_agent.sh scripts/local-dev/ai_trading_local_supervisor.sh"
 
 run_step "Backend compile check" \
-  bash -lc "cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_production_handoff_service.py services/ai_trading_production_readiness_service.py database/migrations/add_ai_trading_agent_session_fields.py scripts/ai_trading_v1_live_stack_acceptance.py scripts/ai_trading_v1_acceptance_smoke.py scripts/ai_trading_model_adjust_live_acceptance.py scripts/ai_trading_v1_env_check.py scripts/ai_trading_production_handoff_check.py scripts/ai_trading_v1_production_readiness_check.py scripts/ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_frontend_readiness_source.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_v1_completion_audit.py"
+  bash -lc "cd backend && uv run python -m py_compile api/ai_trading_routes.py services/ai_trading_strategy_spec_service.py services/ai_trading_production_handoff_service.py services/ai_trading_production_readiness_service.py database/migrations/add_ai_trading_agent_session_fields.py scripts/ai_trading_v1_live_stack_acceptance.py scripts/ai_trading_v1_acceptance_smoke.py scripts/ai_trading_model_adjust_live_acceptance.py scripts/ai_trading_v1_env_check.py scripts/ai_trading_production_handoff_check.py scripts/ai_trading_v1_production_readiness_check.py scripts/ai_trading_v1_production_operator_preflight.py scripts/ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_frontend_readiness_source.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_operator_preflight.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_v1_completion_audit.py"
 
 run_step "AI Trading backend regression" \
-  bash -lc "cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_frontend_readiness_source.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q"
+  bash -lc "cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_frontend_readiness_source.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_operator_preflight.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q"
 
 run_step "API-level V1 smoke" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_acceptance_smoke.py"
@@ -434,6 +497,9 @@ run_expected_failure "Default production readiness gate remains blocked" \
 
 run_expected_failure "Default production readiness DB-audit gate remains blocked" \
   bash -lc "cd backend && env -u AUTH_REQUIRE_VERIFIED_BEARER -u AUTH_JWKS_URL -u AUTH_JWT_ISSUER -u AUTH_JWT_AUDIENCE -u AUTH_JWT_ALGORITHMS -u AUTH_ADMIN_USERNAMES -u AI_TRADING_SIGNAL_GATEWAY_ENABLED -u AI_TRADING_SIGNAL_GATEWAY_URL -u AI_TRADING_SIGNAL_GATEWAY_TOKEN -u AI_TRADING_PRODUCTION_HANDOFF_APPROVED -u AI_HARD_MAX_ORDER_NOTIONAL_USD -u AI_HARD_REQUIRE_STOP_LOSS -u AI_HARD_REQUIRE_TAKE_PROFIT uv run python scripts/ai_trading_v1_production_readiness_check.py --strict --include-db-audits"
+
+run_step "Production operator preflight remains blocked" \
+  run_production_operator_preflight_gate
 
 run_step "Local V1 completion boundary audit" \
   run_local_completion_summary_gate

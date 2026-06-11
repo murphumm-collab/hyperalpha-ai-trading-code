@@ -45,6 +45,7 @@ def _write_minimal_acceptance_repo(
     include_db_gate: bool = True,
     include_local_dev_shell_syntax_gate: bool = True,
     include_local_acceptance_transient_retry_gate: bool = True,
+    include_production_operator_preflight_gate: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -326,6 +327,15 @@ def _write_minimal_acceptance_repo(
     runtime_readiness_retry_grace_status_marker = (
         "| AI Trading runtime readiness retry grace | Done |"
     ) if include_runtime_readiness_retry_grace_marker else ""
+    production_operator_preflight_runner_text = (
+        "Production operator preflight remains blocked\n"
+        "ai_trading_v1_production_operator_preflight.py --skip-local-runtime --strict\n"
+        "production_operator_preflight_gate\n"
+        "completion:live_orders_not_ready\n"
+    ) if include_production_operator_preflight_gate else ""
+    production_operator_preflight_status_marker = (
+        "| AI Trading production operator preflight | Done |"
+    ) if include_production_operator_preflight_gate else ""
     _write(
         root / "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh",
         "\n".join(
@@ -354,6 +364,7 @@ def _write_minimal_acceptance_repo(
                 "Runtime readiness attempt",
                 "run_runtime_readiness_with_retry",
                 runtime_readiness_retry_grace_runner_text,
+                production_operator_preflight_runner_text,
                 "--production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production",
             ]
         ),
@@ -388,7 +399,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Strategy Text Source Safety Accepted / Remote Push Skipped",
+                "Local V1 Production Operator Preflight Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -471,6 +482,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading runtime budget UI source guard | Done |",
                 "| AI Trading completion audit git governance gate | Done |",
                 "| AI Trading local completion summary gate | Done |",
+                production_operator_preflight_status_marker,
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -913,6 +925,7 @@ def test_local_acceptance_runner_uses_macos_portable_mktemp_templates():
     assert "ai-trading-production-evidence-init.json.XXXXXX" in runner_source
     assert "ai-trading-production-evidence-audit.json.XXXXXX" in runner_source
     assert "ai-trading-production-evidence-explain.json.XXXXXX" in runner_source
+    assert "ai-trading-production-operator-preflight.json.XXXXXX" in runner_source
 
 
 def test_completion_audit_blocks_local_acceptance_when_transient_retry_gate_is_missing(tmp_path):
@@ -946,6 +959,23 @@ def test_completion_audit_blocks_local_acceptance_when_runtime_readiness_retry_g
     assert "AI_TRADING_RUNTIME_READINESS_SLEEP_SECONDS" in runner_evidence["missing_phrases"]
     assert "Runtime readiness still blocked" in runner_evidence["missing_phrases"]
     assert "| AI Trading runtime readiness retry grace | Done |" in status_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_operator_preflight_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_production_operator_preflight_gate=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert "Production operator preflight remains blocked" in runner_evidence["missing_phrases"]
+    assert "ai_trading_v1_production_operator_preflight.py --skip-local-runtime --strict" in runner_evidence["missing_phrases"]
+    assert "production_operator_preflight_gate" in runner_evidence["missing_phrases"]
+    assert "completion:live_orders_not_ready" in runner_evidence["missing_phrases"]
+    assert "| AI Trading production operator preflight | Done |" in status_evidence["missing_phrases"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_frontend_source_guard_is_missing(tmp_path):
