@@ -131,6 +131,8 @@ STRATEGY_SPEC_NAME_MAX_CHARS = 120
 REDACTED_STRATEGY_SPEC_NAME = "[redacted_sensitive_strategy_name]"
 REDACTED_SENSITIVE_NAME = "[redacted_sensitive_name]"
 REDACTED_SENSITIVE_ERROR_MESSAGE = "[redacted_sensitive_error_message]"
+CONFIRMATION_SOURCE_MAX_CHARS = 100
+REDACTED_SENSITIVE_CONFIRMATION_SOURCE = "[redacted_sensitive_confirmation_source]"
 SENSITIVE_ERROR_MESSAGE_URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
@@ -542,6 +544,18 @@ def _clean_public_error_message(value: Any) -> Optional[str]:
     return message
 
 
+def _clean_confirmation_source(value: Any, *, reject_sensitive: bool = False) -> str:
+    source = _clean_text(value, CONFIRMATION_SOURCE_MAX_CHARS) or "unspecified"
+    if _error_message_contains_sensitive_value(source):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading handoff confirmation source must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_CONFIRMATION_SOURCE
+    return source
+
+
 def _redact_sensitive_payload(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: Dict[str, Any] = {}
@@ -556,6 +570,11 @@ def _redact_sensitive_payload(value: Any) -> Any:
                 redacted[key] = _clean_agent_context_summary(child)
             elif key_text in AGENT_SESSION_NAME_RESPONSE_KEYS:
                 redacted[key] = _clean_agent_session_name(child)
+            elif key_text == "user_confirmation" and isinstance(child, dict):
+                redacted_confirmation = _redact_sensitive_payload(child)
+                if isinstance(redacted_confirmation, dict):
+                    redacted_confirmation["source"] = _clean_confirmation_source(child.get("source"))
+                redacted[key] = redacted_confirmation
             elif key_text == "name" and _display_name_contains_sensitive_value(child):
                 redacted[key] = REDACTED_SENSITIVE_NAME
             elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
@@ -3598,7 +3617,7 @@ def _build_signal_gateway_payload(
         else None,
         "user_confirmation": {
             "confirmed": True,
-            "source": _clean_text(confirmation_source, 100) or "unspecified",
+            "source": _clean_confirmation_source(confirmation_source),
         },
         "market": market,
         "market_context": market_context,
@@ -3837,10 +3856,14 @@ def submit_signal_event_to_gateway(
         raise ValueError("Signal event not found")
     if not confirmed_by_user:
         raise ValueError("Signal handoff requires explicit user confirmation")
+    resolved_confirmation_source = _clean_confirmation_source(
+        confirmation_source,
+        reject_sensitive=True,
+    )
     eligibility = build_signal_event_handoff_eligibility(event, db=db, user_id=user_id)
     confirmation_audit = {
         "confirmed": True,
-        "source": _clean_text(confirmation_source, 100) or "unspecified",
+        "source": resolved_confirmation_source,
     }
     attempt_eligibility = {
         **eligibility,
@@ -3870,7 +3893,10 @@ def submit_signal_event_to_gateway(
     if not isinstance(execution_boundary, dict):
         execution_boundary = {}
 
-    payload = _build_signal_gateway_payload(event, confirmation_source=confirmation_source)
+    payload = _build_signal_gateway_payload(
+        event,
+        confirmation_source=resolved_confirmation_source,
+    )
     headers = {"Content-Type": "application/json"}
     if SIGNAL_GATEWAY_TOKEN:
         headers["Authorization"] = f"Bearer {SIGNAL_GATEWAY_TOKEN}"

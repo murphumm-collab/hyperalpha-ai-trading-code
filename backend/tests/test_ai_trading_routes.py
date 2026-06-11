@@ -2053,6 +2053,46 @@ def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tm
     assert "secret-private-key" not in str(calls[0]["json"])
 
 
+def test_ai_trading_signal_handoff_rejects_sensitive_confirmation_source(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+    calls = []
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        raise AssertionError("gateway should not be called with a sensitive confirmation source")
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    rejected = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={
+            "confirmed_by_user": True,
+            "confirmation_source": (
+                "api_key=secret-confirmation-key https://order-backend.test/signals"
+            ),
+        },
+    )
+    assert rejected.status_code == 400
+    assert "confirmation source must not contain" in rejected.json()["detail"]
+    assert "secret-confirmation-key" not in str(rejected.json())
+    assert "order-backend.test" not in str(rejected.json())
+    assert calls == []
+
+    session = client._ai_trading_session_factory()
+    try:
+        attempts = session.query(AiTradingSignalHandoffAttemptRecord).filter(
+            AiTradingSignalHandoffAttemptRecord.signal_event_id == event["id"]
+        ).all()
+        assert attempts == []
+    finally:
+        session.close()
+
+
 def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mutating_audit_json(tmp_path):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(
@@ -2093,11 +2133,19 @@ def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mu
                     "authorization": "bearer secret-gateway-header",
                 },
             },
+            "user_confirmation": {
+                "confirmed": True,
+                "source": (
+                    "api_key=secret-confirmation-source "
+                    "https://order-backend.test/signals"
+                ),
+            },
         })
         session.commit()
         assert "secret-error-key" in event_row.error_message
         assert "order-backend.test" in attempt.error_message
         assert "secret-eligibility-key" in attempt.eligibility_json
+        assert "secret-confirmation-source" in attempt.eligibility_json
         assert "secret-blocker-token" in attempt.blockers_json
     finally:
         session.close()
@@ -2115,9 +2163,18 @@ def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mu
     assert attempt_payload["eligibility"]["api_key"] == "***"
     assert attempt_payload["eligibility"]["nested"]["private_key"] == "***"
     assert attempt_payload["eligibility"]["nested"]["gateway_response"]["authorization"] == "***"
+    assert attempt_payload["eligibility"]["user_confirmation"] == {
+        "confirmed": True,
+        "source": "[redacted_sensitive_confirmation_source]",
+    }
     context = client.get("/api/ai-trading/agent-sessions/session:handoff-error-redaction/context")
     assert context.status_code == 200
-    assert context.json()["context"]["handoff_attempts"][0]["error_message"] == "[redacted_sensitive_error_message]"
+    context_attempt = context.json()["context"]["handoff_attempts"][0]
+    assert context_attempt["error_message"] == "[redacted_sensitive_error_message]"
+    assert context_attempt["eligibility"]["user_confirmation"] == {
+        "confirmed": True,
+        "source": "[redacted_sensitive_confirmation_source]",
+    }
     serialized = json.dumps({
         "signal": signal_payload,
         "attempt": attempt_payload,
@@ -2128,6 +2185,7 @@ def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mu
     assert "bearer-secret-error-token" not in serialized
     assert "secret-blocker-token" not in serialized
     assert "secret-eligibility-key" not in serialized
+    assert "secret-confirmation-source" not in serialized
     assert "secret-private-key" not in serialized
     assert "secret-gateway-header" not in serialized
 

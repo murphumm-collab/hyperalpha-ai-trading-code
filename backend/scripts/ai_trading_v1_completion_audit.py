@@ -396,10 +396,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the handoff error-message safety flow as accepted and remote push as skipped.",
+        description="Feature status marks the handoff confirmation-source safety flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Handoff Error Message Safety Accepted / Remote Push Skipped",
+            "Local V1 Handoff Confirmation Source Safety Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -468,6 +468,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading agent-session name safety | Done |",
             "| AI Trading strategy-spec name safety | Done |",
             "| AI Trading handoff error-message safety | Done |",
+            "| AI Trading handoff confirmation-source safety | Done |",
             "| AI Trading gateway mode guard | Done |",
             "| AI Trading runtime mirror freshness gate | Done |",
             "| AI Trading runtime readiness cold-start retry | Done |",
