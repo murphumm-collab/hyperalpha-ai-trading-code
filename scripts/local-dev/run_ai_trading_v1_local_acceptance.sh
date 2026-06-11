@@ -115,7 +115,7 @@ run_command_with_transient_retry() {
   delay_seconds="$(transient_retry_sleep_seconds)"
 
   for ((attempt = 1; attempt <= attempts; attempt++)); do
-    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-step.XXXXXX.log")"
+    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-step.log.XXXXXX")"
     set +e
     "$@" > "$output_file" 2>&1
     rc=$?
@@ -163,7 +163,7 @@ run_expected_failure() {
   delay_seconds="$(transient_retry_sleep_seconds)"
 
   for ((attempt = 1; attempt <= attempts; attempt++)); do
-    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-expected-failure.XXXXXX.log")"
+    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-expected-failure.log.XXXXXX")"
     set +e
     "$@" > "$output_file" 2>&1
     rc=$?
@@ -191,7 +191,7 @@ run_expected_failure() {
 
 run_local_completion_summary_gate() {
   local report_file
-  report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-completion-audit.XXXXXX.json")"
+  report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-completion-audit.json.XXXXXX")"
   (
     cd backend
     uv run python scripts/ai_trading_v1_completion_audit.py --strict-local > "$report_file"
@@ -235,9 +235,9 @@ run_production_evidence_initializer_gate() {
   local evidence_file
   local init_report_file
   local audit_report_file
-  evidence_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence.XXXXXX.json")"
-  init_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-init.XXXXXX.json")"
-  audit_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-audit.XXXXXX.json")"
+  evidence_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence.json.XXXXXX")"
+  init_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-init.json.XXXXXX")"
+  audit_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-audit.json.XXXXXX")"
   rm -f "$evidence_file"
 
   (
@@ -326,7 +326,7 @@ PY
 
 run_production_evidence_explain_gate() {
   local explain_report_file
-  explain_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-explain.XXXXXX.json")"
+  explain_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-explain.json.XXXXXX")"
   (
     cd backend
     uv run python scripts/ai_trading_v1_completion_audit.py --explain-production-evidence > "$explain_report_file"

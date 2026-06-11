@@ -127,6 +127,9 @@ AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS = {"context_summary", "agent_context_summary
 AGENT_SESSION_NAME_RESPONSE_KEYS = {"agent_session_name"}
 AGENT_SESSION_NAME_MAX_CHARS = 120
 REDACTED_AGENT_SESSION_NAME = "[redacted_sensitive_session_name]"
+STRATEGY_SPEC_NAME_MAX_CHARS = 120
+REDACTED_STRATEGY_SPEC_NAME = "[redacted_sensitive_strategy_name]"
+REDACTED_SENSITIVE_NAME = "[redacted_sensitive_name]"
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
     r"direct\s+order|立即下单|直接下单|市价单|限价单)",
@@ -513,6 +516,13 @@ def _json_loads(value: Optional[str], fallback: Any) -> Any:
         return fallback
 
 
+def _display_name_contains_sensitive_value(value: Any) -> bool:
+    text = str(value or "")
+    return bool(SENSITIVE_AI_TRADING_KEY_PATTERN.search(text)) or any(
+        pattern.search(text) for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS
+    )
+
+
 def _redact_sensitive_payload(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: Dict[str, Any] = {}
@@ -520,13 +530,15 @@ def _redact_sensitive_payload(value: Any) -> Any:
             key_text = str(key)
             if key_text == "agent_session" and isinstance(child, dict):
                 redacted_session = _redact_sensitive_payload(child)
-                if isinstance(redacted_session, dict) and "name" in redacted_session:
-                    redacted_session["name"] = _clean_agent_session_name(redacted_session.get("name"))
+                if isinstance(redacted_session, dict) and "name" in child:
+                    redacted_session["name"] = _clean_agent_session_name(child.get("name"))
                 redacted[key] = redacted_session
             elif key_text in AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS:
                 redacted[key] = _clean_agent_context_summary(child)
             elif key_text in AGENT_SESSION_NAME_RESPONSE_KEYS:
                 redacted[key] = _clean_agent_session_name(child)
+            elif key_text == "name" and _display_name_contains_sensitive_value(child):
+                redacted[key] = REDACTED_SENSITIVE_NAME
             elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
                 redacted[key] = "***"
             else:
@@ -584,13 +596,44 @@ def _signal_event_age_seconds(event: AiTradingSignalEventRecord) -> Optional[int
     return max(0, int(age))
 
 
-def _derive_record_name(spec: Dict[str, Any], name: Optional[str] = None) -> str:
-    explicit = _clean_text(name, 120)
+def _clean_strategy_spec_name(
+    value: Any,
+    *,
+    fallback: Optional[str] = None,
+    reject_sensitive: bool = False,
+) -> Optional[str]:
+    name = _clean_text(value, STRATEGY_SPEC_NAME_MAX_CHARS)
+    if not name and fallback is not None:
+        name = _clean_text(fallback, STRATEGY_SPEC_NAME_MAX_CHARS)
+    if not name:
+        return None
+    if _display_name_contains_sensitive_value(name):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading strategy spec name must not contain API keys, "
+                "tokens, secrets, private keys, passwords, or authorization headers"
+            )
+        return REDACTED_STRATEGY_SPEC_NAME
+    return name
+
+
+def _derive_record_name(
+    spec: Dict[str, Any],
+    name: Optional[str] = None,
+    *,
+    reject_sensitive: bool = False,
+) -> str:
+    explicit = _clean_strategy_spec_name(name, reject_sensitive=reject_sensitive)
     if explicit:
         return explicit
     symbol = _normalize_symbol(spec.get("symbol")) or "Strategy"
     timeframe = str(spec.get("timeframe") or DEFAULT_TIMEFRAME)
-    return f"{symbol} {timeframe} AI Trading Spec"[:120]
+    derived = f"{symbol} {timeframe} AI Trading Spec"
+    return _clean_strategy_spec_name(
+        derived,
+        fallback="AI Trading Spec",
+        reject_sensitive=reject_sensitive,
+    ) or "AI Trading Spec"
 
 
 def _clean_agent_session_id(value: Any) -> Optional[str]:
@@ -626,10 +669,7 @@ def _clean_agent_context_summary(value: Any, *, reject_sensitive: bool = False) 
 
 
 def _agent_session_name_contains_sensitive_value(value: Any) -> bool:
-    text = str(value or "")
-    return bool(SENSITIVE_AI_TRADING_KEY_PATTERN.search(text)) or any(
-        pattern.search(text) for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS
-    )
+    return _display_name_contains_sensitive_value(value)
 
 
 def _clean_agent_session_name(
@@ -1087,10 +1127,11 @@ def serialize_strategy_spec_record(
     db: Optional[Session] = None,
     user_id: Optional[int] = None,
 ) -> Dict[str, Any]:
+    record_name = _clean_strategy_spec_name(record.name, fallback=f"{record.symbol} AI Trading Spec")
     payload = {
         "id": record.id,
         "user_id": record.user_id,
-        "name": record.name,
+        "name": record_name,
         "symbol": record.symbol,
         "status": record.status,
         "source": record.source,
@@ -1927,10 +1968,11 @@ def save_strategy_spec_record(
         or _clean_agent_session_id(spec_copy.get("agent_session_id"))
         or _new_agent_session_id(spec_copy)
     )
+    resolved_record_name = _derive_record_name(spec_copy, name, reject_sensitive=True)
     resolved_agent_session_name = (
         _clean_agent_session_name(agent_session_name)
         or _clean_agent_session_name(spec_copy.get("agent_session_name"))
-        or _clean_agent_session_name(_derive_record_name(spec_copy, name))
+        or _clean_agent_session_name(resolved_record_name)
         or resolved_agent_session_id
     )
     resolved_context_summary = _clean_agent_context_summary(
@@ -1970,7 +2012,7 @@ def save_strategy_spec_record(
         agent_session_id=resolved_agent_session_id,
         agent_session_name=resolved_agent_session_name,
         agent_context_summary=resolved_context_summary,
-        name=_derive_record_name(spec_copy, name),
+        name=resolved_record_name,
         symbol=_normalize_symbol(spec_copy.get("symbol")),
         status=validation["status"],
         source=_clean_text(source, 50) or "manual",
@@ -3107,7 +3149,7 @@ def _minimal_strategy_spec_context(record: AiTradingStrategySpecRecord) -> Dict[
         validation = {}
     return _redact_sensitive_payload({
         "id": record.id,
-        "name": record.name,
+        "name": _clean_strategy_spec_name(record.name, fallback=f"{record.symbol} AI Trading Spec"),
         "symbol": record.symbol,
         "status": record.status,
         "timeframe": spec.get("timeframe") or DEFAULT_TIMEFRAME,

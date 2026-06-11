@@ -2196,8 +2196,10 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
     raw_markers = [
         "legacy-session-name-key",
         "legacy-session-row-key",
+        "legacy-spec-record-name-key",
         "legacy-spec-name-token",
         "legacy-spec-row-token",
+        "legacy-spec-json-record-name-key",
         "legacy-spec-json-name-token",
         "legacy-spec-json-key",
         "legacy-event-name-secret",
@@ -2222,6 +2224,7 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
         ).one()
 
         spec_json = json.loads(spec_row.spec_json)
+        spec_json["name"] = "api_key=legacy-spec-json-record-name-key"
         spec_json.setdefault("agent_session", {})["name"] = "api_key=legacy-spec-json-name-token"
         spec_json.setdefault("agent_session", {})["context_summary"] = "api_key=legacy-spec-json-key"
         signal_json = json.loads(event_row.signal_json)
@@ -2232,6 +2235,7 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
 
         session_record.name = "api_key=legacy-session-name-key"
         session_record.context_summary = "api_key=legacy-session-row-key"
+        spec_row.name = "api_key=legacy-spec-record-name-key"
         spec_row.agent_session_name = "token=legacy-spec-name-token"
         spec_row.agent_context_summary = "token=legacy-spec-row-token"
         spec_row.spec_json = json.dumps(spec_json)
@@ -2244,8 +2248,10 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
 
         assert "legacy-session-name-key" in session_record.name
         assert "legacy-session-row-key" in session_record.context_summary
+        assert "legacy-spec-record-name-key" in spec_row.name
         assert "legacy-spec-name-token" in spec_row.agent_session_name
         assert "legacy-spec-row-token" in spec_row.agent_context_summary
+        assert "legacy-spec-json-record-name-key" in spec_row.spec_json
         assert "legacy-spec-json-name-token" in spec_row.spec_json
         assert "legacy-spec-json-key" in spec_row.spec_json
         assert "legacy-event-name-secret" in event_row.agent_session_name
@@ -2267,14 +2273,17 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
 
     spec_list = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:legacy-redaction")
     assert spec_list.status_code == 200
+    assert spec_list.json()["specs"][0]["name"] == "[redacted_sensitive_strategy_name]"
     assert spec_list.json()["specs"][0]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert spec_list.json()["specs"][0]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
     spec_detail = alice.get(f"/api/ai-trading/strategy-specs/{spec['id']}")
     assert spec_detail.status_code == 200
     spec_detail_payload = spec_detail.json()["spec_record"]
+    assert spec_detail_payload["name"] == "[redacted_sensitive_strategy_name]"
     assert spec_detail_payload["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert spec_detail_payload["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+    assert spec_detail_payload["spec"]["name"] == "[redacted_sensitive_name]"
     assert spec_detail_payload["spec"]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert spec_detail_payload["spec"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
@@ -2300,6 +2309,7 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
     assert context.status_code == 200
     assert context.json()["context"]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert context.json()["context"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+    assert context.json()["context"]["strategy_specs"][0]["name"] == "[redacted_sensitive_strategy_name]"
 
     for payload in [
         sessions.json(),
@@ -3767,3 +3777,41 @@ def test_ai_trading_strategy_spec_model_context_and_secret_guard(tmp_path):
     validation = invalid.json()["validation"]
     assert validation["valid"] is False
     assert "ai_model_config_must_not_include_secrets" in validation["issues"]
+
+
+def test_ai_trading_strategy_spec_name_rejects_sensitive_values(tmp_path):
+    client = _build_client(tmp_path)
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m long breakout with required stop-loss and take-profit.",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+        },
+    )
+    assert draft.status_code == 200
+
+    rejected = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={
+            "spec": draft.json()["spec"],
+            "name": "api_key=should-not-be-stored",
+            "source": "pytest_sensitive_name",
+        },
+    )
+    assert rejected.status_code == 400
+    assert "strategy spec name must not contain" in rejected.json()["detail"]
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={
+            "spec": draft.json()["spec"],
+            "name": "BTC safe strategy name",
+            "source": "pytest_safe_name",
+        },
+    )
+    assert saved.status_code == 200
+    assert saved.json()["spec_record"]["name"] == "BTC safe strategy name"
+    serialized = json.dumps(saved.json(), ensure_ascii=False).lower()
+    assert "should-not-be-stored" not in serialized

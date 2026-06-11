@@ -99,6 +99,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_market_universe_error_safety_marker: bool = True,
     include_frontend_market_symbol_sanitizer_marker: bool = True,
     include_agent_session_name_safety_marker: bool = True,
+    include_strategy_spec_name_safety_marker: bool = True,
     include_gateway_mode_guard_marker: bool = True,
     include_runtime_readiness_retry_grace_marker: bool = True,
     include_external_markers: bool = True,
@@ -287,6 +288,9 @@ def _write_minimal_acceptance_repo(
     agent_session_name_safety_marker = (
         "| AI Trading agent-session name safety | Done |"
     ) if include_agent_session_name_safety_marker else ""
+    strategy_spec_name_safety_marker = (
+        "| AI Trading strategy-spec name safety | Done |"
+    ) if include_strategy_spec_name_safety_marker else ""
     gateway_mode_guard_marker = (
         "| AI Trading gateway mode guard | Done |"
     ) if include_gateway_mode_guard_marker else ""
@@ -360,7 +364,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Agent Session Name Safety Accepted / Remote Push Skipped",
+                "Local V1 Strategy Spec Name Safety Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -427,6 +431,7 @@ def _write_minimal_acceptance_repo(
                 frontend_market_universe_error_safety_marker,
                 frontend_market_symbol_sanitizer_marker,
                 agent_session_name_safety_marker,
+                strategy_spec_name_safety_marker,
                 gateway_mode_guard_marker,
                 "| AI Trading runtime mirror freshness gate | Done |",
                 "| AI Trading runtime readiness cold-start retry | Done |",
@@ -864,6 +869,20 @@ def test_local_acceptance_runner_retries_transient_resource_failures_without_mas
     assert 'if [[ "$rc" -eq 1 ]]; then' in runner_source
     assert "Expected blocker confirmed with exit status 1" in runner_source
     assert "Expected exit status 1, got $rc" in runner_source
+
+
+def test_local_acceptance_runner_uses_macos_portable_mktemp_templates():
+    runner_source = RUNNER_SCRIPT_PATH.read_text(encoding="utf-8")
+
+    assert ".XXXXXX.log" not in runner_source
+    assert ".XXXXXX.json" not in runner_source
+    assert "ai-trading-local-step.log.XXXXXX" in runner_source
+    assert "ai-trading-local-expected-failure.log.XXXXXX" in runner_source
+    assert "ai-trading-completion-audit.json.XXXXXX" in runner_source
+    assert "ai-trading-production-evidence.json.XXXXXX" in runner_source
+    assert "ai-trading-production-evidence-init.json.XXXXXX" in runner_source
+    assert "ai-trading-production-evidence-audit.json.XXXXXX" in runner_source
+    assert "ai-trading-production-evidence-explain.json.XXXXXX" in runner_source
 
 
 def test_completion_audit_blocks_local_acceptance_when_transient_retry_gate_is_missing(tmp_path):
@@ -1855,6 +1874,24 @@ def test_completion_audit_blocks_local_acceptance_when_agent_session_name_safety
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading agent-session name safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_strategy_spec_name_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_strategy_spec_name_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading strategy-spec name safety | Done |"
         in status_evidence["missing_phrases"]
     )
 
