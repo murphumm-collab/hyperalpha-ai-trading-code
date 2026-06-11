@@ -68,7 +68,10 @@ import {
 } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
 import { authFetch } from '@/lib/authFetch'
-import { formatAiTradingSignalActionApiError } from '@/lib/aiTradingReadiness'
+import {
+  formatAiTradingAgentSessionApiError,
+  formatAiTradingSignalActionApiError,
+} from '@/lib/aiTradingReadiness'
 import BotIntegrationModal from './BotIntegrationModal'
 import NotificationConfigModal from './NotificationConfigModal'
 import ToolConfigModal, { type ToolInfo } from './ToolConfigModal'
@@ -1772,13 +1775,17 @@ export default function HyperAiPage() {
       setAgentSessionDetailLoading(true)
       setAgentSessionDetailError(null)
       setAgentSessionDetailContext(null)
+      const fallback = 'Failed to load agent session'
       try {
         const res = await authFetchAiTradingAction(
           `/api/ai-trading/agent-sessions/${encodeURIComponent(agentSessionDetailPageId)}/context?strategy_limit=20&signal_limit=50`
         )
         const data = await res.json().catch(() => ({}))
         if (!res.ok) {
-          throw new Error(data.detail || 'Failed to load agent session')
+          if (!cancelled) {
+            setAgentSessionDetailError(formatAiTradingAgentSessionApiError(res.status, data.detail, fallback))
+          }
+          return
         }
         if (cancelled) {
           return
@@ -1791,7 +1798,7 @@ export default function HyperAiPage() {
           return
         }
         console.error('Failed to load AI Trading agent session detail page:', e)
-        setAgentSessionDetailError(e instanceof Error ? e.message : 'Failed to load agent session')
+        setAgentSessionDetailError(formatAiTradingAgentSessionApiError(0, null, fallback))
       } finally {
         if (!cancelled) {
           setAgentSessionDetailLoading(false)
@@ -1884,6 +1891,7 @@ export default function HyperAiPage() {
     }
     setAgentSessionDetailCompressing(true)
     setAgentSessionDetailError(null)
+    const fallback = 'Failed to compress agent session context'
     try {
       const res = await authFetchAiTradingAction(
         `/api/ai-trading/agent-sessions/${encodeURIComponent(agentSessionDetailPageId)}/compress-context?strategy_limit=20&signal_limit=50`,
@@ -1891,7 +1899,8 @@ export default function HyperAiPage() {
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to compress agent session context')
+        setAgentSessionDetailError(formatAiTradingAgentSessionApiError(res.status, data.detail, fallback))
+        return
       }
       if (data.context) {
         setAgentSessionDetailContext(data.context as AiTradingAgentSessionContext)
@@ -1903,7 +1912,7 @@ export default function HyperAiPage() {
       refreshAiTradingState()
     } catch (e) {
       console.error('Failed to compress AI Trading agent session detail context:', e)
-      setAgentSessionDetailError(e instanceof Error ? e.message : 'Failed to compress agent session context')
+      setAgentSessionDetailError(formatAiTradingAgentSessionApiError(0, null, fallback))
     } finally {
       setAgentSessionDetailCompressing(false)
     }
@@ -2094,13 +2103,19 @@ export default function HyperAiPage() {
     setAgentSessionContextLoading(true)
     setAgentSessionContextError(null)
     setAgentSessionContext(null)
+    const fallback = 'Failed to load agent session context'
     try {
       const res = await authFetchAiTradingAction(
         `/api/ai-trading/agent-sessions/${encodeURIComponent(agentSessionId)}/context?strategy_limit=10&signal_limit=20`
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load agent session context')
+        const message = formatAiTradingAgentSessionApiError(res.status, data.detail, fallback)
+        setAgentSessionContextError(message)
+        if (loadIntoChat) {
+          setStrategyDraftError(message)
+        }
+        return null
       }
       const context = data.context as AiTradingAgentSessionContext
       setAgentSessionContext(context)
@@ -2115,7 +2130,7 @@ export default function HyperAiPage() {
       return context
     } catch (e) {
       console.error('Failed to load AI Trading agent session context:', e)
-      const message = e instanceof Error ? e.message : 'Failed to load agent session context'
+      const message = formatAiTradingAgentSessionApiError(0, null, fallback)
       setAgentSessionContextError(message)
       if (loadIntoChat) {
         setStrategyDraftError(message)
@@ -2132,6 +2147,7 @@ export default function HyperAiPage() {
     }
     setAgentSessionCompressing(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to compress agent session context'
     try {
       const res = await authFetchAiTradingAction(
         `/api/ai-trading/agent-sessions/${encodeURIComponent(selectedAiTradingAgentSession.id)}/compress-context?strategy_limit=10&signal_limit=20`,
@@ -2139,7 +2155,8 @@ export default function HyperAiPage() {
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to compress agent session context')
+        setStrategyDraftError(formatAiTradingAgentSessionApiError(res.status, data.detail, fallback))
+        return
       }
       const summary = data.context_summary || data.agent_session?.context_summary || ''
       setAgentSessionSummaryDraft(summary)
@@ -2149,7 +2166,7 @@ export default function HyperAiPage() {
       refreshAiTradingState()
     } catch (e) {
       console.error('Failed to compress AI Trading agent session context:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to compress agent session context')
+      setStrategyDraftError(formatAiTradingAgentSessionApiError(0, null, fallback))
     } finally {
       setAgentSessionCompressing(false)
     }
@@ -2171,6 +2188,7 @@ export default function HyperAiPage() {
   const handleSaveAgentSession = async () => {
     setAgentSessionSaving(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to save agent session'
     try {
       const isNewSession = selectedAiTradingAgentSessionId === AI_TRADING_NEW_AGENT_SESSION_VALUE || !selectedAiTradingAgentSession
       const endpoint = isNewSession
@@ -2186,7 +2204,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to save agent session')
+        setStrategyDraftError(formatAiTradingAgentSessionApiError(res.status, data.detail, fallback))
+        return
       }
       const record = data.agent_session as AiTradingAgentSessionRecord
       if (record?.id) {
@@ -2195,7 +2214,7 @@ export default function HyperAiPage() {
       refreshAiTradingState()
     } catch (e) {
       console.error('Failed to save AI Trading agent session:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to save agent session')
+      setStrategyDraftError(formatAiTradingAgentSessionApiError(0, null, fallback))
     } finally {
       setAgentSessionSaving(false)
     }
@@ -2213,6 +2232,7 @@ export default function HyperAiPage() {
     }
     setAgentSessionArchiving(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to archive agent session'
     try {
       const res = await authFetchAiTradingAction(
         `/api/ai-trading/agent-sessions/${encodeURIComponent(selectedAiTradingAgentSession.id)}`,
@@ -2220,13 +2240,14 @@ export default function HyperAiPage() {
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to archive agent session')
+        setStrategyDraftError(formatAiTradingAgentSessionApiError(res.status, data.detail, fallback))
+        return
       }
       setSelectedAiTradingAgentSessionId(AI_TRADING_NEW_AGENT_SESSION_VALUE)
       refreshAiTradingState()
     } catch (e) {
       console.error('Failed to archive AI Trading agent session:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to archive agent session')
+      setStrategyDraftError(formatAiTradingAgentSessionApiError(0, null, fallback))
     } finally {
       setAgentSessionArchiving(false)
     }

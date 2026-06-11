@@ -80,6 +80,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_non_object_dry_run_safety_marker: bool = True,
     include_production_evidence_frontend_error_safety_marker: bool = True,
     include_frontend_handoff_error_safety_marker: bool = True,
+    include_frontend_agent_session_error_safety_marker: bool = True,
     include_local_supervisor_fork_resilience_marker: bool = True,
     include_env_check_docker_probe_fallback_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
@@ -223,6 +224,9 @@ def _write_minimal_acceptance_repo(
     frontend_handoff_error_safety_marker = (
         "| AI Trading frontend handoff error safety | Done |"
     ) if include_frontend_handoff_error_safety_marker else ""
+    frontend_agent_session_error_safety_marker = (
+        "| AI Trading frontend agent-session error safety | Done |"
+    ) if include_frontend_agent_session_error_safety_marker else ""
     local_supervisor_fork_resilience_marker = (
         "| AI Trading local supervisor fork-pressure resilience | Done |"
     ) if include_local_supervisor_fork_resilience_marker else ""
@@ -332,7 +336,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Transient Retry Runner Accepted / Remote Push Skipped",
+                "Local V1 Frontend Agent-Session Error Safety Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -379,6 +383,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_non_object_dry_run_safety_marker,
                 production_evidence_frontend_error_safety_marker,
                 frontend_handoff_error_safety_marker,
+                frontend_agent_session_error_safety_marker,
                 local_supervisor_fork_resilience_marker,
                 env_check_docker_probe_fallback_marker,
                 local_acceptance_transient_retry_status_marker,
@@ -1406,6 +1411,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_handoff_error_sa
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend handoff error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_agent_session_error_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_agent_session_error_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend agent-session error safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

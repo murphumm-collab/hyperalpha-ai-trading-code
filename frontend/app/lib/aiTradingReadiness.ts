@@ -351,6 +351,26 @@ const SIGNAL_ACTION_API_STATUS_LABELS: Record<number, string> = {
   422: 'Signal action request is invalid',
 }
 
+const AGENT_SESSION_API_DETAIL_LABELS: Record<string, string> = {
+  'agent_session_id is required': 'Agent session id is required',
+  'AI Trading agent session not found': 'Agent session not found',
+  'AI Trading agent session is archived': 'Agent session is archived',
+  'AI Trading agent session already exists': 'Agent session already exists',
+  'AI Trading agent session name is required': 'Agent session name is required',
+}
+
+const AGENT_SESSION_API_STATUS_LABELS: Record<number, string> = {
+  400: 'Invalid agent session request',
+  401: 'Authentication required',
+  403: 'Agent session action is not allowed',
+  404: 'Agent session not found',
+  409: 'Agent session conflict',
+  422: 'Agent session input failed validation',
+  429: 'Too many agent session requests',
+  500: 'Agent session service failed',
+  503: 'Agent session service is unavailable',
+}
+
 const readableSignalActionSuffix = (value: string): string => {
   return value
     .replace(/^signal_/, '')
@@ -395,6 +415,29 @@ const safeSignalActionApiDetailLabel = (detail: unknown): string | null => {
   return null
 }
 
+const safeAgentSessionApiDetailLabel = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    const exactLabel = AGENT_SESSION_API_DETAIL_LABELS[detail]
+    if (exactLabel) return exactLabel
+
+    if (detail.startsWith('agent_session_id must be')) {
+      return 'Agent session id format is invalid'
+    }
+
+    if (detail.startsWith('AI Trading agent session ' + 'context_' + 'summary must not contain')) {
+      return 'Context summary contains sensitive text'
+    }
+
+    return null
+  }
+
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    return AGENT_SESSION_API_DETAIL_LABELS[detail.code] || null
+  }
+
+  return null
+}
+
 export const formatAiTradingSignalActionApiError = (
   status: number,
   detail: unknown,
@@ -403,6 +446,18 @@ export const formatAiTradingSignalActionApiError = (
   const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
   const safeDetail = safeSignalActionApiDetailLabel(detail)
     || SIGNAL_ACTION_API_STATUS_LABELS[status]
+    || fallback
+  return `${statusLabel}: ${safeDetail || readableSignalActionSuffix(fallback)}`
+}
+
+export const formatAiTradingAgentSessionApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeDetail = safeAgentSessionApiDetailLabel(detail)
+    || AGENT_SESSION_API_STATUS_LABELS[status]
     || fallback
   return `${statusLabel}: ${safeDetail || readableSignalActionSuffix(fallback)}`
 }

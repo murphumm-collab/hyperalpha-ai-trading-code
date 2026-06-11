@@ -398,6 +398,59 @@ def test_ai_trading_handoff_error_paths_use_safe_formatter() -> None:
         assert "e instanceof Error ? e.message" not in safe_error_block
 
 
+def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    detail_page_block = hyper_ai_source.split(
+        "const loadAgentSessionDetailPage = async",
+        1,
+    )[1].split("loadAgentSessionDetailPage()", 1)[0]
+    detail_compress_block = hyper_ai_source.split(
+        "const handleCompressAgentSessionDetailContext = async",
+        1,
+    )[1].split("const fetchBotConfig", 1)[0]
+    context_load_block = hyper_ai_source.split(
+        "const fetchAiTradingAgentSessionContext = async",
+        1,
+    )[1].split("const handleCompressAgentSessionContext = async", 1)[0]
+    context_compress_block = hyper_ai_source.split(
+        "const handleCompressAgentSessionContext = async",
+        1,
+    )[1].split("useEffect(() => {\n    fetchAiTradingRecords()", 1)[0]
+    save_block = hyper_ai_source.split(
+        "const handleSaveAgentSession = async",
+        1,
+    )[1].split("const handleArchiveAgentSession = async", 1)[0]
+    archive_block = hyper_ai_source.split(
+        "const handleArchiveAgentSession = async",
+        1,
+    )[1].split("const handleTradingSymbolGroupChange", 1)[0]
+
+    assert "formatAiTradingAgentSessionApiError" in hyper_ai_source
+    assert "formatAiTradingAgentSessionApiError" in helper_source
+    assert "AGENT_SESSION_API_DETAIL_LABELS" in helper_source
+    assert "AGENT_SESSION_API_STATUS_LABELS" in helper_source
+    assert "safeAgentSessionApiDetailLabel" in helper_source
+    assert "AI Trading agent session not found" in helper_source
+    assert "Agent session not found" in helper_source
+    assert "'context_' + 'summary must not contain'" in helper_source
+    assert "Context summary contains sensitive text" in helper_source
+
+    for safe_error_block in (
+        detail_page_block,
+        detail_compress_block,
+        context_load_block,
+        context_compress_block,
+        save_block,
+        archive_block,
+    ):
+        assert "formatAiTradingAgentSessionApiError(res.status, data.detail, fallback)" in safe_error_block
+        assert "formatAiTradingAgentSessionApiError(0, null, fallback)" in safe_error_block
+        assert "throw new Error(data.detail" not in safe_error_block
+        assert "data.detail ||" not in safe_error_block
+        assert "e instanceof Error ? e.message" not in safe_error_block
+
+
 def test_ai_trading_session_context_prompt_uses_defensive_sanitizer() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     context_load_block = hyper_ai_source.split(
