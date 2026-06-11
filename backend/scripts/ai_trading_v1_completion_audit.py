@@ -388,7 +388,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Root Guidance Accepted / Remote Push Skipped",
+            "Local V1 Evidence Root Actions Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -428,6 +428,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence template guidance | Done |",
             "| AI Trading production evidence validation guidance | Done |",
             "| AI Trading production evidence root guidance | Done |",
+            "| AI Trading production evidence root actions | Done |",
             "| AI Trading admin production evidence payload bounds | Done |",
             "| AI Trading agent-session response context redaction | Done |",
             "| AI Trading frontend session context prompt sanitizer | Done |",
@@ -1295,6 +1296,11 @@ def build_external_acceptance_evidence_template_guidance() -> dict[str, Any]:
     return {
         "secret_policy": "metadata_only_no_env_or_credentials",
         "root_fields": root_fields,
+        "root_next_required_actions": [
+            f"root.{item['field']}: {item['operator_guidance'][0]}"
+            for item in root_fields
+            if item.get("operator_guidance")
+        ],
         "items": items,
         "next_required_actions": [
             f"{item['id']}: {item['operator_guidance'][0]}"

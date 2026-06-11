@@ -127,10 +127,12 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "loadAiTradingEvidenceTemplate" in settings_source
     assert "extractAiTradingProductionEvidenceTemplateGuidance(data.guidance)" in settings_source
     assert "aiTradingEvidenceTemplateGuidance.nextRequiredActions" in settings_source
+    assert "aiTradingEvidenceTemplateGuidance.rootNextRequiredActions" in settings_source
     assert "aiTradingEvidenceTemplateGuidance.rootFields.length" in settings_source
-    assert "aiTradingEvidenceTemplateGuidance.rootFields.slice(0, 4).map" in settings_source
+    assert "aiTradingEvidenceTemplateGuidance.rootFields.map" in settings_source
     assert "field.requiredValue" in settings_source
     assert "field.operatorGuidance[0]" in settings_source
+    assert "field.relatedBlockers.slice(0, 2).map(formatAiTradingProductionEvidenceBlocker)" in settings_source
     assert "aiTradingEvidenceTemplateGuidance.items.slice(0, 4).map" in settings_source
     assert "item.requiredSummaryTerms.slice(0, 2).join(', ')" in settings_source
     assert "item.operatorGuidance[0] || item.description" in settings_source
@@ -142,6 +144,7 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "extractAiTradingProductionEvidenceTemplateGuidance" in helper_source
     assert "secret_policy" in helper_source
     assert "root_fields" in helper_source
+    assert "root_next_required_actions" in helper_source
     assert "related_blockers" in helper_source
     assert "next_required_actions" in helper_source
     assert "safe_artifact_ref_schemes" in helper_source

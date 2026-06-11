@@ -339,6 +339,15 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     )
     assert "external_evidence_run_id_missing" in run_id_guidance["related_blockers"]
     assert any("cutover_approval_ref" in hint for hint in run_id_guidance["operator_guidance"])
+    assert len(data["guidance"]["root_next_required_actions"]) >= 6
+    assert any(
+        action.startswith("root.evidence_run_id:") and "cutover_approval_ref" in action
+        for action in data["guidance"]["root_next_required_actions"]
+    )
+    assert any(
+        action.startswith("root.cutover_window:") and "approved live-order cutover window" in action
+        for action in data["guidance"]["root_next_required_actions"]
+    )
     assert len(data["guidance"]["items"]) == 7
     assert len(data["guidance"]["next_required_actions"]) == 7
     assert any(
@@ -392,6 +401,10 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
         field["field"] == "cutover_window"
         and "external_evidence_cutover_window_start_at_missing" in field["related_blockers"]
         for field in data["guidance"]["root_fields"]
+    )
+    assert any(
+        action.startswith("root.cutover_approval_ref:")
+        for action in data["guidance"]["root_next_required_actions"]
     )
     assert len(data["guidance"]["next_required_actions"]) == 7
     assert any(

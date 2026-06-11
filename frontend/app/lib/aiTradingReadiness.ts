@@ -99,6 +99,7 @@ export interface AiTradingProductionEvidenceRootGuidanceView {
 export interface AiTradingProductionEvidenceTemplateGuidanceView {
   secretPolicy: string
   rootFields: AiTradingProductionEvidenceRootGuidanceView[]
+  rootNextRequiredActions: string[]
   items: AiTradingProductionEvidenceTemplateGuidanceItemView[]
   nextRequiredActions: string[]
 }
@@ -357,6 +358,7 @@ export const extractAiTradingProductionEvidenceTemplateGuidance = (
   return {
     secretPolicy: typeof source.secret_policy === 'string' ? source.secret_policy : '',
     nextRequiredActions: stringList(source.next_required_actions),
+    rootNextRequiredActions: stringList(source.root_next_required_actions),
     rootFields: rawRootFields.reduce<AiTradingProductionEvidenceRootGuidanceView[]>((acc, rawItem) => {
       if (!isRecord(rawItem)) return acc
       const field = typeof rawItem.field === 'string' ? rawItem.field : ''
