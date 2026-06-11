@@ -2691,6 +2691,170 @@ def test_ai_trading_signal_preview_response_redacts_attached_backtest_sensitive_
     assert "secret-preview-header" not in serialized
 
 
+def test_ai_trading_backtest_summary_rejects_sensitive_evidence_fields_without_mutating_spec(tmp_path):
+    client = _build_client(tmp_path)
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+        },
+    )
+    assert draft.status_code == 200
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": "BTC backtest evidence safety", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    spec_id = saved.json()["spec_record"]["id"]
+
+    base_payload = {
+        "backtest_id": "bt_safe_evidence",
+        "status": "passed",
+        "accepted_for_handoff": True,
+        "metrics": {
+            "total_return": 0.12,
+            "max_drawdown": -0.03,
+            "sharpe": 1.6,
+            "trade_count": 42,
+        },
+        "period": {"start": "2026-01-01", "end": "2026-06-01"},
+        "source": "pytest",
+    }
+    cases = [
+        (
+            {"backtest_id": "api_key=secret-backtest-id"},
+            "backtest evidence id must not contain",
+            "secret-backtest-id",
+        ),
+        (
+            {"source": "api_key=secret-source"},
+            "backtest evidence source must not contain",
+            "secret-source",
+        ),
+        (
+            {"notes": "api_key=secret-note https://order-backend.test/signals"},
+            "backtest evidence note must not contain",
+            "secret-note",
+        ),
+    ]
+
+    for override, detail_phrase, secret_marker in cases:
+        rejected = client.post(
+            f"/api/ai-trading/strategy-specs/{spec_id}/backtest-summary",
+            json={**base_payload, **override},
+        )
+        assert rejected.status_code == 400
+        assert detail_phrase in rejected.json()["detail"]
+        assert secret_marker not in str(rejected.json())
+        assert "order-backend.test" not in str(rejected.json())
+
+        detail = client.get(f"/api/ai-trading/strategy-specs/{spec_id}")
+        assert detail.status_code == 200
+        backtest = detail.json()["spec_record"]["spec"]["backtest"]
+        assert backtest["status"] == "not_run"
+        assert backtest["accepted_for_handoff"] is False
+        assert backtest["backtest_id"] is None
+        assert backtest["source"] == "not_connected"
+
+
+def test_ai_trading_responses_redact_legacy_sensitive_backtest_evidence_without_mutating_audit_json(tmp_path):
+    client = _build_client(tmp_path)
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": (
+                "15m long breakout with stop-loss below invalidation "
+                "and take-profit at range high"
+            ),
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+        },
+    )
+    assert draft.status_code == 200
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": draft.json()["spec"], "name": "BTC legacy backtest evidence", "source": "pytest"},
+    )
+    assert saved.status_code == 200
+    record = _attach_passing_backtest(client, saved.json()["spec_record"]["id"])
+    approved = client.post(f"/api/ai-trading/strategy-specs/{record['id']}/approve")
+    assert approved.status_code == 200
+
+    sensitive_id = "api_key=secret-backtest-id"
+    sensitive_source = "api_key=secret-source"
+    sensitive_note = "api_key=secret-note https://order-backend.test/signals"
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingStrategySpecRecord).filter(
+            AiTradingStrategySpecRecord.id == record["id"]
+        ).one()
+        spec = json.loads(row.spec_json)
+        spec["backtest"]["backtest_id"] = sensitive_id
+        spec["backtest"]["run_id"] = sensitive_id
+        spec["backtest"]["source"] = sensitive_source
+        spec["backtest"]["notes"] = sensitive_note
+        row.spec_json = json.dumps(spec)
+        session.commit()
+        assert "secret-backtest-id" in row.spec_json
+        assert "secret-source" in row.spec_json
+        assert "secret-note" in row.spec_json
+        assert "order-backend.test" in row.spec_json
+    finally:
+        session.close()
+
+    detail = client.get(f"/api/ai-trading/strategy-specs/{record['id']}")
+    assert detail.status_code == 200
+    backtest = detail.json()["spec_record"]["spec"]["backtest"]
+    assert backtest["backtest_id"] == "[redacted_sensitive_backtest_id]"
+    assert backtest["run_id"] == "[redacted_sensitive_backtest_id]"
+    assert backtest["source"] == "[redacted_sensitive_backtest_source]"
+    assert backtest["notes"] == "[redacted_sensitive_backtest_note]"
+
+    event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{record['id']}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest-legacy-backtest"}},
+    )
+    assert event_response.status_code == 200
+    signal_backtest = event_response.json()["signal_event"]["signal"]["backtest"]
+    assert signal_backtest["backtest_id"] == "[redacted_sensitive_backtest_id]"
+    assert signal_backtest["run_id"] == "[redacted_sensitive_backtest_id]"
+    assert signal_backtest["source"] == "[redacted_sensitive_backtest_source]"
+    assert signal_backtest["notes"] == "[redacted_sensitive_backtest_note]"
+    serialized = json.dumps({
+        "detail": detail.json(),
+        "event": event_response.json(),
+    })
+    assert "secret-backtest-id" not in serialized
+    assert "secret-source" not in serialized
+    assert "secret-note" not in serialized
+    assert "order-backend.test" not in serialized
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingStrategySpecRecord).filter(
+            AiTradingStrategySpecRecord.id == record["id"]
+        ).one()
+        assert "secret-backtest-id" in row.spec_json
+        assert "secret-source" in row.spec_json
+        assert "secret-note" in row.spec_json
+        assert "order-backend.test" in row.spec_json
+    finally:
+        session.close()
+
+
 def test_ai_trading_backtest_summary_requires_quality_metrics(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
 

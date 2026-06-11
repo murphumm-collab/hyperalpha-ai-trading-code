@@ -135,6 +135,12 @@ CONFIRMATION_SOURCE_MAX_CHARS = 100
 REDACTED_SENSITIVE_CONFIRMATION_SOURCE = "[redacted_sensitive_confirmation_source]"
 REJECTION_REASON_MAX_CHARS = 1000
 REDACTED_SENSITIVE_REJECTION_REASON = "[redacted_sensitive_rejection_reason]"
+BACKTEST_ID_MAX_CHARS = 120
+BACKTEST_SOURCE_MAX_CHARS = 50
+BACKTEST_NOTE_MAX_CHARS = 1000
+REDACTED_SENSITIVE_BACKTEST_ID = "[redacted_sensitive_backtest_id]"
+REDACTED_SENSITIVE_BACKTEST_SOURCE = "[redacted_sensitive_backtest_source]"
+REDACTED_SENSITIVE_BACKTEST_NOTE = "[redacted_sensitive_backtest_note]"
 SENSITIVE_ERROR_MESSAGE_URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
@@ -290,16 +296,19 @@ def _default_backtest_gate() -> Dict[str, Any]:
 def _normalize_backtest_summary(payload: Dict[str, Any]) -> Dict[str, Any]:
     metrics = payload.get("metrics") if isinstance(payload.get("metrics"), dict) else {}
     period = payload.get("period") if isinstance(payload.get("period"), dict) else {}
-    backtest_id = _clean_text(payload.get("backtest_id") or payload.get("run_id"), 120) or None
+    backtest_id = _clean_backtest_id(
+        payload.get("backtest_id") or payload.get("run_id"),
+        reject_sensitive=True,
+    )
     summary = {
         "required_before_handoff": True,
         "status": _clean_text(payload.get("status"), 50).lower() or "unknown",
         "accepted_for_handoff": bool(payload.get("accepted_for_handoff") or payload.get("accepted")),
         "backtest_id": backtest_id,
-        "source": _clean_text(payload.get("source"), 50) or "manual",
+        "source": _clean_backtest_source(payload.get("source"), reject_sensitive=True),
         "metrics": metrics,
         "period": period,
-        "notes": _clean_text(payload.get("notes"), 1000) if payload.get("notes") else None,
+        "notes": _clean_backtest_note(payload.get("notes"), reject_sensitive=True),
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
     for key in (
@@ -572,6 +581,46 @@ def _clean_rejection_reason(value: Any, *, reject_sensitive: bool = False) -> Op
     return reason
 
 
+def _clean_backtest_id(value: Any, *, reject_sensitive: bool = False) -> Optional[str]:
+    backtest_id = _clean_text(value, BACKTEST_ID_MAX_CHARS)
+    if not backtest_id:
+        return None
+    if _error_message_contains_sensitive_value(backtest_id):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading backtest evidence id must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_BACKTEST_ID
+    return backtest_id
+
+
+def _clean_backtest_source(value: Any, *, reject_sensitive: bool = False) -> str:
+    source = _clean_text(value, BACKTEST_SOURCE_MAX_CHARS) or "manual"
+    if _error_message_contains_sensitive_value(source):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading backtest evidence source must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_BACKTEST_SOURCE
+    return source
+
+
+def _clean_backtest_note(value: Any, *, reject_sensitive: bool = False) -> Optional[str]:
+    note = _clean_text(value, BACKTEST_NOTE_MAX_CHARS)
+    if not note:
+        return None
+    if _error_message_contains_sensitive_value(note):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading backtest evidence note must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_BACKTEST_NOTE
+    return note
+
+
 def _redact_sensitive_payload(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: Dict[str, Any] = {}
@@ -596,6 +645,18 @@ def _redact_sensitive_payload(value: Any) -> Any:
                 if isinstance(redacted_review, dict) and "reason" in child:
                     redacted_review["reason"] = _clean_rejection_reason(child.get("reason"))
                 redacted[key] = redacted_review
+            elif key_text == "backtest" and isinstance(child, dict):
+                redacted_backtest = _redact_sensitive_payload(child)
+                if isinstance(redacted_backtest, dict):
+                    if "backtest_id" in child:
+                        redacted_backtest["backtest_id"] = _clean_backtest_id(child.get("backtest_id"))
+                    if "run_id" in child:
+                        redacted_backtest["run_id"] = _clean_backtest_id(child.get("run_id"))
+                    if "source" in child:
+                        redacted_backtest["source"] = _clean_backtest_source(child.get("source"))
+                    if "notes" in child:
+                        redacted_backtest["notes"] = _clean_backtest_note(child.get("notes"))
+                redacted[key] = redacted_backtest
             elif key_text == "name" and _display_name_contains_sensitive_value(child):
                 redacted[key] = REDACTED_SENSITIVE_NAME
             elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
@@ -2158,6 +2219,7 @@ def _program_backtest_result_summary(
     status = _clean_text(backtest.status, 50).lower() or "unknown"
     completed = status == "completed"
     config = _json_loads(backtest.config, {}) if isinstance(backtest.config, str) else (backtest.config or {})
+    safe_notes = _clean_backtest_note(notes) if notes else None
     metrics = {
         "total_return": backtest.total_pnl_percent,
         "return_pct": backtest.total_pnl_percent,
@@ -2189,7 +2251,7 @@ def _program_backtest_result_summary(
             "end": backtest.end_time.isoformat() if backtest.end_time else None,
         },
         "source": "program_backtest_result",
-        "notes": notes or (
+        "notes": safe_notes or (
             "Linked from current-user Program BacktestResult. This is evidence only, not an order."
         ),
         "program_backtest_result_id": backtest.id,
@@ -2389,8 +2451,8 @@ def build_strategy_backtest_evidence_detail(
         accepted_for_handoff=bool(backtest_summary.get("accepted_for_handoff")),
         notes=backtest_summary.get("notes"),
     )
-    safe_backtest_summary = _strip_sensitive_payload(backtest_summary)
-    safe_evidence_summary = _strip_sensitive_payload(evidence_summary)
+    safe_backtest_summary = _redact_sensitive_payload(_strip_sensitive_payload(backtest_summary))
+    safe_evidence_summary = _redact_sensitive_payload(_strip_sensitive_payload(evidence_summary))
     safe_backtest_config = _strip_sensitive_payload({
         "symbols": config.get("symbols") if isinstance(config, dict) else [],
         "signal_pool_ids": config.get("signal_pool_ids") if isinstance(config, dict) else [],
@@ -2707,7 +2769,7 @@ def attach_strategy_backtest_result(
     summary = _program_backtest_result_summary(
         backtest,
         accepted_for_handoff=accepted_for_handoff,
-        notes=_clean_text(notes, 1000) if notes else None,
+        notes=_clean_backtest_note(notes, reject_sensitive=True) if notes else None,
     )
     return attach_strategy_backtest_summary(
         db,
@@ -2753,7 +2815,11 @@ def attach_latest_matching_strategy_backtest_result(
         record_id=record_id,
         backtest_result_id=int(latest_ready["id"]),
         accepted_for_handoff=accepted_for_handoff,
-        notes=notes or f"Auto-linked latest handoff-ready Program BacktestResult for {symbol}.",
+        notes=(
+            _clean_backtest_note(notes, reject_sensitive=True)
+            if notes
+            else f"Auto-linked latest handoff-ready Program BacktestResult for {symbol}."
+        ),
     )
 
 
