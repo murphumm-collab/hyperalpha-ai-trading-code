@@ -398,6 +398,45 @@ def test_ai_trading_handoff_error_paths_use_safe_formatter() -> None:
         assert "e instanceof Error ? e.message" not in safe_error_block
 
 
+def test_ai_trading_strategy_action_error_paths_use_safe_formatter() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    strategy_actions_block = hyper_ai_source.split(
+        "const handleStrategySpecDraft = async",
+        1,
+    )[1].split("const handleSubmitSignalEventHandoff = async", 1)[0]
+    backtest_page_block = hyper_ai_source.split(
+        "const loadBacktestEvidencePage = async",
+        1,
+    )[1].split("loadBacktestEvidencePage()", 1)[0]
+
+    assert "formatAiTradingStrategyActionApiError" in hyper_ai_source
+    assert "formatAiTradingStrategyActionApiError" in helper_source
+    assert "STRATEGY_ACTION_API_DETAIL_LABELS" in helper_source
+    assert "STRATEGY_ACTION_API_STATUS_LABELS" in helper_source
+    assert "safeStrategyActionApiDetailLabel" in helper_source
+    assert "Strategy spec not found" in helper_source
+    assert "No handoff-ready matching Program Backtest result was found" in helper_source
+    assert "DeepSeek/Qwen profile is not configured" in helper_source
+    assert "Backtest preflight blocked:" in helper_source
+
+    assert "formatAiTradingStrategyActionApiError(res.status, data.detail, fallback)" in strategy_actions_block
+    assert "formatAiTradingStrategyActionApiError(0, null, fallback)" in strategy_actions_block
+    assert "formatAiTradingStrategyActionApiError(attachRes.status, attachData.detail" in strategy_actions_block
+    assert "formatAiTradingStrategyActionApiError(response.status, null" in strategy_actions_block
+    assert "formatAiTradingStrategyActionApiError(res.status, data.detail, fallback)" in backtest_page_block
+    assert "formatAiTradingStrategyActionApiError(0, null, fallback)" in backtest_page_block
+
+    for safe_error_block in (strategy_actions_block, backtest_page_block):
+        assert "throw new Error(data.detail" not in safe_error_block
+        assert "throw new Error(attachData.detail" not in safe_error_block
+        assert "data.detail ||" not in safe_error_block
+        assert "attachData.detail ||" not in safe_error_block
+        assert "response.text()" not in safe_error_block
+        assert "event.message" not in safe_error_block
+        assert "e instanceof Error ? e.message" not in safe_error_block
+
+
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

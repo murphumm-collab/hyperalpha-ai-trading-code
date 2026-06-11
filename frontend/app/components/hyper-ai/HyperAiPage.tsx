@@ -71,6 +71,7 @@ import { authFetch } from '@/lib/authFetch'
 import {
   formatAiTradingAgentSessionApiError,
   formatAiTradingSignalActionApiError,
+  formatAiTradingStrategyActionApiError,
 } from '@/lib/aiTradingReadiness'
 import BotIntegrationModal from './BotIntegrationModal'
 import NotificationConfigModal from './NotificationConfigModal'
@@ -1823,11 +1824,15 @@ export default function HyperAiPage() {
     const loadBacktestEvidencePage = async () => {
       setStrategyBacktestEvidencePageLoading(true)
       setStrategyBacktestEvidencePageError(null)
+      const fallback = 'Failed to load backtest evidence'
       try {
         const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${strategyBacktestEvidencePageSpecId}/backtest-evidence?trigger_limit=50`)
         const data = await res.json().catch(() => ({}))
         if (!res.ok) {
-          throw new Error(data.detail || 'Failed to load backtest evidence')
+          if (!cancelled) {
+            setStrategyBacktestEvidencePageError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+          }
+          return
         }
         if (cancelled) {
           return
@@ -1839,7 +1844,7 @@ export default function HyperAiPage() {
           return
         }
         console.error('Failed to load AI trading backtest evidence page:', e)
-        setStrategyBacktestEvidencePageError(e instanceof Error ? e.message : 'Failed to load backtest evidence')
+        setStrategyBacktestEvidencePageError(formatAiTradingStrategyActionApiError(0, null, fallback))
       } finally {
         if (!cancelled) {
           setStrategyBacktestEvidencePageLoading(false)
@@ -2269,6 +2274,7 @@ export default function HyperAiPage() {
   const handleStrategySpecDraft = async (symbol: string) => {
     setStrategyDraftLoadingSymbol(symbol)
     setStrategyDraftError(null)
+    const fallback = 'Failed to draft strategy spec'
     try {
       const strategyText = currentLang === 'zh'
         ? `为 ${symbol} 设计一版 15m 到 1h 的 Hyperliquid 趋势/突破策略，必须包含止损、止盈、最大亏损、杠杆限制；如果条件不完整则输出 HOLD。`
@@ -2292,7 +2298,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to draft strategy spec')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
 
       const spec = data.spec as AiTradingStrategySpec
@@ -2305,7 +2312,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to draft AI trading strategy spec:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to draft strategy spec')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyDraftLoadingSymbol(null)
     }
@@ -2321,6 +2328,7 @@ export default function HyperAiPage() {
     }
     setStrategyDraftSaving(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to save strategy spec'
     try {
       const savePayload: Record<string, unknown> = {
         name: `${strategyDraft.symbol || 'AI'} ${strategyDraft.timeframe || '15m'} Review`,
@@ -2344,7 +2352,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to save strategy spec')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return null
       }
       const record = data.spec_record as AiTradingStrategySpecRecord
       setStrategyDraftRecord(record)
@@ -2358,7 +2367,7 @@ export default function HyperAiPage() {
       return record
     } catch (e) {
       console.error('Failed to save AI trading strategy spec:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to save strategy spec')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
       return null
     } finally {
       setStrategyDraftSaving(false)
@@ -2376,6 +2385,7 @@ export default function HyperAiPage() {
     }
     setStrategyDraftApproving(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to approve strategy spec'
     try {
       const record = strategyDraftRecord || (await persistStrategyDraft())
       if (!record) {
@@ -2386,7 +2396,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to approve strategy spec')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const approved = data.spec_record as AiTradingStrategySpecRecord
       setStrategyDraftRecord(approved)
@@ -2396,7 +2407,7 @@ export default function HyperAiPage() {
       refreshAiTradingState()
     } catch (e) {
       console.error('Failed to approve AI trading strategy spec:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to approve strategy spec')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyDraftApproving(false)
     }
@@ -2418,6 +2429,7 @@ export default function HyperAiPage() {
 
     setStrategyAdjusting(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to adjust strategy spec'
     try {
       const isPersisted = Boolean(strategyDraftRecord?.id)
       const res = await authFetchAiTradingAction(
@@ -2436,7 +2448,8 @@ export default function HyperAiPage() {
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to adjust strategy spec')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
 
       const record = data.spec_record as AiTradingStrategySpecRecord | undefined
@@ -2456,7 +2469,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to adjust AI trading strategy spec:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to adjust strategy spec')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyAdjusting(false)
     }
@@ -2478,6 +2491,7 @@ export default function HyperAiPage() {
 
     setStrategyModelAdjusting(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to adjust strategy spec with model'
     try {
       const isPersisted = Boolean(strategyDraftRecord?.id)
       const selectedSessionContextPayload = (
@@ -2512,7 +2526,8 @@ export default function HyperAiPage() {
       )
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to adjust strategy spec with model')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
 
       const record = data.spec_record as AiTradingStrategySpecRecord | undefined
@@ -2546,7 +2561,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to adjust AI trading strategy spec with model:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to adjust strategy spec with model')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyModelAdjusting(false)
     }
@@ -2608,6 +2623,7 @@ export default function HyperAiPage() {
 
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('summary')
+    const fallback = 'Failed to attach backtest summary'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-summary`, {
         method: 'POST',
@@ -2622,7 +2638,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to attach backtest summary')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const record = data.spec_record as AiTradingStrategySpecRecord
       setStrategyDraftRecord(record)
@@ -2640,7 +2657,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to attach AI trading backtest summary:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach backtest summary')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -2684,6 +2701,7 @@ export default function HyperAiPage() {
 
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('program')
+    const fallback = 'Failed to attach Program Backtest result'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result`, {
         method: 'POST',
@@ -2695,7 +2713,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to attach Program Backtest result')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const record = data.spec_record as AiTradingStrategySpecRecord
       setStrategyDraftRecord(record)
@@ -2710,7 +2729,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to attach AI trading Program Backtest result:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach Program Backtest result')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -2739,6 +2758,7 @@ export default function HyperAiPage() {
 
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('latest')
+    const fallback = 'Failed to attach latest Program Backtest result'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-result/latest`, {
         method: 'POST',
@@ -2747,7 +2767,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to attach latest Program Backtest result')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const record = data.spec_record as AiTradingStrategySpecRecord
       setStrategyDraftRecord(record)
@@ -2763,7 +2784,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to attach latest AI trading Program Backtest result:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to attach latest Program Backtest result')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -2778,7 +2799,7 @@ export default function HyperAiPage() {
     })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      throw new Error(data.detail || 'Failed to build backtest preflight')
+      throw new Error(formatAiTradingStrategyActionApiError(res.status, data.detail, 'Failed to build backtest preflight'))
     }
     return data.preflight || {}
   }
@@ -2818,6 +2839,7 @@ export default function HyperAiPage() {
 
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('preflight')
+    const fallback = 'Failed to build backtest preflight'
     try {
       const preflight = await requestStrategyBacktestPreflight(targetRecordId)
       const prompt = currentLang === 'zh'
@@ -2828,7 +2850,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to build AI trading backtest preflight:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to build backtest preflight')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -2856,6 +2878,7 @@ export default function HyperAiPage() {
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('run')
     setStrategyBacktestRunStatus({ specId: targetRecordId, phase: 'preflight' })
+    const fallback = 'Failed to run Program Backtest'
 
     try {
       const preflight = await requestStrategyBacktestPreflight(targetRecordId)
@@ -2866,7 +2889,8 @@ export default function HyperAiPage() {
           ? `AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest 预检未通过，暂不启动回测。请先修复 blockers，然后再运行；这一步没有下单。\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
           : `Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId} is blocked, so the backtest was not started. Fix the blockers first; no order was placed.\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
         setInputValue(prompt)
-        throw new Error(`Backtest preflight blocked: ${blockers}`)
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(0, `Backtest preflight blocked: ${blockers}`, fallback))
+        return
       }
 
       const confirmed = window.confirm(
@@ -2887,13 +2911,14 @@ export default function HyperAiPage() {
         body: JSON.stringify(requestBody),
       })
       if (!response.ok) {
-        const errorText = await response.text().catch(() => '')
-        throw new Error(errorText || 'Failed to start Program Backtest')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(response.status, null, 'Failed to start Program Backtest'))
+        return
       }
 
       const reader = response.body?.getReader()
       if (!reader) {
-        throw new Error('No Program Backtest response body')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, 'Program Backtest stream was unavailable'))
+        return
       }
 
       const decoder = new TextDecoder()
@@ -2938,13 +2963,15 @@ export default function HyperAiPage() {
             completePayload = event
             backtestId = Number(event.backtest_id) || backtestId
           } else if (eventType === 'error') {
-            throw new Error(String(event.message || 'Program Backtest failed'))
+            setStrategyDraftError(formatAiTradingStrategyActionApiError(0, 'Program Backtest failed', fallback))
+            return
           }
         }
       }
 
       if (!backtestId) {
-        throw new Error('Program Backtest completed without a backtest id')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, 'Program Backtest completed without a backtest id'))
+        return
       }
 
       setStrategyBacktestRunStatus({ specId: targetRecordId, phase: 'attaching', backtestId })
@@ -2959,7 +2986,8 @@ export default function HyperAiPage() {
       })
       const attachData = await attachRes.json().catch(() => ({}))
       if (!attachRes.ok) {
-        throw new Error(attachData.detail || 'Failed to attach completed Program Backtest result')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(attachRes.status, attachData.detail, 'Failed to attach completed Program Backtest result'))
+        return
       }
 
       const record = attachData.spec_record as AiTradingStrategySpecRecord
@@ -2976,7 +3004,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to run AI trading Program Backtest:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to run Program Backtest')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -2996,11 +3024,13 @@ export default function HyperAiPage() {
 
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('evidence')
+    const fallback = 'Failed to load backtest evidence'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${targetRecordId}/backtest-evidence?trigger_limit=25`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load backtest evidence')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const evidence = data.evidence || {}
       setStrategyBacktestEvidenceDetail(evidence as AiTradingBacktestEvidenceDetail)
@@ -3013,7 +3043,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to inspect AI trading backtest evidence:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load backtest evidence')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategyBacktestLoadingId(null)
       setStrategyBacktestLoadingSource(null)
@@ -3035,6 +3065,7 @@ export default function HyperAiPage() {
     }
     setStrategySignalPreviewLoading(true)
     setStrategyDraftError(null)
+    const fallback = 'Failed to build signal preview'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${strategyDraftRecord.id}/signal-events`, {
         method: 'POST',
@@ -3043,7 +3074,8 @@ export default function HyperAiPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to build signal preview')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const signalEvent = data.signal_event
       const signalPreview = signalEvent?.signal || signalEvent
@@ -3055,7 +3087,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to build AI trading signal preview:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to build signal preview')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     } finally {
       setStrategySignalPreviewLoading(false)
     }
@@ -3063,11 +3095,13 @@ export default function HyperAiPage() {
 
   const handleInspectStrategySpecRecord = async (recordId: number) => {
     setStrategyDraftError(null)
+    const fallback = 'Failed to load strategy spec'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/strategy-specs/${recordId}`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load strategy spec')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const record = data.spec_record as AiTradingStrategySpecRecord
       const spec = record.spec || record
@@ -3082,17 +3116,19 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to load AI trading strategy spec:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load strategy spec')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     }
   }
 
   const handleInspectSignalEventRecord = async (eventId: number) => {
     setStrategyDraftError(null)
+    const fallback = 'Failed to load signal event'
     try {
       const res = await authFetchAiTradingAction(`/api/ai-trading/signal-events/${eventId}`)
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load signal event')
+        setStrategyDraftError(formatAiTradingStrategyActionApiError(res.status, data.detail, fallback))
+        return
       }
       const event = data.signal_event as AiTradingSignalEventRecord
       const signal = event.signal || event
@@ -3103,7 +3139,7 @@ export default function HyperAiPage() {
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
       console.error('Failed to load AI trading signal event:', e)
-      setStrategyDraftError(e instanceof Error ? e.message : 'Failed to load signal event')
+      setStrategyDraftError(formatAiTradingStrategyActionApiError(0, null, fallback))
     }
   }
 

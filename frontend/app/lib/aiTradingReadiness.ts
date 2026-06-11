@@ -351,6 +351,47 @@ const SIGNAL_ACTION_API_STATUS_LABELS: Record<number, string> = {
   422: 'Signal action request is invalid',
 }
 
+const STRATEGY_ACTION_API_DETAIL_LABELS: Record<string, string> = {
+  'Adjustment instruction is required': 'Adjustment instruction is required',
+  'AI Trading agent session is archived': 'Agent session is archived',
+  'AI Trading agent session not found': 'Agent session not found',
+  'Backtest result not found': 'Backtest result not found',
+  'LLM model or base URL is missing': 'Model endpoint is not configured',
+  'LLM not configured for AI Trading model adjustment': 'DeepSeek/Qwen profile is not configured',
+  'No handoff-ready Program BacktestResult found for strategy symbol': 'No handoff-ready matching Program Backtest result was found',
+  'No Program Backtest evidence attached': 'No Program Backtest evidence is attached',
+  'No valid LLM endpoint for AI Trading model adjustment': 'Model endpoint is not valid',
+  'Strategy spec is not valid for approval': 'Strategy spec failed approval safety checks',
+  'Strategy spec is not valid for signal preview': 'Strategy spec failed signal-preview safety checks',
+  'Strategy spec must be an object': 'Strategy spec payload is invalid',
+  'Strategy spec must be approved before signal preview': 'Strategy spec must be approved before signal preview',
+  'Strategy spec not found': 'Strategy spec was not found',
+  'Strategy spec symbol is required before attaching backtest evidence': 'Strategy symbol is required before attaching backtest evidence',
+  'Strategy spec symbol is required before backtest preflight': 'Strategy symbol is required before backtest preflight',
+  'AI Trading model adjustment requires a DeepSeek or Qwen profile': 'DeepSeek or Qwen profile is required',
+  agent_session_archived: 'Agent session is archived',
+  binding_symbol_mismatch: 'Program binding symbol does not match the strategy',
+  missing_default_request: 'Backtest preflight did not return a runnable request',
+  no_eligible_symbol_matching_program_binding: 'No eligible symbol-matching Program binding was found',
+  no_program_bindings: 'No Program bindings are available for backtest preflight',
+  strategy_backtest_max_drawdown_required: 'Backtest max drawdown metric is required',
+  strategy_backtest_performance_metric_required: 'Backtest performance metric is required',
+  strategy_backtest_required_before_handoff: 'Handoff-ready backtest evidence is required',
+  strategy_backtest_trade_count_required: 'Backtest trade count is required',
+}
+
+const STRATEGY_ACTION_API_STATUS_LABELS: Record<number, string> = {
+  400: 'Strategy action was rejected by safety checks',
+  401: 'Authentication required',
+  403: 'Strategy action is not allowed',
+  404: 'Strategy record was not found',
+  409: 'Strategy action conflicts with current state',
+  422: 'Strategy action request is invalid',
+  429: 'Too many strategy action requests',
+  500: 'Strategy service failed',
+  503: 'Strategy service is unavailable',
+}
+
 const AGENT_SESSION_API_DETAIL_LABELS: Record<string, string> = {
   'agent_session_id is required': 'Agent session id is required',
   'AI Trading agent session not found': 'Agent session not found',
@@ -390,6 +431,16 @@ const formatSignalActionCodes = (codes: string[]): string | null => {
   return labels.slice(0, 3).join(', ')
 }
 
+const formatStrategyActionCodes = (codes: string[]): string | null => {
+  const labels = codes
+    .map(code => STRATEGY_ACTION_API_DETAIL_LABELS[code.trim()])
+    .filter((label): label is string => Boolean(label))
+  if (!labels.length) {
+    return null
+  }
+  return labels.slice(0, 3).join(', ')
+}
+
 const safeSignalActionApiDetailLabel = (detail: unknown): string | null => {
   if (typeof detail === 'string') {
     const exactLabel = SIGNAL_ACTION_API_DETAIL_LABELS[detail]
@@ -410,6 +461,43 @@ const safeSignalActionApiDetailLabel = (detail: unknown): string | null => {
 
   if (isRecord(detail) && typeof detail.code === 'string') {
     return SIGNAL_ACTION_API_DETAIL_LABELS[detail.code] || null
+  }
+
+  return null
+}
+
+const safeStrategyActionApiDetailLabel = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    const exactLabel = STRATEGY_ACTION_API_DETAIL_LABELS[detail]
+      || SIGNAL_ACTION_API_DETAIL_LABELS[detail]
+      || AGENT_SESSION_API_DETAIL_LABELS[detail]
+    if (exactLabel) return exactLabel
+
+    if (detail.startsWith('agent_session_id must be')) {
+      return 'Agent session id format is invalid'
+    }
+
+    if (detail.startsWith('Backtest preflight blocked:')) {
+      const codes = detail.split(':').slice(1).join(':').split(',')
+      return formatStrategyActionCodes(codes) || 'Backtest preflight is blocked'
+    }
+
+    if (detail.startsWith('LLM request failed')) {
+      return 'Model adjustment request failed'
+    }
+
+    if (detail.startsWith('Program Backtest failed')) {
+      return 'Program Backtest failed'
+    }
+
+    return null
+  }
+
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    return STRATEGY_ACTION_API_DETAIL_LABELS[detail.code]
+      || SIGNAL_ACTION_API_DETAIL_LABELS[detail.code]
+      || AGENT_SESSION_API_DETAIL_LABELS[detail.code]
+      || null
   }
 
   return null
@@ -446,6 +534,18 @@ export const formatAiTradingSignalActionApiError = (
   const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
   const safeDetail = safeSignalActionApiDetailLabel(detail)
     || SIGNAL_ACTION_API_STATUS_LABELS[status]
+    || fallback
+  return `${statusLabel}: ${safeDetail || readableSignalActionSuffix(fallback)}`
+}
+
+export const formatAiTradingStrategyActionApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeDetail = safeStrategyActionApiDetailLabel(detail)
+    || STRATEGY_ACTION_API_STATUS_LABELS[status]
     || fallback
   return `${statusLabel}: ${safeDetail || readableSignalActionSuffix(fallback)}`
 }
