@@ -133,6 +133,8 @@ REDACTED_SENSITIVE_NAME = "[redacted_sensitive_name]"
 REDACTED_SENSITIVE_ERROR_MESSAGE = "[redacted_sensitive_error_message]"
 CONFIRMATION_SOURCE_MAX_CHARS = 100
 REDACTED_SENSITIVE_CONFIRMATION_SOURCE = "[redacted_sensitive_confirmation_source]"
+REJECTION_REASON_MAX_CHARS = 1000
+REDACTED_SENSITIVE_REJECTION_REASON = "[redacted_sensitive_rejection_reason]"
 SENSITIVE_ERROR_MESSAGE_URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
@@ -556,6 +558,20 @@ def _clean_confirmation_source(value: Any, *, reject_sensitive: bool = False) ->
     return source
 
 
+def _clean_rejection_reason(value: Any, *, reject_sensitive: bool = False) -> Optional[str]:
+    reason = _clean_text(value, REJECTION_REASON_MAX_CHARS)
+    if not reason:
+        return None
+    if _error_message_contains_sensitive_value(reason):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading signal rejection reason must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_REJECTION_REASON
+    return reason
+
+
 def _redact_sensitive_payload(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: Dict[str, Any] = {}
@@ -575,6 +591,11 @@ def _redact_sensitive_payload(value: Any) -> Any:
                 if isinstance(redacted_confirmation, dict):
                     redacted_confirmation["source"] = _clean_confirmation_source(child.get("source"))
                 redacted[key] = redacted_confirmation
+            elif key_text == "review" and isinstance(child, dict):
+                redacted_review = _redact_sensitive_payload(child)
+                if isinstance(redacted_review, dict) and "reason" in child:
+                    redacted_review["reason"] = _clean_rejection_reason(child.get("reason"))
+                redacted[key] = redacted_review
             elif key_text == "name" and _display_name_contains_sensitive_value(child):
                 redacted[key] = REDACTED_SENSITIVE_NAME
             elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
@@ -3543,7 +3564,10 @@ def reject_signal_event_record(
     if not isinstance(signal, dict):
         signal = {}
     now = datetime.now(timezone.utc)
-    rejection_reason = _clean_text(reason, 1000) or "Rejected by user before handoff"
+    rejection_reason = (
+        _clean_rejection_reason(reason, reject_sensitive=True)
+        or "Rejected by user before handoff"
+    )
 
     validation = signal.get("validation") if isinstance(signal.get("validation"), dict) else {}
     signal["validation"] = {

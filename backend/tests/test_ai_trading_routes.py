@@ -2093,6 +2093,82 @@ def test_ai_trading_signal_handoff_rejects_sensitive_confirmation_source(tmp_pat
         session.close()
 
 
+def test_ai_trading_signal_reject_rejects_sensitive_reason_without_mutating_event(tmp_path):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+
+    rejected = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/reject",
+        json={
+            "reason": (
+                "api_key=secret-rejection-key https://order-backend.test/signals"
+            ),
+        },
+    )
+    assert rejected.status_code == 400
+    assert "rejection reason must not contain" in rejected.json()["detail"]
+    assert "secret-rejection-key" not in str(rejected.json())
+    assert "order-backend.test" not in str(rejected.json())
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    signal_event = detail.json()["signal_event"]
+    assert signal_event["status"] == "review_candidate"
+    assert signal_event["handoff_status"] == "not_submitted"
+    assert signal_event["error_message"] is None
+    assert "review" not in signal_event["signal"]
+
+
+def test_ai_trading_signal_detail_redacts_legacy_sensitive_rejection_reason_without_mutating_audit_json(tmp_path):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+    sensitive_reason = (
+        "api_key=secret-rejection-key https://order-backend.test/signals "
+        "authorization=bearer-secret-rejection-token"
+    )
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        signal = json.loads(row.signal_json)
+        signal["review"] = {
+            "status": "rejected",
+            "reason": sensitive_reason,
+            "reviewed_at": "2026-06-11T00:00:00+00:00",
+        }
+        row.status = "rejected"
+        row.handoff_status = "rejected"
+        row.error_message = sensitive_reason
+        row.signal_json = json.dumps(signal)
+        session.commit()
+        assert "secret-rejection-key" in row.signal_json
+        assert "order-backend.test" in row.error_message
+    finally:
+        session.close()
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    signal_event = detail.json()["signal_event"]
+    assert signal_event["error_message"] == "[redacted_sensitive_error_message]"
+    assert signal_event["signal"]["review"]["reason"] == "[redacted_sensitive_rejection_reason]"
+    serialized = json.dumps(signal_event)
+    assert "secret-rejection-key" not in serialized
+    assert "order-backend.test" not in serialized
+    assert "bearer-secret-rejection-token" not in serialized
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        assert "secret-rejection-key" in row.signal_json
+        assert "order-backend.test" in row.error_message
+    finally:
+        session.close()
+
+
 def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mutating_audit_json(tmp_path):
     client = _build_client(tmp_path)
     _, event = _create_approved_signal_event(
