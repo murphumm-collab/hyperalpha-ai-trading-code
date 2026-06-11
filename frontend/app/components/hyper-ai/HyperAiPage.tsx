@@ -605,6 +605,8 @@ function formatAiTradingContextBudget(
 
 const SENSITIVE_TOOL_ARG_KEY_PATTERN = /(api[_-]?key|secret|token|private|password|authorization|bearer)/i
 const AI_TRADING_CONTEXT_SUMMARY_KEY_PATTERN = /^(agent_)?context_summary$/i
+const AI_TRADING_PROMPT_TEXT_KEY_PATTERN = /(context[_-]?summary|agent[_-]?context[_-]?summary|evidence|gateway|response|raw|message|error|exception|trace|log|prompt|completion|rationale|instruction|note|notes|summary)/i
+const AI_TRADING_PROMPT_TEXT_SENSITIVE_PATTERN = /(api[_-]?key|secret|token|private[_-]?key|password|authorization|bearer\s+[a-z0-9._=-]+|sk-[a-z0-9_-]{8,}|dashscope[_-]?api|deepseek[_-]?api|qwen[_-]?api)/i
 
 function maskToolArgValue(key: string, value: unknown): unknown {
   if (SENSITIVE_TOOL_ARG_KEY_PATTERN.test(key)) {
@@ -625,6 +627,10 @@ function maskToolArgValue(key: string, value: unknown): unknown {
 }
 
 function sanitizeAiTradingAgentSessionContextForPrompt(value: unknown, key = ''): unknown {
+  return sanitizeAiTradingPromptPacket(value, key)
+}
+
+function sanitizeAiTradingPromptPacket(value: unknown, key = ''): unknown {
   if (
     AI_TRADING_CONTEXT_SUMMARY_KEY_PATTERN.test(key) &&
     typeof value === 'string' &&
@@ -635,14 +641,21 @@ function sanitizeAiTradingAgentSessionContextForPrompt(value: unknown, key = '')
   if (SENSITIVE_TOOL_ARG_KEY_PATTERN.test(key)) {
     return '***'
   }
+  if (
+    typeof value === 'string' &&
+    AI_TRADING_PROMPT_TEXT_KEY_PATTERN.test(key) &&
+    AI_TRADING_PROMPT_TEXT_SENSITIVE_PATTERN.test(value)
+  ) {
+    return '[redacted_sensitive_text]'
+  }
   if (Array.isArray(value)) {
-    return value.map(item => sanitizeAiTradingAgentSessionContextForPrompt(item))
+    return value.map(item => sanitizeAiTradingPromptPacket(item, key))
   }
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [
         childKey,
-        sanitizeAiTradingAgentSessionContextForPrompt(childValue, childKey),
+        sanitizeAiTradingPromptPacket(childValue, childKey),
       ])
     )
   }
@@ -2306,8 +2319,8 @@ export default function HyperAiPage() {
       setStrategyDraft(spec)
       setStrategyDraftRecord(null)
       const reviewPrompt = currentLang === 'zh'
-        ? `请审核下面这份 AI Trading Strategy Spec：先指出缺失的约束、是否需要补充止盈止损、是否满足实盘前的风控；如果不满足，请给出 HOLD 和需要我确认的问题。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
-        : `Review this AI Trading Strategy Spec. Identify missing constraints, whether stop-loss/take-profit need refinement, and whether the spec passes pre-live risk checks. If it does not pass, return HOLD and ask for the required confirmations. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+        ? `请审核下面这份 AI Trading Strategy Spec：先指出缺失的约束、是否需要补充止盈止损、是否满足实盘前的风控；如果不满足，请给出 HOLD 和需要我确认的问题。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(spec), null, 2)}\n\`\`\``
+        : `Review this AI Trading Strategy Spec. Identify missing constraints, whether stop-loss/take-profit need refinement, and whether the spec passes pre-live risk checks. If it does not pass, return HOLD and ask for the required confirmations. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(spec), null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
@@ -2463,8 +2476,8 @@ export default function HyperAiPage() {
       refreshAiTradingState()
 
       const reviewPrompt = currentLang === 'zh'
-        ? `请审核这份已按自然语言调整后的 AI Trading Strategy Spec：重点检查旧回测是否已失效、是否需要重新回测/重新审批、止盈止损和风险约束是否足够。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
-        : `Review this adjusted AI Trading Strategy Spec. Check whether prior backtest evidence was invalidated, whether re-approval/re-backtest is required, and whether stop-loss/take-profit and risk constraints are sufficient. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+        ? `请审核这份已按自然语言调整后的 AI Trading Strategy Spec：重点检查旧回测是否已失效、是否需要重新回测/重新审批、止盈止损和风险约束是否足够。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(spec), null, 2)}\n\`\`\``
+        : `Review this adjusted AI Trading Strategy Spec. Check whether prior backtest evidence was invalidated, whether re-approval/re-backtest is required, and whether stop-loss/take-profit and risk constraints are sufficient. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(spec), null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
@@ -2555,8 +2568,8 @@ export default function HyperAiPage() {
         adjusted_spec: spec,
       }
       const reviewPrompt = currentLang === 'zh'
-        ? `请审核 DeepSeek/Qwen 调整后的 AI Trading Strategy Spec：确认模型建议没有绕过 signal-only 边界、旧回测是否已失效、是否需要重新审批和重新回测。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(reviewPacket, null, 2)}\n\`\`\``
-        : `Review this DeepSeek/Qwen adjusted AI Trading Strategy Spec. Confirm the model suggestion did not bypass signal-only boundaries, whether prior backtest evidence was invalidated, and whether re-approval/re-backtest is required. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(reviewPacket, null, 2)}\n\`\`\``
+        ? `请审核 DeepSeek/Qwen 调整后的 AI Trading Strategy Spec：确认模型建议没有绕过 signal-only 边界、旧回测是否已失效、是否需要重新审批和重新回测。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(reviewPacket), null, 2)}\n\`\`\``
+        : `Review this DeepSeek/Qwen adjusted AI Trading Strategy Spec. Confirm the model suggestion did not bypass signal-only boundaries, whether prior backtest evidence was invalidated, and whether re-approval/re-backtest is required. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(reviewPacket), null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
@@ -2650,8 +2663,8 @@ export default function HyperAiPage() {
         setStrategyBacktestSummaryId('')
       }
       const prompt = currentLang === 'zh'
-        ? `请复核 AI Trading Strategy Spec #${record.id} 的回测摘要：确认 backtest id、metrics、是否足以允许后续 signal handoff；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
-        : `Review the backtest summary attached to AI Trading Strategy Spec #${record.id}. Confirm the backtest id, metrics, and whether it is sufficient for later signal handoff. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
+        ? `请复核 AI Trading Strategy Spec #${record.id} 的回测摘要：确认 backtest id、metrics、是否足以允许后续 signal handoff；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)}\n\`\`\``
+        : `Review the backtest summary attached to AI Trading Strategy Spec #${record.id}. Confirm the backtest id, metrics, and whether it is sufficient for later signal handoff. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -2722,8 +2735,8 @@ export default function HyperAiPage() {
         setStrategyDraft(record.spec)
       }
       const prompt = currentLang === 'zh'
-        ? `请复核 AI Trading Strategy Spec #${record.id} 绑定的 Program BacktestResult #${backtestResultId}：确认这是当前用户自己的回测、metrics 是否满足 handoff gate、是否仍然只作为 signal evidence 而不是订单。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
-        : `Review the Program BacktestResult #${backtestResultId} attached to AI Trading Strategy Spec #${record.id}. Confirm it belongs to the current user, whether metrics satisfy the handoff gate, and that it remains signal evidence rather than an order. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(record.spec?.backtest || {}, null, 2)}\n\`\`\``
+        ? `请复核 AI Trading Strategy Spec #${record.id} 绑定的 Program BacktestResult #${backtestResultId}：确认这是当前用户自己的回测、metrics 是否满足 handoff gate、是否仍然只作为 signal evidence 而不是订单。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)}\n\`\`\``
+        : `Review the Program BacktestResult #${backtestResultId} attached to AI Trading Strategy Spec #${record.id}. Confirm it belongs to the current user, whether metrics satisfy the handoff gate, and that it remains signal evidence rather than an order. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -2777,8 +2790,8 @@ export default function HyperAiPage() {
       }
       const backtest = record.spec?.backtest || {}
       const prompt = currentLang === 'zh'
-        ? `请复核 AI Trading Strategy Spec #${record.id} 自动绑定的最新同标的 Program Backtest evidence：确认 metrics 是否满足 handoff gate、标的是否匹配、是否仍然只是 signal evidence。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(backtest, null, 2)}\n\`\`\``
-        : `Review the latest symbol-matching Program Backtest evidence attached to AI Trading Strategy Spec #${record.id}. Confirm metrics satisfy the handoff gate, the symbol matches, and it remains signal evidence rather than an order. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(backtest, null, 2)}\n\`\`\``
+        ? `请复核 AI Trading Strategy Spec #${record.id} 自动绑定的最新同标的 Program Backtest evidence：确认 metrics 是否满足 handoff gate、标的是否匹配、是否仍然只是 signal evidence。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(backtest), null, 2)}\n\`\`\``
+        : `Review the latest symbol-matching Program Backtest evidence attached to AI Trading Strategy Spec #${record.id}. Confirm metrics satisfy the handoff gate, the symbol matches, and it remains signal evidence rather than an order. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(backtest), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -2843,8 +2856,8 @@ export default function HyperAiPage() {
     try {
       const preflight = await requestStrategyBacktestPreflight(targetRecordId)
       const prompt = currentLang === 'zh'
-        ? `请复核 AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest preflight：确认 recommended binding 是否属于当前用户、symbol 是否匹配、default_request 是否可以作为下一步回测请求；这一步不执行回测、不下单。\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
-        : `Review the Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId}. Confirm the recommended binding belongs to the current user, the symbol matches, and the default_request is suitable for the next backtest step. This does not run a backtest or place an order.\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
+        ? `请复核 AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest preflight：确认 recommended binding 是否属于当前用户、symbol 是否匹配、default_request 是否可以作为下一步回测请求；这一步不执行回测、不下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(preflight), null, 2)}\n\`\`\``
+        : `Review the Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId}. Confirm the recommended binding belongs to the current user, the symbol matches, and the default_request is suitable for the next backtest step. This does not run a backtest or place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(preflight), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -2886,8 +2899,8 @@ export default function HyperAiPage() {
       if (!preflight.ready || !requestBody?.binding_id || !requestBody.start_time_ms || !requestBody.end_time_ms) {
         const blockers = preflight.blockers?.length ? preflight.blockers.join(', ') : 'missing_default_request'
         const prompt = currentLang === 'zh'
-          ? `AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest 预检未通过，暂不启动回测。请先修复 blockers，然后再运行；这一步没有下单。\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
-          : `Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId} is blocked, so the backtest was not started. Fix the blockers first; no order was placed.\n\n\`\`\`json\n${JSON.stringify(preflight, null, 2)}\n\`\`\``
+          ? `AI Trading Strategy Spec #${targetRecordId} 的 Program Backtest 预检未通过，暂不启动回测。请先修复 blockers，然后再运行；这一步没有下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(preflight), null, 2)}\n\`\`\``
+          : `Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId} is blocked, so the backtest was not started. Fix the blockers first; no order was placed.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(preflight), null, 2)}\n\`\`\``
         setInputValue(prompt)
         setStrategyDraftError(formatAiTradingStrategyActionApiError(0, `Backtest preflight blocked: ${blockers}`, fallback))
         return
@@ -2997,8 +3010,8 @@ export default function HyperAiPage() {
       }
       const attachedBacktest = record.spec?.backtest || { program_backtest_result_id: backtestId }
       const prompt = currentLang === 'zh'
-        ? `Program Backtest #${backtestId} 已完成并绑定到 AI Trading Strategy Spec #${targetRecordId}。请复核结果质量、drawdown、trade_count、handoff gate，以及是否需要调整策略；不要直接下单。\n\n\`\`\`json\n${JSON.stringify({ result: completePayload, attached_backtest: attachedBacktest }, null, 2)}\n\`\`\``
-        : `Program Backtest #${backtestId} completed and was attached to AI Trading Strategy Spec #${targetRecordId}. Review result quality, drawdown, trade_count, handoff gate, and whether the strategy should be adjusted. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify({ result: completePayload, attached_backtest: attachedBacktest }, null, 2)}\n\`\`\``
+        ? `Program Backtest #${backtestId} 已完成并绑定到 AI Trading Strategy Spec #${targetRecordId}。请复核结果质量、drawdown、trade_count、handoff gate，以及是否需要调整策略；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket({ result: completePayload, attached_backtest: attachedBacktest }), null, 2)}\n\`\`\``
+        : `Program Backtest #${backtestId} completed and was attached to AI Trading Strategy Spec #${targetRecordId}. Review result quality, drawdown, trade_count, handoff gate, and whether the strategy should be adjusted. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket({ result: completePayload, attached_backtest: attachedBacktest }), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -3036,8 +3049,8 @@ export default function HyperAiPage() {
       setStrategyBacktestEvidenceDetail(evidence as AiTradingBacktestEvidenceDetail)
       setStrategyBacktestEvidenceDialogOpen(true)
       const prompt = currentLang === 'zh'
-        ? `请复核 AI Trading Strategy Spec #${targetRecordId} 绑定的 Program Backtest evidence：重点检查 metrics、equity curve sample、trigger/action 分布、quality_issues 和 handoff_ready；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
-        : `Review the Program Backtest evidence attached to AI Trading Strategy Spec #${targetRecordId}. Focus on metrics, equity curve sample, trigger/action distribution, quality_issues, and handoff_ready. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(evidence, null, 2)}\n\`\`\``
+        ? `请复核 AI Trading Strategy Spec #${targetRecordId} 绑定的 Program Backtest evidence：重点检查 metrics、equity curve sample、trigger/action 分布、quality_issues 和 handoff_ready；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(evidence), null, 2)}\n\`\`\``
+        : `Review the Program Backtest evidence attached to AI Trading Strategy Spec #${targetRecordId}. Focus on metrics, equity curve sample, trigger/action distribution, quality_issues, and handoff_ready. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(evidence), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -3080,8 +3093,8 @@ export default function HyperAiPage() {
       const signalEvent = data.signal_event
       const signalPreview = signalEvent?.signal || signalEvent
       const reviewPrompt = currentLang === 'zh'
-        ? `请审核下面这份 AI Trading Signal Event #${signalEvent?.id || '-'}：确认它是否仍然只是 signal candidate、是否满足 approved strategy spec 的风控边界、是否还缺少给订单后端的字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
-        : `Review AI Trading Signal Event #${signalEvent?.id || '-'}. Confirm that it is still only a signal candidate, whether it satisfies the approved strategy spec risk boundary, and which fields are still missing before backend handoff. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signalPreview, null, 2)}\n\`\`\``
+        ? `请审核下面这份 AI Trading Signal Event #${signalEvent?.id || '-'}：确认它是否仍然只是 signal candidate、是否满足 approved strategy spec 的风控边界、是否还缺少给订单后端的字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(signalPreview), null, 2)}\n\`\`\``
+        : `Review AI Trading Signal Event #${signalEvent?.id || '-'}. Confirm that it is still only a signal candidate, whether it satisfies the approved strategy spec risk boundary, and which fields are still missing before backend handoff. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(signalPreview), null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -3106,8 +3119,8 @@ export default function HyperAiPage() {
       const record = data.spec_record as AiTradingStrategySpecRecord
       const spec = record.spec || record
       const prompt = currentLang === 'zh'
-        ? `请审核这份已保存的 AI Trading Strategy Spec #${record.id}，重点检查风控、止盈止损、执行边界和需要补充的问题。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
-        : `Review saved AI Trading Strategy Spec #${record.id}. Check risk, take-profit/stop-loss, execution boundaries, and missing questions. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(spec, null, 2)}\n\`\`\``
+        ? `请审核这份已保存的 AI Trading Strategy Spec #${record.id}，重点检查风控、止盈止损、执行边界和需要补充的问题。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(spec), null, 2)}\n\`\`\``
+        : `Review saved AI Trading Strategy Spec #${record.id}. Check risk, take-profit/stop-loss, execution boundaries, and missing questions. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(spec), null, 2)}\n\`\`\``
       setInputValue(prompt)
       setStrategyDraftRecord(record)
       if (record.spec) {
@@ -3133,8 +3146,8 @@ export default function HyperAiPage() {
       const event = data.signal_event as AiTradingSignalEventRecord
       const signal = event.signal || event
       const prompt = currentLang === 'zh'
-        ? `请审核这份 AI Trading Signal Event #${event.id}，确认它是否仍然只是候选信号、handoff 状态是否正确、是否缺少订单后端字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(signal, null, 2)}\n\`\`\``
-        : `Review AI Trading Signal Event #${event.id}. Confirm it is still only a candidate signal, whether handoff status is correct, and what order-backend fields are missing. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(signal, null, 2)}\n\`\`\``
+        ? `请审核这份 AI Trading Signal Event #${event.id}，确认它是否仍然只是候选信号、handoff 状态是否正确、是否缺少订单后端字段。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(signal), null, 2)}\n\`\`\``
+        : `Review AI Trading Signal Event #${event.id}. Confirm it is still only a candidate signal, whether handoff status is correct, and what order-backend fields are missing. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(signal), null, 2)}\n\`\`\``
       setInputValue(prompt)
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
@@ -3173,8 +3186,8 @@ export default function HyperAiPage() {
       }
       const event = data.signal_event as AiTradingSignalEventRecord
       const prompt = currentLang === 'zh'
-        ? `请复核 AI Trading Signal Event #${event.id} 的 handoff 结果：确认订单后端接收状态、handoff 状态、以及是否仍满足 signal-only 审计边界。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
-        : `Review the handoff result for AI Trading Signal Event #${event.id}. Confirm order-backend receipt status, handoff status, and whether the signal-only audit boundary still holds. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
+        ? `请复核 AI Trading Signal Event #${event.id} 的 handoff 结果：确认订单后端接收状态、handoff 状态、以及是否仍满足 signal-only 审计边界。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(event), null, 2)}\n\`\`\``
+        : `Review the handoff result for AI Trading Signal Event #${event.id}. Confirm order-backend receipt status, handoff status, and whether the signal-only audit boundary still holds. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(event), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
@@ -3201,8 +3214,8 @@ export default function HyperAiPage() {
         ? data.attempts as AiTradingSignalHandoffAttemptRecord[]
         : []
       const prompt = currentLang === 'zh'
-        ? `请审计 AI Trading Signal Event #${eventId} 的 handoff attempts：确认是否有 blocked/failed/submitted 历史、blockers 是否合理、是否有重复提交风险，以及是否仍保持 signal-only / no-secret 边界。不要直接下单。\n\n\`\`\`json\n${JSON.stringify({ signal_event_id: eventId, attempts }, null, 2)}\n\`\`\``
-        : `Audit the handoff attempts for AI Trading Signal Event #${eventId}. Check blocked/failed/submitted history, whether blockers are reasonable, duplicate-submission risk, and whether the signal-only/no-secret boundary still holds. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify({ signal_event_id: eventId, attempts }, null, 2)}\n\`\`\``
+        ? `请审计 AI Trading Signal Event #${eventId} 的 handoff attempts：确认是否有 blocked/failed/submitted 历史、blockers 是否合理、是否有重复提交风险，以及是否仍保持 signal-only / no-secret 边界。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket({ signal_event_id: eventId, attempts }), null, 2)}\n\`\`\``
+        : `Audit the handoff attempts for AI Trading Signal Event #${eventId}. Check blocked/failed/submitted history, whether blockers are reasonable, duplicate-submission risk, and whether the signal-only/no-secret boundary still holds. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket({ signal_event_id: eventId, attempts }), null, 2)}\n\`\`\``
       setInputValue(prompt)
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
@@ -3233,8 +3246,8 @@ export default function HyperAiPage() {
       }
       const event = data.signal_event as AiTradingSignalEventRecord
       const prompt = currentLang === 'zh'
-        ? `请复核 AI Trading Signal Event #${event.id} 的拒绝结果：确认该信号已不可 handoff、拒绝原因是否充分、是否还需要更新 strategy spec 或风险约束。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
-        : `Review the rejection result for AI Trading Signal Event #${event.id}. Confirm that the signal can no longer be handed off, whether the rejection reason is sufficient, and whether the strategy spec or risk constraints should be updated. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(event, null, 2)}\n\`\`\``
+        ? `请复核 AI Trading Signal Event #${event.id} 的拒绝结果：确认该信号已不可 handoff、拒绝原因是否充分、是否还需要更新 strategy spec 或风险约束。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(event), null, 2)}\n\`\`\``
+        : `Review the rejection result for AI Trading Signal Event #${event.id}. Confirm that the signal can no longer be handed off, whether the rejection reason is sufficient, and whether the strategy spec or risk constraints should be updated. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(event), null, 2)}\n\`\`\``
       setInputValue(prompt)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)

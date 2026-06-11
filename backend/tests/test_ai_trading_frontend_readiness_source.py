@@ -505,6 +505,49 @@ def test_ai_trading_session_context_prompt_uses_defensive_sanitizer() -> None:
     assert "JSON.stringify(context, null, 2)" not in context_load_block
 
 
+def test_ai_trading_review_prompt_packets_use_defensive_sanitizer() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    review_prompt_block = hyper_ai_source.split(
+        "const handleStrategySpecDraft = async",
+        1,
+    )[1].split("const fetchConversations = async", 1)[0]
+
+    assert "function sanitizeAiTradingPromptPacket" in hyper_ai_source
+    assert "AI_TRADING_PROMPT_TEXT_KEY_PATTERN" in hyper_ai_source
+    assert "AI_TRADING_PROMPT_TEXT_SENSITIVE_PATTERN" in hyper_ai_source
+    assert "[redacted_sensitive_text]" in hyper_ai_source
+
+    for raw_snippet in (
+        "JSON.stringify(spec, null, 2)",
+        "JSON.stringify(reviewPacket, null, 2)",
+        "JSON.stringify(record.spec?.backtest || {}, null, 2)",
+        "JSON.stringify(backtest, null, 2)",
+        "JSON.stringify(preflight, null, 2)",
+        "JSON.stringify({ result: completePayload, attached_backtest: attachedBacktest }, null, 2)",
+        "JSON.stringify(evidence, null, 2)",
+        "JSON.stringify(signalPreview, null, 2)",
+        "JSON.stringify(signal, null, 2)",
+        "JSON.stringify(event, null, 2)",
+        "JSON.stringify({ signal_event_id: eventId, attempts }, null, 2)",
+    ):
+        assert raw_snippet not in review_prompt_block
+
+    for safe_snippet in (
+        "JSON.stringify(sanitizeAiTradingPromptPacket(spec), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(reviewPacket), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(backtest), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(preflight), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket({ result: completePayload, attached_backtest: attachedBacktest }), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(evidence), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(signalPreview), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(signal), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket(event), null, 2)",
+        "JSON.stringify(sanitizeAiTradingPromptPacket({ signal_event_id: eventId, attempts }), null, 2)",
+    ):
+        assert safe_snippet in review_prompt_block
+
+
 def test_ai_trading_model_adjust_output_safety_is_visible_in_frontend() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     model_adjust_block = hyper_ai_source.split(
