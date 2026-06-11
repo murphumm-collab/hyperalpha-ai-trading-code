@@ -295,6 +295,27 @@ const MODEL_CONFIG_API_STATUS_LABELS: Record<number, string> = {
   503: 'Model provider service is unavailable',
 }
 
+const MARKET_UNIVERSE_API_DETAIL_LABELS: Record<string, string> = {
+  'Could not validate credentials': 'Authentication required',
+  'Invalid authentication credentials': 'Authentication required',
+  'Not authenticated': 'Authentication required',
+  'Unauthorized': 'Authentication required',
+  market_universe_unavailable: 'Trading market universe is unavailable',
+  symbols_unavailable: 'Trading symbols are unavailable',
+}
+
+const MARKET_UNIVERSE_API_STATUS_LABELS: Record<number, string> = {
+  400: 'Trading-symbol request is invalid',
+  401: 'Authentication required',
+  403: 'Trading-symbol access is not allowed',
+  404: 'Trading-symbol source was not found',
+  422: 'Trading-symbol request is invalid',
+  429: 'Too many trading-symbol requests',
+  500: 'Trading-symbol service failed',
+  502: 'Trading-symbol upstream is unavailable',
+  503: 'Trading-symbol service is unavailable',
+}
+
 const safeProductionEvidenceApiDetailCode = (detail: unknown): string | null => {
   if (typeof detail === 'string') {
     const knownLabel = PRODUCTION_EVIDENCE_API_ERROR_LABELS[detail] || PRODUCTION_EVIDENCE_BLOCKER_LABELS[detail]
@@ -351,6 +372,28 @@ export const formatAiTradingModelConfigApiError = (
   const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
   const safeDetail = safeModelConfigApiDetailLabel(detail)
     || MODEL_CONFIG_API_STATUS_LABELS[status]
+    || fallback
+  return `${statusLabel}: ${safeDetail || readableEvidenceSuffix(fallback)}`
+}
+
+const safeMarketUniverseApiDetailLabel = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    return MARKET_UNIVERSE_API_DETAIL_LABELS[detail] || null
+  }
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    return MARKET_UNIVERSE_API_DETAIL_LABELS[detail.code] || null
+  }
+  return null
+}
+
+export const formatAiTradingMarketUniverseApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeDetail = safeMarketUniverseApiDetailLabel(detail)
+    || MARKET_UNIVERSE_API_STATUS_LABELS[status]
     || fallback
   return `${statusLabel}: ${safeDetail || readableEvidenceSuffix(fallback)}`
 }

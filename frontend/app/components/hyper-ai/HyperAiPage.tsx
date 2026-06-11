@@ -70,6 +70,7 @@ import { pollAiStream } from '@/lib/pollAiStream'
 import { authFetch } from '@/lib/authFetch'
 import {
   formatAiTradingAgentSessionApiError,
+  formatAiTradingMarketUniverseApiError,
   formatAiTradingModelConfigApiError,
   formatAiTradingSignalActionApiError,
   formatAiTradingStrategyActionApiError,
@@ -1988,15 +1989,37 @@ export default function HyperAiPage() {
   const fetchTradingSymbols = async () => {
     setTradingSymbolsLoading(true)
     setTradingSymbolsError(null)
+    const fallback = 'Failed to load trading symbols'
     try {
       const [watchlistRes, universeRes, availableRes] = await Promise.all([
         authFetch('/api/hyperliquid/symbols/watchlist'),
         authFetch('/api/ai-trading/market-universe?limit=50'),
         authFetch('/api/hyperliquid/symbols/available'),
       ])
-      const watchlistData = watchlistRes.ok ? await watchlistRes.json() : {}
-      const universeData = universeRes.ok ? await universeRes.json() : {}
-      const availableData = availableRes.ok ? await availableRes.json() : {}
+      const responseErrors: Array<{ status: number; detail: unknown }> = []
+      const readSymbolResponse = async (res: Response) => {
+        const data = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          responseErrors.push({ status: res.status, detail: data.detail })
+          return {}
+        }
+        return data
+      }
+      const [watchlistData, universeData, availableData] = await Promise.all([
+        readSymbolResponse(watchlistRes),
+        readSymbolResponse(universeRes),
+        readSymbolResponse(availableRes),
+      ])
+      const allSymbolSourcesFailed = !watchlistRes.ok && !universeRes.ok && !availableRes.ok
+      if (allSymbolSourcesFailed) {
+        const error = responseErrors[0] || { status: 0, detail: null }
+        setTradingSymbolsError(formatAiTradingMarketUniverseApiError(error.status, error.detail, fallback))
+        setTradingSymbolGroups({ crypto: [], hip3: [], all: [] })
+        setTradingSymbolGroup('all')
+        setTradingSymbols([])
+        setTradingSymbolSource('none')
+        return
+      }
       const watchlist = Array.isArray(watchlistData.symbols) ? watchlistData.symbols : []
       const cryptoPreset = Array.isArray(universeData.presets?.crypto_top_20)
         ? universeData.presets.crypto_top_20
@@ -2052,7 +2075,7 @@ export default function HyperAiPage() {
       }
     } catch (e) {
       console.error('Failed to fetch trading symbols:', e)
-      setTradingSymbolsError(e instanceof Error ? e.message : 'Failed to load trading symbols')
+      setTradingSymbolsError(formatAiTradingMarketUniverseApiError(0, null, fallback))
       setTradingSymbolGroups({ crypto: [], hip3: [], all: [] })
       setTradingSymbolGroup('all')
       setTradingSymbols([])
