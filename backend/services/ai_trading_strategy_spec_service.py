@@ -124,6 +124,9 @@ SENSITIVE_AI_TRADING_TEXT_PATTERNS = (
     re.compile(r"\bsk-[A-Za-z0-9]{12,}\b"),
 )
 AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS = {"context_summary", "agent_context_summary"}
+AGENT_SESSION_NAME_RESPONSE_KEYS = {"agent_session_name"}
+AGENT_SESSION_NAME_MAX_CHARS = 120
+REDACTED_AGENT_SESSION_NAME = "[redacted_sensitive_session_name]"
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
     r"direct\s+order|立即下单|直接下单|市价单|限价单)",
@@ -515,8 +518,15 @@ def _redact_sensitive_payload(value: Any) -> Any:
         redacted: Dict[str, Any] = {}
         for key, child in value.items():
             key_text = str(key)
-            if key_text in AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS:
+            if key_text == "agent_session" and isinstance(child, dict):
+                redacted_session = _redact_sensitive_payload(child)
+                if isinstance(redacted_session, dict) and "name" in redacted_session:
+                    redacted_session["name"] = _clean_agent_session_name(redacted_session.get("name"))
+                redacted[key] = redacted_session
+            elif key_text in AGENT_CONTEXT_SUMMARY_RESPONSE_KEYS:
                 redacted[key] = _clean_agent_context_summary(child)
+            elif key_text in AGENT_SESSION_NAME_RESPONSE_KEYS:
+                redacted[key] = _clean_agent_session_name(child)
             elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
                 redacted[key] = "***"
             else:
@@ -615,6 +625,34 @@ def _clean_agent_context_summary(value: Any, *, reject_sensitive: bool = False) 
     return summary
 
 
+def _agent_session_name_contains_sensitive_value(value: Any) -> bool:
+    text = str(value or "")
+    return bool(SENSITIVE_AI_TRADING_KEY_PATTERN.search(text)) or any(
+        pattern.search(text) for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS
+    )
+
+
+def _clean_agent_session_name(
+    value: Any,
+    *,
+    fallback: Optional[str] = None,
+    reject_sensitive: bool = False,
+) -> Optional[str]:
+    name = _clean_text(value, AGENT_SESSION_NAME_MAX_CHARS)
+    if not name and fallback is not None:
+        name = _clean_text(fallback, AGENT_SESSION_NAME_MAX_CHARS)
+    if not name:
+        return None
+    if _agent_session_name_contains_sensitive_value(name):
+        if reject_sensitive:
+            raise ValueError(
+                "AI Trading agent session name must not contain API keys, "
+                "tokens, secrets, private keys, passwords, or authorization headers"
+            )
+        return REDACTED_AGENT_SESSION_NAME
+    return name
+
+
 def _agent_context_summary_budget_fields(summary: Any) -> Dict[str, int]:
     resolved_summary = str(summary or "")
     return {
@@ -637,6 +675,7 @@ def _record_agent_session_payload(
     name = getattr(record, "agent_session_name", None)
     if session_record is not None:
         name = session_record.name or name
+    name = _clean_agent_session_name(name, fallback=getattr(record, "agent_session_id", None))
     payload = {
         "id": getattr(record, "agent_session_id", None),
         "name": name,
@@ -652,9 +691,10 @@ def serialize_ai_trading_agent_session_record(
     record: AiTradingAgentSessionRecord,
 ) -> Dict[str, Any]:
     context_summary = _clean_agent_context_summary(record.context_summary)
+    name = _clean_agent_session_name(record.name, fallback=record.agent_session_id)
     return {
         "id": record.agent_session_id,
-        "name": record.name,
+        "name": name,
         "context_summary": context_summary,
         **_agent_context_summary_budget_fields(context_summary),
         "status": record.status,
@@ -721,7 +761,10 @@ def _ensure_agent_session_record(
     resolved_agent_session_id = _clean_agent_session_id(agent_session_id)
     if not resolved_agent_session_id:
         raise ValueError("agent_session_id is required")
-    resolved_name = _clean_text(name, 120) or resolved_agent_session_id
+    resolved_name = (
+        _clean_agent_session_name(name, fallback=resolved_agent_session_id)
+        or resolved_agent_session_id
+    )
     resolved_summary = _clean_agent_context_summary(context_summary)
     record = _get_agent_session_record(
         db,
@@ -780,7 +823,11 @@ def create_ai_trading_agent_session(
     record = AiTradingAgentSessionRecord(
         user_id=user_id,
         agent_session_id=resolved_agent_session_id,
-        name=_clean_text(name, 120) or "AI Trading Agent Session",
+        name=_clean_agent_session_name(
+            name,
+            fallback="AI Trading Agent Session",
+            reject_sensitive=True,
+        ) or "AI Trading Agent Session",
         context_summary=_clean_agent_context_summary(context_summary, reject_sensitive=True),
         status=AGENT_SESSION_ACTIVE_STATUS,
     )
@@ -808,7 +855,7 @@ def update_ai_trading_agent_session(
         raise ValueError("AI Trading agent session not found")
 
     if name is not None:
-        resolved_name = _clean_text(name, 120)
+        resolved_name = _clean_agent_session_name(name, reject_sensitive=True)
         if not resolved_name:
             raise ValueError("AI Trading agent session name is required")
         record.name = resolved_name
@@ -1007,11 +1054,15 @@ def compress_ai_trading_agent_session_context(
         allow_archived=True,
     )
     record.context_summary = summary
+    sanitized_record_name = _clean_agent_session_name(
+        record.name,
+        fallback=record.agent_session_id,
+    ) or record.agent_session_id
     db.query(AiTradingStrategySpecRecord).filter(
         AiTradingStrategySpecRecord.user_id == user_id,
         AiTradingStrategySpecRecord.agent_session_id == record.agent_session_id,
     ).update({
-        AiTradingStrategySpecRecord.agent_session_name: record.name,
+        AiTradingStrategySpecRecord.agent_session_name: sanitized_record_name,
         AiTradingStrategySpecRecord.agent_context_summary: summary,
     }, synchronize_session=False)
     db.commit()
@@ -1497,7 +1548,7 @@ def _build_model_adjustment_agent_context(
     source: str = "request",
 ) -> Optional[Dict[str, Any]]:
     resolved_session_id = _clean_agent_session_id(agent_session_id) if agent_session_id else None
-    resolved_name = _clean_text(agent_session_name, 120)
+    resolved_name = _clean_agent_session_name(agent_session_name)
     resolved_summary = _clean_agent_context_summary(agent_context_summary)
     if not any([resolved_session_id, resolved_name, resolved_summary]):
         return None
@@ -1541,9 +1592,9 @@ def _resolve_model_adjustment_agent_context(
         ):
             raise ValueError("AI Trading agent session is archived")
 
-    resolved_name = _clean_text(agent_session_name, 120)
+    resolved_name = _clean_agent_session_name(agent_session_name)
     if not resolved_name and session_record:
-        resolved_name = _clean_text(session_record.name, 120)
+        resolved_name = _clean_agent_session_name(session_record.name)
     resolved_summary = _clean_agent_context_summary(agent_context_summary)
     if not resolved_summary and session_record:
         resolved_summary = _clean_agent_context_summary(session_record.context_summary)
@@ -1877,9 +1928,10 @@ def save_strategy_spec_record(
         or _new_agent_session_id(spec_copy)
     )
     resolved_agent_session_name = (
-        _clean_text(agent_session_name, 120)
-        or _clean_text(spec_copy.get("agent_session_name"), 120)
-        or _derive_record_name(spec_copy, name)
+        _clean_agent_session_name(agent_session_name)
+        or _clean_agent_session_name(spec_copy.get("agent_session_name"))
+        or _clean_agent_session_name(_derive_record_name(spec_copy, name))
+        or resolved_agent_session_id
     )
     resolved_context_summary = _clean_agent_context_summary(
         agent_context_summary or spec_copy.get("agent_context_summary")
@@ -1891,7 +1943,10 @@ def save_strategy_spec_record(
         name=resolved_agent_session_name,
         context_summary=resolved_context_summary,
     )
-    resolved_agent_session_name = session_record.name
+    resolved_agent_session_name = (
+        _clean_agent_session_name(session_record.name, fallback=resolved_agent_session_id)
+        or resolved_agent_session_id
+    )
     resolved_context_summary = session_record.context_summary
     spec_copy["agent_session"] = {
         "id": resolved_agent_session_id,
@@ -2811,7 +2866,10 @@ def build_signal_preview_from_strategy_spec_record(
         "strategy_spec_version": spec.get("version"),
         "agent_session": {
             "id": record.agent_session_id,
-            "name": record.agent_session_name,
+            "name": _clean_agent_session_name(
+                record.agent_session_name,
+                fallback=record.agent_session_id,
+            ),
         },
         "venue": "hyperliquid",
         "symbol": symbol,
@@ -3170,7 +3228,7 @@ def list_ai_trading_agent_sessions(
             continue
         grouped[session.agent_session_id] = {
             "id": session.agent_session_id,
-            "name": session.name,
+            "name": _clean_agent_session_name(session.name, fallback=session.agent_session_id),
             "context_summary": session.context_summary,
             "status": session.status,
             "strategy_spec_count": 0,
@@ -3217,7 +3275,7 @@ def list_ai_trading_agent_sessions(
             continue
         item = grouped.setdefault(session_id, {
             "id": session_id,
-            "name": spec.agent_session_name or spec.name,
+            "name": _clean_agent_session_name(spec.agent_session_name or spec.name, fallback=session_id),
             "context_summary": spec.agent_context_summary,
             "status": AGENT_SESSION_ACTIVE_STATUS,
             "strategy_spec_count": 0,
@@ -3239,7 +3297,7 @@ def list_ai_trading_agent_sessions(
         spec_updated = _agent_session_sort_key(spec.updated_at)
         if spec_updated >= current_updated:
             item["updated_at"] = _record_timestamp(spec.updated_at)
-            item["name"] = spec.agent_session_name or item["name"]
+            item["name"] = _clean_agent_session_name(spec.agent_session_name or item["name"], fallback=session_id)
             item["context_summary"] = spec.agent_context_summary or item["context_summary"]
 
     for event in events:
@@ -3248,7 +3306,7 @@ def list_ai_trading_agent_sessions(
             continue
         item = grouped.setdefault(session_id, {
             "id": session_id,
-            "name": event.agent_session_name or session_id,
+            "name": _clean_agent_session_name(event.agent_session_name, fallback=session_id),
             "context_summary": None,
             "status": AGENT_SESSION_ACTIVE_STATUS,
             "strategy_spec_count": 0,
@@ -3270,7 +3328,7 @@ def list_ai_trading_agent_sessions(
         event_updated = _agent_session_sort_key(event.updated_at or event.created_at)
         if event_updated >= current_updated:
             item["updated_at"] = _record_timestamp(event.updated_at or event.created_at)
-            item["name"] = event.agent_session_name or item["name"]
+            item["name"] = _clean_agent_session_name(event.agent_session_name or item["name"], fallback=session_id)
 
     sessions = sorted(
         grouped.values(),
@@ -3278,6 +3336,7 @@ def list_ai_trading_agent_sessions(
         reverse=True,
     )
     for session in sessions:
+        session["name"] = _clean_agent_session_name(session.get("name"), fallback=session.get("id"))
         session["context_summary"] = _clean_agent_context_summary(session.get("context_summary"))
         session.update(_agent_context_summary_budget_fields(session.get("context_summary")))
     return sessions[:max_limit]
@@ -3327,7 +3386,10 @@ def build_ai_trading_agent_session_context(
         session_context_summary = _clean_agent_context_summary(session_record.context_summary)
         session_payload = {
             "id": session_record.agent_session_id,
-            "name": session_record.name,
+            "name": _clean_agent_session_name(
+                session_record.name,
+                fallback=session_record.agent_session_id,
+            ),
             "context_summary": session_context_summary,
             **_agent_context_summary_budget_fields(session_context_summary),
             "status": session_record.status,
@@ -3345,7 +3407,10 @@ def build_ai_trading_agent_session_context(
     return {
         "agent_session": {
             "id": resolved_agent_session_id,
-            "name": session_payload.get("name") or resolved_agent_session_id,
+            "name": _clean_agent_session_name(
+                session_payload.get("name"),
+                fallback=resolved_agent_session_id,
+            ) or resolved_agent_session_id,
             "context_summary": context_summary,
             **_agent_context_summary_budget_fields(context_summary),
             "status": session_payload.get("status") or AGENT_SESSION_ACTIVE_STATUS,

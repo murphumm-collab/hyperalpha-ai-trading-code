@@ -396,10 +396,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the frontend market symbol sanitizer flow as accepted and remote push as skipped.",
+        description="Feature status marks the agent-session name safety flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Frontend Market Symbol Sanitizer Accepted / Remote Push Skipped",
+            "Local V1 Agent Session Name Safety Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -465,6 +465,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading frontend model-config error safety | Done |",
             "| AI Trading frontend market-universe error safety | Done |",
             "| AI Trading frontend market symbol sanitizer | Done |",
+            "| AI Trading agent-session name safety | Done |",
             "| AI Trading gateway mode guard | Done |",
             "| AI Trading runtime mirror freshness gate | Done |",
             "| AI Trading runtime readiness cold-start retry | Done |",

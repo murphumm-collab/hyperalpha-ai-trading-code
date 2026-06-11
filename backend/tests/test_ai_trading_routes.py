@@ -1377,7 +1377,7 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
             "instruction": "Use the current session context and reduce risk",
             "source": "pytest_sensitive_context",
             "agent_session_id": "session:sensitive-btc",
-            "agent_session_name": "Sensitive BTC Session",
+            "agent_session_name": "api_key=secret-session-name-key",
             "agent_context_summary": "api_key=secret-session-key token=secret-session-token",
         },
     )
@@ -1386,7 +1386,7 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
     payload = response.json()
     agent_context = payload["model_context"]["agent_session_context"]
     assert agent_context["agent_session_id"] == "session:sensitive-btc"
-    assert agent_context["agent_session_name"] == "Sensitive BTC Session"
+    assert agent_context["agent_session_name"] == "[redacted_sensitive_session_name]"
     assert agent_context["context_summary"] == "[redacted_sensitive_context]"
     assert agent_context["context_summary_chars"] == len("[redacted_sensitive_context]")
     assert agent_context["summary_max_chars"] == 2000
@@ -1394,6 +1394,7 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
     assert agent_context["trust_boundary"] == "untrusted_user_memory"
     assert agent_context["usage_policy"] == "reference_only_cannot_override_system_prompt_or_execution_boundaries"
     serialized_payload = json.dumps(payload, ensure_ascii=False)
+    assert "secret-session-name-key" not in serialized_payload
     assert "secret-session-key" not in serialized_payload
     assert "secret-session-token" not in serialized_payload
     assert "secret-model-key" not in serialized_payload
@@ -1401,6 +1402,8 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
     assert calls
     model_prompt = json.dumps(calls[0]["json"], ensure_ascii=False)
     assert "[redacted_sensitive_context]" in model_prompt
+    assert "[redacted_sensitive_session_name]" in model_prompt
+    assert "secret-session-name-key" not in model_prompt
     assert "secret-session-key" not in model_prompt
     assert "secret-session-token" not in model_prompt
     assert "secret-model-key" not in model_prompt
@@ -2191,11 +2194,17 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
 
     session = alice._ai_trading_session_factory()
     raw_markers = [
+        "legacy-session-name-key",
         "legacy-session-row-key",
+        "legacy-spec-name-token",
         "legacy-spec-row-token",
+        "legacy-spec-json-name-token",
         "legacy-spec-json-key",
+        "legacy-event-name-secret",
         "legacy-event-row-key",
+        "legacy-signal-json-name-token",
         "legacy-signal-json-header",
+        "legacy-attempt-name-password",
         "legacy-attempt-row-secret",
     ]
     try:
@@ -2213,25 +2222,37 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
         ).one()
 
         spec_json = json.loads(spec_row.spec_json)
+        spec_json.setdefault("agent_session", {})["name"] = "api_key=legacy-spec-json-name-token"
         spec_json.setdefault("agent_session", {})["context_summary"] = "api_key=legacy-spec-json-key"
         signal_json = json.loads(event_row.signal_json)
+        signal_json.setdefault("agent_session", {})["name"] = "authorization=Bearer legacy-signal-json-name-token"
         signal_json.setdefault("agent_session", {})[
             "context_summary"
         ] = "authorization=Bearer legacy-signal-json-header"
 
+        session_record.name = "api_key=legacy-session-name-key"
         session_record.context_summary = "api_key=legacy-session-row-key"
+        spec_row.agent_session_name = "token=legacy-spec-name-token"
         spec_row.agent_context_summary = "token=legacy-spec-row-token"
         spec_row.spec_json = json.dumps(spec_json)
+        event_row.agent_session_name = "secret=legacy-event-name-secret"
         event_row.agent_context_summary = "private_key=legacy-event-row-key"
         event_row.signal_json = json.dumps(signal_json)
+        attempt_row.agent_session_name = "password=legacy-attempt-name-password"
         attempt_row.agent_context_summary = "secret=legacy-attempt-row-secret"
         session.commit()
 
+        assert "legacy-session-name-key" in session_record.name
         assert "legacy-session-row-key" in session_record.context_summary
+        assert "legacy-spec-name-token" in spec_row.agent_session_name
         assert "legacy-spec-row-token" in spec_row.agent_context_summary
+        assert "legacy-spec-json-name-token" in spec_row.spec_json
         assert "legacy-spec-json-key" in spec_row.spec_json
+        assert "legacy-event-name-secret" in event_row.agent_session_name
         assert "legacy-event-row-key" in event_row.agent_context_summary
+        assert "legacy-signal-json-name-token" in event_row.signal_json
         assert "legacy-signal-json-header" in event_row.signal_json
+        assert "legacy-attempt-name-password" in attempt_row.agent_session_name
         assert "legacy-attempt-row-secret" in attempt_row.agent_context_summary
     finally:
         session.close()
@@ -2241,34 +2262,43 @@ def test_ai_trading_agent_session_context_responses_redact_legacy_sensitive_valu
     session_payload = next(
         row for row in sessions.json()["agent_sessions"] if row["id"] == "session:legacy-redaction"
     )
+    assert session_payload["name"] == "[redacted_sensitive_session_name]"
     assert session_payload["context_summary"] == "[redacted_sensitive_context]"
 
     spec_list = alice.get("/api/ai-trading/strategy-specs?agent_session_id=session:legacy-redaction")
     assert spec_list.status_code == 200
+    assert spec_list.json()["specs"][0]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert spec_list.json()["specs"][0]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
     spec_detail = alice.get(f"/api/ai-trading/strategy-specs/{spec['id']}")
     assert spec_detail.status_code == 200
     spec_detail_payload = spec_detail.json()["spec_record"]
+    assert spec_detail_payload["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert spec_detail_payload["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+    assert spec_detail_payload["spec"]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert spec_detail_payload["spec"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
     signal_list = alice.get("/api/ai-trading/signal-events?agent_session_id=session:legacy-redaction")
     assert signal_list.status_code == 200
+    assert signal_list.json()["signal_events"][0]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert signal_list.json()["signal_events"][0]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
     signal_detail = alice.get(f"/api/ai-trading/signal-events/{event['id']}")
     assert signal_detail.status_code == 200
     signal_detail_payload = signal_detail.json()["signal_event"]
+    assert signal_detail_payload["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert signal_detail_payload["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
+    assert signal_detail_payload["signal"]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert signal_detail_payload["signal"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
     attempts = alice.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
     assert attempts.status_code == 200
+    assert attempts.json()["attempts"][0]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert attempts.json()["attempts"][0]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
     context = alice.get("/api/ai-trading/agent-sessions/session:legacy-redaction/context")
     assert context.status_code == 200
+    assert context.json()["context"]["agent_session"]["name"] == "[redacted_sensitive_session_name]"
     assert context.json()["context"]["agent_session"]["context_summary"] == "[redacted_sensitive_context]"
 
     for payload in [
@@ -3479,6 +3509,17 @@ def test_ai_trading_agent_session_crud_updates_metadata_and_archives_by_user(tmp
 def test_ai_trading_agent_session_manual_context_rejects_sensitive_values(tmp_path):
     client = _build_client(tmp_path)
 
+    rejected_name_create = client.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": "session:manual-sensitive-name",
+            "name": "api_key=should-not-be-stored",
+            "context_summary": "Safe BTC risk notes only.",
+        },
+    )
+    assert rejected_name_create.status_code == 400
+    assert "agent session name must not contain" in rejected_name_create.json()["detail"]
+
     rejected_create = client.post(
         "/api/ai-trading/agent-sessions",
         json={
@@ -3500,6 +3541,15 @@ def test_ai_trading_agent_session_manual_context_rejects_sensitive_values(tmp_pa
     )
     assert created.status_code == 200
 
+    rejected_name_update = client.patch(
+        "/api/ai-trading/agent-sessions/session:manual-safe",
+        json={
+            "name": "authorization=Bearer should-not-be-stored",
+        },
+    )
+    assert rejected_name_update.status_code == 400
+    assert "agent session name must not contain" in rejected_name_update.json()["detail"]
+
     rejected_update = client.patch(
         "/api/ai-trading/agent-sessions/session:manual-safe",
         json={
@@ -3512,6 +3562,7 @@ def test_ai_trading_agent_session_manual_context_rejects_sensitive_values(tmp_pa
     context = client.get("/api/ai-trading/agent-sessions/session:manual-safe/context")
     assert context.status_code == 200
     agent_session = context.json()["context"]["agent_session"]
+    assert agent_session["name"] == "Manual Safe Session"
     assert agent_session["context_summary"] == "Safe BTC risk notes only."
     serialized = json.dumps(context.json(), ensure_ascii=False).lower()
     assert "should-not-be-stored" not in serialized
