@@ -489,6 +489,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading local completion summary gate | Done |",
             "| AI Trading production operator preflight | Done |",
             "| AI Trading production operator preflight output redaction | Done |",
+            "| AI Trading production URL host secret redaction | Done |",
             "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
         ),
     ),

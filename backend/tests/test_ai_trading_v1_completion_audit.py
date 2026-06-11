@@ -47,6 +47,7 @@ def _write_minimal_acceptance_repo(
     include_local_acceptance_transient_retry_gate: bool = True,
     include_production_operator_preflight_gate: bool = True,
     include_production_operator_preflight_output_redaction_marker: bool = True,
+    include_production_url_host_secret_redaction_marker: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -341,6 +342,9 @@ def _write_minimal_acceptance_repo(
     production_operator_preflight_output_redaction_status_marker = (
         "| AI Trading production operator preflight output redaction | Done |"
     ) if include_production_operator_preflight_output_redaction_marker else ""
+    production_url_host_secret_redaction_status_marker = (
+        "| AI Trading production URL host secret redaction | Done |"
+    ) if include_production_url_host_secret_redaction_marker else ""
     _write(
         root / "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh",
         "\n".join(
@@ -489,6 +493,7 @@ def _write_minimal_acceptance_repo(
                 "| AI Trading local completion summary gate | Done |",
                 production_operator_preflight_status_marker,
                 production_operator_preflight_output_redaction_status_marker,
+                production_url_host_secret_redaction_status_marker,
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -997,6 +1002,23 @@ def test_completion_audit_blocks_local_acceptance_when_production_operator_prefl
     status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
     assert (
         "| AI Trading production operator preflight output redaction | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_url_host_secret_redaction_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_url_host_secret_redaction_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert (
+        "| AI Trading production URL host secret redaction | Done |"
         in status_evidence["missing_phrases"]
     )
 

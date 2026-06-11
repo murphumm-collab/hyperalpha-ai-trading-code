@@ -77,6 +77,23 @@ def test_private_network_https_gateway_is_blocked():
     assert "signal_gateway_url_must_not_be_local_or_private" in report["blockers"]
 
 
+def test_secret_like_gateway_host_is_blocked_and_redacted():
+    secret_host = "secret-order-token-123456789.orders.hyperalpha.org"
+    report = production_check.build_report(
+        _base_env(
+            AI_TRADING_SIGNAL_GATEWAY_URL=f"https://{secret_host}/api/ai-trading/signals",
+        )
+    )
+
+    assert report["production_handoff_ready"] is False
+    assert "signal_gateway_url_host_secret_pattern_detected" in report["blockers"]
+    assert report["checks"]["gateway_url"]["host"] == "[redacted_sensitive_url_host]"
+    assert report["checks"]["gateway_url"]["host_secret_pattern_detected"] is True
+    serialized = str(report)
+    assert secret_host not in serialized
+    assert "secret-order-token-123456789" not in serialized
+
+
 def test_ready_report_never_returns_secret_token_value():
     report = production_check.build_report(_base_env())
 

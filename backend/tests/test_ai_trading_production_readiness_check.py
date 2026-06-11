@@ -102,6 +102,30 @@ def test_non_http_signal_gateway_mode_blocks_aggregate_readiness_without_secret_
     assert "secret-order-gateway-token" not in str(report)
 
 
+def test_secret_like_url_hosts_block_aggregate_readiness_without_host_leakage():
+    gateway_host = "api-key-secret-gateway-123456789.orders.hyperalpha.org"
+    jwks_host = "bearer-token-auth-123456789.auth.hyperalpha.org"
+    report = readiness_check.build_report(
+        _ready_env(
+            AUTH_JWKS_URL=f"https://{jwks_host}/.well-known/jwks.json",
+            AI_TRADING_SIGNAL_GATEWAY_URL=f"https://{gateway_host}/api/ai-trading/signals",
+        )
+    )
+
+    assert report["production_ready"] is False
+    assert "auth:auth_jwks_url_host_secret_pattern_detected" in report["blockers"]
+    assert "signal_handoff:signal_gateway_url_host_secret_pattern_detected" in report["blockers"]
+    assert report["checks"]["auth"]["checks"]["jwks_url"]["host"] == "[redacted_sensitive_url_host]"
+    assert report["checks"]["signal_handoff"]["checks"]["gateway_url"]["host"] == "[redacted_sensitive_url_host]"
+    assert report["checks"]["auth"]["checks"]["jwks_url"]["host_secret_pattern_detected"] is True
+    assert report["checks"]["signal_handoff"]["checks"]["gateway_url"]["host_secret_pattern_detected"] is True
+    serialized = str(report)
+    assert gateway_host not in serialized
+    assert jwks_host not in serialized
+    assert "api-key-secret-gateway-123456789" not in serialized
+    assert "bearer-token-auth-123456789" not in serialized
+
+
 def test_auth_and_distributed_ai_stream_blockers_are_specific():
     report = readiness_check.build_report(
         _ready_env(

@@ -81,13 +81,15 @@ def _is_ip_host_private_or_local(host: str) -> bool:
 def _sanitized_url_parts(url: str) -> Dict[str, Any]:
     parsed = parse.urlparse(url)
     host = parsed.hostname or ""
+    host_secret_pattern_detected = bool(host and handoff_check.SENSITIVE_URL_HOST_PATTERN.search(host))
     return {
         "scheme": parsed.scheme or None,
-        "host": host or None,
+        "host": handoff_check.REDACTED_SENSITIVE_URL_HOST if host_secret_pattern_detected else (host or None),
         "port": parsed.port,
         "path_present": bool(parsed.path and parsed.path != "/"),
         "query_present": bool(parsed.query),
         "credentials_embedded": bool(parsed.username or parsed.password),
+        "host_secret_pattern_detected": host_secret_pattern_detected,
     }
 
 
@@ -107,8 +109,9 @@ def _build_auth_report(env: Mapping[str, str]) -> Dict[str, Any]:
         "path_present": False,
         "query_present": False,
         "credentials_embedded": False,
+        "host_secret_pattern_detected": False,
     }
-    host = str(url_parts.get("host") or "").lower()
+    parsed_host = (parse.urlparse(jwks_url).hostname or "").lower() if jwks_url else ""
 
     if not require_verified_bearer:
         blockers.append("auth_verified_bearer_required")
@@ -117,12 +120,14 @@ def _build_auth_report(env: Mapping[str, str]) -> Dict[str, Any]:
     else:
         if url_parts["scheme"] != "https":
             blockers.append("auth_jwks_url_must_be_https")
-        if host in LOCAL_HOSTS or _is_ip_host_private_or_local(host):
+        if parsed_host in LOCAL_HOSTS or _is_ip_host_private_or_local(parsed_host):
             blockers.append("auth_jwks_url_must_not_be_local_or_private")
-        if host in PLACEHOLDER_HOSTS or host.endswith(".example.com"):
+        if parsed_host in PLACEHOLDER_HOSTS or parsed_host.endswith(".example.com"):
             blockers.append("auth_jwks_url_must_not_be_placeholder")
         if url_parts["credentials_embedded"] or url_parts["query_present"]:
             blockers.append("auth_jwks_url_must_not_embed_credentials_or_query")
+        if url_parts["host_secret_pattern_detected"]:
+            blockers.append("auth_jwks_url_host_secret_pattern_detected")
     if not issuer:
         blockers.append("auth_jwt_issuer_missing")
     if not audiences:

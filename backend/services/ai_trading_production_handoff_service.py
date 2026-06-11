@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ipaddress
 import os
+import re
 from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 from urllib import parse
@@ -11,12 +12,18 @@ from urllib import parse
 
 APPROVAL_ENV = "AI_TRADING_PRODUCTION_HANDOFF_APPROVED"
 SUPPORTED_GATEWAY_MODES = {"http"}
+REDACTED_SENSITIVE_URL_HOST = "[redacted_sensitive_url_host]"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 PLACEHOLDER_HOSTS = {
     "example.com",
     "order-backend.example.com",
     "localhost",
 }
+SENSITIVE_URL_HOST_PATTERN = re.compile(
+    r"(^|[-_.])(api[-_]?key|secret|token|password|private[-_]?key|authorization|bearer)([-_.]|$)"
+    r"|(^|[-_.])(sk|pk)-[a-z0-9]{8,}([-_.]|$)",
+    re.IGNORECASE,
+)
 
 
 def _parse_bool(value: Optional[str]) -> bool:
@@ -79,13 +86,15 @@ def _is_ip_host_private_or_local(host: str) -> bool:
 def _sanitized_url_parts(url: str) -> Dict[str, Any]:
     parsed = parse.urlparse(url)
     host = parsed.hostname or ""
+    host_secret_pattern_detected = bool(host and SENSITIVE_URL_HOST_PATTERN.search(host))
     return {
         "scheme": parsed.scheme or None,
-        "host": host or None,
+        "host": REDACTED_SENSITIVE_URL_HOST if host_secret_pattern_detected else (host or None),
         "port": parsed.port,
         "path_present": bool(parsed.path and parsed.path != "/"),
         "query_present": bool(parsed.query),
         "credentials_embedded": bool(parsed.username or parsed.password),
+        "host_secret_pattern_detected": host_secret_pattern_detected,
     }
 
 
@@ -111,8 +120,9 @@ def build_report(
         "path_present": False,
         "query_present": False,
         "credentials_embedded": False,
+        "host_secret_pattern_detected": False,
     }
-    host = str(url_parts.get("host") or "").lower()
+    parsed_host = (parse.urlparse(gateway_url).hostname or "").lower() if gateway_url else ""
 
     if not gateway_enabled:
         blockers.append("signal_gateway_disabled")
@@ -123,14 +133,16 @@ def build_report(
     else:
         if url_parts["scheme"] != "https":
             blockers.append("signal_gateway_url_must_be_https")
-        if host in LOCAL_HOSTS or _is_ip_host_private_or_local(host):
+        if parsed_host in LOCAL_HOSTS or _is_ip_host_private_or_local(parsed_host):
             blockers.append("signal_gateway_url_must_not_be_local_or_private")
-        if host in PLACEHOLDER_HOSTS or host.endswith(".example.com"):
+        if parsed_host in PLACEHOLDER_HOSTS or parsed_host.endswith(".example.com"):
             blockers.append("signal_gateway_url_must_not_be_placeholder")
-        if "mock" in host or "mock" in parse.urlparse(gateway_url).path.lower() or url_parts["port"] == 5621:
+        if "mock" in parsed_host or "mock" in parse.urlparse(gateway_url).path.lower() or url_parts["port"] == 5621:
             blockers.append("signal_gateway_url_must_not_be_mock_gateway")
         if url_parts["credentials_embedded"] or url_parts["query_present"]:
             blockers.append("signal_gateway_url_must_not_embed_credentials_or_query")
+        if url_parts["host_secret_pattern_detected"]:
+            blockers.append("signal_gateway_url_host_secret_pattern_detected")
 
     if not token_present:
         blockers.append("signal_gateway_token_missing")
