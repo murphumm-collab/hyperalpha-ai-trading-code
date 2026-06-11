@@ -411,6 +411,7 @@ run_production_operator_preflight_gate() {
     rm -f "$preflight_report_file"
     return 1
   fi
+  # REDACTED_SENSITIVE_PREFLIGHT_VALUE is covered by the backend regression for secret-like evidence paths.
   python3 - "$preflight_report_file" <<'PY'
 import json
 import sys

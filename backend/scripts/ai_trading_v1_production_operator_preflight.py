@@ -28,6 +28,7 @@ import ai_trading_v1_production_readiness_check as production_readiness_check
 
 DEFAULT_REPO_ROOT = Path(__file__).resolve().parents[2]
 EXPECTED_BRANCH = completion_audit.EXPECTED_LOCAL_DEVELOPMENT_BRANCH
+REDACTED_SENSITIVE_PREFLIGHT_VALUE = "[redacted_sensitive_preflight_value]"
 
 
 def _run_git(repo_root: Path, args: list[str]) -> str | None:
@@ -91,6 +92,18 @@ def _dedupe(values: Iterable[Any]) -> list[Any]:
 
 def _prefixed(component: str, values: Iterable[str]) -> list[str]:
     return [f"{component}:{value}" for value in values if isinstance(value, str) and value]
+
+
+def _redact_secret_like_values(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _redact_secret_like_values(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_secret_like_values(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_secret_like_values(item) for item in value]
+    if isinstance(value, str) and completion_audit._secret_pattern_hits(value):
+        return REDACTED_SENSITIVE_PREFLIGHT_VALUE
+    return value
 
 
 def _local_runtime_report(
@@ -191,7 +204,7 @@ def build_operator_preflight_report(
     )
     preflight_ready = not blockers
 
-    return {
+    report = {
         "mode": "ai_trading_production_operator_preflight",
         "preflight_ready": preflight_ready,
         "ready_for_live_orders": completion.get("ready_for_live_orders") is True,
@@ -223,6 +236,7 @@ def build_operator_preflight_report(
             "completion": completion,
         },
     }
+    return _redact_secret_like_values(report)
 
 
 def main() -> int:

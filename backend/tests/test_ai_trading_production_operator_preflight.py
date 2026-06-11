@@ -135,6 +135,26 @@ def test_operator_preflight_blocks_without_external_evidence_and_keeps_secrets_o
     assert completion_audit._secret_pattern_hits(report) == []
 
 
+def test_operator_preflight_redacts_secret_like_external_evidence_paths(tmp_path):
+    _write_minimal_accepted_repo(tmp_path)
+    secret_path = tmp_path.parent / f"{tmp_path.name}-api_key=secret-production-token-123456789.json"
+
+    report = operator_preflight.build_operator_preflight_report(
+        repo_root=tmp_path,
+        production_evidence_file=str(secret_path),
+        skip_local_runtime=True,
+    )
+    serialized = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    production_evidence = report["components"]["completion"]["production_evidence"]
+
+    assert production_evidence["provided"] is True
+    assert production_evidence["path"] == operator_preflight.REDACTED_SENSITIVE_PREFLIGHT_VALUE
+    assert "external_evidence_file_missing" in production_evidence["blockers"]
+    assert "secret-production-token-123456789" not in serialized
+    assert "api_key=" not in serialized
+    assert completion_audit._secret_pattern_hits(report) == []
+
+
 def test_operator_preflight_cli_strict_exits_one_for_default_blockers(tmp_path):
     _write_minimal_accepted_repo(tmp_path)
 
