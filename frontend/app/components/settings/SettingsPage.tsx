@@ -34,6 +34,7 @@ import {
   extractAiTradingProductionEvidenceDryRun,
   extractAiTradingProductionEvidenceExplain,
   extractAiTradingProductionEvidenceTemplateGuidance,
+  formatAiTradingProductionEvidenceApiError,
   formatAiTradingProductionEvidenceBlocker,
 } from '@/lib/aiTradingReadiness'
 import type {
@@ -422,21 +423,21 @@ export default function SettingsPage() {
   const fetchAiTradingEvidenceExplain = useCallback(async () => {
     setAiTradingEvidenceExplainLoading(true)
     setAiTradingEvidenceExplainError(null)
+    const fallback = t('settings.aiTradingEvidenceExplainFailed', 'Failed to load AI Trading production evidence checklist')
     try {
       const res = await authFetch('/api/ai-trading/admin/production-evidence-explain')
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load AI Trading production evidence checklist')
+        setAiTradingEvidenceExplainError(formatAiTradingProductionEvidenceApiError(res.status, data.detail, fallback))
+        return
       }
       setAiTradingEvidenceExplain(extractAiTradingProductionEvidenceExplain(data.explain) || null)
-    } catch (err) {
-      setAiTradingEvidenceExplainError(
-        err instanceof Error ? err.message : 'Failed to load AI Trading production evidence checklist'
-      )
+    } catch {
+      setAiTradingEvidenceExplainError(formatAiTradingProductionEvidenceApiError(0, null, fallback))
     } finally {
       setAiTradingEvidenceExplainLoading(false)
     }
-  }, [])
+  }, [t])
 
   const validateAiTradingEvidence = useCallback(async () => {
     const trimmed = aiTradingEvidenceValidationJson.trim()
@@ -467,6 +468,7 @@ export default function SettingsPage() {
     }
 
     setAiTradingEvidenceValidationLoading(true)
+    const fallback = t('settings.aiTradingEvidenceValidationFailed', 'Failed to validate AI Trading production evidence')
     try {
       const res = await authFetch('/api/ai-trading/admin/production-evidence-validate', {
         method: 'POST',
@@ -475,17 +477,16 @@ export default function SettingsPage() {
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to validate AI Trading production evidence')
+        setAiTradingEvidenceValidationError(formatAiTradingProductionEvidenceApiError(res.status, data.detail, fallback))
+        return
       }
       setAiTradingEvidenceValidation(extractAiTradingProductionEvidenceExplain(data.validation) || null)
       setAiTradingEvidenceDryRun(extractAiTradingProductionEvidenceDryRun(data.dry_run) || null)
       setAiTradingEvidenceTemplateGuidance(
         extractAiTradingProductionEvidenceTemplateGuidance(data.guidance) || null
       )
-    } catch (err) {
-      setAiTradingEvidenceValidationError(
-        err instanceof Error ? err.message : 'Failed to validate AI Trading production evidence'
-      )
+    } catch {
+      setAiTradingEvidenceValidationError(formatAiTradingProductionEvidenceApiError(0, null, fallback))
     } finally {
       setAiTradingEvidenceValidationLoading(false)
     }
@@ -496,24 +497,24 @@ export default function SettingsPage() {
     setAiTradingEvidenceValidationError(null)
     setAiTradingEvidenceValidation(null)
     setAiTradingEvidenceDryRun(null)
+    const fallback = t('settings.aiTradingEvidenceTemplateFailed', 'Failed to load AI Trading production evidence template')
     try {
       const res = await authFetch('/api/ai-trading/admin/production-evidence-template')
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load AI Trading production evidence template')
+        setAiTradingEvidenceValidationError(formatAiTradingProductionEvidenceApiError(res.status, data.detail, fallback))
+        return
       }
       setAiTradingEvidenceValidationJson(JSON.stringify(data.template || {}, null, 2))
       setAiTradingEvidenceTemplateGuidance(
         extractAiTradingProductionEvidenceTemplateGuidance(data.guidance) || null
       )
-    } catch (err) {
-      setAiTradingEvidenceValidationError(
-        err instanceof Error ? err.message : 'Failed to load AI Trading production evidence template'
-      )
+    } catch {
+      setAiTradingEvidenceValidationError(formatAiTradingProductionEvidenceApiError(0, null, fallback))
     } finally {
       setAiTradingEvidenceTemplateLoading(false)
     }
-  }, [])
+  }, [t])
 
   const fetchAdminData = useCallback(async () => {
     await Promise.all([

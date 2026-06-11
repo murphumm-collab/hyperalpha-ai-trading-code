@@ -123,12 +123,39 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
 def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    explain_block = settings_source.split("const fetchAiTradingEvidenceExplain", 1)[1].split(
+        "const validateAiTradingEvidence",
+        1,
+    )[0]
+    validate_block = settings_source.split("const validateAiTradingEvidence", 1)[1].split(
+        "const loadAiTradingEvidenceTemplate",
+        1,
+    )[0]
+    template_block = settings_source.split("const loadAiTradingEvidenceTemplate", 1)[1].split(
+        "const fetchAdminData",
+        1,
+    )[0]
 
     assert "/api/ai-trading/admin/production-evidence-template" in settings_source
     assert "/api/ai-trading/admin/production-evidence-validate" in settings_source
     assert "loadAiTradingEvidenceTemplate" in settings_source
     assert "extractAiTradingProductionEvidenceTemplateGuidance(data.guidance)" in settings_source
     assert "extractAiTradingProductionEvidenceDryRun(data.dry_run)" in settings_source
+    assert "formatAiTradingProductionEvidenceApiError" in settings_source
+    assert "formatAiTradingProductionEvidenceApiError" in helper_source
+    assert "PRODUCTION_EVIDENCE_API_ERROR_LABELS" in helper_source
+    assert "PRODUCTION_EVIDENCE_API_STATUS_LABELS" in helper_source
+    assert "safeProductionEvidenceApiDetailCode" in helper_source
+    assert "production_evidence_payload_too_large" in helper_source
+    assert "production_evidence_items_too_many" in helper_source
+    assert "Admin authentication required" in helper_source
+    assert "Admin role required" in helper_source
+    for safe_error_block in (explain_block, validate_block, template_block):
+        assert "formatAiTradingProductionEvidenceApiError(res.status, data.detail" in safe_error_block
+        assert "formatAiTradingProductionEvidenceApiError(0, null" in safe_error_block
+        assert "throw new Error(data.detail" not in safe_error_block
+        assert "data.detail ||" not in safe_error_block
+        assert "err instanceof Error ? err.message" not in safe_error_block
     assert "aiTradingEvidenceDryRun.payloadBytes" in settings_source
     assert "aiTradingEvidenceDryRun.maxPayloadBytes" in settings_source
     assert "aiTradingEvidenceDryRun.itemKeyCount" in settings_source

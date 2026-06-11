@@ -264,6 +264,43 @@ export const formatAiTradingProductionEvidenceBlocker = (code: string): string =
   return readableEvidenceSuffix(code) || code
 }
 
+const PRODUCTION_EVIDENCE_API_ERROR_LABELS: Record<string, string> = {
+  production_evidence_items_too_many: 'Evidence has too many item keys',
+  production_evidence_payload_too_large: 'Evidence JSON is too large for dry-run validation',
+}
+
+const PRODUCTION_EVIDENCE_API_STATUS_LABELS: Record<number, string> = {
+  401: 'Admin authentication required',
+  403: 'Admin role required',
+  413: 'Evidence JSON is too large for dry-run validation',
+  422: 'Evidence request was rejected by the safe validator',
+}
+
+const safeProductionEvidenceApiDetailCode = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    const knownLabel = PRODUCTION_EVIDENCE_API_ERROR_LABELS[detail] || PRODUCTION_EVIDENCE_BLOCKER_LABELS[detail]
+    return knownLabel ? detail : null
+  }
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    const knownLabel = PRODUCTION_EVIDENCE_API_ERROR_LABELS[detail.code] || PRODUCTION_EVIDENCE_BLOCKER_LABELS[detail.code]
+    return knownLabel ? detail.code : null
+  }
+  return null
+}
+
+export const formatAiTradingProductionEvidenceApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeCode = safeProductionEvidenceApiDetailCode(detail)
+  const safeDetail = safeCode
+    ? PRODUCTION_EVIDENCE_API_ERROR_LABELS[safeCode] || PRODUCTION_EVIDENCE_BLOCKER_LABELS[safeCode]
+    : PRODUCTION_EVIDENCE_API_STATUS_LABELS[status] || fallback
+  return `${statusLabel}: ${safeDetail}`
+}
+
 export const extractAiTradingAgentContextLocators = (
   report: AiTradingProductionComponent,
   locatorMeta: AiTradingAgentContextLocatorMeta[]
