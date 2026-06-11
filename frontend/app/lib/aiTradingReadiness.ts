@@ -105,6 +105,24 @@ export interface AiTradingProductionEvidenceTemplateGuidanceView {
   nextRequiredActions: string[]
 }
 
+export interface AiTradingProductionEvidenceDryRunView {
+  mode: string
+  acceptedInput: string
+  persistence: string
+  payloadBytes: number
+  maxPayloadBytes: number
+  itemKeyCount: number
+  maxItemKeys: number
+  networkCalls: boolean
+  modelCalls: boolean
+  orderBackendCalls: boolean
+  exchangeCalls: boolean
+  githubCalls: boolean
+  readyForLiveOrders: boolean
+  liveOrdersUnlocked: boolean
+  secretPolicy: string
+}
+
 export interface AiTradingAgentContextLocatorMeta {
   key: string
   label: string
@@ -389,5 +407,29 @@ export const extractAiTradingProductionEvidenceTemplateGuidance = (
       })
       return acc
     }, []),
+  }
+}
+
+export const extractAiTradingProductionEvidenceDryRun = (
+  source: unknown
+): AiTradingProductionEvidenceDryRunView | null => {
+  if (!isRecord(source)) return null
+
+  return {
+    mode: typeof source.mode === 'string' ? source.mode : '',
+    acceptedInput: typeof source.accepted_input === 'string' ? source.accepted_input : '',
+    persistence: typeof source.persistence === 'string' ? source.persistence : '',
+    payloadBytes: numberValue(source.payload_bytes),
+    maxPayloadBytes: numberValue(source.max_payload_bytes),
+    itemKeyCount: numberValue(source.item_key_count),
+    maxItemKeys: numberValue(source.max_item_keys),
+    networkCalls: source.network_calls === true,
+    modelCalls: source.model_calls === true,
+    orderBackendCalls: source.order_backend_calls === true,
+    exchangeCalls: source.exchange_calls === true,
+    githubCalls: source.github_calls === true,
+    readyForLiveOrders: source.ready_for_live_orders === true,
+    liveOrdersUnlocked: source.live_orders_unlocked === true,
+    secretPolicy: typeof source.secret_policy === 'string' ? source.secret_policy : '',
   }
 }

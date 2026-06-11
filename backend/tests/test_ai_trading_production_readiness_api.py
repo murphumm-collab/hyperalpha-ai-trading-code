@@ -405,6 +405,26 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     data = response.json()
     assert data["success"] is True
     assert data["requested_by_user_id"] == admin_id
+    assert data["dry_run"] == {
+        "mode": "admin_payload_validation_only",
+        "accepted_input": "json_object_only",
+        "persistence": "not_stored",
+        "payload_bytes": data["dry_run"]["payload_bytes"],
+        "max_payload_bytes": 40000,
+        "item_key_count": 7,
+        "max_item_keys": 14,
+        "network_calls": False,
+        "model_calls": False,
+        "order_backend_calls": False,
+        "exchange_calls": False,
+        "github_calls": False,
+        "ready_for_live_orders": False,
+        "live_orders_unlocked": False,
+        "secret_policy": "metadata_only_no_env_or_credentials",
+    }
+    assert data["dry_run"]["payload_bytes"] > 0
+    assert "evidence" not in data["dry_run"]
+    assert "path" not in data["dry_run"]
     assert data["guidance"]["secret_policy"] == "metadata_only_no_env_or_credentials"
     assert any(
         field["field"] == "cutover_window"

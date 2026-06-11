@@ -209,18 +209,38 @@ def _model_dump(model: BaseModel) -> Dict[str, Any]:
     return model.dict()
 
 
-def _enforce_production_evidence_payload_bounds(evidence: Dict[str, Any]) -> None:
+def _production_evidence_dry_run_metadata(evidence: Dict[str, Any]) -> Dict[str, Any]:
     try:
         serialized = json.dumps(evidence, ensure_ascii=False, sort_keys=True)
     except (TypeError, ValueError):
         raise HTTPException(status_code=422, detail="production_evidence_json_not_serializable")
 
-    if len(serialized.encode("utf-8")) > AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES:
+    payload_bytes = len(serialized.encode("utf-8"))
+    if payload_bytes > AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES:
         raise HTTPException(status_code=413, detail="production_evidence_payload_too_large")
 
     items = evidence.get("items")
+    item_key_count = len(items) if isinstance(items, dict) else 0
     if isinstance(items, dict) and len(items) > AI_TRADING_PRODUCTION_EVIDENCE_MAX_ITEM_KEYS:
         raise HTTPException(status_code=413, detail="production_evidence_items_too_many")
+
+    return {
+        "mode": "admin_payload_validation_only",
+        "accepted_input": "json_object_only",
+        "persistence": "not_stored",
+        "payload_bytes": payload_bytes,
+        "max_payload_bytes": AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES,
+        "item_key_count": item_key_count,
+        "max_item_keys": AI_TRADING_PRODUCTION_EVIDENCE_MAX_ITEM_KEYS,
+        "network_calls": False,
+        "model_calls": False,
+        "order_backend_calls": False,
+        "exchange_calls": False,
+        "github_calls": False,
+        "ready_for_live_orders": False,
+        "live_orders_unlocked": False,
+        "secret_policy": "metadata_only_no_env_or_credentials",
+    }
 
 
 @router.get("/strategy-spec/schema")
@@ -312,10 +332,11 @@ def ai_trading_production_evidence_validate_endpoint(
     current_user: User = Depends(get_admin_user_dependency),
 ):
     """Validate admin-submitted production evidence without storing it or enabling live orders."""
-    _enforce_production_evidence_payload_bounds(request.evidence)
+    dry_run = _production_evidence_dry_run_metadata(request.evidence)
     return {
         "success": True,
         "requested_by_user_id": current_user.id,
+        "dry_run": dry_run,
         "validation": build_ai_trading_production_evidence_payload_validation(
             AI_TRADING_REPO_ROOT,
             request.evidence,

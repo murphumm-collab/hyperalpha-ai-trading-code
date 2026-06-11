@@ -31,6 +31,7 @@ import { authFetch } from '@/lib/authFetch'
 import { useAuth } from '@/contexts/AuthContext'
 import {
   extractAiTradingAgentContextLocators,
+  extractAiTradingProductionEvidenceDryRun,
   extractAiTradingProductionEvidenceExplain,
   extractAiTradingProductionEvidenceTemplateGuidance,
   formatAiTradingProductionEvidenceBlocker,
@@ -45,6 +46,7 @@ import type {
 import type {
   AiTradingAgentContextLocatorMeta,
   AiTradingAgentContextLocatorView,
+  AiTradingProductionEvidenceDryRunView,
   AiTradingProductionEvidenceExplainView,
   AiTradingProductionEvidenceTemplateGuidanceView,
   AiTradingProductionComponent,
@@ -242,6 +244,8 @@ export default function SettingsPage() {
   const [aiTradingEvidenceValidationJson, setAiTradingEvidenceValidationJson] = useState('')
   const [aiTradingEvidenceValidation, setAiTradingEvidenceValidation] =
     useState<AiTradingProductionEvidenceExplainView | null>(null)
+  const [aiTradingEvidenceDryRun, setAiTradingEvidenceDryRun] =
+    useState<AiTradingProductionEvidenceDryRunView | null>(null)
   const [aiTradingEvidenceValidationLoading, setAiTradingEvidenceValidationLoading] = useState(false)
   const [aiTradingEvidenceValidationError, setAiTradingEvidenceValidationError] = useState<string | null>(null)
   const [aiTradingEvidenceTemplateLoading, setAiTradingEvidenceTemplateLoading] = useState(false)
@@ -438,6 +442,7 @@ export default function SettingsPage() {
     const trimmed = aiTradingEvidenceValidationJson.trim()
     setAiTradingEvidenceValidationError(null)
     setAiTradingEvidenceValidation(null)
+    setAiTradingEvidenceDryRun(null)
     if (!trimmed) {
       setAiTradingEvidenceValidationError(
         t('settings.aiTradingEvidenceValidationRequired', 'Paste evidence JSON before validating')
@@ -473,6 +478,7 @@ export default function SettingsPage() {
         throw new Error(data.detail || 'Failed to validate AI Trading production evidence')
       }
       setAiTradingEvidenceValidation(extractAiTradingProductionEvidenceExplain(data.validation) || null)
+      setAiTradingEvidenceDryRun(extractAiTradingProductionEvidenceDryRun(data.dry_run) || null)
       setAiTradingEvidenceTemplateGuidance(
         extractAiTradingProductionEvidenceTemplateGuidance(data.guidance) || null
       )
@@ -489,6 +495,7 @@ export default function SettingsPage() {
     setAiTradingEvidenceTemplateLoading(true)
     setAiTradingEvidenceValidationError(null)
     setAiTradingEvidenceValidation(null)
+    setAiTradingEvidenceDryRun(null)
     try {
       const res = await authFetch('/api/ai-trading/admin/production-evidence-template')
       const data = await res.json().catch(() => ({}))
@@ -870,6 +877,17 @@ export default function SettingsPage() {
       real_exchange_execution: t('settings.aiTradingEvidenceExchangeExecution', 'Exchange execution'),
     }
     return labels[id] || id.replace(/_/g, ' ')
+  }
+
+  const formatAiTradingEvidenceDryRunCalls = (dryRun: AiTradingProductionEvidenceDryRunView) => {
+    const calls = [
+      dryRun.networkCalls ? 'network' : 'no network',
+      dryRun.modelCalls ? 'model' : 'no model',
+      dryRun.orderBackendCalls ? 'order backend' : 'no order backend',
+      dryRun.exchangeCalls ? 'exchange' : 'no exchange',
+      dryRun.githubCalls ? 'GitHub' : 'no GitHub',
+    ]
+    return calls.join(' / ')
   }
 
   const getAgentContextLocators = (report: AiTradingProductionComponent): AiTradingAgentContextLocatorView[] => {
@@ -2545,6 +2563,40 @@ export default function SettingsPage() {
                         )}
                         {aiTradingEvidenceValidationError && (
                           <div className="mt-2 text-sm text-red-500">{aiTradingEvidenceValidationError}</div>
+                        )}
+                        {aiTradingEvidenceDryRun && (
+                          <div className="mt-3 rounded-md border p-3">
+                            <div className="mb-2 flex items-center justify-between gap-2">
+                              <div className="text-sm font-medium">
+                                {t('settings.aiTradingEvidenceDryRunSafety', 'Dry-run safety')}
+                              </div>
+                              <Badge variant="outline">
+                                {aiTradingEvidenceDryRun.persistence || 'not_stored'}
+                              </Badge>
+                            </div>
+                            <div className="grid gap-2 text-xs text-muted-foreground md:grid-cols-4">
+                              <div className="truncate" title={aiTradingEvidenceDryRun.mode || '-'}>
+                                {t('settings.aiTradingEvidenceDryRunMode', 'Mode')}: {aiTradingEvidenceDryRun.mode || '-'}
+                              </div>
+                              <div>
+                                {t('settings.aiTradingEvidencePayloadBytes', 'Payload')}: {aiTradingEvidenceDryRun.payloadBytes}/{aiTradingEvidenceDryRun.maxPayloadBytes} bytes
+                              </div>
+                              <div>
+                                {t('settings.aiTradingEvidenceItemKeys', 'Item keys')}: {aiTradingEvidenceDryRun.itemKeyCount}/{aiTradingEvidenceDryRun.maxItemKeys}
+                              </div>
+                              <div>
+                                {t('settings.aiTradingEvidenceLiveOrders', 'Live orders')}: {aiTradingEvidenceDryRun.liveOrdersUnlocked
+                                  ? t('settings.ready', 'Ready')
+                                  : t('settings.blocked', 'Blocked')}
+                              </div>
+                            </div>
+                            <div className="mt-2 truncate text-xs text-muted-foreground" title={formatAiTradingEvidenceDryRunCalls(aiTradingEvidenceDryRun)}>
+                              {t('settings.aiTradingEvidenceDryRunCalls', 'Calls')}: {formatAiTradingEvidenceDryRunCalls(aiTradingEvidenceDryRun)}
+                            </div>
+                            <div className="mt-1 truncate text-xs text-muted-foreground" title={aiTradingEvidenceDryRun.secretPolicy || '-'}>
+                              {t('settings.aiTradingEvidenceSecretPolicy', 'Secret policy')}: {aiTradingEvidenceDryRun.secretPolicy || '-'}
+                            </div>
+                          </div>
                         )}
                         {aiTradingEvidenceValidation && (
                           <div className="mt-3 grid gap-3 md:grid-cols-[220px_1fr]">

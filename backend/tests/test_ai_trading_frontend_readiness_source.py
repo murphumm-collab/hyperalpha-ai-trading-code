@@ -128,6 +128,13 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "/api/ai-trading/admin/production-evidence-validate" in settings_source
     assert "loadAiTradingEvidenceTemplate" in settings_source
     assert "extractAiTradingProductionEvidenceTemplateGuidance(data.guidance)" in settings_source
+    assert "extractAiTradingProductionEvidenceDryRun(data.dry_run)" in settings_source
+    assert "aiTradingEvidenceDryRun.payloadBytes" in settings_source
+    assert "aiTradingEvidenceDryRun.maxPayloadBytes" in settings_source
+    assert "aiTradingEvidenceDryRun.itemKeyCount" in settings_source
+    assert "aiTradingEvidenceDryRun.maxItemKeys" in settings_source
+    assert "aiTradingEvidenceDryRun.liveOrdersUnlocked" in settings_source
+    assert "formatAiTradingEvidenceDryRunCalls(aiTradingEvidenceDryRun)" in settings_source
     assert "aiTradingEvidenceTemplateGuidance.nextRequiredActions" in settings_source
     assert "aiTradingEvidenceTemplateGuidance.rootNextRequiredActions" in settings_source
     assert "aiTradingEvidenceTemplateGuidance.rootFields.length" in settings_source
@@ -144,7 +151,15 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "item.operatorGuidance[0]" in settings_source
     assert "settings.aiTradingEvidenceFixHint" in settings_source
     assert "extractAiTradingProductionEvidenceTemplateGuidance" in helper_source
+    assert "extractAiTradingProductionEvidenceDryRun" in helper_source
     assert "secret_policy" in helper_source
+    assert "payload_bytes" in helper_source
+    assert "max_payload_bytes" in helper_source
+    assert "item_key_count" in helper_source
+    assert "max_item_keys" in helper_source
+    assert "live_orders_unlocked" in helper_source
+    assert "network_calls" in helper_source
+    assert "order_backend_calls" in helper_source
     assert "root_fields" in helper_source
     assert "root_next_required_actions" in helper_source
     assert "related_blockers" in helper_source
