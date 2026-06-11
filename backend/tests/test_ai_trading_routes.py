@@ -2055,7 +2055,10 @@ def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tm
 
 def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mutating_audit_json(tmp_path):
     client = _build_client(tmp_path)
-    _, event = _create_approved_signal_event(client)
+    _, event = _create_approved_signal_event(
+        client,
+        agent_session_id="session:handoff-error-redaction",
+    )
 
     blocked = client.post(
         f"/api/ai-trading/signal-events/{event['id']}/handoff",
@@ -2068,6 +2071,15 @@ def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mu
         attempt = session.query(AiTradingSignalHandoffAttemptRecord).filter(
             AiTradingSignalHandoffAttemptRecord.signal_event_id == event["id"]
         ).one()
+        event_row = session.query(AiTradingSignalEventRecord).filter(
+            AiTradingSignalEventRecord.id == event["id"]
+        ).one()
+        sensitive_error_message = (
+            "https://order-backend.test/signals api_key=secret-error-key "
+            "authorization=bearer-secret-error-token"
+        )
+        event_row.error_message = sensitive_error_message
+        attempt.error_message = sensitive_error_message
         attempt.blockers_json = json.dumps([
             "gateway_disabled",
             {"access_token": "secret-blocker-token"},
@@ -2083,19 +2095,37 @@ def test_ai_trading_handoff_attempt_responses_redact_sensitive_fields_without_mu
             },
         })
         session.commit()
+        assert "secret-error-key" in event_row.error_message
+        assert "order-backend.test" in attempt.error_message
         assert "secret-eligibility-key" in attempt.eligibility_json
         assert "secret-blocker-token" in attempt.blockers_json
     finally:
         session.close()
 
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    signal_payload = detail.json()["signal_event"]
+    assert signal_payload["error_message"] == "[redacted_sensitive_error_message]"
+
     attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
     assert attempts.status_code == 200
     attempt_payload = attempts.json()["attempts"][0]
+    assert attempt_payload["error_message"] == "[redacted_sensitive_error_message]"
     assert attempt_payload["blockers"][1]["access_token"] == "***"
     assert attempt_payload["eligibility"]["api_key"] == "***"
     assert attempt_payload["eligibility"]["nested"]["private_key"] == "***"
     assert attempt_payload["eligibility"]["nested"]["gateway_response"]["authorization"] == "***"
-    serialized = json.dumps(attempt_payload)
+    context = client.get("/api/ai-trading/agent-sessions/session:handoff-error-redaction/context")
+    assert context.status_code == 200
+    assert context.json()["context"]["handoff_attempts"][0]["error_message"] == "[redacted_sensitive_error_message]"
+    serialized = json.dumps({
+        "signal": signal_payload,
+        "attempt": attempt_payload,
+        "context": context.json(),
+    })
+    assert "order-backend.test" not in serialized
+    assert "secret-error-key" not in serialized
+    assert "bearer-secret-error-token" not in serialized
     assert "secret-blocker-token" not in serialized
     assert "secret-eligibility-key" not in serialized
     assert "secret-private-key" not in serialized

@@ -130,6 +130,8 @@ REDACTED_AGENT_SESSION_NAME = "[redacted_sensitive_session_name]"
 STRATEGY_SPEC_NAME_MAX_CHARS = 120
 REDACTED_STRATEGY_SPEC_NAME = "[redacted_sensitive_strategy_name]"
 REDACTED_SENSITIVE_NAME = "[redacted_sensitive_name]"
+REDACTED_SENSITIVE_ERROR_MESSAGE = "[redacted_sensitive_error_message]"
+SENSITIVE_ERROR_MESSAGE_URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
 DIRECT_ORDER_INTENT_PATTERN = re.compile(
     r"(place\s+order|submit\s+order|market\s+order|limit\s+order|auto\s*execute|"
     r"direct\s+order|立即下单|直接下单|市价单|限价单)",
@@ -521,6 +523,23 @@ def _display_name_contains_sensitive_value(value: Any) -> bool:
     return bool(SENSITIVE_AI_TRADING_KEY_PATTERN.search(text)) or any(
         pattern.search(text) for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS
     )
+
+
+def _error_message_contains_sensitive_value(value: Any) -> bool:
+    text = str(value or "")
+    return (
+        bool(SENSITIVE_ERROR_MESSAGE_URL_PATTERN.search(text))
+        or _display_name_contains_sensitive_value(text)
+    )
+
+
+def _clean_public_error_message(value: Any) -> Optional[str]:
+    message = _clean_text(value, 500)
+    if not message:
+        return None
+    if _error_message_contains_sensitive_value(message):
+        return REDACTED_SENSITIVE_ERROR_MESSAGE
+    return message
 
 
 def _redact_sensitive_payload(value: Any) -> Any:
@@ -1162,7 +1181,7 @@ def serialize_signal_event_record(
         "status": record.status,
         "handoff_status": record.handoff_status,
         "agent_session": _record_agent_session_payload(record, db=db, user_id=user_id),
-        "error_message": record.error_message,
+        "error_message": _clean_public_error_message(record.error_message),
         "submitted_at": _record_timestamp(record.submitted_at),
         "created_at": _record_timestamp(record.created_at),
         "updated_at": _record_timestamp(record.updated_at),
@@ -1199,7 +1218,7 @@ def serialize_signal_handoff_attempt_record(
         "gateway_ready": bool(record.gateway_ready),
         "blockers": _redact_sensitive_payload(_json_loads(record.blockers_json, [])),
         "eligibility": _redact_sensitive_payload(_json_loads(record.eligibility_json, {})),
-        "error_message": record.error_message,
+        "error_message": _clean_public_error_message(record.error_message),
         "created_at": _record_timestamp(record.created_at),
     }
 
@@ -3242,7 +3261,7 @@ def _minimal_signal_handoff_attempt_context(
             "user_confirmation": user_confirmation or None,
         },
         "gateway_response": gateway_response or None,
-        "error_message": record.error_message,
+        "error_message": _clean_public_error_message(record.error_message),
         "created_at": _record_timestamp(record.created_at),
     }
     return _redact_sensitive_payload(payload)

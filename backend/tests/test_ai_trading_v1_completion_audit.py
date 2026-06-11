@@ -100,6 +100,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_market_symbol_sanitizer_marker: bool = True,
     include_agent_session_name_safety_marker: bool = True,
     include_strategy_spec_name_safety_marker: bool = True,
+    include_handoff_error_message_safety_marker: bool = True,
     include_gateway_mode_guard_marker: bool = True,
     include_runtime_readiness_retry_grace_marker: bool = True,
     include_external_markers: bool = True,
@@ -291,6 +292,9 @@ def _write_minimal_acceptance_repo(
     strategy_spec_name_safety_marker = (
         "| AI Trading strategy-spec name safety | Done |"
     ) if include_strategy_spec_name_safety_marker else ""
+    handoff_error_message_safety_marker = (
+        "| AI Trading handoff error-message safety | Done |"
+    ) if include_handoff_error_message_safety_marker else ""
     gateway_mode_guard_marker = (
         "| AI Trading gateway mode guard | Done |"
     ) if include_gateway_mode_guard_marker else ""
@@ -364,7 +368,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Strategy Spec Name Safety Accepted / Remote Push Skipped",
+                "Local V1 Handoff Error Message Safety Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -432,6 +436,7 @@ def _write_minimal_acceptance_repo(
                 frontend_market_symbol_sanitizer_marker,
                 agent_session_name_safety_marker,
                 strategy_spec_name_safety_marker,
+                handoff_error_message_safety_marker,
                 gateway_mode_guard_marker,
                 "| AI Trading runtime mirror freshness gate | Done |",
                 "| AI Trading runtime readiness cold-start retry | Done |",
@@ -1892,6 +1897,24 @@ def test_completion_audit_blocks_local_acceptance_when_strategy_spec_name_safety
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading strategy-spec name safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_handoff_error_message_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_handoff_error_message_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading handoff error-message safety | Done |"
         in status_evidence["missing_phrases"]
     )
 
