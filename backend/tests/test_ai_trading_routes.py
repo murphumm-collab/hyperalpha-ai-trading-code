@@ -2436,11 +2436,6 @@ def test_ai_trading_strategy_spec_detail_redacts_sensitive_fields_without_mutati
     )
     assert draft.status_code == 200
     spec = draft.json()["spec"]
-    spec["api_key"] = "secret-key"
-    spec["risk"]["access_token"] = "secret-token"
-    spec["execution"]["nested"] = {"private_key": "secret-private-key"}
-    spec["metadata"]["password"] = "secret-password"
-    spec["watchers"] = [{"authorization": "bearer secret-header"}]
 
     saved = client.post(
         "/api/ai-trading/strategy-specs",
@@ -2448,23 +2443,20 @@ def test_ai_trading_strategy_spec_detail_redacts_sensitive_fields_without_mutati
     )
     assert saved.status_code == 200
     saved_record = saved.json()["spec_record"]
-    serialized_spec = saved_record["spec"]
-    assert serialized_spec["api_key"] == "***"
-    assert serialized_spec["risk"]["access_token"] == "***"
-    assert serialized_spec["execution"]["nested"]["private_key"] == "***"
-    assert serialized_spec["metadata"]["password"] == "***"
-    assert serialized_spec["watchers"][0]["authorization"] == "***"
-    assert "secret-key" not in str(serialized_spec)
-    assert "secret-token" not in str(serialized_spec)
-    assert "secret-private-key" not in str(serialized_spec)
-    assert "secret-password" not in str(serialized_spec)
-    assert "bearer secret-header" not in str(serialized_spec)
 
     session = client._ai_trading_session_factory()
     try:
         row = session.query(AiTradingStrategySpecRecord).filter(
             AiTradingStrategySpecRecord.id == saved_record["id"]
         ).one()
+        polluted_spec = json.loads(row.spec_json)
+        polluted_spec["api_key"] = "secret-key"
+        polluted_spec["risk"]["access_token"] = "secret-token"
+        polluted_spec["execution"]["nested"] = {"private_key": "secret-private-key"}
+        polluted_spec["metadata"]["password"] = "secret-password"
+        polluted_spec["watchers"] = [{"authorization": "bearer secret-header"}]
+        row.spec_json = json.dumps(polluted_spec)
+        session.commit()
         assert "secret-key" in row.spec_json
         assert "secret-token" in row.spec_json
         assert "secret-private-key" in row.spec_json
@@ -4294,3 +4286,247 @@ def test_ai_trading_strategy_spec_name_rejects_sensitive_values(tmp_path):
     assert saved.json()["spec_record"]["name"] == "BTC safe strategy name"
     serialized = json.dumps(saved.json(), ensure_ascii=False).lower()
     assert "should-not-be-stored" not in serialized
+
+
+def test_ai_trading_strategy_text_and_source_reject_sensitive_inputs_without_persisting(tmp_path):
+    client = _build_client(tmp_path)
+
+    rejected_text = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m breakout api_key=secret-strategy-text https://order-backend.test/signals",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+        },
+    )
+    assert rejected_text.status_code == 400
+    assert "strategy text must not contain" in rejected_text.json()["detail"]
+    assert "secret-strategy-text" not in str(rejected_text.json())
+    assert "order-backend.test" not in str(rejected_text.json())
+
+    rejected_model_source = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m breakout with required stop-loss and take-profit.",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+            "model_source": "api_key=secret-model-source",
+        },
+    )
+    assert rejected_model_source.status_code == 400
+    assert "strategy model source must not contain" in rejected_model_source.json()["detail"]
+    assert "secret-model-source" not in str(rejected_model_source.json())
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m long breakout with required stop-loss and take-profit.",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "deepseek",
+            "model_name": "deepseek-chat",
+            "model_source": "pytest",
+        },
+    )
+    assert draft.status_code == 200
+    spec = draft.json()["spec"]
+
+    rejected_record_source = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={
+            "spec": spec,
+            "name": "BTC source safety",
+            "source": "api_key=secret-record-source",
+        },
+    )
+    assert rejected_record_source.status_code == 400
+    assert "strategy record source must not contain" in rejected_record_source.json()["detail"]
+    assert "secret-record-source" not in str(rejected_record_source.json())
+
+    polluted_spec = {
+        **spec,
+        "metadata": {
+            **spec.get("metadata", {}),
+            "source": "api_key=secret-metadata-source",
+        },
+    }
+    rejected_spec_source = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": polluted_spec, "name": "BTC polluted source", "source": "pytest"},
+    )
+    assert rejected_spec_source.status_code == 400
+    assert "strategy spec.metadata.source must not contain" in rejected_spec_source.json()["detail"]
+    assert "secret-metadata-source" not in str(rejected_spec_source.json())
+
+    session = client._ai_trading_session_factory()
+    try:
+        assert session.query(AiTradingStrategySpecRecord).count() == 0
+    finally:
+        session.close()
+
+    saved = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={"spec": spec, "name": "BTC source safe", "source": "pytest_safe_source"},
+    )
+    assert saved.status_code == 200
+    spec_id = saved.json()["spec_record"]["id"]
+
+    rejected_adjust_text = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/adjust",
+        json={
+            "instruction": "Use api_key=secret-adjust-text and https://order-backend.test/signals",
+            "source": "pytest_adjust",
+        },
+    )
+    assert rejected_adjust_text.status_code == 400
+    assert "strategy adjustment instruction must not contain" in rejected_adjust_text.json()["detail"]
+    assert "secret-adjust-text" not in str(rejected_adjust_text.json())
+    assert "order-backend.test" not in str(rejected_adjust_text.json())
+
+    rejected_adjust_source = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/adjust",
+        json={
+            "instruction": "Switch to a 1h conservative setup with stricter stop loss",
+            "source": "api_key=secret-adjust-source",
+        },
+    )
+    assert rejected_adjust_source.status_code == 400
+    assert "strategy adjustment source must not contain" in rejected_adjust_source.json()["detail"]
+    assert "secret-adjust-source" not in str(rejected_adjust_source.json())
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingStrategySpecRecord).filter(
+            AiTradingStrategySpecRecord.id == spec_id
+        ).one()
+        assert row.source == "pytest_safe_source"
+        assert row.status == "ready_for_review"
+    finally:
+        session.close()
+
+
+def test_ai_trading_strategy_spec_responses_redact_legacy_sensitive_text_and_source_without_mutating_audit_json(
+    tmp_path,
+    monkeypatch,
+):
+    client = _build_client(tmp_path)
+    spec_record, _ = _create_approved_signal_event(client)
+    spec_id = spec_record["id"]
+    sensitive_text = "api_key=secret-strategy-text https://order-backend.test/signals"
+    sensitive_source = "api_key=secret-strategy-source https://order-backend.test/signals"
+    sensitive_stop_rule = "Authorization: Bearer secret-stop-rule"
+    sensitive_trigger = "refresh_token=secret-entry-trigger"
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingStrategySpecRecord).filter(
+            AiTradingStrategySpecRecord.id == spec_id
+        ).one()
+        spec = json.loads(row.spec_json)
+        spec["intent"] = sensitive_text
+        spec["ai_model"]["source"] = sensitive_source
+        spec["metadata"]["source"] = sensitive_source
+        spec["metadata"]["last_adjustment"] = {
+            "instruction": sensitive_text,
+            "source": sensitive_source,
+        }
+        spec["exit"]["stop_loss"]["rule"] = sensitive_stop_rule
+        spec["entry"]["triggers"].append(sensitive_trigger)
+        row.source = sensitive_source
+        row.spec_json = json.dumps(spec)
+        session.commit()
+        assert "secret-strategy-text" in row.spec_json
+        assert "secret-strategy-source" in row.spec_json
+        assert "secret-stop-rule" in row.spec_json
+        assert "secret-entry-trigger" in row.spec_json
+    finally:
+        session.close()
+
+    detail = client.get(f"/api/ai-trading/strategy-specs/{spec_id}")
+    assert detail.status_code == 200
+    detail_record = detail.json()["spec_record"]
+    detail_spec = detail_record["spec"]
+    assert detail_record["source"] == "[redacted_sensitive_strategy_source]"
+    assert detail_spec["intent"] == "[redacted_sensitive_strategy_text]"
+    assert detail_spec["ai_model"]["source"] == "[redacted_sensitive_strategy_source]"
+    assert detail_spec["metadata"]["source"] == "[redacted_sensitive_strategy_source]"
+    assert detail_spec["metadata"]["last_adjustment"]["instruction"] == "[redacted_sensitive_strategy_text]"
+    assert detail_spec["metadata"]["last_adjustment"]["source"] == "[redacted_sensitive_strategy_source]"
+    assert detail_spec["exit"]["stop_loss"]["rule"] == "[redacted_sensitive_strategy_text]"
+    assert "[redacted_sensitive_strategy_text]" in detail_spec["entry"]["triggers"]
+
+    preview = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/signal-preview",
+        json={"market_context": {"mark_price": 100000, "source": "pytest-strategy-text"}},
+    )
+    assert preview.status_code == 200
+    signal_preview = preview.json()["signal_preview"]
+    assert signal_preview["decision"]["rationale"] == "[redacted_sensitive_strategy_text]"
+    assert signal_preview["ai_model"]["source"] == "[redacted_sensitive_strategy_source]"
+    assert signal_preview["risk"]["stop_loss"]["rule"] == "[redacted_sensitive_strategy_text]"
+    assert "[redacted_sensitive_strategy_text]" in signal_preview["decision"]["entry_triggers"]
+
+    event_response = client.post(
+        f"/api/ai-trading/strategy-specs/{spec_id}/signal-events",
+        json={"market_context": {"mark_price": 100000, "source": "pytest-strategy-text-event"}},
+    )
+    assert event_response.status_code == 200
+    event = event_response.json()["signal_event"]
+    assert event["signal"]["decision"]["rationale"] == "[redacted_sensitive_strategy_text]"
+    assert event["signal"]["ai_model"]["source"] == "[redacted_sensitive_strategy_source]"
+
+    calls = []
+
+    class FakeResponse:
+        status_code = 202
+
+        def raise_for_status(self):
+            return None
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "test-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    handoff = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest_strategy_text_redaction"},
+    )
+    assert handoff.status_code == 200
+    assert calls
+    gateway_signal = calls[0]["json"]["signal"]
+    assert gateway_signal["decision"]["rationale"] == "[redacted_sensitive_strategy_text]"
+    assert gateway_signal["ai_model"]["source"] == "[redacted_sensitive_strategy_source]"
+    serialized = json.dumps({
+        "detail": detail.json(),
+        "preview": preview.json(),
+        "event": event_response.json(),
+        "gateway": calls[0]["json"],
+    }, ensure_ascii=False)
+    assert "secret-strategy-text" not in serialized
+    assert "secret-strategy-source" not in serialized
+    assert "secret-stop-rule" not in serialized
+    assert "secret-entry-trigger" not in serialized
+    assert "order-backend.test" not in serialized
+
+    session = client._ai_trading_session_factory()
+    try:
+        row = session.query(AiTradingStrategySpecRecord).filter(
+            AiTradingStrategySpecRecord.id == spec_id
+        ).one()
+        assert "secret-strategy-text" in row.spec_json
+        assert "secret-strategy-source" in row.spec_json
+        assert "secret-stop-rule" in row.spec_json
+        assert "secret-entry-trigger" in row.spec_json
+    finally:
+        session.close()

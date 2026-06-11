@@ -141,6 +141,9 @@ BACKTEST_NOTE_MAX_CHARS = 1000
 REDACTED_SENSITIVE_BACKTEST_ID = "[redacted_sensitive_backtest_id]"
 REDACTED_SENSITIVE_BACKTEST_SOURCE = "[redacted_sensitive_backtest_source]"
 REDACTED_SENSITIVE_BACKTEST_NOTE = "[redacted_sensitive_backtest_note]"
+STRATEGY_SOURCE_MAX_CHARS = 50
+REDACTED_SENSITIVE_STRATEGY_SOURCE = "[redacted_sensitive_strategy_source]"
+REDACTED_SENSITIVE_STRATEGY_TEXT = "[redacted_sensitive_strategy_text]"
 MARKET_CONTEXT_TEXT_MAX_CHARS = 100
 MARKET_CONTEXT_EXTRA_TEXT_MAX_CHARS = 1000
 REDACTED_SENSITIVE_MARKET_CONTEXT_TEXT = "[redacted_sensitive_market_context_text]"
@@ -264,15 +267,24 @@ def _sanitize_model_adjustment_output_text(value: Any, max_length: int = 1000) -
 
 
 def _build_ai_model_config(payload: Dict[str, Any]) -> Dict[str, Any]:
-    provider = _clean_text(
+    provider = _clean_strategy_text(
         payload.get("model_provider") or payload.get("ai_model_provider"),
-        50,
+        field_name="model provider",
+        max_length=50,
+        reject_sensitive=True,
     ).lower()
-    model = _clean_text(
+    model = _clean_strategy_text(
         payload.get("model_name") or payload.get("ai_model") or payload.get("model"),
-        100,
+        field_name="model name",
+        max_length=100,
+        reject_sensitive=True,
     )
-    source = _clean_text(payload.get("model_source"), 50) or "request"
+    source = _clean_strategy_source(
+        payload.get("model_source"),
+        field_name="model source",
+        fallback="request",
+        reject_sensitive=True,
+    ) or "request"
     return {
         "provider": provider or None,
         "model": model or None,
@@ -549,6 +561,13 @@ def _error_message_contains_sensitive_value(value: Any) -> bool:
     )
 
 
+def _strategy_text_contains_sensitive_value(value: Any) -> bool:
+    text = str(value or "")
+    return bool(SENSITIVE_ERROR_MESSAGE_URL_PATTERN.search(text)) or any(
+        pattern.search(text) for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS
+    )
+
+
 def _clean_public_error_message(value: Any) -> Optional[str]:
     message = _clean_text(value, 500)
     if not message:
@@ -582,6 +601,48 @@ def _clean_rejection_reason(value: Any, *, reject_sensitive: bool = False) -> Op
             )
         return REDACTED_SENSITIVE_REJECTION_REASON
     return reason
+
+
+def _clean_strategy_source(
+    value: Any,
+    *,
+    field_name: str = "source",
+    fallback: Optional[str] = None,
+    reject_sensitive: bool = False,
+) -> Optional[str]:
+    source = _clean_text(value, STRATEGY_SOURCE_MAX_CHARS)
+    if not source:
+        source = fallback or ""
+    if not source:
+        return None
+    if _error_message_contains_sensitive_value(source):
+        if reject_sensitive:
+            raise ValueError(
+                f"AI Trading strategy {field_name} must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_STRATEGY_SOURCE
+    return source
+
+
+def _clean_strategy_text(
+    value: Any,
+    *,
+    field_name: str,
+    max_length: int = 4000,
+    reject_sensitive: bool = False,
+) -> str:
+    text = _clean_text(value, max_length)
+    if not text:
+        return ""
+    if _strategy_text_contains_sensitive_value(text):
+        if reject_sensitive:
+            raise ValueError(
+                f"AI Trading strategy {field_name} must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_STRATEGY_TEXT
+    return text
 
 
 def _clean_backtest_id(value: Any, *, reject_sensitive: bool = False) -> Optional[str]:
@@ -732,6 +793,49 @@ def _clean_market_context_payload(
     return cleaned
 
 
+def _clean_strategy_spec_source_fields(
+    value: Any,
+    *,
+    reject_sensitive: bool = False,
+    field_path: str = "spec",
+) -> Any:
+    if isinstance(value, dict):
+        cleaned: Dict[str, Any] = {}
+        for key, child in value.items():
+            key_text = str(key)
+            child_path = f"{field_path}.{key_text}"
+            if key_text == "source":
+                cleaned[key] = _clean_strategy_source(
+                    child,
+                    field_name=child_path,
+                    reject_sensitive=reject_sensitive,
+                )
+            else:
+                cleaned[key] = _clean_strategy_spec_source_fields(
+                    child,
+                    reject_sensitive=reject_sensitive,
+                    field_path=child_path,
+                )
+        return cleaned
+    if isinstance(value, list):
+        return [
+            _clean_strategy_spec_source_fields(
+                item,
+                reject_sensitive=reject_sensitive,
+                field_path=field_path,
+            )
+            for item in value
+        ]
+    if isinstance(value, str) and _strategy_text_contains_sensitive_value(value):
+        if reject_sensitive:
+            raise ValueError(
+                f"AI Trading strategy {field_path} must not contain API keys, "
+                "tokens, secrets, private keys, passwords, authorization headers, or gateway URLs"
+            )
+        return REDACTED_SENSITIVE_STRATEGY_TEXT
+    return value
+
+
 def _redact_sensitive_payload(value: Any) -> Any:
     if isinstance(value, dict):
         redacted: Dict[str, Any] = {}
@@ -770,6 +874,8 @@ def _redact_sensitive_payload(value: Any) -> Any:
                 redacted[key] = redacted_backtest
             elif key_text == "market_context" and isinstance(child, dict):
                 redacted[key] = _clean_market_context_payload(child, include_extra=True)
+            elif key_text == "source":
+                redacted[key] = _clean_strategy_source(child, field_name="source")
             elif key_text == "name" and _display_name_contains_sensitive_value(child):
                 redacted[key] = REDACTED_SENSITIVE_NAME
             elif SENSITIVE_AI_TRADING_KEY_PATTERN.search(key_text):
@@ -779,6 +885,8 @@ def _redact_sensitive_payload(value: Any) -> Any:
         return redacted
     if isinstance(value, list):
         return [_redact_sensitive_payload(item) for item in value]
+    if isinstance(value, str) and _strategy_text_contains_sensitive_value(value):
+        return REDACTED_SENSITIVE_STRATEGY_TEXT
     return value
 
 
@@ -1367,7 +1475,7 @@ def serialize_strategy_spec_record(
         "name": record_name,
         "symbol": record.symbol,
         "status": record.status,
-        "source": record.source,
+        "source": _clean_strategy_source(record.source, field_name="record source", fallback="manual"),
         "agent_session": _record_agent_session_payload(record, db=db, user_id=user_id),
         "validation": _json_loads(record.validation_json, {}),
         "approved_at": _record_timestamp(record.approved_at),
@@ -1481,11 +1589,22 @@ def get_strategy_spec_schema() -> Dict[str, Any]:
 
 def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, Any]:
     """Build a deterministic structured draft from a user's natural-language idea."""
-    text = _clean_text(payload.get("strategy_text") or payload.get("message"))
+    text = _clean_strategy_text(
+        payload.get("strategy_text") or payload.get("message"),
+        field_name="text",
+        max_length=4000,
+        reject_sensitive=True,
+    )
     symbol = _normalize_symbol(payload.get("symbol"))
     market_identity = _build_market_identity(payload.get("symbol"))
     ai_model = _build_ai_model_config(payload)
-    risk_defaults = _risk_profile_defaults(str(payload.get("risk_profile") or "balanced"))
+    risk_profile = _clean_strategy_text(
+        payload.get("risk_profile") or "balanced",
+        field_name="risk profile",
+        max_length=64,
+        reject_sensitive=True,
+    ) or "balanced"
+    risk_defaults = _risk_profile_defaults(risk_profile)
 
     requested_leverage = _as_int(payload.get("max_leverage"))
     max_leverage = requested_leverage if requested_leverage is not None else risk_defaults["max_leverage"]
@@ -1498,8 +1617,18 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
 
     require_stop_loss = bool(payload.get("require_stop_loss", True))
     require_take_profit = bool(payload.get("require_take_profit", True))
-    stop_loss_rule = _clean_text(payload.get("stop_loss_rule"), 800) or _extract_stop_loss_rule(text)
-    take_profit_rule = _clean_text(payload.get("take_profit_rule"), 800) or _extract_take_profit_rule(text)
+    stop_loss_rule = _clean_strategy_text(
+        payload.get("stop_loss_rule"),
+        field_name="stop loss rule",
+        max_length=800,
+        reject_sensitive=True,
+    ) or _extract_stop_loss_rule(text)
+    take_profit_rule = _clean_strategy_text(
+        payload.get("take_profit_rule"),
+        field_name="take profit rule",
+        max_length=800,
+        reject_sensitive=True,
+    ) or _extract_take_profit_rule(text)
     bias = _detect_bias(text)
     timeframe = _extract_timeframe(text, payload.get("timeframe"))
 
@@ -1535,7 +1664,7 @@ def draft_strategy_spec(payload: Dict[str, Any], *, user_id: int) -> Dict[str, A
             ],
         },
         "risk": {
-            "profile": payload.get("risk_profile") or "balanced",
+            "profile": risk_profile,
             "max_loss_pct": max_loss_pct,
             "max_loss_usd": max_loss_usd,
             "max_leverage": max_leverage,
@@ -1655,9 +1784,20 @@ def adjust_strategy_spec(
     if not isinstance(spec, dict):
         raise ValueError("Strategy spec must be an object")
 
-    instruction_text = _clean_text(instruction, 4000)
+    instruction_text = _clean_strategy_text(
+        instruction,
+        field_name="adjustment instruction",
+        max_length=4000,
+        reject_sensitive=True,
+    )
     if not instruction_text:
         raise ValueError("Adjustment instruction is required")
+    resolved_source = _clean_strategy_source(
+        source,
+        field_name="adjustment source",
+        fallback="natural_language_adjustment",
+        reject_sensitive=True,
+    ) or "natural_language_adjustment"
 
     adjusted = copy.deepcopy(spec)
     adjusted["owner_user_id"] = user_id
@@ -1758,7 +1898,7 @@ def adjust_strategy_spec(
     metadata = adjusted.get("metadata") if isinstance(adjusted.get("metadata"), dict) else {}
     metadata["last_adjustment"] = {
         "instruction": instruction_text,
-        "source": _clean_text(source, 50) or "natural_language_adjustment",
+        "source": resolved_source,
         "changed_fields": changed_fields,
         "direct_order_intent_ignored": direct_order_ignored,
         "adjusted_at": datetime.now(timezone.utc).isoformat(),
@@ -1832,7 +1972,7 @@ def _build_model_adjustment_agent_context(
         "context_summary": resolved_summary,
         "context_summary_chars": len(resolved_summary or ""),
         "summary_max_chars": AGENT_CONTEXT_SUMMARY_MAX_CHARS,
-        "source": _clean_text(source, 50) or "request",
+        "source": _clean_strategy_source(source, field_name="agent context source", fallback="request") or "request",
         "redaction": "enabled",
         "ai_order_placement": "disallowed",
         "trust_boundary": MODEL_ADJUSTMENT_AGENT_CONTEXT_TRUST_BOUNDARY,
@@ -1893,9 +2033,20 @@ def adjust_strategy_spec_with_model(
     require_current_user_agent_session: bool = False,
 ) -> Dict[str, Any]:
     """Ask the user's configured model for an adjustment instruction, then safely apply it."""
-    instruction_text = _clean_text(instruction, 4000)
+    instruction_text = _clean_strategy_text(
+        instruction,
+        field_name="model adjustment instruction",
+        max_length=4000,
+        reject_sensitive=True,
+    )
     if not instruction_text:
         raise ValueError("Adjustment instruction is required")
+    resolved_source = _clean_strategy_source(
+        source,
+        field_name="model adjustment source",
+        fallback="model_adjustment",
+        reject_sensitive=True,
+    ) or "model_adjustment"
 
     agent_context = _resolve_model_adjustment_agent_context(
         db,
@@ -2007,7 +2158,7 @@ def adjust_strategy_spec_with_model(
         spec,
         instruction=model_instruction,
         user_id=user_id,
-        source=source,
+        source=resolved_source,
     )
     if model_output_sensitive_text_redacted or model_output_direct_order_intent_ignored:
         validation = adjusted_spec.get("validation") if isinstance(adjusted_spec.get("validation"), dict) else {}
@@ -2191,7 +2342,17 @@ def save_strategy_spec_record(
     agent_context_summary: Optional[str] = None,
 ) -> AiTradingStrategySpecRecord:
     """Persist a user-owned strategy spec draft/review record."""
-    spec_copy = dict(spec or {})
+    spec_copy = _clean_strategy_spec_source_fields(
+        dict(spec or {}),
+        reject_sensitive=True,
+        field_path="spec",
+    )
+    resolved_source = _clean_strategy_source(
+        source,
+        field_name="record source",
+        fallback="manual",
+        reject_sensitive=True,
+    ) or "manual"
     spec_copy["owner_user_id"] = user_id
     spec_copy.setdefault("version", SPEC_VERSION)
     spec_copy.setdefault("venue", "hyperliquid")
@@ -2248,7 +2409,7 @@ def save_strategy_spec_record(
         name=resolved_record_name,
         symbol=_normalize_symbol(spec_copy.get("symbol")),
         status=validation["status"],
-        source=_clean_text(source, 50) or "manual",
+        source=resolved_source,
         spec_json=_json_dumps(spec_copy),
         validation_json=_json_dumps(validation),
     )
@@ -3056,7 +3217,15 @@ def adjust_strategy_spec_record(
     record.validation_json = _json_dumps({**validation, "warnings": adjusted_spec["validation"]["warnings"]})
     record.status = validation["status"]
     record.approved_at = None
-    record.source = _clean_text(source, 50) or record.source
+    record.source = (
+        _clean_strategy_source(
+            source,
+            field_name="record adjustment source",
+            fallback=record.source,
+            reject_sensitive=True,
+        )
+        or record.source
+    )
     db.commit()
     db.refresh(record)
     return record
@@ -3098,7 +3267,15 @@ def adjust_strategy_spec_record_with_model(
     record.validation_json = _json_dumps({**validation, "warnings": adjusted_spec["validation"]["warnings"]})
     record.status = validation["status"]
     record.approved_at = None
-    record.source = _clean_text(source, 50) or record.source
+    record.source = (
+        _clean_strategy_source(
+            source,
+            field_name="record model adjustment source",
+            fallback=record.source,
+            reject_sensitive=True,
+        )
+        or record.source
+    )
     db.commit()
     db.refresh(record)
     return {
@@ -3126,6 +3303,7 @@ def build_signal_preview_from_strategy_spec_record(
     validation = validate_strategy_spec(spec, user_id=user_id)
     if not validation.get("valid") or not validation.get("safe_to_emit_signal"):
         raise ValueError("Strategy spec is not valid for signal preview")
+    safe_spec = _redact_sensitive_payload(spec)
 
     market_context = _clean_market_context_payload(
         market_context or {},
@@ -3133,12 +3311,13 @@ def build_signal_preview_from_strategy_spec_record(
         include_extra=False,
     )
     market_identity = (
-        spec.get("market") if isinstance(spec.get("market"), dict) else _build_market_identity(spec.get("symbol"))
+        safe_spec.get("market") if isinstance(safe_spec.get("market"), dict) else _build_market_identity(spec.get("symbol"))
     )
-    entry = spec.get("entry") if isinstance(spec.get("entry"), dict) else {}
-    exit_rules = spec.get("exit") if isinstance(spec.get("exit"), dict) else {}
-    risk = spec.get("risk") if isinstance(spec.get("risk"), dict) else {}
+    entry = safe_spec.get("entry") if isinstance(safe_spec.get("entry"), dict) else {}
+    exit_rules = safe_spec.get("exit") if isinstance(safe_spec.get("exit"), dict) else {}
+    risk = safe_spec.get("risk") if isinstance(safe_spec.get("risk"), dict) else {}
     backtest = spec.get("backtest") if isinstance(spec.get("backtest"), dict) else _default_backtest_gate()
+    safe_backtest = safe_spec.get("backtest") if isinstance(safe_spec.get("backtest"), dict) else _default_backtest_gate()
     backtest_ready = _is_backtest_ready_for_handoff(backtest)
     action = _bias_to_action(entry.get("bias"))
     symbol = _normalize_symbol(spec.get("symbol"))
@@ -3159,10 +3338,10 @@ def build_signal_preview_from_strategy_spec_record(
         "symbol": symbol,
         "exchange_symbol": market_identity.get("exchange_symbol") or symbol,
         "market": market_identity,
-        "ai_model": spec.get("ai_model") if isinstance(spec.get("ai_model"), dict) else {},
-        "backtest": backtest,
+        "ai_model": safe_spec.get("ai_model") if isinstance(safe_spec.get("ai_model"), dict) else {},
+        "backtest": safe_backtest,
         "action": action,
-        "timeframe": spec.get("timeframe") or DEFAULT_TIMEFRAME,
+        "timeframe": safe_spec.get("timeframe") or DEFAULT_TIMEFRAME,
         "confidence": None,
         "market_context": {
             "mark_price": market_context.get("mark_price"),
@@ -3181,7 +3360,7 @@ def build_signal_preview_from_strategy_spec_record(
             "constraints": risk.get("constraints") or [],
         },
         "decision": {
-            "rationale": spec.get("intent") or "",
+            "rationale": safe_spec.get("intent") or "",
             "entry_triggers": entry.get("triggers") or [],
             "invalidation": exit_rules.get("invalidation") or [],
             "hold_when": [
