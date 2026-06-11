@@ -4,11 +4,33 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "ai_trading_v1_env_check.py"
+LOCAL_SUPERVISOR_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "scripts"
+    / "local-dev"
+    / "ai_trading_local_supervisor.sh"
+)
 SPEC = importlib.util.spec_from_file_location("ai_trading_v1_env_check", SCRIPT_PATH)
 env_check = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 sys.modules[SPEC.name] = env_check
 SPEC.loader.exec_module(env_check)
+
+
+def test_local_supervisor_is_resilient_to_transient_fork_pressure() -> None:
+    source = LOCAL_SUPERVISOR_PATH.read_text(encoding="utf-8")
+    ensure_postgres_block = source.split("ensure_postgres()", 1)[1].split("start_frontend()", 1)[0]
+
+    assert "set -uo pipefail" in source
+    assert "set -euo pipefail" not in source
+    assert "| tee -a" not in source
+    assert 'printf \'%s\\n\' "$line" >>"$LOG_DIR/supervisor.log" || true' in source
+    assert ensure_postgres_block.index("if port_open 5432; then") < ensure_postgres_block.index("start_docker")
+    assert 'cd "$FRONTEND_DIR" || exit 1' in source
+    assert 'cd "$BACKEND_DIR" || exit 1' in source
+    assert 'log "Failed to spawn frontend"' in source
+    assert 'log "Failed to spawn AI Trading mock gateway"' in source
+    assert 'log "Failed to spawn backend"' in source
 
 
 def _patch_ready_dependencies(

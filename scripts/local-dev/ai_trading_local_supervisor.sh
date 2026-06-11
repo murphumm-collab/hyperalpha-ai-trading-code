@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -uo pipefail
 
 DEFAULT_PROJECT_ROOT="/Users/mo/Documents/hyperalpha-ai-trading"
 PROJECT_ROOT="${HYPERALPHA_PROJECT_ROOT:-$DEFAULT_PROJECT_ROOT}"
@@ -18,7 +18,12 @@ export PATH="/Users/mo/.hermes/node/bin:/opt/homebrew/bin:/usr/local/bin:${HOME}
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
 log() {
-  printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG_DIR/supervisor.log"
+  local ts
+  local line
+  ts="$(date '+%Y-%m-%d %H:%M:%S' 2>/dev/null || true)"
+  line="[${ts:-unknown-time}] $*"
+  printf '%s\n' "$line"
+  printf '%s\n' "$line" >>"$LOG_DIR/supervisor.log" || true
 }
 
 port_open() {
@@ -46,11 +51,11 @@ start_docker() {
 }
 
 ensure_postgres() {
-  start_docker
-  if ! docker_ready; then
+  if port_open 5432; then
     return
   fi
-  if port_open 5432; then
+  start_docker
+  if ! docker_ready; then
     return
   fi
   log "Starting compose Postgres"
@@ -75,10 +80,13 @@ start_frontend() {
   fi
   log "Starting frontend on 5174"
   (
-    cd "$FRONTEND_DIR"
-    nohup "$FRONTEND_NODE" "$FRONTEND_VITE_JS" --host 127.0.0.1 --port 5174 --strictPort >>"$LOG_DIR/frontend.log" 2>&1 &
-    echo $! >"$PID_DIR/frontend.pid"
-  )
+    cd "$FRONTEND_DIR" || exit 1
+    if nohup "$FRONTEND_NODE" "$FRONTEND_VITE_JS" --host 127.0.0.1 --port 5174 --strictPort >>"$LOG_DIR/frontend.log" 2>&1 & then
+      echo $! >"$PID_DIR/frontend.pid"
+    else
+      exit 1
+    fi
+  ) || log "Failed to spawn frontend"
 }
 
 start_mock_gateway() {
@@ -95,10 +103,13 @@ start_mock_gateway() {
   fi
   log "Starting AI Trading mock gateway on 5621"
   (
-    cd "$BACKEND_DIR"
-    nohup "$BACKEND_PYTHON" -m uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1 >>"$LOG_DIR/mock-gateway.log" 2>&1 &
-    echo $! >"$PID_DIR/mock-gateway.pid"
-  )
+    cd "$BACKEND_DIR" || exit 1
+    if nohup "$BACKEND_PYTHON" -m uvicorn dev_ai_trading_signal_gateway:app --port 5621 --host 127.0.0.1 >>"$LOG_DIR/mock-gateway.log" 2>&1 & then
+      echo $! >"$PID_DIR/mock-gateway.pid"
+    else
+      exit 1
+    fi
+  ) || log "Failed to spawn AI Trading mock gateway"
 }
 
 start_backend() {
@@ -117,16 +128,19 @@ start_backend() {
   start_mock_gateway
   log "Starting backend on 8802"
   (
-    cd "$BACKEND_DIR"
-    DATABASE_URL="postgresql://alpha_user:alpha_pass@127.0.0.1:5432/alpha_arena" \
-    SNAPSHOT_DATABASE_URL="postgresql://alpha_user:alpha_pass@127.0.0.1:5432/alpha_snapshots" \
-    HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true \
-    AI_TRADING_SIGNAL_GATEWAY_ENABLED=true \
-    AI_TRADING_SIGNAL_GATEWAY_URL="http://127.0.0.1:5621/api/ai-trading/signals" \
-    AI_TRADING_SIGNAL_GATEWAY_TOKEN="local-mock-token" \
-    nohup "$BACKEND_PYTHON" -m uvicorn main:app --port 8802 --host 127.0.0.1 >>"$LOG_DIR/backend.log" 2>&1 &
-    echo $! >"$PID_DIR/backend.pid"
-  )
+    cd "$BACKEND_DIR" || exit 1
+    if DATABASE_URL="postgresql://alpha_user:alpha_pass@127.0.0.1:5432/alpha_arena" \
+      SNAPSHOT_DATABASE_URL="postgresql://alpha_user:alpha_pass@127.0.0.1:5432/alpha_snapshots" \
+      HYPERALPHA_LOCAL_DEV_LIGHT_MODE=true \
+      AI_TRADING_SIGNAL_GATEWAY_ENABLED=true \
+      AI_TRADING_SIGNAL_GATEWAY_URL="http://127.0.0.1:5621/api/ai-trading/signals" \
+      AI_TRADING_SIGNAL_GATEWAY_TOKEN="local-mock-token" \
+      nohup "$BACKEND_PYTHON" -m uvicorn main:app --port 8802 --host 127.0.0.1 >>"$LOG_DIR/backend.log" 2>&1 & then
+      echo $! >"$PID_DIR/backend.pid"
+    else
+      exit 1
+    fi
+  ) || log "Failed to spawn backend"
 }
 
 stop_pid_file() {

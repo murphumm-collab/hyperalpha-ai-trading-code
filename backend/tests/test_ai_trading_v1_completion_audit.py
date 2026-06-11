@@ -42,6 +42,7 @@ def _write_minimal_acceptance_repo(
     root: Path,
     *,
     include_db_gate: bool = True,
+    include_local_dev_shell_syntax_gate: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -77,6 +78,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_non_object_dry_run_safety_marker: bool = True,
     include_production_evidence_frontend_error_safety_marker: bool = True,
     include_frontend_handoff_error_safety_marker: bool = True,
+    include_local_supervisor_fork_resilience_marker: bool = True,
     include_agent_session_response_context_redaction_marker: bool = True,
     include_frontend_session_context_prompt_sanitizer_marker: bool = True,
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
@@ -96,6 +98,9 @@ def _write_minimal_acceptance_repo(
         "Default production readiness DB-audit gate remains blocked\n"
         "--include-db-audits\n"
     ) if include_db_gate else ""
+    local_dev_shell_syntax_text = (
+        "Local dev shell syntax\n"
+    ) if include_local_dev_shell_syntax_gate else ""
     frontend_source_guard_text = (
         "tests/test_ai_trading_frontend_readiness_source.py\n"
     ) if include_frontend_source_guard else ""
@@ -203,6 +208,9 @@ def _write_minimal_acceptance_repo(
     frontend_handoff_error_safety_marker = (
         "| AI Trading frontend handoff error safety | Done |"
     ) if include_frontend_handoff_error_safety_marker else ""
+    local_supervisor_fork_resilience_marker = (
+        "| AI Trading local supervisor fork-pressure resilience | Done |"
+    ) if include_local_supervisor_fork_resilience_marker else ""
     agent_session_response_context_redaction_marker = (
         "| AI Trading agent-session response context redaction | Done |"
     ) if include_agent_session_response_context_redaction_marker else ""
@@ -249,6 +257,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "--confirm-local-mock-handoff",
+                local_dev_shell_syntax_text,
                 db_gate_text,
                 frontend_source_guard_text,
                 "Frontend build",
@@ -304,7 +313,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Handoff Frontend Error Safety Accepted / Remote Push Skipped",
+                "Local V1 Supervisor Fork Resilience Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -351,6 +360,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_non_object_dry_run_safety_marker,
                 production_evidence_frontend_error_safety_marker,
                 frontend_handoff_error_safety_marker,
+                local_supervisor_fork_resilience_marker,
                 agent_session_response_context_redaction_marker,
                 frontend_session_context_prompt_sanitizer_marker,
                 model_adjust_untrusted_context_boundary_marker,
@@ -771,6 +781,17 @@ def test_completion_audit_blocks_local_acceptance_when_db_gate_is_missing(tmp_pa
     runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
     assert "Default production readiness DB-audit gate remains blocked" in runner_evidence["missing_phrases"]
     assert "--include-db-audits" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_local_dev_shell_syntax_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_local_dev_shell_syntax_gate=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert "Local dev shell syntax" in runner_evidence["missing_phrases"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_runtime_readiness_retry_grace_is_missing(tmp_path):
@@ -1331,6 +1352,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_handoff_error_sa
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend handoff error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_local_supervisor_fork_resilience_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_local_supervisor_fork_resilience_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading local supervisor fork-pressure resilience | Done |"
         in status_evidence["missing_phrases"]
     )
 
