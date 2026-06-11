@@ -2500,6 +2500,21 @@ export default function SettingsPage() {
                                 {t('settings.aiTradingEvidenceNextActions', 'Evidence Actions')}: {aiTradingEvidenceTemplateGuidance.nextRequiredActions.slice(0, 2).join(' | ')}
                               </div>
                             )}
+                            {aiTradingEvidenceTemplateGuidance.rootFields.length > 0 && (
+                              <div className="mb-2 grid gap-2 md:grid-cols-2">
+                                {aiTradingEvidenceTemplateGuidance.rootFields.slice(0, 4).map((field) => (
+                                  <div key={field.field} className="min-w-0 border-t pt-2">
+                                    <div className="truncate text-xs font-medium">{field.field}</div>
+                                    <div className="truncate text-xs text-muted-foreground" title={field.requiredValue}>
+                                      {field.requiredValue || '-'}
+                                    </div>
+                                    <div className="truncate text-xs text-muted-foreground" title={field.operatorGuidance.join(' | ')}>
+                                      {t('settings.aiTradingEvidenceFixHint', 'Fix')}: {field.operatorGuidance[0] || '-'}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
                             <div className="grid gap-2 md:grid-cols-2">
                               {aiTradingEvidenceTemplateGuidance.items.slice(0, 4).map((item) => (
                                 <div key={item.id} className="min-w-0 border-t pt-2">

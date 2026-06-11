@@ -52,6 +52,7 @@ def _write_minimal_acceptance_repo(
     include_admin_production_evidence_template_ui_marker: bool = True,
     include_production_evidence_template_guidance_marker: bool = True,
     include_production_evidence_validation_guidance_marker: bool = True,
+    include_production_evidence_root_guidance_marker: bool = True,
     include_admin_production_evidence_payload_bounds_marker: bool = True,
     include_production_evidence_summary_terms_marker: bool = True,
     include_production_evidence_expiry_gate_marker: bool = True,
@@ -120,6 +121,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_validation_guidance_marker = (
         "| AI Trading production evidence validation guidance | Done |"
     ) if include_production_evidence_validation_guidance_marker else ""
+    production_evidence_root_guidance_marker = (
+        "| AI Trading production evidence root guidance | Done |"
+    ) if include_production_evidence_root_guidance_marker else ""
     admin_payload_bounds_marker = (
         "| AI Trading admin production evidence payload bounds | Done |"
     ) if include_admin_production_evidence_payload_bounds_marker else ""
@@ -266,7 +270,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Evidence Validation Guidance Accepted / Remote Push Skipped",
+                "Local V1 Evidence Root Guidance Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -288,6 +292,7 @@ def _write_minimal_acceptance_repo(
                 admin_template_ui_marker,
                 production_evidence_template_guidance_marker,
                 production_evidence_validation_guidance_marker,
+                production_evidence_root_guidance_marker,
                 admin_payload_bounds_marker,
                 production_evidence_summary_terms_marker,
                 production_evidence_expiry_gate_marker,
@@ -502,6 +507,16 @@ def test_production_evidence_template_guidance_uses_required_item_ids_without_se
     guidance = completion_audit.build_external_acceptance_evidence_template_guidance()
 
     assert guidance["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert any(
+        field["field"] == "evidence_run_id"
+        and "external_evidence_run_id_missing" in field["related_blockers"]
+        for field in guidance["root_fields"]
+    )
+    assert any(
+        field["field"] == "cutover_window"
+        and "external_evidence_cutover_window_ended" in field["related_blockers"]
+        for field in guidance["root_fields"]
+    )
     assert len(guidance["items"]) == len(completion_audit.EXTERNAL_REQUIREMENTS)
     assert len(guidance["next_required_actions"]) == len(completion_audit.EXTERNAL_REQUIREMENTS)
     order_backend_item = next(item for item in guidance["items"] if item["id"] == "real_order_backend_handoff")
@@ -1166,6 +1181,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_valid
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence validation guidance | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_root_guidance_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_root_guidance_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence root guidance | Done |"
         in status_evidence["missing_phrases"]
     )
 

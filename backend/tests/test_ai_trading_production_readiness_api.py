@@ -333,6 +333,12 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     assert data["persistence"] == "not_stored"
     assert "path" not in data
     assert data["guidance"]["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert len(data["guidance"]["root_fields"]) >= 6
+    run_id_guidance = next(
+        field for field in data["guidance"]["root_fields"] if field["field"] == "evidence_run_id"
+    )
+    assert "external_evidence_run_id_missing" in run_id_guidance["related_blockers"]
+    assert any("cutover_approval_ref" in hint for hint in run_id_guidance["operator_guidance"])
     assert len(data["guidance"]["items"]) == 7
     assert len(data["guidance"]["next_required_actions"]) == 7
     assert any(
@@ -382,6 +388,11 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     assert data["success"] is True
     assert data["requested_by_user_id"] == admin_id
     assert data["guidance"]["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert any(
+        field["field"] == "cutover_window"
+        and "external_evidence_cutover_window_start_at_missing" in field["related_blockers"]
+        for field in data["guidance"]["root_fields"]
+    )
     assert len(data["guidance"]["next_required_actions"]) == 7
     assert any(
         action.startswith("real_order_backend_handoff: Configure the real HTTPS order-backend")

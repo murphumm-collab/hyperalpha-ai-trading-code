@@ -88,8 +88,17 @@ export interface AiTradingProductionEvidenceTemplateGuidanceItemView {
   forbiddenValues: string[]
 }
 
+export interface AiTradingProductionEvidenceRootGuidanceView {
+  field: string
+  requiredValue: string
+  relatedBlockers: string[]
+  operatorGuidance: string[]
+  forbiddenValues: string[]
+}
+
 export interface AiTradingProductionEvidenceTemplateGuidanceView {
   secretPolicy: string
+  rootFields: AiTradingProductionEvidenceRootGuidanceView[]
   items: AiTradingProductionEvidenceTemplateGuidanceItemView[]
   nextRequiredActions: string[]
 }
@@ -343,10 +352,24 @@ export const extractAiTradingProductionEvidenceTemplateGuidance = (
 ): AiTradingProductionEvidenceTemplateGuidanceView | null => {
   if (!isRecord(source)) return null
   const rawItems = Array.isArray(source.items) ? source.items : []
+  const rawRootFields = Array.isArray(source.root_fields) ? source.root_fields : []
 
   return {
     secretPolicy: typeof source.secret_policy === 'string' ? source.secret_policy : '',
     nextRequiredActions: stringList(source.next_required_actions),
+    rootFields: rawRootFields.reduce<AiTradingProductionEvidenceRootGuidanceView[]>((acc, rawItem) => {
+      if (!isRecord(rawItem)) return acc
+      const field = typeof rawItem.field === 'string' ? rawItem.field : ''
+      if (!field) return acc
+      acc.push({
+        field,
+        requiredValue: typeof rawItem.required_value === 'string' ? rawItem.required_value : '',
+        relatedBlockers: stringList(rawItem.related_blockers),
+        operatorGuidance: stringList(rawItem.operator_guidance),
+        forbiddenValues: stringList(rawItem.forbidden_values),
+      })
+      return acc
+    }, []),
     items: rawItems.reduce<AiTradingProductionEvidenceTemplateGuidanceItemView[]>((acc, rawItem) => {
       if (!isRecord(rawItem)) return acc
       const id = typeof rawItem.id === 'string' ? rawItem.id : ''

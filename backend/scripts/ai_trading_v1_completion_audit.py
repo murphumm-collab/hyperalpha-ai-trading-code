@@ -128,6 +128,108 @@ PRODUCTION_EVIDENCE_COMMON_FORBIDDEN = (
     "raw model output",
     "raw operational dumps",
 )
+PRODUCTION_EVIDENCE_ROOT_GUIDANCE: tuple[dict[str, Any], ...] = (
+    {
+        "field": "version",
+        "required_value": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
+        "related_blockers": ("external_evidence_version_mismatch",),
+        "operator_guidance": (
+            "Keep the evidence version equal to the generated template version.",
+        ),
+    },
+    {
+        "field": "evidence_run_id",
+        "required_value": f"safe unique run id, {MIN_PRODUCTION_EVIDENCE_RUN_ID_CHARS}-{MAX_PRODUCTION_EVIDENCE_RUN_ID_CHARS} chars",
+        "related_blockers": (
+            "external_evidence_run_id_missing",
+            "external_evidence_run_id_too_short",
+            "external_evidence_run_id_too_long",
+            "external_evidence_run_id_invalid_chars",
+            "external_evidence_run_id_placeholder",
+            "external_evidence_run_id_secret_pattern_detected",
+        ),
+        "operator_guidance": (
+            "Use one sanitized production acceptance run id and repeat it in cutover_approval_ref plus every item artifact_ref.",
+        ),
+    },
+    {
+        "field": "generated_at",
+        "required_value": "timezone-aware ISO-8601 timestamp",
+        "related_blockers": (
+            "external_evidence_generated_at_missing",
+            "external_evidence_generated_at_timezone_missing",
+            "external_evidence_generated_at_in_future",
+            "external_evidence_generated_at_before_cutover_window",
+            "external_evidence_generated_at_after_cutover_window",
+        ),
+        "operator_guidance": (
+            "Set generated_at when compiling the evidence packet; keep it inside the approved cutover window.",
+        ),
+    },
+    {
+        "field": "expires_at",
+        "required_value": f"future ISO-8601 timestamp within {MAX_PRODUCTION_EVIDENCE_VALIDITY_DAYS} days of generated_at",
+        "related_blockers": (
+            "external_evidence_expires_at_missing",
+            "external_evidence_expires_at_timezone_missing",
+            "external_evidence_expires_at_not_after_generated_at",
+            "external_evidence_expires_at_too_far",
+            "external_evidence_expired",
+        ),
+        "operator_guidance": (
+            "Use a short-lived evidence expiry so stale production acceptance packets cannot unlock live orders later.",
+        ),
+    },
+    {
+        "field": "cutover_window",
+        "required_value": f"start_at/end_at ISO-8601 window, max {MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours",
+        "related_blockers": (
+            "external_evidence_cutover_window_missing",
+            "external_evidence_cutover_window_start_at_missing",
+            "external_evidence_cutover_window_end_at_missing",
+            "external_evidence_cutover_window_end_not_after_start",
+            "external_evidence_cutover_window_too_long",
+            "external_evidence_cutover_window_not_started",
+            "external_evidence_cutover_window_ended",
+        ),
+        "operator_guidance": (
+            "Use the exact approved live-order cutover window; the production audit time must fall inside it.",
+        ),
+    },
+    {
+        "field": "cutover_approval_ref",
+        "required_value": "one safe ops/lark/notion/https approval ref containing evidence_run_id",
+        "related_blockers": (
+            "external_evidence_cutover_approval_ref_missing",
+            "external_evidence_cutover_approval_ref_missing_run_id",
+            "external_evidence_cutover_approval_ref_scheme_not_allowed",
+            "external_evidence_cutover_approval_ref_secret_pattern_detected",
+        ),
+        "operator_guidance": (
+            "Point to a sanitized approval record for the same cutover window; do not embed credentials or raw authorization headers.",
+        ),
+    },
+    {
+        "field": "secret_values_returned",
+        "required_value": "false",
+        "related_blockers": ("external_evidence_secret_values_returned_must_be_false",),
+        "operator_guidance": (
+            "Keep this false and store only metadata or sanitized artifact references in evidence.",
+        ),
+    },
+    {
+        "field": "notes",
+        "required_value": "optional bounded concise strings",
+        "related_blockers": (
+            "external_evidence_notes_must_be_list",
+            "external_evidence_notes_too_many",
+            "external_evidence_note_too_long",
+        ),
+        "operator_guidance": (
+            "Use notes only for short sanitized context; do not paste logs, traces, model output, or operation dumps.",
+        ),
+    },
+)
 PRODUCTION_EVIDENCE_ITEM_REQUIRED_SUMMARY_TERMS: dict[str, tuple[tuple[str, ...], ...]] = {
     "macos_reboot_recovery": (
         ("macOS reboot", "reboot"),
@@ -286,7 +388,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
         description="Feature status marks the local agent-session context response/prompt redaction flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Evidence Validation Guidance Accepted / Remote Push Skipped",
+            "Local V1 Evidence Root Guidance Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -325,6 +427,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading admin production evidence template UI | Done |",
             "| AI Trading production evidence template guidance | Done |",
             "| AI Trading production evidence validation guidance | Done |",
+            "| AI Trading production evidence root guidance | Done |",
             "| AI Trading admin production evidence payload bounds | Done |",
             "| AI Trading agent-session response context redaction | Done |",
             "| AI Trading frontend session context prompt sanitizer | Done |",
@@ -1161,6 +1264,16 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
 
 def build_external_acceptance_evidence_template_guidance() -> dict[str, Any]:
     """Build non-secret operator guidance for filling the pending evidence template."""
+    root_fields = [
+        {
+            "field": item["field"],
+            "required_value": item["required_value"],
+            "related_blockers": list(item["related_blockers"]),
+            "operator_guidance": list(item["operator_guidance"]),
+            "forbidden_values": list(PRODUCTION_EVIDENCE_COMMON_FORBIDDEN),
+        }
+        for item in PRODUCTION_EVIDENCE_ROOT_GUIDANCE
+    ]
     items: list[dict[str, Any]] = []
     for requirement in EXTERNAL_REQUIREMENTS:
         guidance = list(PRODUCTION_EVIDENCE_ITEM_GUIDANCE.get(requirement.id, ()))
@@ -1181,6 +1294,7 @@ def build_external_acceptance_evidence_template_guidance() -> dict[str, Any]:
 
     return {
         "secret_policy": "metadata_only_no_env_or_credentials",
+        "root_fields": root_fields,
         "items": items,
         "next_required_actions": [
             f"{item['id']}: {item['operator_guidance'][0]}"
