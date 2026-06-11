@@ -389,10 +389,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the local supervisor fork-pressure resilience flow as accepted and remote push as skipped.",
+        description="Feature status marks the env-check Docker probe fallback flow as accepted and remote push as skipped.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Supervisor Fork Resilience Accepted / Remote Push Skipped",
+            "Local V1 Env-Check Docker Probe Fallback Accepted / Remote Push Skipped",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -425,6 +425,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence frontend error safety | Done |",
             "| AI Trading frontend handoff error safety | Done |",
             "| AI Trading local supervisor fork-pressure resilience | Done |",
+            "| AI Trading env-check Docker probe fallback | Done |",
             "| AI Trading production evidence initializer | Done |",
             "| AI Trading aggregate production evidence initializer gate | Done |",
             "| AI Trading production evidence explain mode | Done |",

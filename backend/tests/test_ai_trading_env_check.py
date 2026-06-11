@@ -131,6 +131,65 @@ def test_env_check_ready_requires_local_mock_gateway(monkeypatch):
     ]
 
 
+def test_env_check_allows_docker_probe_failure_when_postgres_and_runtime_are_ready(monkeypatch):
+    monkeypatch.setattr(
+        env_check,
+        "_docker_ready",
+        lambda: {
+            "installed": True,
+            "daemon_ready": False,
+            "error": "BlockingIOError",
+            "message": "[Errno 35] Resource temporarily unavailable",
+        },
+    )
+    monkeypatch.setattr(env_check, "_tcp_open", lambda host, port, timeout=1.0: True)
+
+    def fake_http_probe(url, timeout=3.0):
+        if url.endswith("/api/ai-trading/runtime"):
+            return {
+                "ok": True,
+                "status": 200,
+                "body_sample": "{}",
+                "json": {
+                    "gateway": {
+                        "enabled": True,
+                        "url_configured": True,
+                        "target_kind": "local_mock",
+                        "runtime_config_blockers": [],
+                    },
+                    "model_adjustment": {"ready": False},
+                    "agent_sessions": {
+                        "total": 1,
+                        "context_budget": {"total": 1, "secret_policy": "counts_only_no_summary_text"},
+                    },
+                },
+            }
+        if url.endswith("/health"):
+            return {
+                "ok": True,
+                "status": 200,
+                "body_sample": "{}",
+                "json": {"ok": True, "service": "ai_trading_mock_signal_gateway"},
+            }
+        return {"ok": True, "status": 200, "body_sample": "<html></html>"}
+
+    monkeypatch.setattr(env_check, "_http_probe", fake_http_probe)
+
+    report = env_check.build_report(
+        frontend_url="http://127.0.0.1:5174/app/ai-trading",
+        backend_url="http://127.0.0.1:8802",
+        mock_gateway_url="http://127.0.0.1:5621",
+    )
+
+    assert report["ready"] is True
+    assert "docker_daemon_not_ready" not in report["blockers"]
+    assert report["checks"]["docker"]["required_for_readiness"] is False
+    assert report["checks"]["docker"]["readiness_blocker_suppressed"] == "postgres_5432_already_listening"
+    assert report["next_actions"] == [
+        "Local AI Trading V1 runtime is ready; continue with browser acceptance or the aggregate V1 local acceptance runner."
+    ]
+
+
 def test_env_check_reports_current_runtime_mirror_when_metadata_matches(monkeypatch, tmp_path):
     _patch_ready_dependencies(
         monkeypatch,

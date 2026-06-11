@@ -226,6 +226,10 @@ def build_report(
 ) -> Dict[str, Any]:
     docker = _docker_ready()
     postgres_open = _tcp_open("127.0.0.1", 5432)
+    docker_required_for_readiness = not postgres_open
+    if postgres_open and not docker.get("daemon_ready"):
+        docker["readiness_blocker_suppressed"] = "postgres_5432_already_listening"
+    docker["required_for_readiness"] = docker_required_for_readiness
     backend_port = _backend_port(backend_url)
     backend_open = _tcp_open("127.0.0.1", backend_port)
     mock_gateway_open = _tcp_open("127.0.0.1", 5621)
@@ -267,7 +271,7 @@ def build_report(
         blockers.append("frontend_ai_trading_page_unreachable")
     if not postgres_open:
         blockers.append("postgres_5432_not_listening")
-    if not docker.get("daemon_ready"):
+    if docker_required_for_readiness and not docker.get("daemon_ready"):
         blockers.append("docker_daemon_not_ready")
     if not backend_runtime.get("ok"):
         blockers.append("backend_ai_trading_runtime_unreachable")
