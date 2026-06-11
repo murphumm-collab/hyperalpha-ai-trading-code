@@ -7,6 +7,7 @@ wallet, API-key, or order state.
 from __future__ import annotations
 
 import os
+import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -32,6 +33,16 @@ INDEX_MARKET_SYMBOLS = {
     "SILVER",
 }
 
+_SYMBOL_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$")
+_EXCHANGE_SYMBOL_PATTERN = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._-]{0,31}$"
+)
+_MARKET_NAME_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._:-]{0,63}$")
+_SYMBOL_SECRET_PATTERN = re.compile(
+    r"(api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password)",
+    re.IGNORECASE,
+)
+
 _market_universe_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
 
@@ -49,26 +60,59 @@ def _safe_float(value: Any) -> Optional[float]:
         return None
 
 
+def _safe_symbol_text(raw_symbol: Any, *, allow_exchange_symbol: bool = False) -> Optional[str]:
+    raw = str(raw_symbol or "").strip()
+    if not raw or len(raw) > 64 or _SYMBOL_SECRET_PATTERN.search(raw):
+        return None
+    if allow_exchange_symbol and _EXCHANGE_SYMBOL_PATTERN.match(raw):
+        dex, symbol = raw.split(":", 1)
+        return f"{dex.lower()}:{symbol.upper()}"
+    if _SYMBOL_SEGMENT_PATTERN.match(raw):
+        return raw.upper()
+    return None
+
+
+def _safe_market_name(raw_name: Any, fallback: str) -> str:
+    raw = str(raw_name or "").strip()
+    if not raw or len(raw) > 64 or _SYMBOL_SECRET_PATTERN.search(raw):
+        return fallback
+    return raw if _MARKET_NAME_PATTERN.match(raw) else fallback
+
+
 def _normalize_internal_symbol(raw_symbol: Any) -> str:
-    return SymbolMapper.to_internal(str(raw_symbol or "").strip(), "hyperliquid").upper()
+    raw = _safe_symbol_text(raw_symbol, allow_exchange_symbol=True)
+    if not raw:
+        return ""
+    internal = SymbolMapper.to_internal(raw, "hyperliquid").upper()
+    return _safe_symbol_text(internal) or ""
 
 
 def _display_symbol(raw_symbol: Any, *, dex: Optional[str] = None) -> str:
-    raw = str(raw_symbol or "").strip()
+    raw = _safe_symbol_text(raw_symbol, allow_exchange_symbol=True)
+    if not raw:
+        return ""
     if ":" in raw:
-        return raw.split(":", 1)[1].upper()
+        return _safe_symbol_text(raw.split(":", 1)[1]) or ""
     if dex:
         return _normalize_internal_symbol(raw)
-    return raw.upper()
+    return _safe_symbol_text(raw) or ""
 
 
 def _exchange_symbol(raw_symbol: Any, *, dex: Optional[str] = None) -> str:
-    raw = str(raw_symbol or "").strip()
+    raw = _safe_symbol_text(raw_symbol, allow_exchange_symbol=True)
+    if not raw:
+        return ""
     if not dex:
-        return raw.upper()
+        if ":" in raw:
+            return ""
+        return _safe_symbol_text(raw) or ""
+    safe_dex = str(dex or "").strip().lower()
+    if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$", safe_dex):
+        return ""
     if ":" in raw:
         return raw
-    return f"{dex}:{raw.upper()}"
+    symbol = _safe_symbol_text(raw)
+    return f"{safe_dex}:{symbol}" if symbol else ""
 
 
 def _market_category(display_symbol: str, *, dex: Optional[str] = None) -> str:
@@ -108,6 +152,8 @@ def _serialize_market(
 
     display = _display_symbol(raw_symbol, dex=dex)
     exchange_symbol = _exchange_symbol(raw_symbol, dex=dex)
+    if not display or not exchange_symbol:
+        return None
     if dex:
         SymbolMapper.register_hip3_mapping(internal_symbol, exchange_symbol)
 
@@ -119,7 +165,7 @@ def _serialize_market(
         "coin": exchange_symbol if dex else internal_symbol,
         "exchange_symbol": exchange_symbol if dex else internal_symbol,
         "display_symbol": display,
-        "name": entry.get("displayName") or entry.get("name") or display,
+        "name": _safe_market_name(entry.get("displayName") or entry.get("name"), display),
         "category": category,
         "asset_id": _asset_id(entry, index, dex=dex),
         "max_leverage": entry.get("maxLeverage"),

@@ -464,6 +464,9 @@ const AI_TRADING_MODEL_OUTPUT_SAFETY_WARNINGS = [
   AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING,
   AI_TRADING_MODEL_OUTPUT_DIRECT_ORDER_WARNING,
 ]
+const AI_TRADING_SYMBOL_TEXT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/
+const AI_TRADING_EXCHANGE_SYMBOL_TEXT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/
+const AI_TRADING_SYMBOL_SENSITIVE_PATTERN = /(api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password)/i
 
 const AI_TRADING_BACKTEST_ROUTE_RE = /^\/(?:app\/)?ai-trading\/backtests\/(\d+)\/?$/
 const AI_TRADING_AGENT_SESSION_ROUTE_RE = /^\/(?:app\/)?ai-trading\/sessions\/([^/?#]+)\/?$/
@@ -536,6 +539,24 @@ function cleanAiTradingAgentSessionRouteId(value?: string | null): string | null
   }
   const trimmed = decoded.trim()
   return /^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$/.test(trimmed) ? trimmed : null
+}
+
+function sanitizeAiTradingSymbolText(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null
+  }
+  const raw = value.trim()
+  if (!raw || raw.length > 64 || AI_TRADING_SYMBOL_SENSITIVE_PATTERN.test(raw)) {
+    return null
+  }
+  if (AI_TRADING_EXCHANGE_SYMBOL_TEXT_PATTERN.test(raw)) {
+    const [dex, symbol] = raw.split(':', 2)
+    return `${dex.toLowerCase()}:${symbol.toUpperCase()}`
+  }
+  if (AI_TRADING_SYMBOL_TEXT_PATTERN.test(raw)) {
+    return raw.toUpperCase()
+  }
+  return null
 }
 
 function parseAiTradingAgentSessionRouteId(): string | null {
@@ -2020,7 +2041,11 @@ export default function HyperAiPage() {
         setTradingSymbolSource('none')
         return
       }
-      const watchlist = Array.isArray(watchlistData.symbols) ? watchlistData.symbols : []
+      const watchlist = Array.isArray(watchlistData.symbols)
+        ? watchlistData.symbols
+          .map(sanitizeAiTradingSymbolText)
+          .filter((symbol: string | null): symbol is string => Boolean(symbol))
+        : []
       const cryptoPreset = Array.isArray(universeData.presets?.crypto_top_20)
         ? universeData.presets.crypto_top_20
         : []
@@ -2034,15 +2059,19 @@ export default function HyperAiPage() {
       )
       const cryptoSymbols = cryptoPreset
         .map(marketSymbol)
-        .filter((symbol: string | undefined): symbol is string => Boolean(symbol))
+        .map(sanitizeAiTradingSymbolText)
+        .filter((symbol: string | null): symbol is string => Boolean(symbol))
       const hip3Symbols = hip3Preset
         .map(marketSymbol)
-        .filter((symbol: string | undefined): symbol is string => Boolean(symbol))
+        .map(sanitizeAiTradingSymbolText)
+        .filter((symbol: string | null): symbol is string => Boolean(symbol))
       const universe = Array.from(new Set([...cryptoSymbols, ...hip3Symbols]))
       const available = Array.isArray(availableData.symbols)
         ? availableData.symbols.map((entry: { symbol?: string } | string) => (
             typeof entry === 'string' ? entry : entry.symbol
-          )).filter((symbol: string | undefined): symbol is string => Boolean(symbol))
+          ))
+          .map(sanitizeAiTradingSymbolText)
+          .filter((symbol: string | null): symbol is string => Boolean(symbol))
         : []
 
       if (watchlist.length > 0) {
@@ -2304,26 +2333,36 @@ export default function HyperAiPage() {
   }
 
   const handleTradingSymbolPrompt = (symbol: string) => {
+    const safeSymbol = sanitizeAiTradingSymbolText(symbol)
+    if (!safeSymbol) {
+      setTradingSymbolsError(formatAiTradingMarketUniverseApiError(0, 'symbols_unavailable', 'Trading symbol is unavailable'))
+      return
+    }
     const prompt = currentLang === 'zh'
-      ? `请作为 Hyperliquid AI Trading Agent，针对 ${symbol} 做一版可执行前的策略分析：先检查该标的的数据可用性、当前市场状态、入场/出场逻辑、仓位和杠杆约束、最大亏损限制、是否需要止盈止损或替代风控；如果策略不满足风控，请明确给出 HOLD。先给出方案和需要我确认的约束，不要直接下单。`
-      : `Act as a Hyperliquid AI Trading Agent for ${symbol}. Before execution, check data availability, current market state, entry/exit logic, position and leverage constraints, max-loss limits, and whether take-profit/stop-loss or alternative risk controls are required. If risk constraints are not met, return HOLD. Provide the plan and constraints for my confirmation first; do not place an order directly.`
+      ? `请作为 Hyperliquid AI Trading Agent，针对 ${safeSymbol} 做一版可执行前的策略分析：先检查该标的的数据可用性、当前市场状态、入场/出场逻辑、仓位和杠杆约束、最大亏损限制、是否需要止盈止损或替代风控；如果策略不满足风控，请明确给出 HOLD。先给出方案和需要我确认的约束，不要直接下单。`
+      : `Act as a Hyperliquid AI Trading Agent for ${safeSymbol}. Before execution, check data availability, current market state, entry/exit logic, position and leverage constraints, max-loss limits, and whether take-profit/stop-loss or alternative risk controls are required. If risk constraints are not met, return HOLD. Provide the plan and constraints for my confirmation first; do not place an order directly.`
     setInputValue(prompt)
     setTimeout(() => textareaRef.current?.focus(), 50)
   }
 
   const handleStrategySpecDraft = async (symbol: string) => {
-    setStrategyDraftLoadingSymbol(symbol)
+    const safeSymbol = sanitizeAiTradingSymbolText(symbol)
+    if (!safeSymbol) {
+      setStrategyDraftError(formatAiTradingMarketUniverseApiError(0, 'symbols_unavailable', 'Trading symbol is unavailable'))
+      return
+    }
+    setStrategyDraftLoadingSymbol(safeSymbol)
     setStrategyDraftError(null)
     const fallback = 'Failed to draft strategy spec'
     try {
       const strategyText = currentLang === 'zh'
-        ? `为 ${symbol} 设计一版 15m 到 1h 的 Hyperliquid 趋势/突破策略，必须包含止损、止盈、最大亏损、杠杆限制；如果条件不完整则输出 HOLD。`
-        : `Design a 15m to 1h Hyperliquid trend/breakout strategy for ${symbol}. Include stop-loss, take-profit, max loss, and leverage constraints; return HOLD if conditions are incomplete.`
+        ? `为 ${safeSymbol} 设计一版 15m 到 1h 的 Hyperliquid 趋势/突破策略，必须包含止损、止盈、最大亏损、杠杆限制；如果条件不完整则输出 HOLD。`
+        : `Design a 15m to 1h Hyperliquid trend/breakout strategy for ${safeSymbol}. Include stop-loss, take-profit, max loss, and leverage constraints; return HOLD if conditions are incomplete.`
       const res = await authFetchAiTradingAction('/api/ai-trading/strategy-spec/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          symbol,
+          symbol: safeSymbol,
           strategy_text: strategyText,
           timeframe: '15m',
           risk_profile: 'balanced',

@@ -3540,11 +3540,15 @@ def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, mo
                         "universe": [
                             {"name": "NVDA", "maxLeverage": 5, "onlyIsolated": True},
                             {"name": "SP500", "maxLeverage": 10},
+                            {"name": "api_key=leaked-token", "displayName": "private_key=leaked-secret"},
+                            {"name": "BAD SYMBOL WITH SPACE"},
                         ]
                     },
                     [
                         {"dayNtlVlm": "900", "dayBaseVlm": "3", "markPx": "300", "openInterest": "30"},
                         {"dayNtlVlm": "1200", "dayBaseVlm": "2", "markPx": "6000", "openInterest": "20"},
+                        {"dayNtlVlm": "999999", "dayBaseVlm": "1", "markPx": "1", "openInterest": "1"},
+                        {"dayNtlVlm": "999998", "dayBaseVlm": "1", "markPx": "1", "openInterest": "1"},
                     ],
                 ]
             )
@@ -3555,12 +3559,16 @@ def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, mo
                         {"name": "BTC", "maxLeverage": 40, "szDecimals": 5},
                         {"name": "ETH", "maxLeverage": 25, "isDelisted": True},
                         {"name": "SOL", "maxLeverage": 20},
+                        {"name": "authorization=Bearer leaked-token", "displayName": "secret-token"},
+                        {"name": "BAD SYMBOL WITH SPACE"},
                     ]
                 },
                 [
                     {"dayNtlVlm": "1000", "dayBaseVlm": "10", "markPx": "100", "openInterest": "10"},
                     {"dayNtlVlm": "999999", "dayBaseVlm": "1", "markPx": "1", "openInterest": "1"},
                     {"dayNtlVlm": "500", "dayBaseVlm": "5", "markPx": "50", "openInterest": "5"},
+                    {"dayNtlVlm": "999998", "dayBaseVlm": "1", "markPx": "1", "openInterest": "1"},
+                    {"dayNtlVlm": "999997", "dayBaseVlm": "1", "markPx": "1", "openInterest": "1"},
                 ],
             ]
         )
@@ -3591,6 +3599,12 @@ def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, mo
     assert hip3[1]["category"] == "us_stock"
     assert hip3[1]["only_isolated"] is True
     assert hip3[1]["exchange_symbol"] == "xyz:NVDA"
+    serialized_universe = json.dumps(universe, ensure_ascii=False).lower()
+    assert "api_key" not in serialized_universe
+    assert "authorization" not in serialized_universe
+    assert "private_key" not in serialized_universe
+    assert "leaked-token" not in serialized_universe
+    assert "bad symbol with space" not in serialized_universe
 
 
 def test_ai_trading_strategy_spec_preserves_hip3_market_identity(tmp_path):

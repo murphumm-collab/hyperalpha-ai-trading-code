@@ -97,6 +97,7 @@ def _write_minimal_acceptance_repo(
     include_model_setup_runtime_refresh_marker: bool = True,
     include_frontend_model_config_error_safety_marker: bool = True,
     include_frontend_market_universe_error_safety_marker: bool = True,
+    include_frontend_market_symbol_sanitizer_marker: bool = True,
     include_gateway_mode_guard_marker: bool = True,
     include_runtime_readiness_retry_grace_marker: bool = True,
     include_external_markers: bool = True,
@@ -279,6 +280,9 @@ def _write_minimal_acceptance_repo(
     frontend_market_universe_error_safety_marker = (
         "| AI Trading frontend market-universe error safety | Done |"
     ) if include_frontend_market_universe_error_safety_marker else ""
+    frontend_market_symbol_sanitizer_marker = (
+        "| AI Trading frontend market symbol sanitizer | Done |"
+    ) if include_frontend_market_symbol_sanitizer_marker else ""
     gateway_mode_guard_marker = (
         "| AI Trading gateway mode guard | Done |"
     ) if include_gateway_mode_guard_marker else ""
@@ -352,7 +356,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Frontend Market-Universe Error Safety Accepted / Remote Push Skipped",
+                "Local V1 Frontend Market Symbol Sanitizer Accepted / Remote Push Skipped",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -417,6 +421,7 @@ def _write_minimal_acceptance_repo(
                 model_setup_runtime_refresh_marker,
                 frontend_model_config_error_safety_marker,
                 frontend_market_universe_error_safety_marker,
+                frontend_market_symbol_sanitizer_marker,
                 gateway_mode_guard_marker,
                 "| AI Trading runtime mirror freshness gate | Done |",
                 "| AI Trading runtime readiness cold-start retry | Done |",
@@ -1809,6 +1814,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_market_universe_
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend market-universe error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_market_symbol_sanitizer_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_market_symbol_sanitizer_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend market symbol sanitizer | Done |"
         in status_evidence["missing_phrases"]
     )
 

@@ -671,6 +671,40 @@ def test_ai_trading_market_universe_loader_uses_safe_api_error_formatter() -> No
     assert "errData.detail ||" not in loader_block
 
 
+def test_ai_trading_market_symbols_are_sanitized_before_ui_prompt_and_draft() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    loader_block = hyper_ai_source.split(
+        "const fetchTradingSymbols = async () => {",
+        1,
+    )[1].split("const fetchAiTradingRuntime = async () => {", 1)[0]
+    prompt_block = hyper_ai_source.split(
+        "const handleTradingSymbolPrompt = (symbol: string) => {",
+        1,
+    )[1].split("const handleStrategySpecDraft = async", 1)[0]
+    draft_block = hyper_ai_source.split(
+        "const handleStrategySpecDraft = async",
+        1,
+    )[1].split("const persistStrategyDraft = async", 1)[0]
+
+    assert "function sanitizeAiTradingSymbolText" in hyper_ai_source
+    assert "AI_TRADING_SYMBOL_TEXT_PATTERN" in hyper_ai_source
+    assert "AI_TRADING_EXCHANGE_SYMBOL_TEXT_PATTERN" in hyper_ai_source
+    assert "AI_TRADING_SYMBOL_SENSITIVE_PATTERN" in hyper_ai_source
+    assert "api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password" in hyper_ai_source
+    assert ".map(sanitizeAiTradingSymbolText)" in loader_block
+    assert "const safeSymbol = sanitizeAiTradingSymbolText(symbol)" in prompt_block
+    assert "${safeSymbol}" in prompt_block
+    assert "const safeSymbol = sanitizeAiTradingSymbolText(symbol)" in draft_block
+    assert "${safeSymbol}" in draft_block
+    assert "symbol: safeSymbol" in draft_block
+    assert "setStrategyDraftLoadingSymbol(safeSymbol)" in draft_block
+    assert "for ${symbol}" not in prompt_block
+    assert "针对 ${symbol}" not in prompt_block
+    assert "for ${symbol}" not in draft_block
+    assert "为 ${symbol}" not in draft_block
+    assert "symbol," not in draft_block
+
+
 def test_ai_trading_session_detail_validation_warnings_use_readable_labels() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     session_detail_specs_block = hyper_ai_source.split(
