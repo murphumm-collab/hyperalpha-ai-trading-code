@@ -178,6 +178,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_market_symbol_sanitizer_marker: bool = True,
     include_private_factor_per_user_result_schema_marker: bool = True,
     include_private_factor_precompute_writer_reader_marker: bool = True,
+    include_private_factor_precompute_db_smoke_marker: bool = True,
     include_agent_session_name_safety_marker: bool = True,
     include_strategy_spec_name_safety_marker: bool = True,
     include_handoff_error_message_safety_marker: bool = True,
@@ -426,6 +427,9 @@ def _write_minimal_acceptance_repo(
     private_factor_precompute_writer_reader_marker = (
         "| AI Trading private factor precompute writer-reader | Done |"
     ) if include_private_factor_precompute_writer_reader_marker else ""
+    private_factor_precompute_db_smoke_marker = (
+        "| AI Trading private factor precompute DB smoke | Done |"
+    ) if include_private_factor_precompute_db_smoke_marker else ""
     agent_session_name_safety_marker = (
         "| AI Trading agent-session name safety | Done |"
     ) if include_agent_session_name_safety_marker else ""
@@ -633,6 +637,7 @@ def _write_minimal_acceptance_repo(
                 frontend_market_symbol_sanitizer_marker,
                 private_factor_per_user_result_schema_marker,
                 private_factor_precompute_writer_reader_marker,
+                private_factor_precompute_db_smoke_marker,
                 agent_session_name_safety_marker,
                 strategy_spec_name_safety_marker,
                 handoff_error_message_safety_marker,
@@ -857,6 +862,9 @@ def test_private_factor_precompute_writer_reader_uses_user_scoped_tables() -> No
     tools_source = (
         REPO_ROOT / "backend" / "services" / "hyper_ai_tools.py"
     ).read_text(encoding="utf-8")
+    smoke_source = (
+        REPO_ROOT / "backend" / "scripts" / "ai_trading_private_factor_precompute_smoke.py"
+    ).read_text(encoding="utf-8")
     status_source = (
         REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
     ).read_text(encoding="utf-8")
@@ -883,7 +891,17 @@ def test_private_factor_precompute_writer_reader_uses_user_scoped_tables() -> No
     assert "\"storage_scope\": storage_scope" in tools_source
     assert "\"source\": \"user_private\"" in tools_source
 
+    assert "FactorEffectivenessService()" in smoke_source
+    assert "service._get_symbols = lambda db, exchange: [SYMBOL]" in smoke_source
+    assert "execute_query_factors(" in smoke_source
+    assert "same_private_factor" in smoke_source
+    assert "shared_table_rows" in smoke_source
+    assert "factor_effectiveness" in smoke_source
+    assert "factor_values" in smoke_source
+    assert "_cleanup(db, run_id)" in smoke_source
+
     assert "| AI Trading private factor precompute writer-reader | Done |" in status_source
+    assert "| AI Trading private factor precompute DB smoke | Done |" in status_source
 
 
 def test_production_evidence_template_builder_uses_required_item_ids_without_secrets():
