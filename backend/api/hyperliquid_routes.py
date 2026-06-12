@@ -58,6 +58,9 @@ SAFE_HYPERLIQUID_AGENT_WALLET_INVALID_PRIVATE_KEY_MESSAGE = "Invalid Hyperliquid
 SAFE_HYPERLIQUID_AGENT_WALLET_STATUS_FAILED_MESSAGE = "Failed to get Hyperliquid agent wallet status."
 SAFE_HYPERLIQUID_AGENT_WALLET_UPGRADE_CHECK_FAILED_MESSAGE = "Failed to check Hyperliquid wallet upgrade status."
 SAFE_HYPERLIQUID_AGENT_WALLET_UPGRADE_FAILED_MESSAGE = "Failed to upgrade Hyperliquid wallet to agent mode."
+SAFE_HYPERLIQUID_TRADING_MODE_READ_FAILED_MESSAGE = "Failed to get Hyperliquid trading mode."
+SAFE_HYPERLIQUID_TRADING_MODE_UPDATE_FAILED_MESSAGE = "Failed to set Hyperliquid trading mode."
+SAFE_HYPERLIQUID_WALLET_LIST_FAILED_MESSAGE = "Failed to list Hyperliquid wallets."
 
 
 def _ts_to_iso(ts: float) -> str:
@@ -1466,8 +1469,11 @@ def get_trading_mode(
         }
 
     except Exception as e:
-        logger.error(f"Failed to get trading mode: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get trading mode: {str(e)}")
+        logger.error(
+            "Failed to get trading mode",
+            extra={"user_id": current_user.id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_TRADING_MODE_READ_FAILED_MESSAGE)
 
 
 @router.post("/trading-mode")
@@ -1528,8 +1534,11 @@ def set_trading_mode(
 
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to set trading mode: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to set trading mode: {str(e)}")
+        logger.error(
+            "Failed to set trading mode",
+            extra={"user_id": current_user.id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_TRADING_MODE_UPDATE_FAILED_MESSAGE)
 
 
 
@@ -1581,8 +1590,11 @@ def get_all_wallets(
         return result
 
     except Exception as e:
-        logger.error(f"Failed to get all wallets: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get wallets: {str(e)}")
+        logger.error(
+            "Failed to get all wallets",
+            extra={"user_id": current_user.id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WALLET_LIST_FAILED_MESSAGE)
 
 
 # ============================================================================
