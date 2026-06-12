@@ -42,6 +42,40 @@ const DEFAULT_MAX_DURATION = 30 * 60 * 1000 // 30 minutes
 const MAX_CONSECUTIVE_404 = 3
 const MAX_NETWORK_RETRIES = 10
 const NETWORK_RETRY_BASE_MS = 1000
+const POLL_AI_STREAM_PUBLIC_ERROR_MESSAGE = 'AI stream polling failed'
+const POLL_AI_STREAM_TIMEOUT_ERROR_MESSAGE = 'AI stream polling timed out'
+const POLL_AI_STREAM_TASK_ERROR_MESSAGE = 'AI stream task failed'
+const POLL_AI_STREAM_STATUS_ERROR_LABELS: Record<number, string> = {
+  401: 'AI stream authentication required',
+  403: 'AI stream access denied',
+  429: 'AI stream capacity is busy',
+  503: 'AI stream service unavailable',
+}
+const POLL_AI_STREAM_SAFE_TASK_ERROR_VALUES = new Set([
+  POLL_AI_STREAM_TASK_ERROR_MESSAGE,
+])
+const POLL_AI_STREAM_SAFE_NETWORK_ERROR_VALUES = new Set([
+  POLL_AI_STREAM_PUBLIC_ERROR_MESSAGE,
+  ...Object.values(POLL_AI_STREAM_STATUS_ERROR_LABELS),
+])
+
+function formatPollAiStreamTaskError(error: unknown): string {
+  const text = typeof error === 'string' ? error.trim() : ''
+  return POLL_AI_STREAM_SAFE_TASK_ERROR_VALUES.has(text)
+    ? text
+    : POLL_AI_STREAM_TASK_ERROR_MESSAGE
+}
+
+function formatPollAiStreamHttpError(status: number): string {
+  return POLL_AI_STREAM_STATUS_ERROR_LABELS[status] || POLL_AI_STREAM_PUBLIC_ERROR_MESSAGE
+}
+
+function formatPollAiStreamNetworkError(error: unknown): string {
+  const text = error instanceof Error ? error.message.trim() : ''
+  return POLL_AI_STREAM_SAFE_NETWORK_ERROR_VALUES.has(text)
+    ? text
+    : POLL_AI_STREAM_PUBLIC_ERROR_MESSAGE
+}
 
 /**
  * Poll an AI stream task until completion, error, or timeout.
@@ -66,7 +100,7 @@ export async function pollAiStream(
   while (true) {
     // Timeout guard
     if (Date.now() - startTime > maxDuration) {
-      return { status: 'timeout', error: 'Polling exceeded max duration' }
+      return { status: 'timeout', error: POLL_AI_STREAM_TIMEOUT_ERROR_MESSAGE }
     }
 
     await new Promise(resolve => setTimeout(resolve, interval))
@@ -85,7 +119,7 @@ export async function pollAiStream(
       }
 
       if (!res.ok) {
-        throw new Error(`Poll returned ${res.status}`)
+        throw new Error(formatPollAiStreamHttpError(res.status))
       }
 
       // Reset counters on successful response
@@ -106,14 +140,14 @@ export async function pollAiStream(
         return { status: 'completed', result }
       }
       if (status === 'error') {
-        return { status: 'error', error: error || 'Task failed' }
+        return { status: 'error', error: formatPollAiStreamTaskError(error) }
       }
     } catch (e) {
       consecutiveNetworkErrors++
       if (consecutiveNetworkErrors >= MAX_NETWORK_RETRIES) {
-        const err = e instanceof Error ? e : new Error(String(e))
-        options.onError?.(err)
-        return { status: 'network_error', error: err.message }
+        const safeMessage = formatPollAiStreamNetworkError(e)
+        options.onError?.(new Error(safeMessage))
+        return { status: 'network_error', error: safeMessage }
       }
       // Exponential backoff: 1s, 2s, 4s, 8s... capped at 30s
       const backoff = Math.min(

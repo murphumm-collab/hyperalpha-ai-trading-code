@@ -8,6 +8,7 @@ HYPERLIQUID_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "tr
 WALLET_CONFIG_PANEL = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "WalletConfigPanel.tsx"
 BINANCE_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "BinanceWalletSection.tsx"
 READINESS_HELPER = REPO_ROOT / "frontend" / "app" / "lib" / "aiTradingReadiness.ts"
+POLL_AI_STREAM_HELPER = REPO_ROOT / "frontend" / "app" / "lib" / "pollAiStream.ts"
 
 
 def test_admin_readiness_context_locator_ui_uses_secret_safe_projection() -> None:
@@ -187,6 +188,34 @@ def test_admin_ai_runtime_ui_redacts_component_last_errors() -> None:
     assert "last_error_code" in runtime_display_block
     assert "{aiRuntimeStats.distributed_admission.last_error}" not in runtime_display_block
     assert "{aiRuntimeStats.dispatch_queue.last_error}" not in runtime_display_block
+
+
+def test_poll_ai_stream_uses_safe_error_formatters() -> None:
+    poll_source = POLL_AI_STREAM_HELPER.read_text(encoding="utf-8")
+
+    assert "POLL_AI_STREAM_PUBLIC_ERROR_MESSAGE" in poll_source
+    assert "POLL_AI_STREAM_TIMEOUT_ERROR_MESSAGE" in poll_source
+    assert "POLL_AI_STREAM_TASK_ERROR_MESSAGE" in poll_source
+    assert "POLL_AI_STREAM_STATUS_ERROR_LABELS" in poll_source
+    assert "POLL_AI_STREAM_SAFE_TASK_ERROR_VALUES" in poll_source
+    assert "POLL_AI_STREAM_SAFE_NETWORK_ERROR_VALUES" in poll_source
+    assert "function formatPollAiStreamTaskError" in poll_source
+    assert "function formatPollAiStreamHttpError" in poll_source
+    assert "function formatPollAiStreamNetworkError" in poll_source
+
+    assert "return { status: 'timeout', error: POLL_AI_STREAM_TIMEOUT_ERROR_MESSAGE }" in poll_source
+    assert "throw new Error(formatPollAiStreamHttpError(res.status))" in poll_source
+    assert "return { status: 'error', error: formatPollAiStreamTaskError(error) }" in poll_source
+    assert "const safeMessage = formatPollAiStreamNetworkError(e)" in poll_source
+    assert "options.onError?.(new Error(safeMessage))" in poll_source
+    assert "return { status: 'network_error', error: safeMessage }" in poll_source
+
+    assert "Polling exceeded max duration" not in poll_source
+    assert "throw new Error(`Poll returned ${res.status}`)" not in poll_source
+    assert "error || 'Task failed'" not in poll_source
+    assert "String(e)" not in poll_source
+    assert "error: err.message" not in poll_source
+    assert "options.onError?.(err)" not in poll_source
 
 
 def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
