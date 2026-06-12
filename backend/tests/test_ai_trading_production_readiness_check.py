@@ -126,6 +126,29 @@ def test_secret_like_url_hosts_block_aggregate_readiness_without_host_leakage():
     assert "bearer-token-auth-123456789" not in serialized
 
 
+def test_invalid_url_ports_block_aggregate_readiness_without_port_value_leakage():
+    report = readiness_check.build_report(
+        _ready_env(
+            AUTH_JWKS_URL="https://auth.hyperalpha.org:secret-jwks-port-123456789/.well-known/jwks.json",
+            AI_TRADING_SIGNAL_GATEWAY_URL=(
+                "https://orders.hyperalpha.org:secret-gateway-port-123456789/api/ai-trading/signals"
+            ),
+        )
+    )
+
+    assert report["production_ready"] is False
+    assert "auth:auth_jwks_url_port_invalid" in report["blockers"]
+    assert "signal_handoff:signal_gateway_url_port_invalid" in report["blockers"]
+    assert report["checks"]["auth"]["checks"]["jwks_url"]["port"] is None
+    assert report["checks"]["signal_handoff"]["checks"]["gateway_url"]["port"] is None
+    assert report["checks"]["auth"]["checks"]["jwks_url"]["port_invalid"] is True
+    assert report["checks"]["signal_handoff"]["checks"]["gateway_url"]["port_invalid"] is True
+    serialized = str(report)
+    assert "secret-jwks-port-123456789" not in serialized
+    assert "secret-gateway-port-123456789" not in serialized
+    assert "Port could not be cast" not in serialized
+
+
 def test_auth_and_distributed_ai_stream_blockers_are_specific():
     report = readiness_check.build_report(
         _ready_env(

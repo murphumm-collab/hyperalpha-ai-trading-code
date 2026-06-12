@@ -5,7 +5,6 @@ from __future__ import annotations
 import ipaddress
 import os
 from typing import Any, Dict, Mapping, Optional
-from urllib import parse
 
 from sqlalchemy import func
 
@@ -79,18 +78,7 @@ def _is_ip_host_private_or_local(host: str) -> bool:
 
 
 def _sanitized_url_parts(url: str) -> Dict[str, Any]:
-    parsed = parse.urlparse(url)
-    host = parsed.hostname or ""
-    host_secret_pattern_detected = bool(host and handoff_check.SENSITIVE_URL_HOST_PATTERN.search(host))
-    return {
-        "scheme": parsed.scheme or None,
-        "host": handoff_check.REDACTED_SENSITIVE_URL_HOST if host_secret_pattern_detected else (host or None),
-        "port": parsed.port,
-        "path_present": bool(parsed.path and parsed.path != "/"),
-        "query_present": bool(parsed.query),
-        "credentials_embedded": bool(parsed.username or parsed.password),
-        "host_secret_pattern_detected": host_secret_pattern_detected,
-    }
+    return handoff_check._sanitized_url_parts(url)
 
 
 def _build_auth_report(env: Mapping[str, str]) -> Dict[str, Any]:
@@ -102,22 +90,21 @@ def _build_auth_report(env: Mapping[str, str]) -> Dict[str, Any]:
     admin_usernames = _lower_csv(env.get("AUTH_ADMIN_USERNAMES"), "default")
 
     blockers: list[str] = []
-    url_parts = _sanitized_url_parts(jwks_url) if jwks_url else {
-        "scheme": None,
-        "host": None,
-        "port": None,
-        "path_present": False,
-        "query_present": False,
-        "credentials_embedded": False,
-        "host_secret_pattern_detected": False,
-    }
-    parsed_host = (parse.urlparse(jwks_url).hostname or "").lower() if jwks_url else ""
+    url_parts, parsed_host, _parsed_path = handoff_check._url_check_context(jwks_url) if jwks_url else (
+        handoff_check._empty_url_parts(),
+        "",
+        "",
+    )
 
     if not require_verified_bearer:
         blockers.append("auth_verified_bearer_required")
     if not jwks_url:
         blockers.append("auth_jwks_url_missing")
     else:
+        if url_parts["parse_error"]:
+            blockers.append("auth_jwks_url_invalid")
+        if url_parts["port_invalid"]:
+            blockers.append("auth_jwks_url_port_invalid")
         if url_parts["scheme"] != "https":
             blockers.append("auth_jwks_url_must_be_https")
         if parsed_host in LOCAL_HOSTS or _is_ip_host_private_or_local(parsed_host):

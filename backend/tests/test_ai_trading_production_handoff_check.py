@@ -94,6 +94,24 @@ def test_secret_like_gateway_host_is_blocked_and_redacted():
     assert "secret-order-token-123456789" not in serialized
 
 
+def test_invalid_gateway_url_port_is_blocked_without_exception_or_port_echo():
+    report = production_check.build_report(
+        _base_env(
+            AI_TRADING_SIGNAL_GATEWAY_URL=(
+                "https://orders.hyperalpha.org:secret-token-port-123456789/api/ai-trading/signals"
+            ),
+        )
+    )
+
+    assert report["production_handoff_ready"] is False
+    assert "signal_gateway_url_port_invalid" in report["blockers"]
+    assert report["checks"]["gateway_url"]["port"] is None
+    assert report["checks"]["gateway_url"]["port_invalid"] is True
+    serialized = str(report)
+    assert "secret-token-port-123456789" not in serialized
+    assert "Port could not be cast" not in serialized
+
+
 def test_ready_report_never_returns_secret_token_value():
     report = production_check.build_report(_base_env())
 

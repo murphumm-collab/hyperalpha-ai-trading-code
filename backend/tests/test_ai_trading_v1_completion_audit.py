@@ -48,6 +48,7 @@ def _write_minimal_acceptance_repo(
     include_production_operator_preflight_gate: bool = True,
     include_production_operator_preflight_output_redaction_marker: bool = True,
     include_production_url_host_secret_redaction_marker: bool = True,
+    include_production_url_port_safety_marker: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -345,6 +346,9 @@ def _write_minimal_acceptance_repo(
     production_url_host_secret_redaction_status_marker = (
         "| AI Trading production URL host secret redaction | Done |"
     ) if include_production_url_host_secret_redaction_marker else ""
+    production_url_port_safety_status_marker = (
+        "| AI Trading production URL port safety | Done |"
+    ) if include_production_url_port_safety_marker else ""
     _write(
         root / "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh",
         "\n".join(
@@ -494,6 +498,7 @@ def _write_minimal_acceptance_repo(
                 production_operator_preflight_status_marker,
                 production_operator_preflight_output_redaction_status_marker,
                 production_url_host_secret_redaction_status_marker,
+                production_url_port_safety_status_marker,
                 "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
             ]
         ),
@@ -1019,6 +1024,23 @@ def test_completion_audit_blocks_local_acceptance_when_production_url_host_secre
     status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
     assert (
         "| AI Trading production URL host secret redaction | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_production_url_port_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_url_port_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert (
+        "| AI Trading production URL port safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

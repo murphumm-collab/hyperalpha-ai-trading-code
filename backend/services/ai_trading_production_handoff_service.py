@@ -83,19 +83,59 @@ def _is_ip_host_private_or_local(host: str) -> bool:
     )
 
 
+def _empty_url_parts() -> Dict[str, Any]:
+    return {
+        "scheme": None,
+        "host": None,
+        "port": None,
+        "path_present": False,
+        "query_present": False,
+        "credentials_embedded": False,
+        "host_secret_pattern_detected": False,
+        "parse_error": False,
+        "port_invalid": False,
+    }
+
+
 def _sanitized_url_parts(url: str) -> Dict[str, Any]:
-    parsed = parse.urlparse(url)
+    try:
+        parsed = parse.urlparse(url)
+    except ValueError:
+        parts = _empty_url_parts()
+        parts["parse_error"] = True
+        return parts
+
     host = parsed.hostname or ""
     host_secret_pattern_detected = bool(host and SENSITIVE_URL_HOST_PATTERN.search(host))
+    port_invalid = False
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+        port_invalid = True
     return {
         "scheme": parsed.scheme or None,
         "host": REDACTED_SENSITIVE_URL_HOST if host_secret_pattern_detected else (host or None),
-        "port": parsed.port,
+        "port": port,
         "path_present": bool(parsed.path and parsed.path != "/"),
         "query_present": bool(parsed.query),
         "credentials_embedded": bool(parsed.username or parsed.password),
         "host_secret_pattern_detected": host_secret_pattern_detected,
+        "parse_error": False,
+        "port_invalid": port_invalid,
     }
+
+
+def _url_check_context(url: str) -> tuple[Dict[str, Any], str, str]:
+    parts = _sanitized_url_parts(url)
+    if parts["parse_error"]:
+        return parts, "", ""
+    try:
+        parsed = parse.urlparse(url)
+    except ValueError:
+        parts["parse_error"] = True
+        return parts, "", ""
+    return parts, (parsed.hostname or "").lower(), parsed.path.lower()
 
 
 def build_report(
@@ -113,16 +153,11 @@ def build_report(
 
     blockers = []
     warnings = []
-    url_parts = _sanitized_url_parts(gateway_url) if gateway_url else {
-        "scheme": None,
-        "host": None,
-        "port": None,
-        "path_present": False,
-        "query_present": False,
-        "credentials_embedded": False,
-        "host_secret_pattern_detected": False,
-    }
-    parsed_host = (parse.urlparse(gateway_url).hostname or "").lower() if gateway_url else ""
+    url_parts, parsed_host, parsed_path = _url_check_context(gateway_url) if gateway_url else (
+        _empty_url_parts(),
+        "",
+        "",
+    )
 
     if not gateway_enabled:
         blockers.append("signal_gateway_disabled")
@@ -131,13 +166,17 @@ def build_report(
     if not gateway_url:
         blockers.append("signal_gateway_url_missing")
     else:
+        if url_parts["parse_error"]:
+            blockers.append("signal_gateway_url_invalid")
+        if url_parts["port_invalid"]:
+            blockers.append("signal_gateway_url_port_invalid")
         if url_parts["scheme"] != "https":
             blockers.append("signal_gateway_url_must_be_https")
         if parsed_host in LOCAL_HOSTS or _is_ip_host_private_or_local(parsed_host):
             blockers.append("signal_gateway_url_must_not_be_local_or_private")
         if parsed_host in PLACEHOLDER_HOSTS or parsed_host.endswith(".example.com"):
             blockers.append("signal_gateway_url_must_not_be_placeholder")
-        if "mock" in parsed_host or "mock" in parse.urlparse(gateway_url).path.lower() or url_parts["port"] == 5621:
+        if "mock" in parsed_host or "mock" in parsed_path or url_parts["port"] == 5621:
             blockers.append("signal_gateway_url_must_not_be_mock_gateway")
         if url_parts["credentials_embedded"] or url_parts["query_present"]:
             blockers.append("signal_gateway_url_must_not_embed_credentials_or_query")
