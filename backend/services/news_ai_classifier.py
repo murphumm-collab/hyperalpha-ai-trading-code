@@ -18,6 +18,7 @@ import requests as http_requests
 
 from database.connection import SessionLocal
 from database.models import NewsArticle
+from services.llm_transport_security import llm_tls_verify_enabled
 
 logger = logging.getLogger(__name__)
 
@@ -157,7 +158,7 @@ def _call_llm(config: Dict, prompt: str) -> Optional[str]:
         try:
             resp = http_requests.post(
                 endpoint, headers=headers, json=payload,
-                timeout=LLM_TIMEOUT, verify=False,
+                timeout=LLM_TIMEOUT, verify=llm_tls_verify_enabled(),
             )
             if resp.status_code == 200:
                 data = resp.json()

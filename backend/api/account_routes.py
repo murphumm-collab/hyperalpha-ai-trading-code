@@ -28,6 +28,7 @@ from repositories.strategy_repo import get_strategy_by_account, upsert_strategy
 from services.trading_strategy import hyper_strategy_manager
 from services.hyperliquid_cache import get_cached_account_state
 from services.entity_deletion_service import delete_trader
+from services.llm_transport_security import llm_tls_verify_enabled
 from utils.runtime_diagnostics import get_current_thread_count, log_hot_path_delta
 
 logger = logging.getLogger(__name__)
@@ -1013,7 +1014,7 @@ def test_llm_connection(
                         headers=headers,
                         json=payload_data,
                         timeout=10.0,
-                        verify=False
+                        verify=llm_tls_verify_enabled()
                     )
                 except requests.ConnectionError:
                     last_failure_message = f"Failed to connect to {ep}. Please check the base URL."

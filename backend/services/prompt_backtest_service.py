@@ -267,6 +267,7 @@ def _call_llm_with_config(
         is_new_openai_model,
         is_reasoning_model,
     )
+    from services.llm_transport_security import llm_tls_verify_enabled
 
     headers = {
         "Content-Type": "application/json",
@@ -308,7 +309,7 @@ def _call_llm_with_config(
                 headers=headers,
                 json=payload,
                 timeout=request_timeout,
-                verify=False,
+                verify=llm_tls_verify_enabled(),
                 allow_redirects=False,
             )
 

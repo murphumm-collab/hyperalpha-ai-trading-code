@@ -18,6 +18,7 @@ from services.asset_calculator import calc_positions_value
 from services.news_feed import fetch_latest_news
 from repositories.strategy_repo import set_last_trigger
 from services.system_logger import system_logger
+from services.llm_transport_security import llm_tls_verify_enabled
 from repositories import prompt_repo
 
 
@@ -2143,7 +2144,7 @@ def call_ai_for_decision(
                         headers=headers,
                         json=payload,
                         timeout=request_timeout,
-                        verify=False,  # Disable SSL verification for custom AI endpoints
+                        verify=llm_tls_verify_enabled(),
                         stream=use_streaming,  # Enable streaming for DeepSeek V4/Reasoner
                         allow_redirects=False,
                     )

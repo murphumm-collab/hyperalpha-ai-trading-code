@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 from database.models import Account, KlineAIAnalysisLog
 from config.prompt_templates import KLINE_ANALYSIS_PROMPT_TEMPLATE
 from services.ai_decision_service import build_chat_completion_endpoints, _extract_text_from_message, get_max_tokens, build_llm_payload, build_llm_headers, is_reasoning_model
+from services.llm_transport_security import llm_tls_verify_enabled
 from services.market_flow_indicators import get_flow_indicators_for_prompt
 
 
@@ -484,7 +485,7 @@ def analyze_kline_chart(
                         headers=headers,
                         json=payload,
                         timeout=request_timeout,
-                        verify=False,
+                        verify=llm_tls_verify_enabled(),
                         allow_redirects=False,
                     )
 
