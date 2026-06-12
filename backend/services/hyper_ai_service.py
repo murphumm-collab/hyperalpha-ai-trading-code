@@ -93,6 +93,7 @@ REDACTED_SENSITIVE_CONVERSATION_TEXT = "[redacted_sensitive_conversation_text]"
 REDACTED_SENSITIVE_LLM_BASE_URL = "[redacted_sensitive_llm_base_url]"
 SENSITIVE_PROFILE_FIELD_ERROR = "profile_field_rejected_sensitive"
 SENSITIVE_LLM_BASE_URL_ERROR = "llm_base_url_rejected_sensitive"
+LLM_BASE_URL_PRESET_PROVIDER_ERROR = "llm_base_url_not_allowed_for_preset_provider"
 
 SAFE_HYPER_AI_PROVIDER_REQUEST_FAILED_MESSAGE = "Hyper AI provider request failed. Please retry later."
 SAFE_HYPER_AI_RESPONSE_PARSE_FAILED_MESSAGE = "Hyper AI response could not be parsed."
@@ -410,7 +411,7 @@ def test_llm_connection(
     else:
         if not provider_config:
             return {"success": False, "error": f"Unknown provider: {provider}"}
-        effective_base_url = base_url or provider_config.base_url
+        effective_base_url = provider_config.base_url
         api_format = provider_config.api_format
         # Build URL based on api_format
         if api_format == "anthropic":
@@ -477,7 +478,7 @@ def save_llm_config(
     profile = get_or_create_profile(db, user_id=user_id)
     profile.llm_provider = provider
     profile.llm_model = model
-    profile.llm_base_url = validate_llm_base_url_for_storage(base_url)
+    profile.llm_base_url = validate_llm_base_url_for_storage(base_url) if provider == "custom" else None
 
     if api_key:
         profile.llm_api_key_encrypted = encrypt_private_key(api_key)

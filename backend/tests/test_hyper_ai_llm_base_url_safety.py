@@ -114,6 +114,62 @@ def test_test_connection_rejects_sensitive_base_url_without_network_or_echo(monk
     _assert_no_secret_echo(response.text)
 
 
+def test_preset_provider_rejects_base_url_override_without_network_or_echo(monkeypatch, tmp_path) -> None:
+    client = _build_client(tmp_path)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("connection test should not run for preset provider base_url override")
+
+    import api.hyper_ai_routes as hyper_ai_routes
+
+    monkeypatch.setattr(hyper_ai_routes, "test_llm_connection", fail_if_called)
+
+    response = client.post(
+        "/api/hyper-ai/test-connection",
+        json={
+            "provider": "qwen",
+            "api_key": "test-key",
+            "model": "qwen-plus",
+            "base_url": "https://llm.example.test/v1?api_key=secret-llm-base-url",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": hyper_ai_service.LLM_BASE_URL_PRESET_PROVIDER_ERROR}
+    _assert_no_secret_echo(response.text)
+
+
+def test_preset_provider_rejects_saved_base_url_override_without_persisting(monkeypatch, tmp_path) -> None:
+    client = _build_client(tmp_path)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("connection test should not run for preset provider base_url override")
+
+    import api.hyper_ai_routes as hyper_ai_routes
+
+    monkeypatch.setattr(hyper_ai_routes, "test_llm_connection", fail_if_called)
+
+    response = client.post(
+        "/api/hyper-ai/profile/llm",
+        json={
+            "provider": "qwen",
+            "api_key": "test-key",
+            "model": "qwen-plus",
+            "base_url": "https://llm.example.test/v1",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": hyper_ai_service.LLM_BASE_URL_PRESET_PROVIDER_ERROR}
+    _assert_no_secret_echo(response.text)
+
+    with client._hyper_ai_session_factory() as db:
+        profile = db.query(HyperAiProfile).filter(
+            HyperAiProfile.user_id == client._hyper_ai_user_id
+        ).one_or_none()
+        assert profile is None or profile.llm_base_url is None
+
+
 def test_legacy_sensitive_base_url_is_redacted_and_blocked(tmp_path) -> None:
     client = _build_client(tmp_path)
 
@@ -189,6 +245,30 @@ def test_valid_llm_base_url_is_preserved_for_storage() -> None:
     )
 
 
+def test_preset_provider_connection_uses_preset_endpoint(monkeypatch) -> None:
+    captured = {}
+
+    class Response:
+        status_code = 200
+        content = b"{}"
+
+    def fake_post(url, **kwargs):
+        captured["url"] = url
+        return Response()
+
+    monkeypatch.setattr(hyper_ai_service.requests, "post", fake_post)
+
+    result = hyper_ai_service.test_llm_connection(
+        provider="qwen",
+        api_key="test-key",
+        model="qwen-plus",
+        base_url="https://llm.example.test/v1",
+    )
+
+    assert result == {"success": True}
+    assert captured["url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+
+
 def test_hyper_ai_llm_base_url_safety_source_guard() -> None:
     with open(hyper_ai_service.__file__, "r", encoding="utf-8") as handle:
         service_source = handle.read()
@@ -199,9 +279,11 @@ def test_hyper_ai_llm_base_url_safety_source_guard() -> None:
 
     service_forbidden = (
         "profile.llm_base_url = base_url",
+        "effective_base_url = base_url or provider_config.base_url",
     )
     route_forbidden = (
         "base_url=request.base_url",
+        "validate_llm_base_url_for_storage(request.base_url)",
     )
     for pattern in service_forbidden:
         assert pattern not in service_source

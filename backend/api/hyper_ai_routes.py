@@ -26,6 +26,7 @@ from database.connection import get_db
 from database.models import HyperAiConversation, User
 from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from services.hyper_ai_service import (
+    LLM_BASE_URL_PRESET_PROVIDER_ERROR,
     SENSITIVE_LLM_BASE_URL_ERROR,
     SENSITIVE_PROFILE_FIELD_ERROR,
     get_or_create_profile,
@@ -130,6 +131,23 @@ class TestConnectionRequest(BaseModel):
     base_url: Optional[str] = None
 
 
+def _validated_llm_base_url_for_provider(provider: str, base_url: Optional[str]) -> Optional[str]:
+    if provider != "custom":
+        if str(base_url or "").strip():
+            raise HTTPException(status_code=400, detail=LLM_BASE_URL_PRESET_PROVIDER_ERROR)
+        return None
+    try:
+        normalized_base_url = validate_llm_base_url_for_storage(base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=SENSITIVE_LLM_BASE_URL_ERROR) from exc
+    if not normalized_base_url:
+        raise HTTPException(
+            status_code=400,
+            detail="base_url is required for custom provider",
+        )
+    return normalized_base_url
+
+
 @router.post("/test-connection")
 def test_connection(
     request: TestConnectionRequest,
@@ -142,13 +160,6 @@ def test_connection(
         if not provider:
             raise HTTPException(status_code=400, detail="Invalid provider")
 
-    # For custom provider, base_url is required
-    if request.provider == "custom" and not request.base_url:
-        raise HTTPException(
-            status_code=400,
-            detail="base_url is required for custom provider"
-        )
-
     # Get default model if not provided
     model = request.model
     if not model and request.provider != "custom":
@@ -156,10 +167,7 @@ def test_connection(
         if provider and provider.models:
             model = provider.models[0]
 
-    try:
-        base_url = validate_llm_base_url_for_storage(request.base_url)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=SENSITIVE_LLM_BASE_URL_ERROR) from exc
+    base_url = _validated_llm_base_url_for_provider(request.provider, request.base_url)
 
     result = test_llm_connection(
         provider=request.provider,
@@ -184,13 +192,6 @@ def save_llm_configuration(
         if not provider:
             raise HTTPException(status_code=400, detail="Invalid provider")
 
-    # For custom provider, base_url is required
-    if request.provider == "custom" and not request.base_url:
-        raise HTTPException(
-            status_code=400,
-            detail="base_url is required for custom provider"
-        )
-
     # Get default model if not provided
     model = request.model
     if not model and request.provider != "custom":
@@ -199,10 +200,7 @@ def save_llm_configuration(
             model = provider.models[0]
 
     # Test connection before saving
-    try:
-        base_url = validate_llm_base_url_for_storage(request.base_url)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=SENSITIVE_LLM_BASE_URL_ERROR) from exc
+    base_url = _validated_llm_base_url_for_provider(request.provider, request.base_url)
 
     test_result = test_llm_connection(
         provider=request.provider,
