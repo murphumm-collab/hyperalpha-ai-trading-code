@@ -52,6 +52,12 @@ SAFE_HYPERLIQUID_WALLET_INVALID_PRIVATE_KEY_MESSAGE = "Invalid Hyperliquid priva
 SAFE_HYPERLIQUID_WALLET_DELETE_FAILED_MESSAGE = "Failed to delete Hyperliquid wallet."
 SAFE_HYPERLIQUID_WALLET_TEST_FAILED_MESSAGE = "Hyperliquid wallet connection test failed."
 SAFE_HYPERLIQUID_WALLET_READ_FAILED_MESSAGE = "Failed to get Hyperliquid wallet configuration."
+SAFE_HYPERLIQUID_AGENT_WALLET_APPROVAL_FAILED_MESSAGE = "Hyperliquid agent wallet approval failed."
+SAFE_HYPERLIQUID_AGENT_WALLET_CONFIG_FAILED_MESSAGE = "Failed to configure Hyperliquid agent wallet."
+SAFE_HYPERLIQUID_AGENT_WALLET_INVALID_PRIVATE_KEY_MESSAGE = "Invalid Hyperliquid agent private key."
+SAFE_HYPERLIQUID_AGENT_WALLET_STATUS_FAILED_MESSAGE = "Failed to get Hyperliquid agent wallet status."
+SAFE_HYPERLIQUID_AGENT_WALLET_UPGRADE_CHECK_FAILED_MESSAGE = "Failed to check Hyperliquid wallet upgrade status."
+SAFE_HYPERLIQUID_AGENT_WALLET_UPGRADE_FAILED_MESSAGE = "Failed to upgrade Hyperliquid wallet to agent mode."
 
 
 def _ts_to_iso(ts: float) -> str:
@@ -78,6 +84,12 @@ def _current_user_account_ids(db: Session, user_id: int) -> List[int]:
 
 
 def _safe_builder_fee_result_status(result) -> dict:
+    if isinstance(result, dict) and result.get("status") == "err":
+        return {"status": "err"}
+    return {"status": "ok"}
+
+
+def _safe_agent_approval_result_status(result) -> dict:
     if isinstance(result, dict) and result.get("status") == "err":
         return {"status": "err"}
     return {"status": "ok"}
@@ -1605,12 +1617,16 @@ def _get_extra_agents(api_url: str, wallet_address: str) -> list:
         resp = requests.post(
             f"{api_url}/info",
             json={"type": "extraAgents", "user": wallet_address},
-            timeout=10
+            timeout=10,
+            allow_redirects=False,
         )
         resp.raise_for_status()
         return resp.json()
     except Exception as e:
-        logger.warning(f"Failed to query extraAgents for {wallet_address}: {e}")
+        logger.warning(
+            "Failed to query Hyperliquid extraAgents",
+            extra={"error_type": type(e).__name__},
+        )
         return []
 
 
@@ -1679,11 +1695,24 @@ def upgrade_wallet_to_agent(
         result = sdk_exchange.approve_agent(name=agent_name)
 
         if not result or len(result) < 2:
-            raise HTTPException(status_code=500, detail=f"approve_agent failed: {result}")
+            logger.warning(
+                "Hyperliquid approve_agent returned malformed result",
+                extra={"account_id": account_id, "environment": request.environment},
+            )
+            raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_AGENT_WALLET_APPROVAL_FAILED_MESSAGE)
 
         approve_result, agent_private_key = result
         if isinstance(approve_result, dict) and approve_result.get("status") == "err":
-            raise HTTPException(status_code=500, detail=f"approve_agent error: {approve_result}")
+            safe_result = _safe_agent_approval_result_status(approve_result)
+            logger.warning(
+                "Hyperliquid approve_agent failed",
+                extra={
+                    "account_id": account_id,
+                    "environment": request.environment,
+                    "result_status": safe_result["status"],
+                },
+            )
+            raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_AGENT_WALLET_APPROVAL_FAILED_MESSAGE)
 
         # Derive agent address
         agent_eth_account = EthAccount.from_key(agent_private_key)
@@ -1721,8 +1750,11 @@ def upgrade_wallet_to_agent(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to upgrade wallet to agent: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Agent upgrade failed: {str(e)}")
+        logger.error(
+            "Failed to upgrade wallet to agent",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_AGENT_WALLET_UPGRADE_FAILED_MESSAGE)
 
 
 @router.post("/accounts/{account_id}/wallet/agent")
@@ -1754,8 +1786,8 @@ def configure_agent_wallet(
         try:
             agent_eth_account = EthAccount.from_key(agent_key)
             agent_address = agent_eth_account.address.lower()
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid agent private key: {e}")
+        except Exception:
+            raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_AGENT_WALLET_INVALID_PRIVATE_KEY_MESSAGE)
 
         # Validate master wallet address format
         master_address = request.master_wallet_address.strip().lower()
@@ -1829,13 +1861,14 @@ def configure_agent_wallet(
                         "user": master_address,
                         "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
                     },
-                    timeout=10
+                    timeout=10,
+                    allow_redirects=False,
                 )
                 max_fee = resp.json()
                 builder_fee_authorized = max_fee >= HYPERLIQUID_BUILDER_CONFIG.builder_fee
-                print(f"[BUILDER_AUTH] Agent wallet bind: master={master_address[:12]}... maxBuilderFee={max_fee}, authorized={builder_fee_authorized}")
+                print(f"[BUILDER_AUTH] Agent wallet bind builder fee authorized={builder_fee_authorized}")
             except Exception as e:
-                print(f"[BUILDER_AUTH] Failed to check builder fee for agent wallet: {e}")
+                print(f"[BUILDER_AUTH] Failed to check builder fee for agent wallet: {type(e).__name__}")
 
         return {
             "success": True,
@@ -1850,8 +1883,11 @@ def configure_agent_wallet(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to configure agent wallet: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Agent wallet configuration failed: {str(e)}")
+        logger.error(
+            "Failed to configure agent wallet",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_AGENT_WALLET_CONFIG_FAILED_MESSAGE)
 
 
 @router.get("/accounts/{account_id}/wallet/agent-status")
@@ -1920,8 +1956,11 @@ def get_agent_wallet_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get agent wallet status: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get agent status: {str(e)}")
+        logger.error(
+            "Failed to get agent wallet status",
+            extra={"account_id": account_id, "environment": environment, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_AGENT_WALLET_STATUS_FAILED_MESSAGE)
 
 
 @router.get("/wallet-upgrade-check")
@@ -1962,5 +2001,8 @@ def check_wallet_upgrade_needed(
         }
 
     except Exception as e:
-        logger.error(f"Failed to check wallet upgrade: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to check wallet upgrade: {str(e)}")
+        logger.error(
+            "Failed to check wallet upgrade",
+            extra={"error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_AGENT_WALLET_UPGRADE_CHECK_FAILED_MESSAGE)
