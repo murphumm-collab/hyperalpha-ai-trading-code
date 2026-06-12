@@ -1214,6 +1214,7 @@ export default function HyperAiPage() {
   const [strategySignalPreviewLoading, setStrategySignalPreviewLoading] = useState(false)
   const [strategyBacktestSummaryId, setStrategyBacktestSummaryId] = useState('')
   const [strategyBacktestSummaryMetricsText, setStrategyBacktestSummaryMetricsText] = useState(AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE)
+  const [strategyProgramBacktestResultId, setStrategyProgramBacktestResultId] = useState('')
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
   const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | 'evidence' | null>(null)
   const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
@@ -2738,11 +2739,21 @@ export default function HyperAiPage() {
     }
   }
 
-  const handleAttachProgramBacktestResult = async (recordId?: number, providedBacktestResultId?: number) => {
+  const handleAttachProgramBacktestResult = async (
+    recordId?: number,
+    providedBacktestResultId?: number,
+    inlineRecord?: AiTradingStrategySpecRecord
+  ) => {
     setStrategyDraftError(null)
     if (!recordId && currentStrategyActionBlockedByArchivedSession) {
       setStrategyDraftError(archivedSessionActionTitle)
       return
+    }
+    if (inlineRecord) {
+      setStrategyDraftRecord(inlineRecord)
+      if (inlineRecord.spec) {
+        setStrategyDraft(inlineRecord.spec)
+      }
     }
     let targetRecordId = recordId
     if (!targetRecordId) {
@@ -2759,11 +2770,10 @@ export default function HyperAiPage() {
     }
 
     let backtestResultId = providedBacktestResultId
-    if (!backtestResultId) {
-      const backtestResultIdText = window.prompt(
-        t('hyperAi.aiTradingProgramBacktestResultIdPrompt', 'Program Backtest result ID')
-      )
+    if (backtestResultId == null) {
+      const backtestResultIdText = strategyProgramBacktestResultId.trim()
       if (!backtestResultIdText) {
+        setStrategyDraftError(t('hyperAi.aiTradingProgramBacktestResultIdRequired', 'Enter a Program Backtest result ID before attaching evidence'))
         return
       }
       backtestResultId = Number(backtestResultIdText)
@@ -2794,6 +2804,9 @@ export default function HyperAiPage() {
       setStrategyDraftRecord(record)
       if (record.spec) {
         setStrategyDraft(record.spec)
+      }
+      if (providedBacktestResultId == null) {
+        setStrategyProgramBacktestResultId('')
       }
       const prompt = currentLang === 'zh'
         ? `请复核 AI Trading Strategy Spec #${record.id} 绑定的 Program BacktestResult #${backtestResultId}：确认这是当前用户自己的回测、metrics 是否满足 handoff gate、是否仍然只作为 signal evidence 而不是订单。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)}\n\`\`\``
@@ -5125,6 +5138,15 @@ export default function HyperAiPage() {
                     className="h-8 text-xs"
                     disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving || currentStrategyActionBlockedByArchivedSession}
                   />
+                  <Input
+                    data-testid="ai-trading-program-backtest-result-id"
+                    value={strategyProgramBacktestResultId}
+                    onChange={(event) => setStrategyProgramBacktestResultId(event.target.value)}
+                    placeholder={t('hyperAi.aiTradingProgramBacktestResultIdPrompt', 'Program Backtest result ID')}
+                    className="h-8 text-xs"
+                    inputMode="numeric"
+                    disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving || currentStrategyActionBlockedByArchivedSession}
+                  />
                   <textarea
                     data-testid="ai-trading-backtest-summary-metrics"
                     value={strategyBacktestSummaryMetricsText}
@@ -5601,7 +5623,7 @@ export default function HyperAiPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAttachProgramBacktestResult(record.id)}
+                            onClick={() => handleAttachProgramBacktestResult(record.id, undefined, record)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                             disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
                             title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachProgramBacktest', 'Attach Program Backtest result')}

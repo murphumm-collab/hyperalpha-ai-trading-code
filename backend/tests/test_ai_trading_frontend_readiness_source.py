@@ -456,6 +456,31 @@ def test_ai_trading_backtest_summary_uses_inline_inputs_without_browser_prompt()
     assert "handleAttachBacktestSummary(record.id, record)" in recent_specs_block
 
 
+def test_ai_trading_program_backtest_result_uses_inline_input_without_browser_prompt() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    program_backtest_block = hyper_ai_source.split(
+        "const handleAttachProgramBacktestResult = async",
+        1,
+    )[1].split("const handleAttachLatestProgramBacktestResult = async", 1)[0]
+    current_strategy_inputs_block = hyper_ai_source.split(
+        'data-testid="ai-trading-program-backtest-result-id"',
+        1,
+    )[1].split('data-testid="ai-trading-backtest-summary-metrics"', 1)[0]
+    recent_specs_block = hyper_ai_source.split(
+        "{recentStrategySpecs.map(record =>",
+        1,
+    )[1].split("onClick={() => handleAttachLatestProgramBacktestResult(record.id)}", 1)[0]
+
+    assert "window.prompt" not in program_backtest_block
+    assert "strategyProgramBacktestResultId.trim()" in program_backtest_block
+    assert "setStrategyDraftRecord(inlineRecord)" in program_backtest_block
+    assert "setStrategyDraft(inlineRecord.spec)" in program_backtest_block
+    assert "setStrategyProgramBacktestResultId('')" in program_backtest_block
+    assert "strategyProgramBacktestResultId" in current_strategy_inputs_block
+    assert "inputMode=\"numeric\"" in current_strategy_inputs_block
+    assert "handleAttachProgramBacktestResult(record.id, undefined, record)" in recent_specs_block
+
+
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")
