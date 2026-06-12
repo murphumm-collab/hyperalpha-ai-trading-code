@@ -905,6 +905,35 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
     assert "base_url" not in safe_ui_blocks
 
 
+def test_hyper_ai_main_page_always_exposes_model_api_key_config_entry() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    config_panel_block = hyper_ai_source.split(
+        "{/* Right: Config Panel */}",
+        1,
+    )[1].split("{/* LLM Config Modal */}", 1)[0]
+    main_page_model_entry_block = config_panel_block.split(
+        'data-testid="hyper-ai-main-page-model-config-entry"',
+        1,
+    )[1].split("{profile && (", 1)[0]
+    runtime_guard_prefix = config_panel_block.split(
+        'data-testid="hyper-ai-main-page-model-config-entry"',
+        1,
+    )[0].splitlines()[-6:]
+
+    assert "const isDataReady = true" in FRONTEND_MAIN.read_text(encoding="utf-8")
+    assert "app shell must be reachable before account/model/API-key setup" in FRONTEND_MAIN.read_text(encoding="utf-8")
+    assert 'data-testid="ai-trading-model-config-main-page-button"' in main_page_model_entry_block
+    assert "setShowConfigModal(true)" in main_page_model_entry_block
+    assert "Configure API key" in main_page_model_entry_block
+    assert "Update API key" in main_page_model_entry_block
+    assert "modelAdjustmentReadinessDetailLabel()" in main_page_model_entry_block
+    assert not any("aiTradingRuntime &&" in line for line in runtime_guard_prefix)
+
+    safe_entry_block = main_page_model_entry_block.replace("profile?.llm_configured", "")
+    assert "llm_api_key" not in safe_entry_block
+    assert "api_key" not in safe_entry_block
+
+
 def test_ai_trading_model_config_modal_uses_safe_api_error_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

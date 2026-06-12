@@ -142,6 +142,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_progress_summary_marker: bool = True,
     include_production_evidence_progress_actions_marker: bool = True,
     include_production_evidence_progress_root_actions_marker: bool = True,
+    include_production_evidence_prepared_initializer_marker: bool = True,
     include_production_evidence_dry_run_safety_metadata_marker: bool = True,
     include_production_evidence_non_object_dry_run_safety_marker: bool = True,
     include_production_evidence_frontend_error_safety_marker: bool = True,
@@ -178,6 +179,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_onboarding_error_safety_marker: bool = True,
     include_frontend_onboarding_blank_page_guard_marker: bool = True,
     include_frontend_model_config_nonblocking_entry_marker: bool = True,
+    include_frontend_main_page_api_key_config_entry_marker: bool = True,
     include_frontend_onboarding_api_key_deferral_marker: bool = True,
     include_frontend_public_asset_path_guard_marker: bool = True,
     include_frontend_bot_tool_config_error_safety_marker: bool = True,
@@ -325,6 +327,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_progress_root_actions_marker = (
         "| AI Trading production evidence progress root actions | Done |"
     ) if include_production_evidence_progress_root_actions_marker else ""
+    production_evidence_prepared_initializer_marker = (
+        "| AI Trading production evidence prepared initializer | Done |"
+    ) if include_production_evidence_prepared_initializer_marker else ""
     production_evidence_dry_run_safety_metadata_marker = (
         "| AI Trading production evidence dry-run safety metadata | Done |"
     ) if include_production_evidence_dry_run_safety_metadata_marker else ""
@@ -433,6 +438,9 @@ def _write_minimal_acceptance_repo(
     frontend_model_config_nonblocking_entry_marker = (
         "| AI Trading frontend model-config nonblocking entry | Done |"
     ) if include_frontend_model_config_nonblocking_entry_marker else ""
+    frontend_main_page_api_key_config_entry_marker = (
+        "| AI Trading frontend main-page API-key config entry | Done |"
+    ) if include_frontend_main_page_api_key_config_entry_marker else ""
     frontend_onboarding_api_key_deferral_marker = (
         "| AI Trading frontend onboarding API-key deferral | Done |"
     ) if include_frontend_onboarding_api_key_deferral_marker else ""
@@ -641,6 +649,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_progress_summary_marker,
                 production_evidence_progress_actions_marker,
                 production_evidence_progress_root_actions_marker,
+                production_evidence_prepared_initializer_marker,
                 production_evidence_dry_run_safety_metadata_marker,
                 production_evidence_non_object_dry_run_safety_marker,
                 production_evidence_frontend_error_safety_marker,
@@ -678,6 +687,7 @@ def _write_minimal_acceptance_repo(
                 frontend_onboarding_error_safety_marker,
                 frontend_onboarding_blank_page_guard_marker,
                 frontend_model_config_nonblocking_entry_marker,
+                frontend_main_page_api_key_config_entry_marker,
                 frontend_onboarding_api_key_deferral_marker,
                 frontend_public_asset_path_guard_marker,
                 frontend_bot_tool_config_error_safety_marker,
@@ -1272,6 +1282,40 @@ def test_production_evidence_explain_cli_outputs_non_secret_checklist(tmp_path):
     assert completion_audit._secret_pattern_hits(payload) == []
 
 
+def test_production_evidence_prepare_cli_outputs_pending_prefilled_packet(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    output_path = _outside_repo_evidence_path(tmp_path, "prepared-cli-production-evidence.json")
+    run_id = "prod:20260612T040506Z"
+
+    completed = _run_subprocess_with_transient_retry(
+        [
+            sys.executable,
+            str(SCRIPT_PATH),
+            "--repo-root",
+            str(tmp_path),
+            "--prepare-production-evidence-file",
+            str(output_path),
+            "--production-evidence-run-id",
+            run_id,
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(completed.stdout)
+    prepared = json.loads(output_path.read_text(encoding="utf-8"))
+
+    assert payload["created"] is True
+    assert payload["evidence_run_id"] == run_id
+    assert payload["production_evidence_ready"] is False
+    assert payload["production_evidence_accepted_count"] == 0
+    assert payload["production_evidence_root_blockers"] == []
+    assert prepared["evidence_run_id"] == run_id
+    assert all(run_id in item["artifact_refs"][0] for item in prepared["items"].values())
+    assert completion_audit._secret_pattern_hits(payload) == []
+    assert completion_audit._secret_pattern_hits(prepared) == []
+
+
 def test_production_evidence_initializer_writes_repo_external_pending_template(tmp_path):
     _write_minimal_acceptance_repo(tmp_path)
     output_path = _outside_repo_evidence_path(tmp_path, "initialized-production-evidence.json")
@@ -1302,6 +1346,61 @@ def test_production_evidence_initializer_writes_repo_external_pending_template(t
     assert "external_evidence_item_blocked:real_order_backend_handoff" in completion_report["production_evidence"]["blockers"]
 
 
+def test_production_evidence_prepared_initializer_prefills_safe_pending_packet(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    output_path = _outside_repo_evidence_path(tmp_path, "prepared-production-evidence.json")
+    run_id = "prod:20260612T010203Z"
+
+    prepared_report = completion_audit.write_prepared_external_acceptance_evidence_template(
+        output_path,
+        repo_root=tmp_path,
+        evidence_run_id=run_id,
+        cutover_window_hours=2,
+    )
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    completion_report = completion_audit.build_completion_report(
+        tmp_path,
+        production_evidence_file=output_path,
+        allow_live_ready_from_evidence=True,
+    )
+
+    assert prepared_report["created"] is True
+    assert prepared_report["ready_for_live_orders"] is False
+    assert prepared_report["production_evidence_ready"] is False
+    assert prepared_report["production_evidence_accepted_count"] == 0
+    assert prepared_report["production_evidence_root_blockers"] == []
+    assert prepared_report["evidence_run_id"] == run_id
+    assert payload["evidence_run_id"] == run_id
+    assert payload["generated_at"]
+    assert payload["expires_at"]
+    assert payload["cutover_window"]["start_at"]
+    assert payload["cutover_window"]["end_at"]
+    assert run_id in payload["cutover_approval_ref"]
+    assert payload["secret_values_returned"] is False
+    assert all(item["status"] == "pending_external_acceptance" for item in payload["items"].values())
+    assert all(item["secret_values_returned"] is False for item in payload["items"].values())
+    assert all(run_id in item["artifact_refs"][0] for item in payload["items"].values())
+    assert all(item_id in item["artifact_refs"][0] for item_id, item in payload["items"].items())
+
+    evidence = completion_report["production_evidence"]
+    assert completion_report["ready_for_live_orders"] is False
+    assert evidence["provided"] is True
+    assert evidence["file_inside_repo"] is False
+    assert evidence["evidence_run_id_present"] is True
+    assert evidence["cutover_window_present"] is True
+    assert evidence["cutover_approval_ref_present"] is True
+    assert evidence["accepted_count"] == 0
+    assert "external_evidence_run_id_missing" not in evidence["blockers"]
+    assert "external_evidence_generated_at_missing" not in evidence["blockers"]
+    assert "external_evidence_expires_at_missing" not in evidence["blockers"]
+    assert "external_evidence_cutover_approval_ref_missing" not in evidence["blockers"]
+    assert "external_evidence_cutover_window_start_at_missing" not in evidence["blockers"]
+    assert "external_evidence_artifact_ref_missing_run_id" not in str(evidence["items"])
+    assert "external_evidence_artifact_ref_missing_item_id" not in str(evidence["items"])
+    assert "external_evidence_item_blocked:real_order_backend_handoff" in evidence["blockers"]
+    assert completion_audit._secret_pattern_hits(payload) == []
+
+
 def test_production_evidence_initializer_refuses_repo_local_or_existing_outputs(tmp_path):
     _write_minimal_acceptance_repo(tmp_path)
     repo_local_path = tmp_path / "ops-production-evidence.json"
@@ -1321,6 +1420,22 @@ def test_production_evidence_initializer_refuses_repo_local_or_existing_outputs(
     assert "external_evidence_output_must_be_outside_repo" in repo_local_report["blockers"]
     assert existing_report["created"] is False
     assert "external_evidence_output_exists" in existing_report["blockers"]
+
+
+def test_production_evidence_prepared_initializer_refuses_bad_run_id(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path)
+    output_path = _outside_repo_evidence_path(tmp_path, "bad-run-id-production-evidence.json")
+
+    prepared_report = completion_audit.write_prepared_external_acceptance_evidence_template(
+        output_path,
+        repo_root=tmp_path,
+        evidence_run_id="api_key=secret",
+    )
+
+    assert prepared_report["created"] is False
+    assert not output_path.exists()
+    assert "external_evidence_run_id_invalid_chars" in prepared_report["blockers"]
+    assert "external_evidence_run_id_secret_pattern_detected" in prepared_report["blockers"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_db_gate_is_missing(tmp_path):
@@ -2134,6 +2249,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_progr
     )
 
 
+def test_completion_audit_blocks_local_acceptance_when_production_evidence_prepared_initializer_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_production_evidence_prepared_initializer_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading production evidence prepared initializer | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
 def test_completion_audit_blocks_local_acceptance_when_production_evidence_dry_run_safety_metadata_marker_is_missing(tmp_path):
     _write_minimal_acceptance_repo(
         tmp_path,
@@ -2868,6 +3001,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_onboarding_api_k
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend onboarding API-key deferral | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_main_page_api_key_config_entry_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_main_page_api_key_config_entry_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend main-page API-key config entry | Done |"
         in status_evidence["missing_phrases"]
     )
 

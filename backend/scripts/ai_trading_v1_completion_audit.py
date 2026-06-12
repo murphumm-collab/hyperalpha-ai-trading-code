@@ -438,6 +438,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence progress summary | Done |",
             "| AI Trading production evidence progress actions | Done |",
             "| AI Trading production evidence progress root actions | Done |",
+            "| AI Trading production evidence prepared initializer | Done |",
             "| AI Trading production evidence dry-run safety metadata | Done |",
             "| AI Trading production evidence non-object dry-run safety | Done |",
             "| AI Trading production evidence frontend error safety | Done |",
@@ -490,6 +491,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading frontend onboarding error safety | Done |",
             "| AI Trading frontend onboarding blank-page guard | Done |",
             "| AI Trading frontend model-config nonblocking entry | Done |",
+            "| AI Trading frontend main-page API-key config entry | Done |",
             "| AI Trading frontend onboarding API-key deferral | Done |",
             "| AI Trading frontend public asset path guard | Done |",
             "| AI Trading frontend bot/tool config error safety | Done |",
@@ -1349,6 +1351,56 @@ def build_external_acceptance_evidence_template() -> dict[str, Any]:
     }
 
 
+def _iso_utc(timestamp: datetime) -> str:
+    return timestamp.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _default_production_evidence_run_id(now_utc: datetime) -> str:
+    return "hyperalpha-prod-" + now_utc.strftime("%Y%m%dT%H%M%SZ")
+
+
+def build_prepared_external_acceptance_evidence_template(
+    *,
+    evidence_run_id: str | None = None,
+    now_utc: datetime | None = None,
+    cutover_window_hours: int = 2,
+) -> dict[str, Any]:
+    """Build a pending evidence packet with safe root metadata and item refs prefilled."""
+    generated_at = (now_utc or datetime.now(timezone.utc)).astimezone(timezone.utc).replace(microsecond=0)
+    prepared_run_id = evidence_run_id or _default_production_evidence_run_id(generated_at)
+    window_hours = min(max(cutover_window_hours, 1), MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS)
+    cutover_start = generated_at
+    cutover_end = generated_at + timedelta(hours=window_hours)
+    expires_at = generated_at + timedelta(days=1)
+
+    return {
+        "version": EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION,
+        "evidence_run_id": prepared_run_id,
+        "generated_at": _iso_utc(generated_at),
+        "expires_at": _iso_utc(expires_at),
+        "cutover_window": {
+            "start_at": _iso_utc(cutover_start),
+            "end_at": _iso_utc(cutover_end),
+        },
+        "cutover_approval_ref": f"ops://hyperalpha/production-acceptance/{prepared_run_id}/cutover-approval",
+        "secret_values_returned": False,
+        "notes": list(PRODUCTION_EVIDENCE_TEMPLATE_NOTES),
+        "items": {
+            requirement.id: {
+                "status": "pending_external_acceptance",
+                "validated_at": None,
+                "validated_by": None,
+                "evidence_summary": "",
+                "artifact_refs": [
+                    f"ops://hyperalpha/production-acceptance/{prepared_run_id}/{requirement.id}/evidence-pending"
+                ],
+                "secret_values_returned": False,
+            }
+            for requirement in EXTERNAL_REQUIREMENTS
+        },
+    }
+
+
 def build_external_acceptance_evidence_template_guidance() -> dict[str, Any]:
     """Build non-secret operator guidance for filling the pending evidence template."""
     root_fields = [
@@ -1679,6 +1731,72 @@ def write_external_acceptance_evidence_template(
     }
 
 
+def write_prepared_external_acceptance_evidence_template(
+    output_path: Path | str,
+    *,
+    repo_root: Path | str,
+    overwrite: bool = False,
+    evidence_run_id: str | None = None,
+    cutover_window_hours: int = 2,
+) -> dict[str, Any]:
+    """Create a repo-external pending evidence packet with safe root metadata prefilled."""
+    root = Path(repo_root).resolve()
+    destination = Path(output_path).expanduser().resolve()
+    blockers: list[str] = []
+    warnings: list[str] = []
+
+    if _path_is_relative_to(destination, root):
+        blockers.append("external_evidence_output_must_be_outside_repo")
+    if destination.exists() and not overwrite:
+        blockers.append("external_evidence_output_exists")
+    if destination.suffix.lower() != ".json":
+        warnings.append("external_evidence_output_should_use_json_suffix")
+    if evidence_run_id is not None:
+        blockers.extend(_evidence_run_id_blockers(evidence_run_id))
+
+    if blockers:
+        return {
+            "created": False,
+            "path": str(destination),
+            "repo_root": str(root),
+            "blockers": blockers,
+            "warnings": warnings,
+            "ready_for_live_orders": False,
+        }
+
+    payload = build_prepared_external_acceptance_evidence_template(
+        evidence_run_id=evidence_run_id,
+        cutover_window_hours=cutover_window_hours,
+    )
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    validation = _validate_external_evidence_file(destination, repo_root=root)
+    root_blockers = [
+        blocker for blocker in validation["blockers"]
+        if not blocker.startswith("external_evidence_item_blocked:")
+    ]
+    return {
+        "created": True,
+        "path": str(destination),
+        "repo_root": str(root),
+        "blockers": [],
+        "warnings": warnings,
+        "evidence_run_id": payload["evidence_run_id"],
+        "item_ids": [requirement.id for requirement in EXTERNAL_REQUIREMENTS],
+        "production_evidence_ready": validation["ready"],
+        "production_evidence_accepted_count": validation["accepted_count"],
+        "production_evidence_blockers": validation["blockers"],
+        "production_evidence_root_blockers": root_blockers,
+        "ready_for_live_orders": False,
+        "next_actions": [
+            "Fill each item only after the matching real external acceptance is completed.",
+            "Keep every item status pending until it has validated_at, validated_by, evidence_summary, and final artifact_refs.",
+            "Run ai_trading_v1_completion_audit.py with --explain-production-evidence --production-evidence-file against this file before strict production cutover.",
+            "Run --strict-production with --allow-live-ready-from-evidence only during an explicitly approved live-order cutover window.",
+        ],
+    }
+
+
 def build_completion_report(
     repo_root: Path | str,
     *,
@@ -1781,6 +1899,26 @@ def main() -> int:
         ),
     )
     parser.add_argument(
+        "--prepare-production-evidence-file",
+        help=(
+            "Create a pending external production evidence packet with safe run id, timestamps, cutover window, "
+            "approval ref, and item artifact ref placeholders prefilled. The output path must be outside the code repository."
+        ),
+    )
+    parser.add_argument(
+        "--production-evidence-run-id",
+        help="Optional sanitized run id to use with --prepare-production-evidence-file.",
+    )
+    parser.add_argument(
+        "--production-evidence-cutover-window-hours",
+        type=int,
+        default=2,
+        help=(
+            "Cutover window length in hours for --prepare-production-evidence-file. "
+            f"Clamped to 1-{MAX_PRODUCTION_EVIDENCE_CUTOVER_WINDOW_HOURS} hours."
+        ),
+    )
+    parser.add_argument(
         "--overwrite-production-evidence-file",
         action="store_true",
         help="Allow --init-production-evidence-file to replace an existing output file.",
@@ -1800,6 +1938,17 @@ def main() -> int:
         )
         print(json.dumps(init_report, ensure_ascii=False, indent=2, sort_keys=True))
         return 0 if init_report["created"] else 1
+
+    if args.prepare_production_evidence_file:
+        prepared_report = write_prepared_external_acceptance_evidence_template(
+            args.prepare_production_evidence_file,
+            repo_root=args.repo_root,
+            overwrite=args.overwrite_production_evidence_file,
+            evidence_run_id=args.production_evidence_run_id,
+            cutover_window_hours=args.production_evidence_cutover_window_hours,
+        )
+        print(json.dumps(prepared_report, ensure_ascii=False, indent=2, sort_keys=True))
+        return 0 if prepared_report["created"] else 1
 
     if args.explain_production_evidence:
         explain_report = build_production_evidence_explain(

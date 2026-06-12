@@ -734,8 +734,9 @@ function App() {
     positions_value: 0
   } : null)
 
-  // Data ready when user and account are loaded (or non-paper mode with effectiveOverview)
-  const isDataReady = !!(user && account && (effectiveOverview || tradingMode !== 'paper'))
+  // The app shell must be reachable before account/model/API-key setup.
+  // Page-level widgets continue loading their own data after entry.
+  const isDataReady = true
 
   // Show splash screen first (waits for both animation AND data ready)
   if (showSplash) {

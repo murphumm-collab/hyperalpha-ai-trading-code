@@ -4655,6 +4655,37 @@ export default function HyperAiPage() {
             </Button>
           </div>
 
+          <div
+            className="rounded-md border bg-muted/20 p-2"
+            data-testid="hyper-ai-main-page-model-config-entry"
+          >
+            <div className="flex min-w-0 items-center gap-2">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <Brain className="h-4 w-4" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">
+                  {t('hyperAi.aiTradingModelSetup', 'AI Trading Model')}
+                </div>
+                <div className="truncate text-xs text-muted-foreground" title={modelAdjustmentReadinessDetailLabel()}>
+                  {modelAdjustmentReadinessDetailLabel()}
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant={aiTradingModelAdjustmentReady ? 'outline' : 'default'}
+                className="h-8 shrink-0"
+                data-testid="ai-trading-model-config-main-page-button"
+                onClick={() => setShowConfigModal(true)}
+              >
+                {profile?.llm_configured
+                  ? t('hyperAi.aiTradingUpdateApiKey', 'Update API key')
+                  : t('hyperAi.aiTradingConfigureApiKey', 'Configure API key')}
+              </Button>
+            </div>
+          </div>
+
           {profile && (
             <div
               className="space-y-1.5 text-sm cursor-pointer hover:bg-muted/50 rounded-lg p-2 -mx-2 transition-colors"
