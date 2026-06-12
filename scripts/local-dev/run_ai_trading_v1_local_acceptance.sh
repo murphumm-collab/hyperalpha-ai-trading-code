@@ -24,6 +24,7 @@ Runs the AI Trading V1 local acceptance gate:
   - production completion boundary audit must stay blocked
   - production evidence explain mode gate must report item-level blockers without unlocking live orders
   - production evidence initializer gate must create repo-external pending evidence and keep live orders false
+  - production evidence prepared initializer gate must prefill safe repo-external pending evidence and keep live orders false
   - production evidence template must stay blocked
   - frontend production build
   - local LaunchAgent runtime mirror sync
@@ -379,6 +380,119 @@ PY
   rm -f "$evidence_file" "$init_report_file" "$audit_report_file"
 }
 
+run_production_evidence_prepared_initializer_gate() {
+  local evidence_file
+  local prepare_report_file
+  local explain_report_file
+  local run_id
+  make_temp_file_with_retry evidence_file "${TMPDIR:-/tmp}/ai-trading-prepared-production-evidence.json.XXXXXX"
+  make_temp_file_with_retry prepare_report_file "${TMPDIR:-/tmp}/ai-trading-prepared-production-evidence-report.json.XXXXXX"
+  make_temp_file_with_retry explain_report_file "${TMPDIR:-/tmp}/ai-trading-prepared-production-evidence-explain.json.XXXXXX"
+  rm -f "$evidence_file"
+  run_id="local-acceptance-prepared:$(date -u +%Y%m%dT%H%M%SZ)"
+
+  (
+    cd backend
+    uv run python scripts/ai_trading_v1_completion_audit.py \
+      --prepare-production-evidence-file "$evidence_file" \
+      --production-evidence-run-id "$run_id" > "$prepare_report_file"
+  )
+  cat "$prepare_report_file"
+  python3 - "$prepare_report_file" "$evidence_file" "$run_id" <<'PY'
+import json
+import sys
+
+expected_item_ids = {
+    "macos_reboot_recovery",
+    "real_model_profile_live_acceptance",
+    "real_order_backend_handoff",
+    "production_auth_hard_risk_readiness",
+    "admin_readiness_real_auth_visual",
+    "production_agent_session_visual",
+    "real_exchange_execution",
+}
+report_path, evidence_path, expected_run_id = sys.argv[1:4]
+with open(report_path, encoding="utf-8") as handle:
+    report = json.load(handle)
+with open(evidence_path, encoding="utf-8") as handle:
+    evidence = json.load(handle)
+
+items = evidence.get("items") or {}
+checks = {
+    "created": report.get("created") is True,
+    "blockers_empty": report.get("blockers") == [],
+    "root_blockers_empty": report.get("production_evidence_root_blockers") == [],
+    "production_evidence_ready_false": report.get("production_evidence_ready") is False,
+    "ready_for_live_orders_false": report.get("ready_for_live_orders") is False,
+    "accepted_count_zero": report.get("production_evidence_accepted_count") == 0,
+    "item_ids_exact": set(report.get("item_ids") or []) == expected_item_ids,
+    "run_id_matches": report.get("evidence_run_id") == expected_run_id == evidence.get("evidence_run_id"),
+    "cutover_approval_ref_traceable": expected_run_id in str(evidence.get("cutover_approval_ref") or ""),
+    "cutover_window_present": bool((evidence.get("cutover_window") or {}).get("start_at")) and bool((evidence.get("cutover_window") or {}).get("end_at")),
+    "all_items_pending": all((item or {}).get("status") == "pending_external_acceptance" for item in items.values()),
+    "artifact_refs_traceable": all(
+        expected_run_id in str(((item or {}).get("artifact_refs") or [""])[0])
+        and item_id in str(((item or {}).get("artifact_refs") or [""])[0])
+        for item_id, item in items.items()
+    ),
+}
+failed = [name for name, ok in checks.items() if not ok]
+print(json.dumps({
+    "production_evidence_prepared_initializer_gate": "prepared" if not failed else "failed",
+    "checked": checks,
+    "evidence_run_id": report.get("evidence_run_id"),
+    "production_evidence_blockers": report.get("production_evidence_blockers"),
+}, ensure_ascii=False, indent=2, sort_keys=True))
+if failed:
+    raise SystemExit("Production evidence prepared initializer gate failed: " + ", ".join(failed))
+PY
+
+  (
+    cd backend
+    uv run python scripts/ai_trading_v1_completion_audit.py \
+      --explain-production-evidence \
+      --production-evidence-file "$evidence_file" > "$explain_report_file"
+  )
+  cat "$explain_report_file"
+  python3 - "$explain_report_file" "$run_id" <<'PY'
+import json
+import sys
+
+report_path, expected_run_id = sys.argv[1:3]
+with open(report_path, encoding="utf-8") as handle:
+    report = json.load(handle)
+production_evidence = report.get("production_evidence") or {}
+blockers = production_evidence.get("blockers") or []
+checks = {
+    "production_evidence_provided": production_evidence.get("provided") is True,
+    "production_evidence_ready_false": production_evidence.get("ready") is False,
+    "repo_external": production_evidence.get("file_inside_repo") is False,
+    "ready_for_live_orders_false": report.get("ready_for_live_orders") is False,
+    "accepted_count_zero": production_evidence.get("accepted_count") == 0,
+    "root_blockers_empty": [
+        blocker for blocker in blockers
+        if not str(blocker).startswith("external_evidence_item_blocked:")
+    ] == [],
+    "evidence_run_id_present": production_evidence.get("evidence_run_id_present") is True,
+    "cutover_window_present": production_evidence.get("cutover_window_present") is True,
+    "cutover_approval_ref_present": production_evidence.get("cutover_approval_ref_present") is True,
+    "secret_pattern_count_zero": production_evidence.get("secret_pattern_count") == 0,
+    "real_order_backend_blocked": "external_evidence_item_blocked:real_order_backend_handoff" in blockers,
+}
+failed = [name for name, ok in checks.items() if not ok]
+print(json.dumps({
+    "production_evidence_prepared_initializer_explain_gate": "blocked_as_expected" if not failed else "failed",
+    "checked": checks,
+    "evidence_run_id": expected_run_id,
+    "ready_for_live_orders": report.get("ready_for_live_orders"),
+}, ensure_ascii=False, indent=2, sort_keys=True))
+if failed:
+    raise SystemExit("Prepared evidence explain gate failed: " + ", ".join(failed))
+PY
+
+  rm -f "$evidence_file" "$prepare_report_file" "$explain_report_file"
+}
+
 run_production_evidence_explain_gate() {
   local explain_report_file
   make_temp_file_with_retry explain_report_file "${TMPDIR:-/tmp}/ai-trading-production-evidence-explain.json.XXXXXX"
@@ -567,6 +681,9 @@ run_step "Production evidence explain mode gate" \
 
 run_step "Production evidence initializer gate" \
   run_production_evidence_initializer_gate
+
+run_step "Production evidence prepared initializer gate" \
+  run_production_evidence_prepared_initializer_gate
 
 run_expected_failure "Production evidence template remains blocked" \
   bash -lc "cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --production-evidence-file ../docs/hyperalpha/ai-trading-v1-production-evidence.template.json --strict-production"

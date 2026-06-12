@@ -20,7 +20,14 @@
 - 所有 item 仍保持 `status=pending_external_acceptance`，`accepted_count=0`，`production_evidence_ready=false`，`ready_for_live_orders=false`。
 - Completion audit 新增 marker：
   - `| AI Trading production evidence prepared initializer | Done |`
+  - `| AI Trading aggregate production evidence prepared initializer gate | Done |`
   - `| AI Trading frontend main-page API-key config entry | Done |`
+- 一键本地验收新增 `Production evidence prepared initializer gate`：
+  - 调用 `--prepare-production-evidence-file`
+  - 验证 run id / cutover approval ref / cutover window / item artifact refs 可追踪
+  - 验证 root blockers 为空
+  - 验证所有 item 仍 pending，`accepted_count=0`
+  - 验证 `production_evidence_ready=false`、`ready_for_live_orders=false`
 
 ## 已验证
 
@@ -33,6 +40,12 @@
 - Browser verification on fixed frontend `http://127.0.0.1:5174/app/ai-trading` showed `AI Trading Model / Configure API key` in the main page.
 - `cd backend && uv run python -m py_compile scripts/ai_trading_v1_completion_audit.py tests/test_ai_trading_v1_completion_audit.py` passed.
 - `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py -q -k "production_evidence_prepared_initializer or production_evidence_prepare_cli or current_repo_completion_audit"` returned 5 passing tests.
+- Full local acceptance passed with the prepared gate included:
+  - Command: `AI_TRADING_TRANSIENT_RETRY_ATTEMPTS=5 AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS=10 AI_TRADING_RUNTIME_READINESS_ATTEMPTS=60 AI_TRADING_RUNTIME_READINESS_SLEEP_SECONDS=5 scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff`
+  - Backend regression: 311 passed.
+  - Prepared evidence gate run id: `local-acceptance-prepared:20260612T114657Z`
+  - Prepared evidence stayed `accepted_count=0`, `production_evidence_ready=false`, `ready_for_live_orders=false`.
+  - Final local mock handoff evidence: spec `#171`, signal event `#169`, handoff attempt `#167`, gateway response `mock_accepted`.
 - Repo-external CLI smoke with `--prepare-production-evidence-file` returned:
   - `created=true`
   - `production_evidence_root_blockers=[]`
