@@ -34,6 +34,7 @@ import {
   extractAiTradingProductionEvidenceDryRun,
   extractAiTradingProductionEvidenceExplain,
   extractAiTradingProductionEvidenceTemplateGuidance,
+  formatAiTradingAiRuntimeApiError,
   formatAiTradingProductionEvidenceApiError,
   formatAiTradingProductionEvidenceBlocker,
   formatAiTradingProductionReadinessApiError,
@@ -389,20 +390,21 @@ export default function SettingsPage() {
   const fetchAiRuntimeStats = useCallback(async () => {
     setAiRuntimeLoading(true)
     setAiRuntimeError(null)
+    const fallback = t('settings.aiRuntimeFailed', 'Failed to load AI runtime')
     try {
       const res = await authFetch('/api/ai-stream/admin/runtime')
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}))
-        throw new Error(data.detail || 'Failed to load AI runtime')
+        setAiRuntimeError(formatAiTradingAiRuntimeApiError(res.status, data.detail, fallback))
+        return
       }
-      const data: AiRuntimeStats = await res.json()
       setAiRuntimeStats(data)
-    } catch (err) {
-      setAiRuntimeError(err instanceof Error ? err.message : 'Failed to load AI runtime')
+    } catch {
+      setAiRuntimeError(formatAiTradingAiRuntimeApiError(0, null, fallback))
     } finally {
       setAiRuntimeLoading(false)
     }
-  }, [])
+  }, [t])
 
   const fetchAiTradingReadiness = useCallback(async () => {
     setAiTradingReadinessLoading(true)

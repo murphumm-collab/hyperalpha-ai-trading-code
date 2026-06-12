@@ -140,6 +140,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_dry_run_safety_metadata_marker: bool = True,
     include_production_evidence_non_object_dry_run_safety_marker: bool = True,
     include_production_evidence_frontend_error_safety_marker: bool = True,
+    include_frontend_ai_runtime_error_safety_marker: bool = True,
     include_frontend_production_readiness_error_safety_marker: bool = True,
     include_frontend_strategy_action_error_safety_marker: bool = True,
     include_frontend_backtest_summary_inline_no_prompt_marker: bool = True,
@@ -304,6 +305,9 @@ def _write_minimal_acceptance_repo(
     production_evidence_frontend_error_safety_marker = (
         "| AI Trading production evidence frontend error safety | Done |"
     ) if include_production_evidence_frontend_error_safety_marker else ""
+    frontend_ai_runtime_error_safety_marker = (
+        "| AI Trading frontend AI runtime error safety | Done |"
+    ) if include_frontend_ai_runtime_error_safety_marker else ""
     frontend_production_readiness_error_safety_marker = (
         "| AI Trading frontend production-readiness error safety | Done |"
     ) if include_frontend_production_readiness_error_safety_marker else ""
@@ -554,6 +558,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_dry_run_safety_metadata_marker,
                 production_evidence_non_object_dry_run_safety_marker,
                 production_evidence_frontend_error_safety_marker,
+                frontend_ai_runtime_error_safety_marker,
                 frontend_production_readiness_error_safety_marker,
                 frontend_strategy_action_error_safety_marker,
                 frontend_backtest_summary_inline_no_prompt_marker,
@@ -1805,6 +1810,24 @@ def test_completion_audit_blocks_local_acceptance_when_production_evidence_front
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading production evidence frontend error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_ai_runtime_error_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_ai_runtime_error_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend AI runtime error safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

@@ -146,6 +146,30 @@ def test_admin_production_readiness_ui_uses_safe_api_error_formatter() -> None:
     assert "setAiTradingReadinessError(err" not in readiness_loader_block
 
 
+def test_admin_ai_runtime_ui_uses_safe_api_error_formatter() -> None:
+    settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    runtime_loader_block = settings_source.split(
+        "const fetchAiRuntimeStats",
+        1,
+    )[1].split("const fetchAiTradingReadiness", 1)[0]
+
+    assert "/api/ai-stream/admin/runtime" in runtime_loader_block
+    assert "formatAiTradingAiRuntimeApiError" in settings_source
+    assert "formatAiTradingAiRuntimeApiError" in helper_source
+    assert "AI_RUNTIME_API_DETAIL_LABELS" in helper_source
+    assert "AI_RUNTIME_API_STATUS_LABELS" in helper_source
+    assert "Admin authentication required" in helper_source
+    assert "AI runtime service failed" in helper_source
+
+    assert "formatAiTradingAiRuntimeApiError(res.status, data.detail, fallback)" in runtime_loader_block
+    assert "formatAiTradingAiRuntimeApiError(0, null, fallback)" in runtime_loader_block
+    assert "throw new Error(data.detail" not in runtime_loader_block
+    assert "data.detail ||" not in runtime_loader_block
+    assert "err instanceof Error ? err.message" not in runtime_loader_block
+    assert "setAiRuntimeError(err" not in runtime_loader_block
+
+
 def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

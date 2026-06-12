@@ -298,6 +298,28 @@ const PRODUCTION_READINESS_API_STATUS_LABELS: Record<number, string> = {
   503: 'AI Trading production readiness service is unavailable',
 }
 
+const AI_RUNTIME_API_DETAIL_LABELS: Record<string, string> = {
+  'Admin privileges required': 'Admin role required',
+  'Authentication required': 'Admin authentication required',
+  'Bearer token expired': 'Admin authentication required',
+  'Invalid authentication credentials': 'Admin authentication required',
+  'Invalid bearer token': 'Admin authentication required',
+  'Invalid or expired session': 'Admin authentication required',
+  'Not authenticated': 'Admin authentication required',
+  'Session user not found': 'Admin authentication required',
+}
+
+const AI_RUNTIME_API_STATUS_LABELS: Record<number, string> = {
+  400: 'AI runtime request is invalid',
+  401: 'Admin authentication required',
+  403: 'Admin role required',
+  404: 'AI runtime endpoint was not found',
+  422: 'AI runtime request is invalid',
+  429: 'Too many AI runtime requests',
+  500: 'AI runtime service failed',
+  503: 'AI runtime service is unavailable',
+}
+
 const MODEL_CONFIG_API_DETAIL_LABELS: Record<string, string> = {
   'Base URL is required for custom provider': 'Base URL is required for custom provider',
   'Connection test failed': 'Model connection test failed',
@@ -381,6 +403,28 @@ export const formatAiTradingProductionReadinessApiError = (
   const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
   const safeDetail = safeProductionReadinessApiDetailLabel(detail)
     || PRODUCTION_READINESS_API_STATUS_LABELS[status]
+    || fallback
+  return `${statusLabel}: ${safeDetail || readableEvidenceSuffix(fallback)}`
+}
+
+const safeAiRuntimeApiDetailLabel = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    return AI_RUNTIME_API_DETAIL_LABELS[detail] || null
+  }
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    return AI_RUNTIME_API_DETAIL_LABELS[detail.code] || null
+  }
+  return null
+}
+
+export const formatAiTradingAiRuntimeApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeDetail = safeAiRuntimeApiDetailLabel(detail)
+    || AI_RUNTIME_API_STATUS_LABELS[status]
     || fallback
   return `${statusLabel}: ${safeDetail || readableEvidenceSuffix(fallback)}`
 }
