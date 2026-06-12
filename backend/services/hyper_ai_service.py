@@ -2044,6 +2044,7 @@ def _process_onboarding_stream_response(
 # ============================================================================
 
 SUGGESTION_CACHE_HOURS = 6  # Update suggestions every 6 hours
+MAX_SUGGESTED_QUESTION_CHARS = 60
 
 
 def get_suggestions_context(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]:
@@ -2165,6 +2166,36 @@ def build_suggestions_prompt(context: Dict[str, Any]) -> str:
     return "\n".join(prompt_parts)
 
 
+def sanitize_suggested_question_for_response(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    text = " ".join(text.strip().split())
+    if not text:
+        return None
+    if is_profile_text_sensitive(text):
+        return None
+    if len(text) > MAX_SUGGESTED_QUESTION_CHARS:
+        return text[: MAX_SUGGESTED_QUESTION_CHARS - 3].rstrip() + "..."
+    return text
+
+
+def sanitize_suggested_questions_for_response(values: Any) -> List[str]:
+    if not isinstance(values, list):
+        return []
+    safe_questions: List[str] = []
+    seen = set()
+    for value in values:
+        question = sanitize_suggested_question_for_response(value)
+        if not question or question in seen:
+            continue
+        safe_questions.append(question)
+        seen.add(question)
+        if len(safe_questions) >= 3:
+            break
+    return safe_questions
+
+
 def generate_suggested_questions(db: Session, user_id: Optional[int] = None) -> List[str]:
     """
     Generate suggested questions using the user's configured LLM.
@@ -2244,11 +2275,12 @@ def generate_suggested_questions(db: Session, user_id: Optional[int] = None) -> 
             text = text.strip()
 
         questions = json.loads(text)
-        if isinstance(questions, list) and len(questions) >= 1:
-            logger.info(f"[Suggestions] Generated {len(questions)} questions")
-            return questions[:3]
+        safe_questions = sanitize_suggested_questions_for_response(questions)
+        if safe_questions:
+            logger.info("[Suggestions] Generated safe question count=%s", len(safe_questions))
+            return safe_questions
 
-        logger.warning(f"[Suggestions] Invalid response format: {text[:100]}")
+        logger.warning("[Suggestions] Invalid response format")
         return []
 
     except requests.exceptions.Timeout:
@@ -2270,7 +2302,7 @@ def get_or_update_suggestions(db: Session, user_id: Optional[int] = None) -> Dic
     Get cached suggestions or trigger async update if stale.
     Returns current suggestions (may be stale) and triggers background update.
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timedelta, timezone
 
     if user_id is None:
         return {
@@ -2302,14 +2334,17 @@ def get_or_update_suggestions(db: Session, user_id: Optional[int] = None) -> Dic
     cached_suggestions = []
     if profile.suggested_questions:
         try:
-            cached_suggestions = json.loads(profile.suggested_questions)
+            cached_suggestions = sanitize_suggested_questions_for_response(
+                json.loads(profile.suggested_questions)
+            )
         except:
             pass
 
     # Check if cache is stale
     cache_stale = True
     if profile.suggested_questions_at:
-        cache_age = datetime.utcnow() - profile.suggested_questions_at
+        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        cache_age = now_utc - profile.suggested_questions_at
         cache_stale = cache_age > timedelta(hours=SUGGESTION_CACHE_HOURS)
 
     # If stale, trigger async update
@@ -2333,7 +2368,7 @@ def get_or_update_suggestions(db: Session, user_id: Optional[int] = None) -> Dic
                 if questions:
                     task_profile = get_or_create_profile(task_db, user_id=user_id)
                     task_profile.suggested_questions = json.dumps(questions)
-                    task_profile.suggested_questions_at = datetime.utcnow()
+                    task_profile.suggested_questions_at = datetime.now(timezone.utc).replace(tzinfo=None)
                     task_db.commit()
                     logger.info("Updated suggested questions: count=%s", len(questions))
             except Exception:

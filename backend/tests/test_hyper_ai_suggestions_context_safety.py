@@ -1,4 +1,5 @@
 import json
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -159,6 +160,123 @@ def test_build_suggestions_prompt_resanitizes_external_context() -> None:
     assert "Safe visible response" in prompt
 
 
+def test_suggested_question_output_sanitizer_rejects_sensitive_and_bounds_text() -> None:
+    long_question = "How should I compare BTC ETH SOL HYPE and NVDA risk before rebalancing today?"
+
+    questions = hyper_ai_service.sanitize_suggested_questions_for_response(
+        [
+            "Review BTC risk",
+            "api_key=secret-suggestion-output",
+            long_question,
+            "Review BTC risk",
+            None,
+        ]
+    )
+
+    rendered = json.dumps(questions, ensure_ascii=False)
+    _assert_no_secret_echo(rendered)
+    assert questions[0] == "Review BTC risk"
+    assert len(questions) == 2
+    assert questions[1].endswith("...")
+    assert len(questions[1]) <= hyper_ai_service.MAX_SUGGESTED_QUESTION_CHARS
+
+
+def test_cached_suggested_questions_are_sanitized_before_api_response(tmp_path) -> None:
+    client = _build_client(tmp_path)
+    long_question = "How should I compare BTC ETH SOL HYPE and NVDA risk before rebalancing today?"
+
+    with client._hyper_ai_session_factory() as db:
+        conversation = HyperAiConversation(
+            user_id=client._hyper_ai_user_id,
+            title="Safe BTC planning",
+            is_onboarding=False,
+            is_bot_conversation=False,
+        )
+        db.add(conversation)
+        profile = hyper_ai_service.get_or_create_profile(db, user_id=client._hyper_ai_user_id)
+        profile.suggested_questions = json.dumps(
+            [
+                "private_key=secret-suggestion-cache",
+                "Review BTC risk",
+                long_question,
+                "Review BTC risk",
+            ]
+        )
+        profile.suggested_questions_at = datetime.now(UTC).replace(tzinfo=None)
+        db.commit()
+
+    response = client.get("/api/hyper-ai/suggestions")
+
+    assert response.status_code == 200
+    body = response.json()
+    rendered = json.dumps(body, ensure_ascii=False)
+    _assert_no_secret_echo(rendered)
+    assert body["suggestions"][0] == "Review BTC risk"
+    assert len(body["suggestions"]) == 2
+    assert len(body["suggestions"][1]) <= hyper_ai_service.MAX_SUGGESTED_QUESTION_CHARS
+
+
+def test_generated_suggested_questions_are_sanitized_before_return(monkeypatch, tmp_path) -> None:
+    client = _build_client(tmp_path)
+
+    def fake_get_llm_config(db, user_id=None):
+        return {
+            "configured": True,
+            "api_format": "openai",
+            "base_url": "https://llm.example.test/v1",
+            "model": "qwen-test",
+            "api_key": "test-key",
+        }
+
+    def fake_get_suggestions_context(db, user_id=None):
+        return {
+            "profile": {},
+            "config_status": {"trader_count": 0, "signal_pool_count": 0, "wallet_count": 0},
+            "conversations": [{"title": "Safe title", "snippets": ["- User: Safe context"]}],
+        }
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                [
+                                    "api_key=secret-suggestion-generated",
+                                    "Review BTC risk",
+                                    "How should I compare BTC ETH SOL HYPE and NVDA risk before rebalancing today?",
+                                    "Review BTC risk",
+                                ]
+                            )
+                        }
+                    }
+                ]
+            }
+
+    def fake_post(endpoint, headers, json, timeout):
+        assert endpoint == "https://llm.example.test/v1/chat/completions"
+        return FakeResponse()
+
+    monkeypatch.setattr(hyper_ai_service, "get_llm_config", fake_get_llm_config)
+    monkeypatch.setattr(hyper_ai_service, "get_suggestions_context", fake_get_suggestions_context)
+    monkeypatch.setattr(hyper_ai_service.requests, "post", fake_post)
+
+    with client._hyper_ai_session_factory() as db:
+        questions = hyper_ai_service.generate_suggested_questions(
+            db,
+            user_id=client._hyper_ai_user_id,
+        )
+
+    rendered = json.dumps(questions, ensure_ascii=False)
+    _assert_no_secret_echo(rendered)
+    assert questions[0] == "Review BTC risk"
+    assert len(questions) == 2
+    assert len(questions[1]) <= hyper_ai_service.MAX_SUGGESTED_QUESTION_CHARS
+
+
 def test_hyper_ai_suggestions_context_safety_source_guard() -> None:
     with open(hyper_ai_service.__file__, "r", encoding="utf-8") as handle:
         service_source = handle.read()
@@ -174,6 +292,10 @@ def test_hyper_ai_suggestions_context_safety_source_guard() -> None:
         "prompt_parts.append(f\"\\n[{conv['title']}]\")",
         'logger.info(f"[Suggestions] Calling LLM: {endpoint}, model: {model}")',
         'logger.info(f"Updated suggested questions: {questions}")',
+        'logger.info(f"[Suggestions] Generated {len(questions)} questions")',
+        'logger.warning(f"[Suggestions] Invalid response format: {text[:100]}")',
+        "return questions[:3]",
+        "cached_suggestions = json.loads(profile.suggested_questions)",
     )
     route_forbidden = (
         '"title": c.title',
