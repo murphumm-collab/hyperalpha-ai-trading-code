@@ -8,7 +8,8 @@ from pathlib import Path
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "ai_trading_v1_completion_audit.py"
-RUNNER_SCRIPT_PATH = Path(__file__).resolve().parents[2] / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+RUNNER_SCRIPT_PATH = REPO_ROOT / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
 SPEC = importlib.util.spec_from_file_location("ai_trading_v1_completion_audit", SCRIPT_PATH)
 completion_audit = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
@@ -175,6 +176,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_bot_tool_config_error_safety_marker: bool = True,
     include_frontend_market_universe_error_safety_marker: bool = True,
     include_frontend_market_symbol_sanitizer_marker: bool = True,
+    include_private_factor_per_user_result_schema_marker: bool = True,
     include_agent_session_name_safety_marker: bool = True,
     include_strategy_spec_name_safety_marker: bool = True,
     include_handoff_error_message_safety_marker: bool = True,
@@ -417,6 +419,9 @@ def _write_minimal_acceptance_repo(
     frontend_market_symbol_sanitizer_marker = (
         "| AI Trading frontend market symbol sanitizer | Done |"
     ) if include_frontend_market_symbol_sanitizer_marker else ""
+    private_factor_per_user_result_schema_marker = (
+        "| AI Trading private factor per-user result schema | Done |"
+    ) if include_private_factor_per_user_result_schema_marker else ""
     agent_session_name_safety_marker = (
         "| AI Trading agent-session name safety | Done |"
     ) if include_agent_session_name_safety_marker else ""
@@ -622,6 +627,7 @@ def _write_minimal_acceptance_repo(
                 frontend_bot_tool_config_error_safety_marker,
                 frontend_market_universe_error_safety_marker,
                 frontend_market_symbol_sanitizer_marker,
+                private_factor_per_user_result_schema_marker,
                 agent_session_name_safety_marker,
                 strategy_spec_name_safety_marker,
                 handoff_error_message_safety_marker,
@@ -779,9 +785,7 @@ def _outside_repo_evidence_path(repo_root: Path, filename: str) -> Path:
 
 
 def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
-    repo_root = Path(__file__).resolve().parents[2]
-
-    report = completion_audit.build_completion_report(repo_root)
+    report = completion_audit.build_completion_report(REPO_ROOT)
 
     assert report["local_v1_accepted"] is True
     assert report["ready_for_live_orders"] is False
@@ -799,6 +803,43 @@ def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
     statuses = {item["id"]: item["status"] for item in report["external_acceptance"]}
     assert statuses["real_order_backend_handoff"] == "pending_external_acceptance"
     assert statuses["real_exchange_execution"] == "out_of_local_v1_scope"
+
+
+def test_private_factor_per_user_result_schema_is_declared() -> None:
+    models_source = (REPO_ROOT / "backend" / "database" / "models.py").read_text(encoding="utf-8")
+    migration_source = (
+        REPO_ROOT / "backend" / "database" / "migrations" / "create_user_factor_result_tables.py"
+    ).read_text(encoding="utf-8")
+    migration_manager_source = (
+        REPO_ROOT / "backend" / "database" / "migration_manager.py"
+    ).read_text(encoding="utf-8")
+
+    assert "class UserFactorValue(Base)" in models_source
+    assert "__tablename__ = \"user_factor_values\"" in models_source
+    assert "class UserFactorEffectiveness(Base)" in models_source
+    assert "__tablename__ = \"user_factor_effectiveness\"" in models_source
+    assert "ForeignKey(\"users.id\")" in models_source
+    assert "ForeignKey(\"custom_factors.id\")" in models_source
+    assert "'user_id', 'custom_factor_id', 'exchange', 'symbol', 'period', 'timestamp'" in models_source
+    assert (
+        "'user_id', 'custom_factor_id', 'exchange', 'symbol', 'period', 'forward_period', 'calc_date'"
+        in models_source
+    )
+
+    assert "CREATE TABLE user_factor_values" in migration_source
+    assert "CREATE TABLE user_factor_effectiveness" in migration_source
+    assert "user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE" in migration_source
+    assert "custom_factor_id INTEGER NOT NULL REFERENCES custom_factors(id) ON DELETE CASCADE" in migration_source
+    assert "UNIQUE (user_id, custom_factor_id, exchange, symbol, period, timestamp)" in migration_source
+    assert "user_id, custom_factor_id, exchange, symbol," in migration_source
+    assert "period, forward_period, calc_date" in migration_source
+
+    assert "\"create_user_factor_result_tables.py\"" in migration_manager_source
+    assert (
+        migration_manager_source.index("\"create_custom_factors_table.py\"")
+        < migration_manager_source.index("\"add_custom_factor_user_scope.py\"")
+        < migration_manager_source.index("\"create_user_factor_result_tables.py\"")
+    )
 
 
 def test_production_evidence_template_builder_uses_required_item_ids_without_secrets():
@@ -2540,6 +2581,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_market_symbol_sa
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend market symbol sanitizer | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_private_factor_result_schema_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_private_factor_per_user_result_schema_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading private factor per-user result schema | Done |"
         in status_evidence["missing_phrases"]
     )
 

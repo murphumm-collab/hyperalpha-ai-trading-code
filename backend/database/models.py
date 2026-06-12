@@ -1985,6 +1985,67 @@ class FactorEffectiveness(Base):
     )
 
 
+class UserFactorValue(Base):
+    """User-scoped computed values for private custom factors."""
+    __tablename__ = "user_factor_values"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    custom_factor_id = Column(Integer, ForeignKey("custom_factors.id"), nullable=False, index=True)
+    exchange = Column(String(20), nullable=False, default="hyperliquid")
+    symbol = Column(String(20), nullable=False)
+    period = Column(String(10), nullable=False)
+    factor_name = Column(String(100), nullable=False)
+    factor_category = Column(String(30), nullable=False, default="custom")
+    timestamp = Column(Integer, nullable=False)
+    value = Column(Float, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+    user = relationship("User")
+    custom_factor = relationship("CustomFactor")
+
+    __table_args__ = (
+        UniqueConstraint(
+            'user_id', 'custom_factor_id', 'exchange', 'symbol', 'period', 'timestamp',
+            name='user_factor_values_unique_key',
+        ),
+    )
+
+
+class UserFactorEffectiveness(Base):
+    """User-scoped effectiveness metrics for private custom factors."""
+    __tablename__ = "user_factor_effectiveness"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    custom_factor_id = Column(Integer, ForeignKey("custom_factors.id"), nullable=False, index=True)
+    exchange = Column(String(20), nullable=False, default="hyperliquid")
+    factor_name = Column(String(100), nullable=False)
+    factor_category = Column(String(30), nullable=False, default="custom")
+    symbol = Column(String(20), nullable=False)
+    period = Column(String(10), nullable=False)
+    forward_period = Column(String(10), nullable=False)
+    calc_date = Column(Date, nullable=False)
+    lookback_days = Column(Integer, nullable=False, default=30)
+    ic_mean = Column(Float, nullable=True)
+    ic_std = Column(Float, nullable=True)
+    icir = Column(Float, nullable=True)
+    win_rate = Column(Float, nullable=True)
+    decay_half_life = Column(Integer, nullable=True)
+    sample_count = Column(Integer, nullable=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+
+    user = relationship("User")
+    custom_factor = relationship("CustomFactor")
+
+    __table_args__ = (
+        UniqueConstraint(
+            'user_id', 'custom_factor_id', 'exchange', 'symbol', 'period', 'forward_period', 'calc_date',
+            name='user_factor_effectiveness_unique_key',
+        ),
+    )
+
+
 class CustomFactor(Base):
     """User/AI-defined custom factor expressions"""
     __tablename__ = "custom_factors"
