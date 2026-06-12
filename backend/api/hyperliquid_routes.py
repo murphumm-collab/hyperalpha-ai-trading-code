@@ -47,6 +47,12 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/hyperliquid", tags=["hyperliquid"])
 
+SAFE_HYPERLIQUID_WALLET_CONFIG_FAILED_MESSAGE = "Failed to configure Hyperliquid wallet."
+SAFE_HYPERLIQUID_WALLET_INVALID_PRIVATE_KEY_MESSAGE = "Invalid Hyperliquid private key."
+SAFE_HYPERLIQUID_WALLET_DELETE_FAILED_MESSAGE = "Failed to delete Hyperliquid wallet."
+SAFE_HYPERLIQUID_WALLET_TEST_FAILED_MESSAGE = "Hyperliquid wallet connection test failed."
+SAFE_HYPERLIQUID_WALLET_READ_FAILED_MESSAGE = "Failed to get Hyperliquid wallet configuration."
+
 
 def _ts_to_iso(ts: float) -> str:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
@@ -69,6 +75,12 @@ def _current_user_account_ids(db: Session, user_id: int) -> List[int]:
         Account.is_deleted != True,
     ).all()
     return [int(row[0]) for row in rows]
+
+
+def _safe_builder_fee_result_status(result) -> dict:
+    if isinstance(result, dict) and result.get("status") == "err":
+        return {"status": "err"}
+    return {"status": "ok"}
 
 
 # Request/Response Models
@@ -1000,7 +1012,10 @@ def get_account_wallet(
                     'marginUsagePercent': float(account_state.get('margin_usage_percent', 0))
                 }
             except Exception as e:
-                logger.warning(f"Failed to fetch balance for {wallet.environment} wallet: {e}")
+                logger.warning(
+                    "Failed to fetch wallet balance",
+                    extra={"account_id": account_id, "environment": wallet.environment, "error_type": type(e).__name__},
+                )
                 wallet_data['balance'] = None
 
             if wallet.environment == 'testnet':
@@ -1028,8 +1043,11 @@ def get_account_wallet(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get wallets for account {account_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get wallet configuration: {str(e)}")
+        logger.error(
+            "Failed to get wallets",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WALLET_READ_FAILED_MESSAGE)
 
 
 @router.post("/accounts/{account_id}/wallet")
@@ -1071,15 +1089,18 @@ def configure_account_wallet(
         try:
             eth_account = EthAccount.from_key('0x' + private_key)
             wallet_address = eth_account.address
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Invalid private key: {str(e)}")
+        except Exception:
+            raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_WALLET_INVALID_PRIVATE_KEY_MESSAGE)
 
         # Encrypt private key
         try:
             encrypted_key = encrypt_private_key('0x' + private_key)
         except Exception as e:
-            logger.error(f"Failed to encrypt private key: {e}")
-            raise HTTPException(status_code=500, detail="Failed to encrypt private key")
+            logger.error(
+                "Failed to encrypt Hyperliquid wallet private key",
+                extra={"account_id": account_id, "error_type": type(e).__name__},
+            )
+            raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WALLET_CONFIG_FAILED_MESSAGE)
 
         # Check if wallet already exists for this account and environment
         existing_wallet = db.query(HyperliquidWallet).filter(
@@ -1119,7 +1140,8 @@ def configure_account_wallet(
                             "user": wallet_address,
                             "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
                         },
-                        timeout=10
+                        timeout=10,
+                        allow_redirects=False,
                     )
                     max_fee = response.json()
 
@@ -1141,15 +1163,16 @@ def configure_account_wallet(
 
                         # Check if authorization failed
                         is_success = not (isinstance(result, dict) and result.get('status') == 'err')
+                        safe_result = _safe_builder_fee_result_status(result)
                         if is_success:
-                            print(f"[BUILDER_AUTH] Authorization completed for account {account_id}: {result}")
+                            print(f"[BUILDER_AUTH] Authorization completed for account {account_id}: status={safe_result['status']}")
                         else:
-                            print(f"[BUILDER_AUTH] Authorization FAILED for account {account_id}: {result}")
+                            print(f"[BUILDER_AUTH] Authorization FAILED for account {account_id}: status={safe_result['status']}")
                             requires_auth = True
                     else:
                         print(f"[BUILDER_AUTH] Already authorized for account {account_id} (max_fee={max_fee})")
                 except Exception as e:
-                    print(f"[BUILDER_AUTH] Authorization failed for account {account_id}: {type(e).__name__}: {e}")
+                    print(f"[BUILDER_AUTH] Authorization failed for account {account_id}: {type(e).__name__}")
                     requires_auth = True
 
             return WalletConfigResponse(
@@ -1196,7 +1219,8 @@ def configure_account_wallet(
                             "user": wallet_address,
                             "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
                         },
-                        timeout=10
+                        timeout=10,
+                        allow_redirects=False,
                     )
                     max_fee = response.json()
 
@@ -1218,15 +1242,16 @@ def configure_account_wallet(
 
                         # Check if authorization failed
                         is_success = not (isinstance(result, dict) and result.get('status') == 'err')
+                        safe_result = _safe_builder_fee_result_status(result)
                         if is_success:
-                            print(f"[BUILDER_AUTH] Authorization completed for account {account_id}: {result}")
+                            print(f"[BUILDER_AUTH] Authorization completed for account {account_id}: status={safe_result['status']}")
                         else:
-                            print(f"[BUILDER_AUTH] Authorization FAILED for account {account_id}: {result}")
+                            print(f"[BUILDER_AUTH] Authorization FAILED for account {account_id}: status={safe_result['status']}")
                             requires_auth = True
                     else:
                         print(f"[BUILDER_AUTH] Already authorized for account {account_id} (max_fee={max_fee})")
                 except Exception as e:
-                    print(f"[BUILDER_AUTH] Authorization failed for account {account_id}: {type(e).__name__}: {e}")
+                    print(f"[BUILDER_AUTH] Authorization failed for account {account_id}: {type(e).__name__}")
                     requires_auth = True
 
             return WalletConfigResponse(
@@ -1240,8 +1265,11 @@ def configure_account_wallet(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to configure wallet for account {account_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to configure wallet: {str(e)}")
+        logger.error(
+            "Failed to configure wallet",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WALLET_CONFIG_FAILED_MESSAGE)
 
 
 @router.delete("/accounts/{account_id}/wallet")
@@ -1298,8 +1326,11 @@ def delete_account_wallet(
         raise
     except Exception as e:
         db.rollback()
-        logger.error(f"Failed to delete {environment} wallet for account {account_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete wallet: {str(e)}")
+        logger.error(
+            "Failed to delete wallet",
+            extra={"account_id": account_id, "environment": environment, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WALLET_DELETE_FAILED_MESSAGE)
 
 
 class TestWalletRequest(BaseModel):
@@ -1356,23 +1387,30 @@ def test_wallet_connection(
                 }
             }
 
-        except ValueError as e:
-            raise HTTPException(status_code=400, detail=str(e))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_WALLET_TEST_FAILED_MESSAGE)
         except Exception as e:
+            logger.warning(
+                "Hyperliquid wallet connection test failed",
+                extra={"account_id": account_id, "environment": env, "error_type": type(e).__name__},
+            )
             return {
                 'success': False,
                 'accountId': account_id,
                 'accountName': account.name,
                 'environment': env,
                 'connection': 'failed',
-                'error': str(e)
+                'error': SAFE_HYPERLIQUID_WALLET_TEST_FAILED_MESSAGE
             }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to test wallet connection for account {account_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to test connection: {str(e)}")
+        logger.error(
+            "Failed to test wallet connection",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WALLET_TEST_FAILED_MESSAGE)
 
 
 # ========== Global Trading Mode Management ==========
