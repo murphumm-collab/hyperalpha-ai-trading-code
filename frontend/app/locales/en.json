@@ -1798,6 +1798,11 @@
     "viewContent": "View content",
     "hideContent": "Hide content",
     "viewInPage": "View in page",
+    "aiTradingModelSetup": "AI Trading Model",
+    "aiTradingConfigureApiKey": "Configure API key",
+    "aiTradingUpdateApiKey": "Update API key",
+    "aiTradingConfigureLater": "Configure later",
+    "aiTradingConfigureLaterHint": "You can use the workspace now and configure DeepSeek/Qwen API keys later here.",
     "onboarding": {
       "welcome": "Welcome to Hyper Alpha Arena",
       "configureAi": "Configure Hyper AI to get started",

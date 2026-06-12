@@ -1818,6 +1818,11 @@
     "viewContent": "查看内容",
     "hideContent": "收起内容",
     "viewInPage": "在页面中查看",
+    "aiTradingModelSetup": "AI Trading 模型",
+    "aiTradingConfigureApiKey": "配置 API key",
+    "aiTradingUpdateApiKey": "更新 API key",
+    "aiTradingConfigureLater": "稍后配置",
+    "aiTradingConfigureLaterHint": "现在可以直接使用工作区，DeepSeek/Qwen API key 稍后在这里配置。",
     "onboarding": {
       "welcome": "欢迎使用 Hyper Alpha Arena",
       "configureAi": "配置 Hyper AI 轻松上手",

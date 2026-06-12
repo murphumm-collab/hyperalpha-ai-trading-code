@@ -924,6 +924,10 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
 
 def test_hyper_ai_main_page_always_exposes_model_api_key_config_entry() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    center_workspace_block = hyper_ai_source.split(
+        'data-testid="ai-trading-model-config-workspace-entry"',
+        1,
+    )[1].split("{messages.length === 0", 1)[0]
     config_panel_block = hyper_ai_source.split(
         "{/* Right: Config Panel */}",
         1,
@@ -945,8 +949,19 @@ def test_hyper_ai_main_page_always_exposes_model_api_key_config_entry() -> None:
     assert "Update API key" in main_page_model_entry_block
     assert "modelAdjustmentReadinessDetailLabel()" in main_page_model_entry_block
     assert not any("aiTradingRuntime &&" in line for line in runtime_guard_prefix)
+    assert "data-testid=\"ai-trading-model-config-workspace-button\"" in center_workspace_block
+    assert "aiTradingModelAdjustmentReady &&" not in center_workspace_block
+    assert "!aiTradingModelAdjustmentReady" in hyper_ai_source
+    assert "setShowConfigModal(true)" in center_workspace_block
+    assert "Configure API key" in center_workspace_block
+    assert "Update API key" in center_workspace_block
+    assert "aiTradingConfigureLaterHint" in center_workspace_block
+    assert "data-testid=\"ai-trading-model-config-later-button\"" in hyper_ai_source
+    assert "aiTradingConfigureLater" in hyper_ai_source
 
-    safe_entry_block = main_page_model_entry_block.replace("profile?.llm_configured", "")
+    safe_entry_block = (
+        main_page_model_entry_block + center_workspace_block
+    ).replace("profile?.llm_configured", "")
     assert "llm_api_key" not in safe_entry_block
     assert "api_key" not in safe_entry_block
 

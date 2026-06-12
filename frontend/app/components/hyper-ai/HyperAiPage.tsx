@@ -1042,8 +1042,15 @@ function LLMConfigModal({
         )}
 
         <div className="flex gap-3 pt-2">
-          <Button variant="outline" onClick={onClose} className="flex-1">
-            {t('common.cancel', 'Cancel')}
+          <Button
+            variant="outline"
+            onClick={onClose}
+            className="flex-1"
+            data-testid="ai-trading-model-config-later-button"
+          >
+            {currentProfile?.llm_configured
+              ? t('common.cancel', 'Cancel')
+              : t('hyperAi.aiTradingConfigureLater', 'Configure later')}
           </Button>
           <Button onClick={handleSave} disabled={!selectedProvider || !apiKey || saving} className="flex-1">
             {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
@@ -4566,15 +4573,55 @@ export default function HyperAiPage() {
             <PanelLeftOpen className="w-4 h-4" />
           </Button>
         )}
+        {!aiTradingModelAdjustmentReady && (
+          <div className="px-4 pt-4">
+            <div
+              className="mx-auto flex max-w-5xl flex-col gap-3 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center"
+              data-testid="ai-trading-model-config-workspace-entry"
+            >
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                  <Brain className="h-4 w-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">
+                    {t('hyperAi.aiTradingModelSetup', 'AI Trading Model')}
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground" title={modelAdjustmentReadinessDetailLabel()}>
+                    {t(
+                      'hyperAi.aiTradingConfigureLaterHint',
+                      'You can use the workspace now and configure DeepSeek/Qwen API keys later here.'
+                    )}{' '}
+                    {modelAdjustmentReadinessDetailLabel()}
+                  </div>
+                </div>
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-8 shrink-0"
+                data-testid="ai-trading-model-config-workspace-button"
+                onClick={() => setShowConfigModal(true)}
+              >
+                {profile?.llm_configured
+                  ? t('hyperAi.aiTradingUpdateApiKey', 'Update API key')
+                  : t('hyperAi.aiTradingConfigureApiKey', 'Configure API key')}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {messages.length === 0 ? (
-          <WelcomeMessage
-            nickname={nickname}
-            t={t}
-            onSuggestionClick={(question) => {
-              setInputValue(question)
-              setTimeout(() => handleSend(), 100)
-            }}
-          />
+          <div className="flex-1 min-h-0">
+            <WelcomeMessage
+              nickname={nickname}
+              t={t}
+              onSuggestionClick={(question) => {
+                setInputValue(question)
+                setTimeout(() => handleSend(), 100)
+              }}
+            />
+          </div>
         ) : (
           <ScrollArea className="flex-1 p-4">
             <div className="space-y-4 max-w-5xl mx-auto">
