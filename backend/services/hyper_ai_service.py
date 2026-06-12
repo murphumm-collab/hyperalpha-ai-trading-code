@@ -23,6 +23,7 @@ import re
 import threading
 import time
 from typing import Any, Dict, Generator, List, Optional
+from urllib.parse import urlparse
 
 import requests
 from sqlalchemy.orm import Session
@@ -89,7 +90,9 @@ PROFILE_SENSITIVE_TEXT_PATTERN = re.compile(
 )
 REDACTED_SENSITIVE_PROFILE_TEXT = "[redacted_sensitive_profile_text]"
 REDACTED_SENSITIVE_CONVERSATION_TEXT = "[redacted_sensitive_conversation_text]"
+REDACTED_SENSITIVE_LLM_BASE_URL = "[redacted_sensitive_llm_base_url]"
 SENSITIVE_PROFILE_FIELD_ERROR = "profile_field_rejected_sensitive"
+SENSITIVE_LLM_BASE_URL_ERROR = "llm_base_url_rejected_sensitive"
 
 SAFE_HYPER_AI_PROVIDER_REQUEST_FAILED_MESSAGE = "Hyper AI provider request failed. Please retry later."
 SAFE_HYPER_AI_RESPONSE_PARSE_FAILED_MESSAGE = "Hyper AI response could not be parsed."
@@ -279,6 +282,41 @@ def build_safe_conversation_title(content: Any) -> str:
     return text[:50] + ("..." if len(text) > 50 else "")
 
 
+def is_llm_base_url_sensitive(value: Any) -> bool:
+    text = value if isinstance(value, str) else str(value or "")
+    text = text.strip()
+    if not text:
+        return False
+    if is_profile_text_sensitive(text):
+        return True
+    parsed = urlparse(text)
+    return bool(parsed.username or parsed.password)
+
+
+def validate_llm_base_url_for_storage(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    text = text.strip()
+    if not text:
+        return None
+    if is_llm_base_url_sensitive(text):
+        raise ValueError(SENSITIVE_LLM_BASE_URL_ERROR)
+    return text
+
+
+def sanitize_llm_base_url_for_response(value: Any) -> str:
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    text = text.strip()
+    if not text:
+        return ""
+    if is_llm_base_url_sensitive(text):
+        return REDACTED_SENSITIVE_LLM_BASE_URL
+    return text
+
+
 def get_or_create_profile(db: Session, user_id: Optional[int] = None) -> HyperAiProfile:
     """Get existing profile or create a new one for a user."""
     resolved_user_id = _require_user_id(user_id, "Hyper AI profile")
@@ -304,8 +342,23 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
 
     # Get provider preset or use custom config
     provider = get_provider(profile.llm_provider)
-    base_url = profile.llm_base_url or (provider.base_url if provider else "")
     model = profile.llm_model or (provider.models[0] if provider and provider.models else "")
+    profile_base_url = profile.llm_base_url
+    if profile_base_url and is_llm_base_url_sensitive(profile_base_url):
+        logger.warning(
+            "Hyper AI LLM base URL blocked by safety policy: provider=%s",
+            profile.llm_provider,
+        )
+        if profile.llm_provider == "custom" or not provider:
+            return {
+                "configured": False,
+                "provider": profile.llm_provider,
+                "base_url": REDACTED_SENSITIVE_LLM_BASE_URL,
+                "model": model,
+                "base_url_blocked": True,
+            }
+        profile_base_url = None
+    base_url = profile_base_url or (provider.base_url if provider else "")
 
     # Decrypt API key
     api_key = None
@@ -423,7 +476,7 @@ def save_llm_config(
     profile = get_or_create_profile(db, user_id=user_id)
     profile.llm_provider = provider
     profile.llm_model = model
-    profile.llm_base_url = base_url
+    profile.llm_base_url = validate_llm_base_url_for_storage(base_url)
 
     if api_key:
         profile.llm_api_key_encrypted = encrypt_private_key(api_key)

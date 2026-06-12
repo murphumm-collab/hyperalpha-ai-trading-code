@@ -26,13 +26,16 @@ from database.connection import get_db
 from database.models import HyperAiConversation, User
 from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from services.hyper_ai_service import (
+    SENSITIVE_LLM_BASE_URL_ERROR,
     SENSITIVE_PROFILE_FIELD_ERROR,
     get_or_create_profile,
     get_llm_config,
     sanitize_conversation_text_for_response,
+    sanitize_llm_base_url_for_response,
     save_llm_config,
     sanitize_profile_text_for_response,
     test_llm_connection,
+    validate_llm_base_url_for_storage,
     validate_profile_text_for_storage,
     get_or_create_conversation,
     get_conversation_messages,
@@ -99,7 +102,10 @@ def get_profile(
     llm_config = get_llm_config(db, user_id=current_user.id)
 
     # Get base_url for display
-    base_url = llm_config.get("base_url", "") if llm_config.get("configured") else ""
+    if llm_config.get("configured") or llm_config.get("base_url_blocked"):
+        base_url = sanitize_llm_base_url_for_response(llm_config.get("base_url", ""))
+    else:
+        base_url = ""
 
     return {
         "llm_configured": llm_config.get("configured", False),
@@ -150,11 +156,16 @@ def test_connection(
         if provider and provider.models:
             model = provider.models[0]
 
+    try:
+        base_url = validate_llm_base_url_for_storage(request.base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=SENSITIVE_LLM_BASE_URL_ERROR) from exc
+
     result = test_llm_connection(
         provider=request.provider,
         api_key=request.api_key,
         model=model or "",
-        base_url=request.base_url
+        base_url=base_url
     )
 
     return result
@@ -188,11 +199,16 @@ def save_llm_configuration(
             model = provider.models[0]
 
     # Test connection before saving
+    try:
+        base_url = validate_llm_base_url_for_storage(request.base_url)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=SENSITIVE_LLM_BASE_URL_ERROR) from exc
+
     test_result = test_llm_connection(
         provider=request.provider,
         api_key=request.api_key,
         model=model or "",
-        base_url=request.base_url
+        base_url=base_url
     )
 
     if not test_result.get("success"):
@@ -207,7 +223,7 @@ def save_llm_configuration(
         provider=request.provider,
         api_key=request.api_key,
         model=model,
-        base_url=request.base_url,
+        base_url=base_url,
         user_id=current_user.id,
     )
 
