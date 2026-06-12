@@ -35,6 +35,10 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/account", tags=["account"])
 
+SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE = "Model connection test failed. Please check the provider settings."
+SAFE_LLM_CONNECTION_TIMEOUT_MESSAGE = "Model connection timed out. Please retry later."
+SAFE_LLM_INVALID_RESPONSE_MESSAGE = "Model connection returned an invalid response."
+
 
 def get_db():
     db = SessionLocal()
@@ -1014,16 +1018,17 @@ def test_llm_connection(
                         headers=headers,
                         json=payload_data,
                         timeout=10.0,
-                        verify=llm_tls_verify_enabled()
+                        verify=llm_tls_verify_enabled(),
+                        allow_redirects=False,
                     )
                 except requests.ConnectionError:
-                    last_failure_message = f"Failed to connect to {ep}. Please check the base URL."
+                    last_failure_message = SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE
                     continue
                 except requests.Timeout:
-                    last_failure_message = "Request timed out. The LLM service may be unavailable."
+                    last_failure_message = SAFE_LLM_CONNECTION_TIMEOUT_MESSAGE
                     continue
-                except requests.RequestException as req_err:
-                    last_failure_message = f"Connection test failed: {str(req_err)}"
+                except requests.RequestException:
+                    last_failure_message = SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE
                     continue
 
                 # Check response status
@@ -1039,7 +1044,7 @@ def test_llm_connection(
                                 content = item.get("text", "")
                                 break
                         if content:
-                            logger.info(f"LLM test successful for model {model} at {ep} (Anthropic format)")
+                            logger.info("LLM test successful for Anthropic-compatible format")
                             return {
                                 "success": True,
                                 "message": f"Connection successful! Model {model} responded correctly (Anthropic API).",
@@ -1060,7 +1065,7 @@ def test_llm_connection(
                             if not content and is_reasoning:
                                 reasoning = _extract_text_from_message(message.get("reasoning"))
                                 if reasoning:
-                                    logger.info(f"LLM test successful for model {model} at {ep} (reasoning model)")
+                                    logger.info("LLM test successful for reasoning model")
                                     snippet = reasoning[:100] + "..." if len(reasoning) > 100 else reasoning
                                     return {
                                         "success": True,
@@ -1069,14 +1074,14 @@ def test_llm_connection(
                                     }
 
                             if content:
-                                logger.info(f"LLM test successful for model {model} at {ep}")
+                                logger.info("LLM test successful for OpenAI-compatible format")
                                 return {
                                     "success": True,
                                     "message": f"Connection successful! Model {model} responded correctly.",
                                     "response": content
                                 }
 
-                            logger.warning(f"LLM response has empty content. finish_reason={finish_reason}, full_message={message}")
+                            logger.warning("LLM response has empty content", extra={"finish_reason": finish_reason})
                             return {
                                 "success": False,
                                 "message": f"LLM responded but with empty content (finish_reason: {finish_reason}). Try increasing token limit or using a different model."
@@ -1090,32 +1095,35 @@ def test_llm_connection(
                 elif response.status_code == 429:
                     return {"success": False, "message": "Rate limit exceeded. Please try again later."}
                 elif response.status_code == 404:
-                    last_failure_message = f"Model '{model}' not found or endpoint not available."
+                    last_failure_message = "Model not found or endpoint not available."
                     if idx < len(endpoints_to_try) - 1:
-                        logger.info(f"Endpoint {ep} returned 404, trying alternative path")
+                        logger.info("LLM endpoint returned 404, trying alternative path")
                         continue
                     return {"success": False, "message": last_failure_message}
                 else:
-                    return {"success": False, "message": f"API returned status {response.status_code}: {response.text}"}
+                    return {
+                        "success": False,
+                        "message": f"API returned status {response.status_code}: {SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE}",
+                    }
 
             return {"success": False, "message": last_failure_message}
                 
         except requests.ConnectionError:
-            return {"success": False, "message": f"Failed to connect to {base_url}. Please check the base URL."}
+            return {"success": False, "message": SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE}
         except requests.Timeout:
-            return {"success": False, "message": "Request timed out. The LLM service may be unavailable."}
+            return {"success": False, "message": SAFE_LLM_CONNECTION_TIMEOUT_MESSAGE}
         except json.JSONDecodeError:
-            return {"success": False, "message": "Invalid JSON response from LLM service."}
+            return {"success": False, "message": SAFE_LLM_INVALID_RESPONSE_MESSAGE}
         except requests.RequestException as e:
-            logger.error(f"LLM test request failed: {e}", exc_info=True)
-            return {"success": False, "message": f"Connection test failed: {str(e)}"}
+            logger.error("LLM test request failed", extra={"error_type": type(e).__name__})
+            return {"success": False, "message": SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE}
         except Exception as e:
-            logger.error(f"LLM test failed: {e}", exc_info=True)
-            return {"success": False, "message": f"Connection test failed: {str(e)}"}
+            logger.error("LLM test failed", extra={"error_type": type(e).__name__})
+            return {"success": False, "message": SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE}
             
     except Exception as e:
-        logger.error(f"Failed to test LLM connection: {e}", exc_info=True)
-        return {"success": False, "message": f"Failed to test LLM connection: {str(e)}"}
+        logger.error("Failed to test LLM connection", extra={"error_type": type(e).__name__})
+        return {"success": False, "message": SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE}
 
 
 @router.post("/{account_id}/trigger-ai-trade")
@@ -1313,7 +1321,8 @@ def check_builder_authorization(
                 "user": wallet_address,
                 "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
             },
-            timeout=10
+            timeout=10,
+            allow_redirects=False,
         )
 
         if response.status_code != 200:
@@ -1525,7 +1534,8 @@ def check_mainnet_accounts(
                         "user": wallet_address,
                         "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
                     },
-                    timeout=10
+                    timeout=10,
+                    allow_redirects=False,
                 )
 
                 if response.status_code == 200:
@@ -1591,7 +1601,8 @@ def check_mainnet_accounts(
                         "user": wallet_address,
                         "builder": HYPERLIQUID_BUILDER_CONFIG.builder_address
                     },
-                    timeout=10
+                    timeout=10,
+                    allow_redirects=False,
                 )
 
                 if response.status_code == 200:
