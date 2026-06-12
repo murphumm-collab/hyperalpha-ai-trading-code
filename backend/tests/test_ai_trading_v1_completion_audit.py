@@ -185,6 +185,7 @@ def _write_minimal_acceptance_repo(
     include_private_factor_per_user_result_schema_marker: bool = True,
     include_private_factor_precompute_writer_reader_marker: bool = True,
     include_private_factor_precompute_db_smoke_marker: bool = True,
+    include_agent_session_id_safety_marker: bool = True,
     include_agent_session_name_safety_marker: bool = True,
     include_strategy_spec_name_safety_marker: bool = True,
     include_handoff_error_message_safety_marker: bool = True,
@@ -460,6 +461,9 @@ def _write_minimal_acceptance_repo(
     private_factor_precompute_db_smoke_marker = (
         "| AI Trading private factor precompute DB smoke | Done |"
     ) if include_private_factor_precompute_db_smoke_marker else ""
+    agent_session_id_safety_marker = (
+        "| AI Trading agent-session id safety | Done |"
+    ) if include_agent_session_id_safety_marker else ""
     agent_session_name_safety_marker = (
         "| AI Trading agent-session name safety | Done |"
     ) if include_agent_session_name_safety_marker else ""
@@ -676,6 +680,7 @@ def _write_minimal_acceptance_repo(
                 private_factor_per_user_result_schema_marker,
                 private_factor_precompute_writer_reader_marker,
                 private_factor_precompute_db_smoke_marker,
+                agent_session_id_safety_marker,
                 agent_session_name_safety_marker,
                 strategy_spec_name_safety_marker,
                 handoff_error_message_safety_marker,
@@ -940,6 +945,34 @@ def test_private_factor_precompute_writer_reader_uses_user_scoped_tables() -> No
 
     assert "| AI Trading private factor precompute writer-reader | Done |" in status_source
     assert "| AI Trading private factor precompute DB smoke | Done |" in status_source
+
+
+def test_agent_session_id_safety_is_implemented_and_gated() -> None:
+    service_source = (
+        REPO_ROOT / "backend" / "services" / "ai_trading_strategy_spec_service.py"
+    ).read_text(encoding="utf-8")
+    route_source = (
+        REPO_ROOT / "backend" / "api" / "ai_trading_routes.py"
+    ).read_text(encoding="utf-8")
+    route_test_source = (
+        REPO_ROOT / "backend" / "tests" / "test_ai_trading_routes.py"
+    ).read_text(encoding="utf-8")
+    frontend_test_source = (
+        REPO_ROOT / "backend" / "tests" / "test_ai_trading_frontend_readiness_source.py"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    assert "def _clean_agent_session_id" in service_source
+    assert "SENSITIVE_AI_TRADING_KEY_PATTERN.search(raw)" in service_source
+    assert "agent_session_id must not contain API keys" in service_source
+    assert "except ValueError as exc" in route_source
+    assert "list_strategy_spec_records(" in route_source
+    assert "list_signal_event_records(" in route_source
+    assert "test_ai_trading_agent_session_id_rejects_sensitive_values_without_echo" in route_test_source
+    assert "test_hyper_ai_agent_session_route_id_rejects_sensitive_values_source_guard" in frontend_test_source
+    assert "| AI Trading agent-session id safety | Done |" in status_source
 
 
 def test_kline_local_db_api_is_implemented_and_gated() -> None:
@@ -2871,6 +2904,24 @@ def test_completion_audit_blocks_local_acceptance_when_private_factor_result_sch
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading private factor per-user result schema | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_agent_session_id_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_agent_session_id_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading agent-session id safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

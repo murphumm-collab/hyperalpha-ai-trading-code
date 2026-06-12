@@ -500,6 +500,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading private factor per-user result schema | Done |",
             "| AI Trading private factor precompute writer-reader | Done |",
             "| AI Trading private factor precompute DB smoke | Done |",
+            "| AI Trading agent-session id safety | Done |",
             "| AI Trading agent-session name safety | Done |",
             "| AI Trading strategy-spec name safety | Done |",
             "| AI Trading handoff error-message safety | Done |",

@@ -468,6 +468,7 @@ const AI_TRADING_MODEL_OUTPUT_SAFETY_WARNINGS = [
 const AI_TRADING_SYMBOL_TEXT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/
 const AI_TRADING_EXCHANGE_SYMBOL_TEXT_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,31}:[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/
 const AI_TRADING_SYMBOL_SENSITIVE_PATTERN = /(api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password)/i
+const AI_TRADING_AGENT_SESSION_ID_SENSITIVE_PATTERN = /(api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password)/i
 
 const AI_TRADING_BACKTEST_ROUTE_RE = /^\/(?:app\/)?ai-trading\/backtests\/(\d+)\/?$/
 const AI_TRADING_AGENT_SESSION_ROUTE_RE = /^\/(?:app\/)?ai-trading\/sessions\/([^/?#]+)\/?$/
@@ -539,6 +540,9 @@ function cleanAiTradingAgentSessionRouteId(value?: string | null): string | null
     decoded = value
   }
   const trimmed = decoded.trim()
+  if (AI_TRADING_AGENT_SESSION_ID_SENSITIVE_PATTERN.test(trimmed)) {
+    return null
+  }
   return /^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$/.test(trimmed) ? trimmed : null
 }
 

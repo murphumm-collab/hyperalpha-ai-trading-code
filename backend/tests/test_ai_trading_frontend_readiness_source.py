@@ -996,6 +996,34 @@ def test_hyper_ai_model_config_is_nonblocking_after_splash() -> None:
     assert "Configure DeepSeek/Qwen model" in hyper_ai_source
 
 
+def test_hyper_ai_agent_session_route_id_rejects_sensitive_values_source_guard() -> None:
+    source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    cleaner_block = source.split("function cleanAiTradingAgentSessionRouteId", 1)[1].split(
+        "function sanitizeAiTradingSymbolText",
+        1,
+    )[0]
+    parser_block = source.split("function parseAiTradingAgentSessionRouteId", 1)[1].split(
+        "function asRecord",
+        1,
+    )[0]
+    open_detail_block = source.split("const handleOpenAgentSessionDetailPage", 1)[1].split(
+        "const handleCompressAgentSessionDetailContext",
+        1,
+    )[0]
+
+    assert "AI_TRADING_AGENT_SESSION_ID_SENSITIVE_PATTERN" in source
+    assert "api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password" in source
+    assert "AI_TRADING_AGENT_SESSION_ID_SENSITIVE_PATTERN.test(trimmed)" in cleaner_block
+    assert "return null" in cleaner_block.split("AI_TRADING_AGENT_SESSION_ID_SENSITIVE_PATTERN.test(trimmed)", 1)[1].split(
+        "return /^[A-Za-z0-9]",
+        1,
+    )[0]
+    assert "cleanAiTradingAgentSessionRouteId(pathMatch?.[1])" in parser_block
+    assert "cleanAiTradingAgentSessionRouteId(params.get('agentSessionId')" in parser_block
+    assert "cleanAiTradingAgentSessionRouteId(agentSessionId || selectedAiTradingAgentSession?.id)" in open_detail_block
+    assert "encodeURIComponent(targetSessionId)" in open_detail_block
+
+
 def test_frontend_public_asset_paths_do_not_use_static_prefix() -> None:
     frontend_root = REPO_ROOT / "frontend"
     source_files = [frontend_root / "index.html"]

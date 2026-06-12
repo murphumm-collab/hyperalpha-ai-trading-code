@@ -4050,6 +4050,57 @@ def test_ai_trading_agent_session_manual_context_rejects_sensitive_values(tmp_pa
     assert "private_key" not in serialized
 
 
+def test_ai_trading_agent_session_id_rejects_sensitive_values_without_echo(tmp_path):
+    client = _build_client(tmp_path)
+    sensitive_session_id = "session:token.secret"
+
+    rejected_create = client.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": sensitive_session_id,
+            "name": "Sensitive ID Session",
+            "context_summary": "Safe BTC risk notes only.",
+        },
+    )
+    assert rejected_create.status_code == 400
+    assert "agent_session_id must not contain" in rejected_create.json()["detail"]
+    assert sensitive_session_id not in json.dumps(rejected_create.json())
+
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m long breakout with stop-loss and take-profit.",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+        },
+    )
+    assert draft.status_code == 200
+
+    rejected_save = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={
+            "spec": draft.json()["spec"],
+            "name": "Sensitive ID Spec",
+            "source": "pytest",
+            "agent_session_id": sensitive_session_id,
+        },
+    )
+    assert rejected_save.status_code == 400
+    assert "agent_session_id must not contain" in rejected_save.json()["detail"]
+    assert sensitive_session_id not in json.dumps(rejected_save.json())
+
+    list_specs = client.get(f"/api/ai-trading/strategy-specs?agent_session_id={sensitive_session_id}")
+    list_signals = client.get(f"/api/ai-trading/signal-events?agent_session_id={sensitive_session_id}")
+    context = client.get(f"/api/ai-trading/agent-sessions/{sensitive_session_id}/context")
+    compress = client.post(f"/api/ai-trading/agent-sessions/{sensitive_session_id}/compress-context")
+
+    for response in (list_specs, list_signals, context, compress):
+        assert response.status_code == 400
+        assert "agent_session_id must not contain" in response.json()["detail"]
+        assert sensitive_session_id not in json.dumps(response.json())
+
+
 def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     market_universe_service.clear_ai_trading_market_universe_cache()

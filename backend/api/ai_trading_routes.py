@@ -642,13 +642,16 @@ def list_strategy_specs_endpoint(
     current_user: User = Depends(get_current_user_dependency),
 ):
     """List current-user strategy spec records."""
-    records = list_strategy_spec_records(
-        db,
-        user_id=current_user.id,
-        status=status,
-        agent_session_id=agent_session_id,
-        limit=limit,
-    )
+    try:
+        records = list_strategy_spec_records(
+            db,
+            user_id=current_user.id,
+            status=status,
+            agent_session_id=agent_session_id,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "specs": [
             serialize_strategy_spec_record(
@@ -1044,14 +1047,17 @@ def list_signal_events_endpoint(
     current_user: User = Depends(get_current_user_dependency),
 ):
     """List current-user AI Trading signal candidate events."""
-    events = list_signal_event_records(
-        db,
-        user_id=current_user.id,
-        strategy_spec_id=strategy_spec_id,
-        agent_session_id=agent_session_id,
-        status=status,
-        limit=limit,
-    )
+    try:
+        events = list_signal_event_records(
+            db,
+            user_id=current_user.id,
+            strategy_spec_id=strategy_spec_id,
+            agent_session_id=agent_session_id,
+            status=status,
+            limit=limit,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return {
         "signal_events": [
             serialize_signal_event_record(
