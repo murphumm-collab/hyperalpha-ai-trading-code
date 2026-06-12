@@ -71,6 +71,20 @@ export default function ToolConfigModal({
   const displayName = isZh ? tool.display_name_zh : tool.display_name
   const description = isZh ? tool.description_zh : tool.description
   const getUrlLabel = isZh ? tool.get_url_label_zh : tool.get_url_label
+  const formatToolConfigSaveError = (status: number) => {
+    if (status === 401) return t('tools.configAuthRequired', 'Authentication required')
+    if (status === 403) return t('tools.configAccessDenied', 'Tool configuration is not allowed')
+    if (status === 429) return t('tools.configRateLimited', 'Too many configuration attempts')
+    if (status === 503) return t('tools.configUnavailable', 'Tool configuration service is unavailable')
+    return t('tools.configSaveFailed', 'Save failed')
+  }
+  const formatToolConfigRemoveError = (status: number) => {
+    if (status === 401) return t('tools.removeAuthRequired', 'Authentication required')
+    if (status === 403) return t('tools.removeAccessDenied', 'Tool removal is not allowed')
+    if (status === 429) return t('tools.removeRateLimited', 'Too many removal attempts')
+    if (status === 503) return t('tools.removeUnavailable', 'Tool configuration service is unavailable')
+    return t('tools.removeFailed', 'Remove failed')
+  }
 
   const handleSave = async () => {
     // Check required fields
@@ -91,16 +105,16 @@ export default function ToolConfigModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ config: values, validate_key: true }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok || data.success === false) {
-        setError(data.error || data.detail || 'Save failed')
+        setError(formatToolConfigSaveError(res.status))
         return
       }
       setSuccess(true)
       onSaved()
       setTimeout(() => onClose(), 1200)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Save failed')
+    } catch {
+      setError(formatToolConfigSaveError(0))
     } finally {
       setSaving(false)
     }
@@ -116,9 +130,11 @@ export default function ToolConfigModal({
       if (res.ok) {
         onSaved()
         onClose()
+      } else {
+        setError(formatToolConfigRemoveError(res.status))
       }
-    } catch (err) {
-      setError('Remove failed')
+    } catch {
+      setError(formatToolConfigRemoveError(0))
     } finally {
       setRemoving(false)
     }

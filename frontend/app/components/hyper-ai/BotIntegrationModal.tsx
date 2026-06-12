@@ -73,9 +73,9 @@ export default function BotIntegrationModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ bot_token: token }),
       })
-      const data = await res.json()
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setError(data.detail || 'Connection failed')
+        setError(formatBotIntegrationConnectError(res.status))
         return
       }
       // Store new bot info and go to connected state
@@ -85,14 +85,21 @@ export default function BotIntegrationModal({
       }
       onConnected()
       setStep(0) // Go to connected state instead of closing
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Connection failed')
+    } catch {
+      setError(formatBotIntegrationConnectError(0))
     } finally {
       setConnecting(false)
     }
   }
 
   const isTelegram = platform === 'telegram'
+  const formatBotIntegrationConnectError = (status: number) => {
+    if (status === 401) return t('bot.connectAuthRequired', 'Authentication required')
+    if (status === 403) return t('bot.connectAccessDenied', 'Bot connection is not allowed')
+    if (status === 429) return t('bot.connectRateLimited', 'Too many connection attempts')
+    if (status === 503) return t('bot.connectUnavailable', 'Bot connection service is unavailable')
+    return t('bot.connectFailed', 'Connection failed')
+  }
 
   // Telegram config
   const botFatherLink = 'https://t.me/BotFather'

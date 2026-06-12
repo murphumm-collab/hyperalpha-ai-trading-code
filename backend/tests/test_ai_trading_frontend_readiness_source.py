@@ -4,6 +4,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "settings" / "SettingsPage.tsx"
 HYPER_AI_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiPage.tsx"
+BOT_INTEGRATION_MODAL = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "BotIntegrationModal.tsx"
+TOOL_CONFIG_MODAL = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "ToolConfigModal.tsx"
 HYPERLIQUID_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "HyperliquidWalletSection.tsx"
 WALLET_CONFIG_PANEL = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "WalletConfigPanel.tsx"
 BINANCE_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "BinanceWalletSection.tsx"
@@ -921,6 +923,36 @@ def test_ai_trading_model_config_modal_uses_safe_api_error_formatter() -> None:
     assert "errData.detail ||" not in modal_block
     assert "setError(e.message" not in modal_block
     assert "setError(e instanceof Error ? e.message" not in modal_block
+
+
+def test_hyper_ai_bot_and_tool_config_errors_use_safe_labels() -> None:
+    bot_source = BOT_INTEGRATION_MODAL.read_text(encoding="utf-8")
+    tool_source = TOOL_CONFIG_MODAL.read_text(encoding="utf-8")
+
+    assert "formatBotIntegrationConnectError" in bot_source
+    assert "connectAuthRequired" in bot_source
+    assert "connectAccessDenied" in bot_source
+    assert "connectRateLimited" in bot_source
+    assert "connectUnavailable" in bot_source
+    assert "const data = await res.json().catch(() => ({}))" in bot_source
+    assert "setError(formatBotIntegrationConnectError(res.status))" in bot_source
+    assert "setError(formatBotIntegrationConnectError(0))" in bot_source
+    assert "setError(data.detail || 'Connection failed')" not in bot_source
+    assert "err instanceof Error ? err.message" not in bot_source
+
+    assert "formatToolConfigSaveError" in tool_source
+    assert "formatToolConfigRemoveError" in tool_source
+    assert "configAuthRequired" in tool_source
+    assert "configAccessDenied" in tool_source
+    assert "removeAccessDenied" in tool_source
+    assert "const data = await res.json().catch(() => ({}))" in tool_source
+    assert "setError(formatToolConfigSaveError(res.status))" in tool_source
+    assert "setError(formatToolConfigSaveError(0))" in tool_source
+    assert "setError(formatToolConfigRemoveError(res.status))" in tool_source
+    assert "setError(formatToolConfigRemoveError(0))" in tool_source
+    assert "setError(data.error || data.detail || 'Save failed')" not in tool_source
+    assert "setError(err instanceof Error ? err.message : 'Save failed')" not in tool_source
+    assert "setError('Remove failed')" not in tool_source
 
 
 def test_ai_trading_market_universe_loader_uses_safe_api_error_formatter() -> None:
