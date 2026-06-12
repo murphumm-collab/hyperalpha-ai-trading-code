@@ -309,6 +309,7 @@ def _call_llm_with_config(
                 json=payload,
                 timeout=request_timeout,
                 verify=False,
+                allow_redirects=False,
             )
 
             if response.status_code == 200:

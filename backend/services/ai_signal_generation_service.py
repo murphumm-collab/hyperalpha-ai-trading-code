@@ -453,7 +453,13 @@ def generate_signal_with_ai(
                 try:
                     logger.info(f"[AI Signal Gen {request_id}] Trying endpoint: {endpoint}")
                     api_start = time.time()
-                    response = requests.post(endpoint, json=request_payload, headers=headers, timeout=120)
+                    response = requests.post(
+                        endpoint,
+                        json=request_payload,
+                        headers=headers,
+                        timeout=120,
+                        allow_redirects=False,
+                    )
                     api_elapsed = time.time() - api_start
                     last_status_code = response.status_code
                     last_response_text = response.text[:2000] if response.text else None
@@ -979,7 +985,7 @@ def _tool_get_kline_context(
                     "endTime": max_ts
                 }
             }
-            resp = requests.post(url, json=payload, timeout=10)
+            resp = requests.post(url, json=payload, timeout=10, allow_redirects=False)
 
         if resp.status_code != 200:
             return {"error": f"Failed to fetch K-lines: HTTP {resp.status_code}"}
@@ -1928,7 +1934,13 @@ def generate_signal_with_ai_stream(
 
             for endpoint in endpoints:
                 try:
-                    response = requests.post(endpoint, json=request_payload, headers=headers, timeout=120)
+                    response = requests.post(
+                        endpoint,
+                        json=request_payload,
+                        headers=headers,
+                        timeout=120,
+                        allow_redirects=False,
+                    )
                     last_status_code = response.status_code
                     last_response_text = response.text[:2000] if response.text else None
                     if response.status_code == 200:

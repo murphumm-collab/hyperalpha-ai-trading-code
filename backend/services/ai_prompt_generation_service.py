@@ -886,7 +886,13 @@ def generate_prompt_with_ai_stream(
                 for ep in endpoints:
                     try:
                         logger.info(f"[AI Prompt Gen {request_id}] Round {tool_round}, trying: {ep}")
-                        response = requests.post(ep, json=payload, headers=headers, timeout=120)
+                        response = requests.post(
+                            ep,
+                            json=payload,
+                            headers=headers,
+                            timeout=120,
+                            allow_redirects=False,
+                        )
                         last_status_code = response.status_code
                         last_response_text = response.text[:2000] if response.text else None
 

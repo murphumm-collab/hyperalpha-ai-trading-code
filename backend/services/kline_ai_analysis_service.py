@@ -485,6 +485,7 @@ def analyze_kline_chart(
                         json=payload,
                         timeout=request_timeout,
                         verify=False,
+                        allow_redirects=False,
                     )
 
                     api_elapsed = time.time() - api_start

@@ -866,7 +866,14 @@ def _call_anthropic_streaming(endpoint: str, payload: dict, headers: dict, timeo
     stop_reason = None
 
     try:
-        response = requests.post(endpoint, json=payload, headers=headers, timeout=timeout, stream=True)
+        response = requests.post(
+            endpoint,
+            json=payload,
+            headers=headers,
+            timeout=timeout,
+            stream=True,
+            allow_redirects=False,
+        )
     except requests.exceptions.Timeout as e:
         raise Exception(f"Timeout after {timeout}s: {str(e)}")
     except requests.exceptions.ConnectionError as e:
@@ -2104,7 +2111,13 @@ You are creating a new program. Start fresh and design the strategy based on use
                             break  # Success
                         else:
                             # OpenAI format - use regular request
-                            response = requests.post(endpoint, json=payload, headers=headers, timeout=120)
+                            response = requests.post(
+                                endpoint,
+                                json=payload,
+                                headers=headers,
+                                timeout=120,
+                                allow_redirects=False,
+                            )
                             last_status_code = response.status_code
                             last_response_text = response.text[:2000] if response.text else None
                             logger.info(f"[AI Program {request_id}] Response status: {response.status_code}")

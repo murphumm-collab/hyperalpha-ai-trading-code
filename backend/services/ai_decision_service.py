@@ -2145,6 +2145,7 @@ def call_ai_for_decision(
                         timeout=request_timeout,
                         verify=False,  # Disable SSL verification for custom AI endpoints
                         stream=use_streaming,  # Enable streaming for DeepSeek V4/Reasoner
+                        allow_redirects=False,
                     )
 
                     if response.status_code == 200:

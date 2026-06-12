@@ -187,6 +187,8 @@ def _write_minimal_acceptance_repo(
     include_hyper_ai_preset_endpoint_override_guard_marker: bool = True,
     include_hyper_ai_custom_endpoint_ssrf_guard_marker: bool = True,
     include_hyper_ai_llm_redirect_guard_marker: bool = True,
+    include_shared_ai_llm_redirect_guard_regression_gate: bool = True,
+    include_shared_ai_llm_redirect_guard_marker: bool = True,
     include_model_readiness_sensitive_endpoint_gate_marker: bool = True,
     include_context_compression_error_safety_marker: bool = True,
     include_context_compression_prompt_safety_marker: bool = True,
@@ -264,6 +266,9 @@ def _write_minimal_acceptance_repo(
     hyper_ai_llm_base_url_safety_regression_text = (
         "tests/test_hyper_ai_llm_base_url_safety.py\n"
     ) if include_hyper_ai_llm_base_url_safety_marker else ""
+    shared_ai_llm_redirect_guard_regression_text = (
+        "tests/test_shared_ai_llm_redirect_guard.py\n"
+    ) if include_shared_ai_llm_redirect_guard_regression_gate else ""
     context_compression_error_safety_regression_text = (
         "tests/test_ai_context_compression_error_safety.py\n"
     ) if include_context_compression_error_safety_marker else ""
@@ -505,6 +510,9 @@ def _write_minimal_acceptance_repo(
     hyper_ai_llm_redirect_guard_marker = (
         "| AI Trading Hyper AI LLM redirect guard | Done |"
     ) if include_hyper_ai_llm_redirect_guard_marker else ""
+    shared_ai_llm_redirect_guard_marker = (
+        "| AI Trading shared AI LLM redirect guard | Done |"
+    ) if include_shared_ai_llm_redirect_guard_marker else ""
     model_readiness_sensitive_endpoint_gate_marker = (
         "| AI Trading model readiness sensitive endpoint gate | Done |"
     ) if include_model_readiness_sensitive_endpoint_gate_marker else ""
@@ -658,6 +666,7 @@ def _write_minimal_acceptance_repo(
                 hyper_ai_profile_safety_regression_text,
                 hyper_ai_suggestions_context_safety_regression_text,
                 hyper_ai_llm_base_url_safety_regression_text,
+                shared_ai_llm_redirect_guard_regression_text,
                 context_compression_error_safety_regression_text,
                 kline_routes_regression_text,
                 kline_collectors_regression_text,
@@ -806,6 +815,7 @@ def _write_minimal_acceptance_repo(
                 hyper_ai_preset_endpoint_override_guard_marker,
                 hyper_ai_custom_endpoint_ssrf_guard_marker,
                 hyper_ai_llm_redirect_guard_marker,
+                shared_ai_llm_redirect_guard_marker,
                 model_readiness_sensitive_endpoint_gate_marker,
                 context_compression_error_safety_marker,
                 context_compression_prompt_safety_marker,
@@ -3253,6 +3263,39 @@ def test_completion_audit_blocks_local_acceptance_when_hyper_ai_llm_redirect_gua
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading Hyper AI LLM redirect guard | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_shared_ai_llm_redirect_guard_regression_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_shared_ai_llm_redirect_guard_regression_gate=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert runner_evidence["status"] == "incomplete_evidence"
+    assert "tests/test_shared_ai_llm_redirect_guard.py" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_shared_ai_llm_redirect_guard_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_shared_ai_llm_redirect_guard_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading shared AI LLM redirect guard | Done |"
         in status_evidence["missing_phrases"]
     )
 

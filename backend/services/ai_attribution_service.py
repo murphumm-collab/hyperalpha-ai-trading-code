@@ -1014,7 +1014,13 @@ def generate_attribution_analysis_stream(
 
             for endpoint in endpoints:
                 try:
-                    response = requests.post(endpoint, json=request_payload, headers=headers, timeout=120)
+                    response = requests.post(
+                        endpoint,
+                        json=request_payload,
+                        headers=headers,
+                        timeout=120,
+                        allow_redirects=False,
+                    )
                     last_status_code = response.status_code
                     last_response_text = response.text[:2000] if response.text else None
                     if response.status_code == 200:
