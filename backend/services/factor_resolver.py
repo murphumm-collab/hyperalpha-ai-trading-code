@@ -8,7 +8,7 @@ Signal Detection, and backtest paths stay aligned.
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-from sqlalchemy import or_
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import Session
 
 from database.models import CustomFactor
@@ -40,7 +40,10 @@ def resolve_factor_definition(
     if user_id is not None:
         custom_query = custom_query.filter(or_(
             CustomFactor.user_id == user_id,
-            CustomFactor.source == "builtin_expression",
+            and_(
+                CustomFactor.source == "builtin_expression",
+                CustomFactor.user_id == None,
+            ),
         ))
     else:
         custom_query = custom_query.filter(
@@ -58,6 +61,7 @@ def resolve_factor_definition(
         "description": custom.description or "",
         "expression": custom.expression,
         "source": custom.source or "custom",
+        "user_id": custom.user_id,
         "compute_type": "expression",
     }
 

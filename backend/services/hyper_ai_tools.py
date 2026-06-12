@@ -2982,6 +2982,7 @@ def execute_query_factors(
 ) -> str:
     """Query factor library, values, and effectiveness."""
     from services.factor_registry import FACTOR_REGISTRY, CATEGORY_LABELS
+    from services.factor_resolver import resolve_factor_definition
     from database.models import CustomFactor
 
     if blocked := _require_tool_user(user_id):
@@ -2990,36 +2991,103 @@ def execute_query_factors(
     try:
         # If specific factor requested, return detailed info + history
         if factor_name and symbol:
-            row = db.execute(text("""
-                SELECT factor_name, factor_category, ic_mean, ic_std, icir,
-                    win_rate, sample_count, calc_date, decay_half_life
-                FROM factor_effectiveness
-                WHERE factor_name = :fn AND symbol = :sym AND period = '1h'
-                    AND forward_period = :fp AND exchange = :ex
-                ORDER BY calc_date DESC LIMIT 1
-            """), {"fn": factor_name, "sym": symbol, "fp": forward_period, "ex": exchange}).fetchone()
-
-            val_row = db.execute(text("""
-                SELECT value, timestamp FROM factor_values
-                WHERE factor_name = :fn AND symbol = :sym AND period = '1h' AND exchange = :ex
-                ORDER BY timestamp DESC LIMIT 1
-            """), {"fn": factor_name, "sym": symbol, "ex": exchange}).fetchone()
+            factor_meta = resolve_factor_definition(db, factor_name, user_id=user_id)
+            private_custom_factor_id = None
+            private_storage_user_id = None
+            if factor_meta and factor_meta.get("id") is not None and factor_meta.get("user_id") is not None:
+                private_custom_factor_id = int(factor_meta["id"])
+                private_storage_user_id = int(factor_meta["user_id"])
 
             from datetime import date as _d, timedelta as _td
             history_cutoff = _d.today() - _td(days=min(days, 365))
-            history = db.execute(text("""
-                SELECT calc_date, ic_mean, icir, win_rate, sample_count
-                FROM factor_effectiveness
-                WHERE factor_name = :fn AND symbol = :sym AND period = '1h'
-                    AND forward_period = :fp AND exchange = :ex
-                    AND calc_date >= :cutoff
-                ORDER BY calc_date
-            """), {"fn": factor_name, "sym": symbol, "fp": forward_period,
-                   "ex": exchange, "cutoff": history_cutoff}).fetchall()
+            if private_storage_user_id is not None and private_custom_factor_id is not None:
+                row = db.execute(text("""
+                    SELECT factor_name, factor_category, ic_mean, ic_std, icir,
+                        win_rate, sample_count, calc_date, decay_half_life
+                    FROM user_factor_effectiveness
+                    WHERE user_id = :uid AND custom_factor_id = :cfid
+                        AND symbol = :sym AND period = '1h'
+                        AND forward_period = :fp AND exchange = :ex
+                    ORDER BY calc_date DESC LIMIT 1
+                """), {
+                    "uid": private_storage_user_id,
+                    "cfid": private_custom_factor_id,
+                    "sym": symbol,
+                    "fp": forward_period,
+                    "ex": exchange,
+                }).fetchone()
+
+                val_row = db.execute(text("""
+                    SELECT value, timestamp FROM user_factor_values
+                    WHERE user_id = :uid AND custom_factor_id = :cfid
+                        AND symbol = :sym AND period = '1h' AND exchange = :ex
+                    ORDER BY timestamp DESC LIMIT 1
+                """), {
+                    "uid": private_storage_user_id,
+                    "cfid": private_custom_factor_id,
+                    "sym": symbol,
+                    "ex": exchange,
+                }).fetchone()
+
+                history = db.execute(text("""
+                    SELECT calc_date, ic_mean, icir, win_rate, sample_count
+                    FROM user_factor_effectiveness
+                    WHERE user_id = :uid AND custom_factor_id = :cfid
+                        AND symbol = :sym AND period = '1h'
+                        AND forward_period = :fp AND exchange = :ex
+                        AND calc_date >= :cutoff
+                    ORDER BY calc_date
+                """), {
+                    "uid": private_storage_user_id,
+                    "cfid": private_custom_factor_id,
+                    "sym": symbol,
+                    "fp": forward_period,
+                    "ex": exchange,
+                    "cutoff": history_cutoff,
+                }).fetchall()
+                storage_scope = "user_private"
+            else:
+                row = db.execute(text("""
+                    SELECT factor_name, factor_category, ic_mean, ic_std, icir,
+                        win_rate, sample_count, calc_date, decay_half_life
+                    FROM factor_effectiveness
+                    WHERE factor_name = :fn AND symbol = :sym AND period = '1h'
+                        AND forward_period = :fp AND exchange = :ex
+                    ORDER BY calc_date DESC LIMIT 1
+                """), {
+                    "fn": factor_name,
+                    "sym": symbol,
+                    "fp": forward_period,
+                    "ex": exchange,
+                }).fetchone()
+
+                val_row = db.execute(text("""
+                    SELECT value, timestamp FROM factor_values
+                    WHERE factor_name = :fn AND symbol = :sym AND period = '1h' AND exchange = :ex
+                    ORDER BY timestamp DESC LIMIT 1
+                """), {"fn": factor_name, "sym": symbol, "ex": exchange}).fetchone()
+
+                history = db.execute(text("""
+                    SELECT calc_date, ic_mean, icir, win_rate, sample_count
+                    FROM factor_effectiveness
+                    WHERE factor_name = :fn AND symbol = :sym AND period = '1h'
+                        AND forward_period = :fp AND exchange = :ex
+                        AND calc_date >= :cutoff
+                    ORDER BY calc_date
+                """), {
+                    "fn": factor_name,
+                    "sym": symbol,
+                    "fp": forward_period,
+                    "ex": exchange,
+                    "cutoff": history_cutoff,
+                }).fetchall()
+                storage_scope = "shared"
 
             return json.dumps({
                 "factor_name": factor_name,
                 "symbol": symbol, "exchange": exchange, "forward_period": forward_period,
+                "storage_scope": storage_scope,
+                "custom_factor_id": private_custom_factor_id,
                 "latest_value": float(val_row[0]) if val_row else None,
                 "effectiveness": {
                     "ic_mean": float(row[2]), "ic_std": float(row[3]),
@@ -3070,6 +3138,47 @@ def execute_query_factors(
                     "icir": float(r[3]), "win_rate": float(r[4]), "sample_count": r[5],
                     "decay_half_life_hours": int(r[6]) if r[6] is not None else None,
                     "ic_7d": ic_7d, "ic_trend": ic_trend,
+                })
+            private_eff_rows = db.execute(text("""
+                SELECT DISTINCT ON (custom_factor_id)
+                    custom_factor_id, factor_name, factor_category, ic_mean, icir,
+                    win_rate, sample_count, decay_half_life
+                FROM user_factor_effectiveness
+                WHERE user_id = :uid AND symbol = :sym AND period = '1h'
+                    AND forward_period = :fp AND exchange = :ex
+                ORDER BY custom_factor_id, calc_date DESC
+            """), {"uid": user_id, "sym": symbol, "fp": forward_period, "ex": exchange}).fetchall()
+            private_ic_7d_rows = db.execute(text("""
+                SELECT custom_factor_id, AVG(ic_mean) as ic_7d
+                FROM user_factor_effectiveness
+                WHERE user_id = :uid AND symbol = :sym AND period = '1h'
+                    AND forward_period = :fp AND exchange = :ex AND calc_date >= :cutoff
+                GROUP BY custom_factor_id
+            """), {
+                "uid": user_id,
+                "sym": symbol,
+                "fp": forward_period,
+                "ex": exchange,
+                "cutoff": cutoff_7d,
+            }).fetchall()
+            private_ic_7d_map = {
+                r[0]: round(float(r[1]), 6) if r[1] is not None else None
+                for r in private_ic_7d_rows
+            }
+            for r in private_eff_rows:
+                custom_factor_id = int(r[0])
+                ic_30d = float(r[3])
+                ic_7d = private_ic_7d_map.get(custom_factor_id)
+                ic_trend = None
+                if ic_7d is not None and abs(ic_30d) > 1e-6:
+                    ic_trend = round(ic_7d / ic_30d, 2)
+                items.append({
+                    "factor_name": r[1], "category": r[2], "ic_mean": ic_30d,
+                    "icir": float(r[4]), "win_rate": float(r[5]), "sample_count": r[6],
+                    "decay_half_life_hours": int(r[7]) if r[7] is not None else None,
+                    "ic_7d": ic_7d, "ic_trend": ic_trend,
+                    "source": "user_private",
+                    "custom_factor_id": custom_factor_id,
                 })
             items.sort(key=lambda x: abs(x.get("icir") or 0), reverse=True)
 

@@ -34,7 +34,7 @@ from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 from sqlalchemy.orm import Session
-from sqlalchemy import or_, text
+from sqlalchemy import and_, or_, text
 
 from database.connection import SessionLocal
 from services.factor_registry import FACTOR_REGISTRY
@@ -138,7 +138,10 @@ class FactorEffectivenessService:
             if user_id is not None:
                 custom_query = custom_query.filter(or_(
                     CustomFactor.user_id == user_id,
-                    CustomFactor.source == "builtin_expression",
+                    and_(
+                        CustomFactor.source == "builtin_expression",
+                        CustomFactor.user_id == None,
+                    ),
                 ))
             else:
                 custom_query = custom_query.filter(
@@ -148,6 +151,12 @@ class FactorEffectivenessService:
             custom_factor = custom_query.first()
             if not custom_factor:
                 return {"error": f"Factor '{factor_name}' not found"}
+
+        private_user_id = None
+        private_custom_factor_id = None
+        if custom_factor and custom_factor.user_id is not None:
+            private_user_id = int(custom_factor.user_id)
+            private_custom_factor_id = int(custom_factor.id)
 
         symbols = self._get_symbols(db, exchange)
         if not symbols:
@@ -170,6 +179,19 @@ class FactorEffectivenessService:
                     continue
                 fvals = [None if pd.isna(v) else float(v) for v in series.tolist()]
                 category = custom_factor.category or "custom"
+                if private_user_id is not None and private_custom_factor_id is not None:
+                    self._upsert_user_factor_value(
+                        db,
+                        private_user_id,
+                        private_custom_factor_id,
+                        exchange,
+                        factor_name,
+                        category,
+                        symbol,
+                        "1h",
+                        fvals,
+                        klines,
+                    )
             else:
                 tech_keys = list({f["indicator_key"] for f in FACTOR_REGISTRY
                                   if f["compute_type"] == "technical"})
@@ -183,15 +205,31 @@ class FactorEffectivenessService:
             n = self._compute_factor_windowed(
                 db, exchange, factor_name, category, symbol, "1h",
                 fvals, closes, klines, n_bars, force=True,
+                user_id=private_user_id,
+                custom_factor_id=private_custom_factor_id,
             )
             computed += n
 
-            latest_row = db.execute(text("""
-                SELECT icir FROM factor_effectiveness
-                WHERE exchange = :ex AND factor_name = :fn AND symbol = :sym
-                    AND period = '1h' AND forward_period = '4h'
-                ORDER BY calc_date DESC LIMIT 1
-            """), {"ex": exchange, "fn": factor_name, "sym": symbol}).fetchone()
+            if private_user_id is not None and private_custom_factor_id is not None:
+                latest_row = db.execute(text("""
+                    SELECT icir FROM user_factor_effectiveness
+                    WHERE user_id = :uid AND custom_factor_id = :cfid
+                        AND exchange = :ex AND symbol = :sym
+                        AND period = '1h' AND forward_period = '4h'
+                    ORDER BY calc_date DESC LIMIT 1
+                """), {
+                    "uid": private_user_id,
+                    "cfid": private_custom_factor_id,
+                    "ex": exchange,
+                    "sym": symbol,
+                }).fetchone()
+            else:
+                latest_row = db.execute(text("""
+                    SELECT icir FROM factor_effectiveness
+                    WHERE exchange = :ex AND factor_name = :fn AND symbol = :sym
+                        AND period = '1h' AND forward_period = '4h'
+                    ORDER BY calc_date DESC LIMIT 1
+                """), {"ex": exchange, "fn": factor_name, "sym": symbol}).fetchone()
             if latest_row:
                 icir_values.append(float(latest_row[0]))
 
@@ -201,6 +239,11 @@ class FactorEffectivenessService:
         return {
             "success": True,
             "factor_name": factor_name, "exchange": exchange,
+            "storage_scope": (
+                "user_private"
+                if private_user_id is not None and private_custom_factor_id is not None
+                else "shared"
+            ),
             "symbols_computed": len(icir_values),
             "total_records": computed,
             "avg_icir_4h": avg_icir,
@@ -533,7 +576,9 @@ class FactorEffectivenessService:
         return None
 
     def _compute_factor_windowed(self, db, exchange, fname, fcat, symbol, period,
-                                  fvals, closes, klines, n_bars, force=False) -> int:
+                                  fvals, closes, klines, n_bars, force=False,
+                                  user_id: Optional[int] = None,
+                                  custom_factor_id: Optional[int] = None) -> int:
         """Core sliding window IC computation with cross-window ICIR.
 
         Two-phase approach:
@@ -553,6 +598,7 @@ class FactorEffectivenessService:
         SLIDE_BARS = 24     # slide by 1 day
         FORWARD_PERIODS = {"1h": 1, "4h": 4, "12h": 12, "24h": 24}
         ICIR_TRAILING = 30  # trailing window count for ICIR computation
+        private_scope = user_id is not None and custom_factor_id is not None
 
         if n_bars < WINDOW_BARS:
             if n_bars < 50:
@@ -569,11 +615,15 @@ class FactorEffectivenessService:
                 m = self._calc_ic_fast(af, ar)
                 ic_by_fp[fp_label] = m["ic"]
                 dhl = None  # not enough data for decay
-                self._upsert(db, exchange, fname, fcat, symbol, period,
-                             fp_label, calc_date, n_bars,
-                             {"ic_mean": m["ic"], "ic_std": 0.0, "icir": 0.0,
-                              "win_rate": m["win_rate"], "sample_count": m["sample_count"],
-                              "decay_half_life": dhl})
+                self._upsert_effectiveness(
+                    db, exchange, fname, fcat, symbol, period,
+                    fp_label, calc_date, n_bars,
+                    {"ic_mean": m["ic"], "ic_std": 0.0, "icir": 0.0,
+                     "win_rate": m["win_rate"], "sample_count": m["sample_count"],
+                     "decay_half_life": dhl},
+                    user_id=user_id,
+                    custom_factor_id=custom_factor_id,
+                )
                 count += 1
             return count
 
@@ -581,12 +631,27 @@ class FactorEffectivenessService:
         existing_by_fp: Dict[str, list] = {fp: [] for fp in FORWARD_PERIODS}
         existing_dates = set()
         if not force:
-            rows = db.execute(text("""
-                SELECT forward_period, calc_date, ic_mean FROM factor_effectiveness
-                WHERE exchange = :ex AND factor_name = :fn
-                    AND symbol = :sym AND period = :p
-                ORDER BY calc_date
-            """), {"ex": exchange, "fn": fname, "sym": symbol, "p": period}).fetchall()
+            if private_scope:
+                rows = db.execute(text("""
+                    SELECT forward_period, calc_date, ic_mean
+                    FROM user_factor_effectiveness
+                    WHERE user_id = :uid AND custom_factor_id = :cfid
+                        AND exchange = :ex AND symbol = :sym AND period = :p
+                    ORDER BY calc_date
+                """), {
+                    "uid": user_id,
+                    "cfid": custom_factor_id,
+                    "ex": exchange,
+                    "sym": symbol,
+                    "p": period,
+                }).fetchall()
+            else:
+                rows = db.execute(text("""
+                    SELECT forward_period, calc_date, ic_mean FROM factor_effectiveness
+                    WHERE exchange = :ex AND factor_name = :fn
+                        AND symbol = :sym AND period = :p
+                    ORDER BY calc_date
+                """), {"ex": exchange, "fn": fname, "sym": symbol, "p": period}).fetchall()
             for r in rows:
                 existing_by_fp.setdefault(r[0], []).append((r[1], float(r[2])))
                 existing_dates.add(r[1])
@@ -654,15 +719,19 @@ class FactorEffectivenessService:
                             for fp in window_data[calc_date]}
                 dhl = self._compute_decay_half_life(ic_by_fp, FORWARD_PERIODS)
 
-                self._upsert(db, exchange, fname, fcat, symbol, period,
-                             fp_label, calc_date, WINDOW_BARS, {
-                                 "ic_mean": round(m["ic"], 6),
-                                 "ic_std": round(ic_std, 6),
-                                 "icir": round(icir, 4),
-                                 "win_rate": round(m["win_rate"], 4),
-                                 "sample_count": m["sample_count"],
-                                 "decay_half_life": dhl,
-                             })
+                self._upsert_effectiveness(
+                    db, exchange, fname, fcat, symbol, period,
+                    fp_label, calc_date, WINDOW_BARS, {
+                        "ic_mean": round(m["ic"], 6),
+                        "ic_std": round(ic_std, 6),
+                        "icir": round(icir, 4),
+                        "win_rate": round(m["win_rate"], 4),
+                        "sample_count": m["sample_count"],
+                        "decay_half_life": dhl,
+                    },
+                    user_id=user_id,
+                    custom_factor_id=custom_factor_id,
+                )
                 count += 1
 
         return count
@@ -879,6 +948,131 @@ class FactorEffectivenessService:
             "p": period, "fp": fp, "cd": calc_date, "lb": lookback,
             "icm": m["ic_mean"], "ics": m["ic_std"], "icir": m["icir"],
             "wr": m["win_rate"], "dhl": m.get("decay_half_life"), "sc": m["sample_count"],
+        })
+
+    def _upsert_effectiveness(
+        self,
+        db,
+        exchange,
+        fname,
+        fcat,
+        symbol,
+        period,
+        fp,
+        calc_date,
+        lookback,
+        m,
+        user_id: Optional[int] = None,
+        custom_factor_id: Optional[int] = None,
+    ):
+        if user_id is not None and custom_factor_id is not None:
+            self._upsert_user_effectiveness(
+                db, user_id, custom_factor_id, exchange, fname, fcat, symbol, period,
+                fp, calc_date, lookback, m,
+            )
+            return
+        self._upsert(db, exchange, fname, fcat, symbol, period, fp, calc_date, lookback, m)
+
+    def _upsert_user_factor_value(
+        self,
+        db,
+        user_id: int,
+        custom_factor_id: int,
+        exchange: str,
+        fname: str,
+        fcat: str,
+        symbol: str,
+        period: str,
+        fvals,
+        klines,
+    ):
+        latest_value = None
+        latest_timestamp = None
+        max_idx = min(len(fvals), len(klines)) - 1
+        for idx in range(max_idx, -1, -1):
+            value = fvals[idx]
+            if value is None:
+                continue
+            latest_value = float(value)
+            latest_timestamp = int(klines[idx]["timestamp"])
+            break
+        if latest_timestamp is None:
+            return
+
+        db.execute(text("""
+            INSERT INTO user_factor_values
+                (user_id, custom_factor_id, exchange, symbol, period,
+                 factor_name, factor_category, timestamp, value)
+            VALUES
+                (:uid, :cfid, :ex, :sym, :p, :fn, :fc, :ts, :value)
+            ON CONFLICT (user_id, custom_factor_id, exchange, symbol, period, timestamp)
+            DO UPDATE SET
+                factor_name = EXCLUDED.factor_name,
+                factor_category = EXCLUDED.factor_category,
+                value = EXCLUDED.value
+        """), {
+            "uid": user_id,
+            "cfid": custom_factor_id,
+            "ex": exchange,
+            "sym": symbol,
+            "p": period,
+            "fn": fname,
+            "fc": fcat,
+            "ts": latest_timestamp,
+            "value": latest_value,
+        })
+
+    def _upsert_user_effectiveness(
+        self,
+        db,
+        user_id: int,
+        custom_factor_id: int,
+        exchange,
+        fname,
+        fcat,
+        symbol,
+        period,
+        fp,
+        calc_date,
+        lookback,
+        m,
+    ):
+        db.execute(text("""
+            INSERT INTO user_factor_effectiveness
+                (user_id, custom_factor_id, exchange, factor_name, factor_category,
+                 symbol, period, forward_period, calc_date, lookback_days,
+                 ic_mean, ic_std, icir, win_rate, decay_half_life, sample_count)
+            VALUES
+                (:uid, :cfid, :ex, :fn, :fc, :sym, :p, :fp, :cd, :lb,
+                 :icm, :ics, :icir, :wr, :dhl, :sc)
+            ON CONFLICT (user_id, custom_factor_id, exchange, symbol, period, forward_period, calc_date)
+            DO UPDATE SET
+                factor_name = EXCLUDED.factor_name,
+                factor_category = EXCLUDED.factor_category,
+                lookback_days = EXCLUDED.lookback_days,
+                ic_mean = EXCLUDED.ic_mean,
+                ic_std = EXCLUDED.ic_std,
+                icir = EXCLUDED.icir,
+                win_rate = EXCLUDED.win_rate,
+                decay_half_life = EXCLUDED.decay_half_life,
+                sample_count = EXCLUDED.sample_count
+        """), {
+            "uid": user_id,
+            "cfid": custom_factor_id,
+            "ex": exchange,
+            "fn": fname,
+            "fc": fcat,
+            "sym": symbol,
+            "p": period,
+            "fp": fp,
+            "cd": calc_date,
+            "lb": lookback,
+            "icm": m["ic_mean"],
+            "ics": m["ic_std"],
+            "icir": m["icir"],
+            "wr": m["win_rate"],
+            "dhl": m.get("decay_half_life"),
+            "sc": m["sample_count"],
         })
 
 

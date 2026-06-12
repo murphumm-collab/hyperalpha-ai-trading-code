@@ -177,6 +177,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_market_universe_error_safety_marker: bool = True,
     include_frontend_market_symbol_sanitizer_marker: bool = True,
     include_private_factor_per_user_result_schema_marker: bool = True,
+    include_private_factor_precompute_writer_reader_marker: bool = True,
     include_agent_session_name_safety_marker: bool = True,
     include_strategy_spec_name_safety_marker: bool = True,
     include_handoff_error_message_safety_marker: bool = True,
@@ -422,6 +423,9 @@ def _write_minimal_acceptance_repo(
     private_factor_per_user_result_schema_marker = (
         "| AI Trading private factor per-user result schema | Done |"
     ) if include_private_factor_per_user_result_schema_marker else ""
+    private_factor_precompute_writer_reader_marker = (
+        "| AI Trading private factor precompute writer-reader | Done |"
+    ) if include_private_factor_precompute_writer_reader_marker else ""
     agent_session_name_safety_marker = (
         "| AI Trading agent-session name safety | Done |"
     ) if include_agent_session_name_safety_marker else ""
@@ -628,6 +632,7 @@ def _write_minimal_acceptance_repo(
                 frontend_market_universe_error_safety_marker,
                 frontend_market_symbol_sanitizer_marker,
                 private_factor_per_user_result_schema_marker,
+                private_factor_precompute_writer_reader_marker,
                 agent_session_name_safety_marker,
                 strategy_spec_name_safety_marker,
                 handoff_error_message_safety_marker,
@@ -840,6 +845,45 @@ def test_private_factor_per_user_result_schema_is_declared() -> None:
         < migration_manager_source.index("\"add_custom_factor_user_scope.py\"")
         < migration_manager_source.index("\"create_user_factor_result_tables.py\"")
     )
+
+
+def test_private_factor_precompute_writer_reader_uses_user_scoped_tables() -> None:
+    effectiveness_source = (
+        REPO_ROOT / "backend" / "services" / "factor_effectiveness_service.py"
+    ).read_text(encoding="utf-8")
+    resolver_source = (
+        REPO_ROOT / "backend" / "services" / "factor_resolver.py"
+    ).read_text(encoding="utf-8")
+    tools_source = (
+        REPO_ROOT / "backend" / "services" / "hyper_ai_tools.py"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    assert "def _upsert_user_factor_value" in effectiveness_source
+    assert "INSERT INTO user_factor_values" in effectiveness_source
+    assert "ON CONFLICT (user_id, custom_factor_id, exchange, symbol, period, timestamp)" in effectiveness_source
+    assert "def _upsert_user_effectiveness" in effectiveness_source
+    assert "INSERT INTO user_factor_effectiveness" in effectiveness_source
+    assert (
+        "ON CONFLICT (user_id, custom_factor_id, exchange, symbol, period, forward_period, calc_date)"
+        in effectiveness_source
+    )
+    assert "private_user_id = int(custom_factor.user_id)" in effectiveness_source
+    assert "user_id=private_user_id" in effectiveness_source
+    assert "CustomFactor.user_id == None" in effectiveness_source
+
+    assert "and_(\n                CustomFactor.source == \"builtin_expression\"" in resolver_source
+    assert "\"user_id\": custom.user_id" in resolver_source
+
+    assert "resolve_factor_definition(db, factor_name, user_id=user_id)" in tools_source
+    assert "FROM user_factor_effectiveness" in tools_source
+    assert "FROM user_factor_values" in tools_source
+    assert "\"storage_scope\": storage_scope" in tools_source
+    assert "\"source\": \"user_private\"" in tools_source
+
+    assert "| AI Trading private factor precompute writer-reader | Done |" in status_source
 
 
 def test_production_evidence_template_builder_uses_required_item_ids_without_secrets():
