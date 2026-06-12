@@ -28,6 +28,9 @@
 - `cd backend && uv run pytest tests/test_ai_trading_frontend_readiness_source.py -q -k "model_api_key_config_entry or model_config_is_nonblocking or model_adjustment_readiness_ui or onboarding_defers_api_key"` returned 4 passing tests.
 - `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py -q -k "frontend_main_page_api_key_config_entry or frontend_onboarding_api_key_deferral or frontend_model_config_nonblocking_entry or current_repo_completion_audit"` returned 3 passing tests.
 - Browser verification on `http://127.0.0.1:8812/#hyper-ai` showed the main page renders without API-key setup and the right panel exposes `AI Trading Model / Configure API key`; clicking it opened the existing Hyper AI Config modal with the API-key field inside the later page.
+- `scripts/local-dev/install_launch_agent.sh` synced/restarted the fixed runtime mirror from the current branch.
+- `cd backend && uv run python scripts/ai_trading_v1_env_check.py --strict --require-runtime-mirror-current` returned `ready=true` after the restart.
+- Browser verification on fixed frontend `http://127.0.0.1:5174/app/ai-trading` showed `AI Trading Model / Configure API key` in the main page.
 - `cd backend && uv run python -m py_compile scripts/ai_trading_v1_completion_audit.py tests/test_ai_trading_v1_completion_audit.py` passed.
 - `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py -q -k "production_evidence_prepared_initializer or production_evidence_prepare_cli or current_repo_completion_audit"` returned 5 passing tests.
 - Repo-external CLI smoke with `--prepare-production-evidence-file` returned:
