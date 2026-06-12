@@ -185,6 +185,7 @@ def _write_minimal_acceptance_repo(
     include_hyper_ai_suggestions_output_safety_marker: bool = True,
     include_hyper_ai_llm_base_url_safety_marker: bool = True,
     include_hyper_ai_preset_endpoint_override_guard_marker: bool = True,
+    include_hyper_ai_custom_endpoint_ssrf_guard_marker: bool = True,
     include_model_readiness_sensitive_endpoint_gate_marker: bool = True,
     include_context_compression_error_safety_marker: bool = True,
     include_context_compression_prompt_safety_marker: bool = True,
@@ -497,6 +498,9 @@ def _write_minimal_acceptance_repo(
     hyper_ai_preset_endpoint_override_guard_marker = (
         "| AI Trading Hyper AI preset endpoint override guard | Done |"
     ) if include_hyper_ai_preset_endpoint_override_guard_marker else ""
+    hyper_ai_custom_endpoint_ssrf_guard_marker = (
+        "| AI Trading Hyper AI custom endpoint SSRF guard | Done |"
+    ) if include_hyper_ai_custom_endpoint_ssrf_guard_marker else ""
     model_readiness_sensitive_endpoint_gate_marker = (
         "| AI Trading model readiness sensitive endpoint gate | Done |"
     ) if include_model_readiness_sensitive_endpoint_gate_marker else ""
@@ -796,6 +800,7 @@ def _write_minimal_acceptance_repo(
                 hyper_ai_suggestions_output_safety_marker,
                 hyper_ai_llm_base_url_safety_marker,
                 hyper_ai_preset_endpoint_override_guard_marker,
+                hyper_ai_custom_endpoint_ssrf_guard_marker,
                 model_readiness_sensitive_endpoint_gate_marker,
                 context_compression_error_safety_marker,
                 context_compression_prompt_safety_marker,
@@ -3207,6 +3212,24 @@ def test_completion_audit_blocks_local_acceptance_when_hyper_ai_preset_endpoint_
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading Hyper AI preset endpoint override guard | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_hyper_ai_custom_endpoint_ssrf_guard_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_hyper_ai_custom_endpoint_ssrf_guard_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading Hyper AI custom endpoint SSRF guard | Done |"
         in status_evidence["missing_phrases"]
     )
 

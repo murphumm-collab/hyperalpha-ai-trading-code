@@ -16,6 +16,7 @@ Architecture:
 - Memory extraction runs async in background thread during compression
 """
 import json
+import ipaddress
 import logging
 import os
 import random
@@ -94,6 +95,12 @@ REDACTED_SENSITIVE_LLM_BASE_URL = "[redacted_sensitive_llm_base_url]"
 SENSITIVE_PROFILE_FIELD_ERROR = "profile_field_rejected_sensitive"
 SENSITIVE_LLM_BASE_URL_ERROR = "llm_base_url_rejected_sensitive"
 LLM_BASE_URL_PRESET_PROVIDER_ERROR = "llm_base_url_not_allowed_for_preset_provider"
+LLM_BASE_URL_INVALID_ERROR = "llm_base_url_invalid"
+LLM_BASE_URL_HTTPS_REQUIRED_ERROR = "llm_base_url_https_required"
+LLM_BASE_URL_LOCAL_OR_PRIVATE_ERROR = "llm_base_url_local_or_private_rejected"
+LLM_BASE_URL_QUERY_OR_FRAGMENT_ERROR = "llm_base_url_query_or_fragment_rejected"
+HYPER_AI_ALLOW_PRIVATE_LLM_BASE_URL_ENV = "HYPER_AI_ALLOW_PRIVATE_LLM_BASE_URL"
+LLM_BASE_URL_LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1", "0.0.0.0"}
 
 SAFE_HYPER_AI_PROVIDER_REQUEST_FAILED_MESSAGE = "Hyper AI provider request failed. Please retry later."
 SAFE_HYPER_AI_RESPONSE_PARSE_FAILED_MESSAGE = "Hyper AI response could not be parsed."
@@ -290,7 +297,10 @@ def is_llm_base_url_sensitive(value: Any) -> bool:
         return False
     if is_profile_text_sensitive(text):
         return True
-    parsed = urlparse(text)
+    try:
+        parsed = urlparse(text)
+    except ValueError:
+        return False
     return bool(parsed.username or parsed.password)
 
 
@@ -303,6 +313,23 @@ def validate_llm_base_url_for_storage(value: Any) -> Optional[str]:
         return None
     if is_llm_base_url_sensitive(text):
         raise ValueError(SENSITIVE_LLM_BASE_URL_ERROR)
+    try:
+        parsed = urlparse(text)
+        host = parsed.hostname or ""
+        _ = parsed.port
+    except ValueError as exc:
+        raise ValueError(LLM_BASE_URL_INVALID_ERROR) from exc
+    if parsed.scheme not in {"http", "https"} or not host:
+        raise ValueError(LLM_BASE_URL_INVALID_ERROR)
+    if parsed.query or parsed.fragment:
+        raise ValueError(LLM_BASE_URL_QUERY_OR_FRAGMENT_ERROR)
+    is_local_or_private = _is_local_or_private_llm_host(host)
+    allow_private = _allow_private_llm_base_url()
+    if is_local_or_private and not allow_private:
+        raise ValueError(LLM_BASE_URL_LOCAL_OR_PRIVATE_ERROR)
+    if parsed.scheme != "https":
+        if not (allow_private and is_local_or_private):
+            raise ValueError(LLM_BASE_URL_HTTPS_REQUIRED_ERROR)
     return text
 
 
@@ -316,6 +343,34 @@ def sanitize_llm_base_url_for_response(value: Any) -> str:
     if is_llm_base_url_sensitive(text):
         return REDACTED_SENSITIVE_LLM_BASE_URL
     return text
+
+
+def _allow_private_llm_base_url() -> bool:
+    return str(os.getenv(HYPER_AI_ALLOW_PRIVATE_LLM_BASE_URL_ENV) or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _is_local_or_private_llm_host(host: str) -> bool:
+    host_text = (host or "").strip().lower()
+    if not host_text:
+        return True
+    if host_text in LLM_BASE_URL_LOCAL_HOSTS or host_text.endswith(".local"):
+        return True
+    try:
+        address = ipaddress.ip_address(host_text)
+    except ValueError:
+        return False
+    return bool(
+        address.is_loopback
+        or address.is_private
+        or address.is_link_local
+        or address.is_reserved
+        or address.is_unspecified
+    )
 
 
 def get_or_create_profile(db: Session, user_id: Optional[int] = None) -> HyperAiProfile:
@@ -345,10 +400,47 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
     provider = get_provider(profile.llm_provider)
     model = profile.llm_model or (provider.models[0] if provider and provider.models else "")
     profile_base_url = profile.llm_base_url
+    if profile_base_url:
+        try:
+            validated_profile_base_url = validate_llm_base_url_for_storage(profile_base_url)
+        except ValueError as exc:
+            blocked_reason = str(exc) or LLM_BASE_URL_INVALID_ERROR
+            logger.warning(
+                "Hyper AI LLM base URL blocked by safety policy: provider=%s reason=%s",
+                profile.llm_provider,
+                blocked_reason,
+            )
+            return {
+                "configured": False,
+                "provider": profile.llm_provider,
+                "base_url": REDACTED_SENSITIVE_LLM_BASE_URL,
+                "model": model,
+                "base_url_blocked": True,
+                "base_url_blocked_reason": blocked_reason,
+            }
+        if profile.llm_provider != "custom" and provider:
+            if (validated_profile_base_url or "").rstrip("/") == provider.base_url.rstrip("/"):
+                profile_base_url = None
+            else:
+                logger.warning(
+                    "Hyper AI preset LLM base URL override blocked: provider=%s",
+                    profile.llm_provider,
+                )
+                return {
+                    "configured": False,
+                    "provider": profile.llm_provider,
+                    "base_url": REDACTED_SENSITIVE_LLM_BASE_URL,
+                    "model": model,
+                    "base_url_blocked": True,
+                    "base_url_blocked_reason": LLM_BASE_URL_PRESET_PROVIDER_ERROR,
+                }
+        else:
+            profile_base_url = validated_profile_base_url
     if profile_base_url and is_llm_base_url_sensitive(profile_base_url):
         logger.warning(
-            "Hyper AI LLM base URL blocked by safety policy: provider=%s",
+            "Hyper AI LLM base URL blocked by safety policy: provider=%s reason=%s",
             profile.llm_provider,
+            SENSITIVE_LLM_BASE_URL_ERROR,
         )
         return {
             "configured": False,
@@ -356,6 +448,7 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
             "base_url": REDACTED_SENSITIVE_LLM_BASE_URL,
             "model": model,
             "base_url_blocked": True,
+            "base_url_blocked_reason": SENSITIVE_LLM_BASE_URL_ERROR,
         }
     base_url = profile_base_url or (provider.base_url if provider else "")
 

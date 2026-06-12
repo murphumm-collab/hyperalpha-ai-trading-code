@@ -841,7 +841,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
             HyperAiProfile(
                 user_id=user_id,
                 llm_provider="openai",
-                llm_base_url="https://api.openai.example/v1",
+                llm_base_url="https://api.openai.com/v1",
                 llm_model="gpt-4o",
                 llm_api_key_encrypted="encrypted-openai-key",
             )
@@ -865,7 +865,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
     assert unsupported_model["credential_value_returned"] is False
     unsupported_serialized = str(unsupported_runtime.json())
     assert "secret-openai-key" not in unsupported_serialized
-    assert "api.openai.example" not in unsupported_serialized
+    assert "api.openai.com" not in unsupported_serialized
 
     session = session_factory()
     try:

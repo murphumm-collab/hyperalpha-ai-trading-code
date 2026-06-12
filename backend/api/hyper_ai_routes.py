@@ -139,7 +139,8 @@ def _validated_llm_base_url_for_provider(provider: str, base_url: Optional[str])
     try:
         normalized_base_url = validate_llm_base_url_for_storage(base_url)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=SENSITIVE_LLM_BASE_URL_ERROR) from exc
+        detail = str(exc) or SENSITIVE_LLM_BASE_URL_ERROR
+        raise HTTPException(status_code=400, detail=detail) from exc
     if not normalized_base_url:
         raise HTTPException(
             status_code=400,
