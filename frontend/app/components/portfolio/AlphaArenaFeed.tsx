@@ -1496,7 +1496,7 @@ export default function AlphaArenaFeed({
                             </div>
                             <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800/80">
                               <img
-                                src={trade.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
+                                src={trade.exchange === 'binance' ? '/binance_logo.svg' : '/hyperliquid_logo.svg'}
                                 alt={trade.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
                                 className="h-3.5 w-3.5"
                               />
@@ -1624,7 +1624,7 @@ export default function AlphaArenaFeed({
                           </div>
                           <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800/80">
                             <img
-                              src={entry.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
+                              src={entry.exchange === 'binance' ? '/binance_logo.svg' : '/hyperliquid_logo.svg'}
                               alt={entry.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
                               className="h-3.5 w-3.5"
                             />
@@ -1805,7 +1805,7 @@ export default function AlphaArenaFeed({
                             )}
                             <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800/80">
                               <img
-                                src={snapshot.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
+                                src={snapshot.exchange === 'binance' ? '/binance_logo.svg' : '/hyperliquid_logo.svg'}
                                 alt={snapshot.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
                                 className="h-3.5 w-3.5"
                               />
@@ -2007,7 +2007,7 @@ export default function AlphaArenaFeed({
                           </div>
                           <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800/80">
                             <img
-                              src={log.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
+                              src={log.exchange === 'binance' ? '/binance_logo.svg' : '/hyperliquid_logo.svg'}
                               alt={log.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
                               className="h-3.5 w-3.5"
                             />

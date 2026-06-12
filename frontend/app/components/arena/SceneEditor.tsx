@@ -128,12 +128,12 @@ export function shouldUseOfficialConfig(config: Partial<SceneConfig> | null | un
 interface AssetItem {
   id: string
   label: string
-  file: string  // filename in /static/arena-sprites/assets/items/
+  file: string  // filename in /arena-sprites/assets/items/
   w: number
   h: number
 }
 
-const ITEMS_PATH = '/static/arena-sprites/assets/items'
+const ITEMS_PATH = '/arena-sprites/assets/items'
 
 // Catalog grouped by category for the palette
 const ITEM_CATALOG: Record<string, AssetItem[]> = {
@@ -638,7 +638,7 @@ function CustomCropPicker({ onSelect, onCancel }: {
         <div className="grid grid-cols-2 gap-1 max-h-[60vh] overflow-y-auto">
           {ALL_FILES.map(f => (
             <button key={`${f.cat}/${f.file}`}
-              onClick={() => onSelect(`/static/arena-sprites/assets/${f.cat}/${f.file}`)}
+              onClick={() => onSelect(`/arena-sprites/assets/${f.cat}/${f.file}`)}
               className="text-left px-2 py-1.5 text-[11px] rounded hover:bg-white/10 text-muted-foreground hover:text-white">
               <span className="text-white/40">{f.cat}/</span>{f.file}
             </button>
@@ -789,7 +789,7 @@ function AnimPreview({ animName }: { animName: string }) {
   return (
     <div style={{
       width: size, height: size, flexShrink: 0,
-      backgroundImage: 'url(/static/arena-sprites/avatar_01.png)',
+      backgroundImage: 'url(/arena-sprites/avatar_01.png)',
       backgroundSize: `${sheetW}px ${sheetH}px`,
       backgroundPosition: `-${col * size}px -${row * size}px`,
       imageRendering: 'pixelated',

@@ -975,6 +975,42 @@ def test_root_app_has_error_boundary_for_onboarding_skip_blank_page() -> None:
     assert "{this.state.error" not in boundary_source
 
 
+def test_hyper_ai_model_config_is_nonblocking_after_splash() -> None:
+    main_source = FRONTEND_MAIN.read_text(encoding="utf-8")
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    app_block = main_source.split("function App()", 1)[1].split(
+        "const renderMainContent = () => {",
+        1,
+    )[0]
+
+    assert "HyperAiOnboarding" not in main_source
+    assert "showOnboarding" not in main_source
+    assert "checkHyperAiConfig" not in main_source
+    assert "llm_configured" not in app_block
+    assert "missing config must not block app entry" in main_source
+    assert "setShowSplash(false)" in app_block
+
+    assert "data-testid=\"ai-trading-model-config-button\"" in hyper_ai_source
+    assert "onClick={() => setShowConfigModal(true)}" in hyper_ai_source
+    assert "<LLMConfigModal" in hyper_ai_source
+    assert "Configure DeepSeek/Qwen model" in hyper_ai_source
+
+
+def test_frontend_public_asset_paths_do_not_use_static_prefix() -> None:
+    frontend_root = REPO_ROOT / "frontend"
+    source_files = [frontend_root / "index.html"]
+    for pattern in ("*.ts", "*.tsx"):
+        source_files.extend((frontend_root / "app").rglob(pattern))
+
+    offenders = [
+        str(path.relative_to(REPO_ROOT))
+        for path in source_files
+        if "/static/" in path.read_text(encoding="utf-8")
+    ]
+
+    assert offenders == []
+
+
 def test_contact_dialog_forwards_trigger_ref_to_avoid_radix_blank_page_noise() -> None:
     source = CONTACT_DIALOG.read_text(encoding="utf-8")
 

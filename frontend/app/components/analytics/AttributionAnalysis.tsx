@@ -365,13 +365,13 @@ export default function AttributionAnalysis() {
               <SelectItem value="all">{t('attribution.allExchanges', 'All Exchanges')}</SelectItem>
               <SelectItem value="hyperliquid">
                 <span className="flex items-center gap-2">
-                  <img src="/static/hyperliquid_logo.svg" alt="" className="w-4 h-4" />
+                  <img src="/hyperliquid_logo.svg" alt="" className="w-4 h-4" />
                   Hyperliquid
                 </span>
               </SelectItem>
               <SelectItem value="binance">
                 <span className="flex items-center gap-2">
-                  <img src="/static/binance_logo.svg" alt="" className="w-4 h-4" />
+                  <img src="/binance_logo.svg" alt="" className="w-4 h-4" />
                   Binance
                 </span>
               </SelectItem>

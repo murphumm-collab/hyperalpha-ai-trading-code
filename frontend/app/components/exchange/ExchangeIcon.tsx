@@ -31,7 +31,7 @@ export default function ExchangeIcon({ exchangeId, className = '', size = 16 }: 
     ),
     binance: (
       <img
-        src="/static/binance_logo.svg"
+        src="/binance_logo.svg"
         alt="Binance"
         width={size}
         height={size}

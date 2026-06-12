@@ -180,7 +180,7 @@ export default function NotificationConfigModal({
                         className="scale-75 shrink-0"
                       />
                       <img
-                        src={pool.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
+                        src={pool.exchange === 'binance' ? '/binance_logo.svg' : '/hyperliquid_logo.svg'}
                         alt={pool.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
                         className="w-4 h-4 shrink-0"
                       />

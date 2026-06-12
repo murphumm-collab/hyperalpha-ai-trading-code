@@ -130,7 +130,7 @@ export default function PixelCharacter({
       style={{
         width: displaySize,
         height: displaySize,
-        backgroundImage: `url(/static/arena-sprites/${preset.sprite})`,
+        backgroundImage: `url(/arena-sprites/${preset.sprite})`,
         backgroundSize: `${sheetW}px ${sheetH}px`,
         backgroundPosition: `-${frameCol * displaySize}px -${row * displaySize}px`,
         imageRendering: 'pixelated',

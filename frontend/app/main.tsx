@@ -53,7 +53,7 @@ import MobileDashboard from '@/components/mobile/MobileDashboard'
 import MobilePrograms from '@/components/mobile/MobilePrograms'
 import ProgramTrader from '@/components/program/ProgramTrader'
 import SettingsPage from '@/components/settings/SettingsPage'
-import { SplashScreen, HyperAiOnboarding, HyperAiPage } from '@/components/hyper-ai'
+import { SplashScreen, HyperAiPage } from '@/components/hyper-ai'
 import ArenaAssets from '@/components/arena/ArenaAssets'
 // Remove CallbackPage import - handle inline
 import { AIDecision, getAccounts, checkMainnetAccounts, approveBuilder, type UnauthorizedAccount } from '@/lib/api'
@@ -162,40 +162,16 @@ function App() {
 
   // Hyper AI states - initialization happens during splash
   const [showSplash, setShowSplash] = useState(true)
-  const [showOnboarding, setShowOnboarding] = useState(false)
-  const [initComplete, setInitComplete] = useState(false)
   const initStartedRef = useRef(false)
 
-  // Check Hyper AI configuration during splash phase
-  const checkHyperAiConfig = useCallback(async () => {
-    try {
-      const res = await authFetch('/api/hyper-ai/profile')
-      const data = await res.json()
-      return !data.llm_configured
-    } catch (e) {
-      console.error('Failed to check Hyper AI config:', e)
-      return false
-    }
-  }, [])
-
-  // Stable callback for splash completion - does all init checks
+  // Stable callback for splash completion. LLM/API-key setup is optional and
+  // available inside Hyper AI, so missing config must not block app entry.
   const handleSplashComplete = useCallback(async () => {
     if (initStartedRef.current) return
     initStartedRef.current = true
 
-    const needsOnboarding = await checkHyperAiConfig()
-    setShowOnboarding(needsOnboarding)
-    setInitComplete(true)
     setShowSplash(false)
-  }, [checkHyperAiConfig])
-
-  const handleOnboardingComplete = () => {
-    setShowOnboarding(false)
-  }
-
-  const handleOnboardingSkip = () => {
-    setShowOnboarding(false)
-  }
+  }, [])
 
   // Check URL hash and pathname for page routing
   useEffect(() => {
@@ -764,16 +740,6 @@ function App() {
   // Show splash screen first (waits for both animation AND data ready)
   if (showSplash) {
     return <SplashScreen onComplete={handleSplashComplete} isReady={isDataReady} />
-  }
-
-  // Show onboarding if Hyper AI not configured
-  if (showOnboarding) {
-    return (
-      <HyperAiOnboarding
-        onComplete={handleOnboardingComplete}
-        onSkip={handleOnboardingSkip}
-      />
-    )
   }
 
   const renderMainContent = () => {

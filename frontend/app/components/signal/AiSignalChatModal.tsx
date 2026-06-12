@@ -33,7 +33,7 @@ const HyperliquidLogo = () => (
 )
 
 const BinanceLogo = () => (
-  <img src="/static/binance_logo.svg" alt="Binance" width="14" height="14" />
+  <img src="/binance_logo.svg" alt="Binance" width="14" height="14" />
 )
 
 const ExchangeBadge = ({ exchange, size = 'sm' }: { exchange: string; size?: 'sm' | 'xs' }) => {

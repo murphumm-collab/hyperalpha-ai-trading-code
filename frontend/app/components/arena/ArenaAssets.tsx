@@ -152,7 +152,7 @@ function PresetSelector({ preset, onPresetChange }: {
             preset === id ? 'border-primary bg-primary/20' : 'border-border'
           }`}
           style={{
-            backgroundImage: `url(/static/arena-sprites/avatar_${String(id).padStart(2, '0')}.png)`,
+            backgroundImage: `url(/arena-sprites/avatar_${String(id).padStart(2, '0')}.png)`,
             backgroundSize: '130px 160px',
             backgroundPosition: '0 -40px',
             imageRendering: 'pixelated',
@@ -173,7 +173,7 @@ function SpriteFrame({ presetId, row, col, scale = 1.5 }: {
   return (
     <div style={{
       width: size, height: size,
-      backgroundImage: `url(/static/arena-sprites/${sprite})`,
+      backgroundImage: `url(/arena-sprites/${sprite})`,
       backgroundSize: `${sheetW}px ${sheetH}px`,
       backgroundPosition: `-${col * size}px -${row * size}px`,
       imageRendering: 'pixelated',
@@ -203,7 +203,7 @@ function AnimatedSprite({ presetId, baseRow, dirOffset, frames, speed = 200, sca
   return (
     <div style={{
       width: size, height: size,
-      backgroundImage: `url(/static/arena-sprites/${sprite})`,
+      backgroundImage: `url(/arena-sprites/${sprite})`,
       backgroundSize: `${sheetW}px ${sheetH}px`,
       backgroundPosition: `-${col * size}px -${row * size}px`,
       imageRendering: 'pixelated',
@@ -469,7 +469,7 @@ function SceneTab() {
                 className="bg-black/20 border border-border/30 rounded-lg p-3 flex flex-col items-center gap-2">
                 <div className="bg-black/40 rounded p-2 overflow-auto"
                   style={{ maxWidth: 400, maxHeight: 400 }}>
-                  <img src={`/static/arena-sprites/assets/${category}/${a.file}`} alt={a.label}
+                  <img src={`/arena-sprites/assets/${category}/${a.file}`} alt={a.label}
                     style={{ imageRendering: 'pixelated', transform: `scale(${zoom})`, transformOrigin: 'top left' }} />
                 </div>
                 <span className="text-xs text-muted-foreground text-center max-w-[200px]">{a.label}</span>
@@ -482,7 +482,7 @@ function SceneTab() {
       <div>
         <h3 className="text-sm font-semibold text-primary mb-3">Misc Atlas (all-in-one)</h3>
         <div className="bg-black/20 border border-border/30 rounded-lg p-3 overflow-auto">
-          <img src="/static/arena-sprites/assets/misc-atlas.png" alt="Misc tile atlas"
+          <img src="/arena-sprites/assets/misc-atlas.png" alt="Misc tile atlas"
             style={{ imageRendering: 'pixelated', transform: `scale(${zoom})`, transformOrigin: 'top left' }} />
         </div>
       </div>

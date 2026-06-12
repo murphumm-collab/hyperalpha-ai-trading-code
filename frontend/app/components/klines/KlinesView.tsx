@@ -197,7 +197,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
                   : ''
               }`}
             >
-              <img src="/static/binance_logo.svg" alt="Binance" width={14} height={14} />
+              <img src="/binance_logo.svg" alt="Binance" width={14} height={14} />
             </button>
           </div>
           <Select value={selectedSymbol} onValueChange={setSelectedSymbol}>
@@ -250,7 +250,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
                       : 'hover:bg-muted'
                   }`}
                 >
-                  <img src="/static/binance_logo.svg" alt="Binance" width={16} height={16} />
+                  <img src="/binance_logo.svg" alt="Binance" width={16} height={16} />
                   Binance
                 </button>
               </div>

@@ -242,3 +242,77 @@ def test_backfill_status_redacts_legacy_raw_error_message(tmp_path):
     assert payload["error_message"] == SAFE_BACKFILL_ERROR_MESSAGE
     assert "secret" not in str(payload).lower()
     assert "orders.example" not in str(payload).lower()
+
+
+def test_delete_backfill_task_uses_fixed_error_label(tmp_path, monkeypatch):
+    client = _build_clients(tmp_path)["alice"]
+    session = client._kline_session_factory()
+    try:
+        task = KlineCollectionTask(
+            user_id=client._kline_user_ids["alice"],
+            exchange="hyperliquid",
+            symbol="BTC",
+            start_time=_utc_now(),
+            end_time=_utc_now() + timedelta(minutes=5),
+            period="1m",
+            status="failed",
+        )
+        session.add(task)
+        session.commit()
+        task_id = task.id
+    finally:
+        session.close()
+
+    def _raise_on_delete(self, instance):
+        raise RuntimeError("delete failed at https://orders.example/api?token=secret")
+
+    monkeypatch.setattr(client._kline_session_factory.class_, "delete", _raise_on_delete)
+    response = client.delete(f"/api/klines/backfill-tasks/{task_id}")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to delete task"
+    assert "secret" not in str(response.json()).lower()
+    assert "orders.example" not in str(response.json()).lower()
+
+
+def test_detect_gaps_validates_symbol_and_uses_fixed_error_label(tmp_path, monkeypatch):
+    client = _build_clients(tmp_path)["alice"]
+
+    async def _noop_initialize():
+        return None
+
+    async def _raise_detect_missing_ranges(*args, **kwargs):
+        raise RuntimeError("gap scan failed with api_key=secret")
+
+    monkeypatch.setattr(kline_service, "initialize", _noop_initialize)
+    monkeypatch.setattr(kline_service, "detect_missing_ranges", _raise_detect_missing_ranges)
+
+    bad_symbol = client.get("/api/klines/gaps/api_key=secret?days=7")
+    bad_days = client.get("/api/klines/gaps/BTC?days=31")
+    failed_scan = client.get("/api/klines/gaps/xyz:NVDA?days=7")
+
+    assert bad_symbol.status_code == 400
+    assert bad_symbol.json()["detail"] == "Invalid symbol"
+    assert "secret" not in str(bad_symbol.json()).lower()
+    assert bad_days.status_code == 422
+    assert failed_scan.status_code == 500
+    assert failed_scan.json()["detail"] == "Failed to detect gaps"
+    assert "secret" not in str(failed_scan.json()).lower()
+
+
+def test_supported_symbols_uses_fixed_error_label(tmp_path, monkeypatch):
+    client = _build_clients(tmp_path)["alice"]
+
+    async def _noop_initialize():
+        return None
+
+    def _raise_get_supported_symbols(*args, **kwargs):
+        raise RuntimeError("supported symbols failed with bearer secret-token")
+
+    monkeypatch.setattr(kline_service, "initialize", _noop_initialize)
+    monkeypatch.setattr(kline_service, "get_supported_symbols", _raise_get_supported_symbols)
+    response = client.get("/api/klines/supported-symbols?exchange=hyperliquid")
+
+    assert response.status_code == 500
+    assert response.json()["detail"] == "Failed to get supported symbols"
+    assert "secret-token" not in str(response.json()).lower()

@@ -63,7 +63,7 @@ const CHAR_ZONE_DEPTH = 180
 const REPEL_DIST = 70
 const REPEL_FORCE = 2.0
 
-const EMOJI_PATH = '/static/arena-sprites/assets/emoji'
+const EMOJI_PATH = '/arena-sprites/assets/emoji'
 type MoodOption = { bg: string; img?: string; emoji?: string }
 const NEWS_MOOD: MoodOption = { img: `${EMOJI_PATH}/zap.png`, bg: '#4a1d96' }
 const FLOW_MOOD: MoodOption = { img: `${EMOJI_PATH}/star.png`, bg: '#1e3a5f' }

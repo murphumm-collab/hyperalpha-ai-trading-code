@@ -41,7 +41,7 @@ const HyperliquidLogo = ({ className = '' }: { className?: string }) => (
 )
 
 const BinanceLogo = ({ className = '' }: { className?: string }) => (
-  <img src="/static/binance_logo.svg" alt="Binance" width="16" height="16" className={className} />
+  <img src="/binance_logo.svg" alt="Binance" width="16" height="16" className={className} />
 )
 
 // Exchange badge component

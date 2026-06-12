@@ -158,7 +158,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
         {/* Top: Brand */}
         <div className="px-4 pt-4 pb-2">
           <div className="flex items-center gap-2">
-            <img src="/static/logo_app.png" alt="Logo" className="h-7 w-7 object-contain flex-shrink-0" />
+            <img src="/logo_app.png" alt="Logo" className="h-7 w-7 object-contain flex-shrink-0" />
             <span className="text-base font-bold">Hyper Alpha Arena</span>
           </div>
         </div>

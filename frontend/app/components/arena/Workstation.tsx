@@ -202,7 +202,7 @@ function Monitor({ ex, isOff, width, height }: {
   )
 }
 
-const EMOJI_PATH = '/static/arena-sprites/assets/emoji'
+const EMOJI_PATH = '/arena-sprites/assets/emoji'
 
 type MoodOption = {
   bg: string

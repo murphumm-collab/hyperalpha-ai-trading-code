@@ -153,7 +153,7 @@ export default function TraderDetailModal({
           <DialogTitle className="flex items-center gap-2">
             <span>{account.accountName} - {t('accountDetail.details', 'Details')}</span>
             <img
-              src={isBinance ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
+              src={isBinance ? '/binance_logo.svg' : '/hyperliquid_logo.svg'}
               alt={isBinance ? 'Binance' : 'Hyperliquid'}
               className="h-4 w-4"
             />

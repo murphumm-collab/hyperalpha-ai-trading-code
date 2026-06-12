@@ -387,7 +387,7 @@ export default function HyperliquidMultiAccountSummary({
             : null
           const accountPositions = getAccountPositions(account.accountId, account.exchange)
           const isBinance = account.exchange === 'binance'
-          const exchangeLogo = isBinance ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'
+          const exchangeLogo = isBinance ? '/binance_logo.svg' : '/hyperliquid_logo.svg'
 
           return (
             <Card

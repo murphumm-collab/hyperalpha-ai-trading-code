@@ -39,7 +39,7 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
 
   // Preload VIP icons so dropdown renders instantly
   useEffect(() => {
-    ;['/static/vip_logo.png', '/static/vip_no.png'].forEach((src) => {
+    ;['/vip_logo.png', '/vip_no.png'].forEach((src) => {
       const img = new Image()
       img.src = src
     })
@@ -122,7 +122,7 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
                     {/* Membership Status */}
                     {membership && membership.status === 'ACTIVE' ? (
                       <DropdownMenuItem className="cursor-default">
-                        <img src="/static/vip_logo.png" alt="VIP" className="mr-2 h-4 w-4" />
+                        <img src="/vip_logo.png" alt="VIP" className="mr-2 h-4 w-4" />
                         <div className="flex flex-col">
                           <span className="text-sm font-medium text-yellow-600">{t('header.vipMember', 'VIP Member')}</span>
                           <span className="text-xs text-muted-foreground">
@@ -133,7 +133,7 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
                       </DropdownMenuItem>
                     ) : (
                       <DropdownMenuItem onClick={openPricingPage}>
-                        <img src="/static/vip_no.png" alt="Upgrade" className="mr-2 h-4 w-4" />
+                        <img src="/vip_no.png" alt="Upgrade" className="mr-2 h-4 w-4" />
                         <span>{t('header.upgradeToVip', 'Upgrade to VIP')}</span>
                         <ExternalLink className="ml-auto h-3 w-3" />
                       </DropdownMenuItem>

@@ -548,7 +548,7 @@ export default function HyperliquidAssetChart({
                 }}
               >
                 <img
-                  src={`/static/${account.exchange}_logo.svg`}
+                  src={`/${account.exchange}_logo.svg`}
                   alt={account.exchange}
                   style={{
                     width: '100%',

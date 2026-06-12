@@ -435,14 +435,14 @@ async def delete_backfill_task(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete task: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to delete task: {str(e)}")
+        logger.error("Failed to delete task: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to delete task")
 
 
 @router.get("/gaps/{symbol}")
 async def detect_data_gaps(
     symbol: str,
-    days: int = 7,  # 检查最近几天的数据
+    days: int = Query(7, ge=1, le=30),  # 检查最近几天的数据
     exchange: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
@@ -452,6 +452,7 @@ async def detect_data_gaps(
         # 确保服务已初始化
         await kline_service.initialize()
         resolved_exchange = _resolve_exchange(db, current_user, exchange)
+        normalized_symbol = _normalize_request_symbol(symbol)
 
         # 计算时间范围
         end_time = datetime.now()
@@ -459,7 +460,7 @@ async def detect_data_gaps(
 
         # 检测缺失范围
         missing_ranges = await kline_service.detect_missing_ranges(
-            symbol.upper(),
+            normalized_symbol,
             start_time,
             end_time,
             "1m",
@@ -467,7 +468,7 @@ async def detect_data_gaps(
         )
 
         return {
-            "symbol": symbol.upper(),
+            "symbol": normalized_symbol,
             "exchange": resolved_exchange,
             "time_range": {
                 "start": start_time.isoformat(),
@@ -490,8 +491,8 @@ async def detect_data_gaps(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to detect gaps for {symbol}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to detect gaps: {str(e)}")
+        logger.error("Failed to detect gaps: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to detect gaps")
 
 
 @router.get("/supported-symbols")
@@ -515,5 +516,5 @@ async def get_supported_symbols(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get supported symbols: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get supported symbols: {str(e)}")
+        logger.error("Failed to get supported symbols: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to get supported symbols")
