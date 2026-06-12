@@ -437,6 +437,25 @@ def test_ai_trading_strategy_action_error_paths_use_safe_formatter() -> None:
         assert "e instanceof Error ? e.message" not in safe_error_block
 
 
+def test_ai_trading_backtest_summary_uses_inline_inputs_without_browser_prompt() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    backtest_summary_block = hyper_ai_source.split(
+        "const handleAttachBacktestSummary = async",
+        1,
+    )[1].split("const handleAttachProgramBacktestResult = async", 1)[0]
+    recent_specs_block = hyper_ai_source.split(
+        "{recentStrategySpecs.map(record =>",
+        1,
+    )[1].split("onClick={() => handleAttachProgramBacktestResult(record.id)}", 1)[0]
+
+    assert "window.prompt" not in backtest_summary_block
+    assert "strategyBacktestSummaryId.trim()" in backtest_summary_block
+    assert "strategyBacktestSummaryMetricsText.trim()" in backtest_summary_block
+    assert "setStrategyDraftRecord(inlineRecord)" in backtest_summary_block
+    assert "setStrategyDraft(inlineRecord.spec)" in backtest_summary_block
+    assert "handleAttachBacktestSummary(record.id, record)" in recent_specs_block
+
+
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

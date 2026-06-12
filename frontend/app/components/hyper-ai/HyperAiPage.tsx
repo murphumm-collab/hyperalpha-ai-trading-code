@@ -2646,11 +2646,20 @@ export default function HyperAiPage() {
     }
   }
 
-  const handleAttachBacktestSummary = async (recordId?: number) => {
+  const handleAttachBacktestSummary = async (
+    recordId?: number,
+    inlineRecord?: AiTradingStrategySpecRecord
+  ) => {
     setStrategyDraftError(null)
     if (!recordId && currentStrategyActionBlockedByArchivedSession) {
       setStrategyDraftError(archivedSessionActionTitle)
       return
+    }
+    if (inlineRecord) {
+      setStrategyDraftRecord(inlineRecord)
+      if (inlineRecord.spec) {
+        setStrategyDraft(inlineRecord.spec)
+      }
     }
     let targetRecordId = recordId
     if (!targetRecordId) {
@@ -2665,26 +2674,14 @@ export default function HyperAiPage() {
       return
     }
 
-    const useInlineSummary = !recordId
-    const backtestId = useInlineSummary
-      ? strategyBacktestSummaryId.trim()
-      : window.prompt(t('hyperAi.aiTradingBacktestIdPrompt', 'Backtest ID from the external/backtest service'))?.trim()
+    const backtestId = strategyBacktestSummaryId.trim()
     if (!backtestId) {
-      if (useInlineSummary) {
-        setStrategyDraftError(t('hyperAi.aiTradingBacktestIdRequired', 'Enter a backtest ID before attaching evidence'))
-      }
+      setStrategyDraftError(t('hyperAi.aiTradingBacktestIdRequired', 'Enter a backtest ID before attaching evidence'))
       return
     }
-    const metricsText = useInlineSummary
-      ? strategyBacktestSummaryMetricsText.trim()
-      : window.prompt(
-          t('hyperAi.aiTradingBacktestMetricsPrompt', 'Metrics JSON'),
-          AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE
-        )?.trim()
+    const metricsText = strategyBacktestSummaryMetricsText.trim()
     if (!metricsText) {
-      if (useInlineSummary) {
-        setStrategyDraftError(t('hyperAi.aiTradingBacktestMetricsRequired', 'Enter metrics JSON before attaching evidence'))
-      }
+      setStrategyDraftError(t('hyperAi.aiTradingBacktestMetricsRequired', 'Enter metrics JSON before attaching evidence'))
       return
     }
 
@@ -2725,9 +2722,7 @@ export default function HyperAiPage() {
       if (record.spec) {
         setStrategyDraft(record.spec)
       }
-      if (useInlineSummary) {
-        setStrategyBacktestSummaryId('')
-      }
+      setStrategyBacktestSummaryId('')
       const prompt = currentLang === 'zh'
         ? `请复核 AI Trading Strategy Spec #${record.id} 的回测摘要：确认 backtest id、metrics、是否足以允许后续 signal handoff；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)}\n\`\`\``
         : `Review the backtest summary attached to AI Trading Strategy Spec #${record.id}. Confirm the backtest id, metrics, and whether it is sufficient for later signal handoff. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(record.spec?.backtest || {}), null, 2)}\n\`\`\``
@@ -5593,7 +5588,7 @@ export default function HyperAiPage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleAttachBacktestSummary(record.id)}
+                            onClick={() => handleAttachBacktestSummary(record.id, record)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                             disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
                             title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingAttachBacktest', 'Attach backtest summary')}
