@@ -36,6 +36,7 @@ const withWsAuth = <T extends Record<string, any>>(payload: T): T & { access_tok
 
 import Header from '@/components/layout/Header'
 import Sidebar from '@/components/layout/Sidebar'
+import AppErrorBoundary from '@/components/layout/AppErrorBoundary'
 import ComprehensiveView from '@/components/portfolio/ComprehensiveView'
 import SystemLogs from '@/components/layout/SystemLogs'
 import PromptManager from '@/components/prompt/PromptManager'
@@ -933,15 +934,17 @@ function App() {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <AuthProvider>
-      <ExchangeProvider>
-        <TradingModeProvider>
-          <ArenaDataProvider>
-            <Toaster position="top-right" />
-            <App />
-          </ArenaDataProvider>
-        </TradingModeProvider>
-      </ExchangeProvider>
-    </AuthProvider>
+    <AppErrorBoundary>
+      <AuthProvider>
+        <ExchangeProvider>
+          <TradingModeProvider>
+            <ArenaDataProvider>
+              <Toaster position="top-right" />
+              <App />
+            </ArenaDataProvider>
+          </TradingModeProvider>
+        </ExchangeProvider>
+      </AuthProvider>
+    </AppErrorBoundary>
   </React.StrictMode>,
 )

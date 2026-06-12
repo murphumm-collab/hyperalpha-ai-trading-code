@@ -3,6 +3,9 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "settings" / "SettingsPage.tsx"
+FRONTEND_MAIN = REPO_ROOT / "frontend" / "app" / "main.tsx"
+APP_ERROR_BOUNDARY = REPO_ROOT / "frontend" / "app" / "components" / "layout" / "AppErrorBoundary.tsx"
+CONTACT_DIALOG = REPO_ROOT / "frontend" / "app" / "components" / "contact" / "ContactDialog.tsx"
 HYPER_AI_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiPage.tsx"
 HYPER_AI_ONBOARDING = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiOnboarding.tsx"
 BOT_INTEGRATION_MODAL = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "BotIntegrationModal.tsx"
@@ -948,6 +951,37 @@ def test_hyper_ai_onboarding_uses_safe_model_and_stream_errors() -> None:
 
     assert "throw new Error(t('hyperAi.onboarding.streamError', 'Stream error'))" in stream_block
     assert "chunk.data?.message || 'Stream error'" not in stream_block
+
+
+def test_root_app_has_error_boundary_for_onboarding_skip_blank_page() -> None:
+    main_source = FRONTEND_MAIN.read_text(encoding="utf-8")
+    boundary_source = APP_ERROR_BOUNDARY.read_text(encoding="utf-8")
+    render_block = main_source.split(
+        "ReactDOM.createRoot(document.getElementById('root')!).render(",
+        1,
+    )[1]
+
+    assert "import AppErrorBoundary from '@/components/layout/AppErrorBoundary'" in main_source
+    assert "<AppErrorBoundary>" in render_block
+    assert "<AuthProvider>" in render_block
+    assert render_block.index("<AppErrorBoundary>") < render_block.index("<AuthProvider>")
+    assert "static getDerivedStateFromError" in boundary_source
+    assert "componentDidCatch" in boundary_source
+    assert "window.location.reload()" in boundary_source
+    assert "The app recovered from a UI loading error" in boundary_source
+    assert "HyperAlpha UI render failure" in boundary_source
+    assert "{String(error)}" not in boundary_source
+    assert "{error.message}" not in boundary_source
+    assert "{this.state.error" not in boundary_source
+
+
+def test_contact_dialog_forwards_trigger_ref_to_avoid_radix_blank_page_noise() -> None:
+    source = CONTACT_DIALOG.read_text(encoding="utf-8")
+
+    assert "React.forwardRef<HTMLElement, ContactDialogProps>" in source
+    assert "React.cloneElement(children, { ...triggerProps, ref }" in source
+    assert "<DialogTrigger asChild>{trigger}</DialogTrigger>" in source
+    assert "ContactDialog.displayName = 'ContactDialog'" in source
 
 
 def test_hyper_ai_bot_and_tool_config_errors_use_safe_labels() -> None:

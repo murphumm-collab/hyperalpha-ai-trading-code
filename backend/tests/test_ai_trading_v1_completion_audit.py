@@ -108,6 +108,7 @@ def _write_minimal_acceptance_repo(
     include_production_url_port_safety_marker: bool = True,
     include_production_url_parse_error_safety_marker: bool = True,
     include_ai_stream_routes_regression_gate: bool = True,
+    include_kline_routes_regression_gate: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -173,6 +174,7 @@ def _write_minimal_acceptance_repo(
     include_model_setup_runtime_refresh_marker: bool = True,
     include_frontend_model_config_error_safety_marker: bool = True,
     include_frontend_onboarding_error_safety_marker: bool = True,
+    include_frontend_onboarding_blank_page_guard_marker: bool = True,
     include_frontend_bot_tool_config_error_safety_marker: bool = True,
     include_frontend_market_universe_error_safety_marker: bool = True,
     include_frontend_market_symbol_sanitizer_marker: bool = True,
@@ -215,6 +217,9 @@ def _write_minimal_acceptance_repo(
     ai_stream_routes_regression_text = (
         "tests/test_ai_stream_routes.py\n"
     ) if include_ai_stream_routes_regression_gate else ""
+    kline_routes_regression_text = (
+        "tests/test_kline_routes.py\n"
+    ) if include_kline_routes_regression_gate else ""
     frontend_source_guard_text = (
         "tests/test_ai_trading_frontend_readiness_source.py\n"
     ) if include_frontend_source_guard else ""
@@ -412,6 +417,9 @@ def _write_minimal_acceptance_repo(
     frontend_onboarding_error_safety_marker = (
         "| AI Trading frontend onboarding error safety | Done |"
     ) if include_frontend_onboarding_error_safety_marker else ""
+    frontend_onboarding_blank_page_guard_marker = (
+        "| AI Trading frontend onboarding blank-page guard | Done |"
+    ) if include_frontend_onboarding_blank_page_guard_marker else ""
     frontend_bot_tool_config_error_safety_marker = (
         "| AI Trading frontend bot/tool config error safety | Done |"
     ) if include_frontend_bot_tool_config_error_safety_marker else ""
@@ -421,6 +429,9 @@ def _write_minimal_acceptance_repo(
     frontend_market_symbol_sanitizer_marker = (
         "| AI Trading frontend market symbol sanitizer | Done |"
     ) if include_frontend_market_symbol_sanitizer_marker else ""
+    kline_local_db_api_marker = (
+        "| AI Trading K-line local DB API | Done |"
+    ) if include_kline_routes_regression_gate else ""
     private_factor_per_user_result_schema_marker = (
         "| AI Trading private factor per-user result schema | Done |"
     ) if include_private_factor_per_user_result_schema_marker else ""
@@ -499,6 +510,7 @@ def _write_minimal_acceptance_repo(
                 local_acceptance_transient_retry_runner_text,
                 db_gate_text,
                 ai_stream_routes_regression_text,
+                kline_routes_regression_text,
                 frontend_source_guard_text,
                 "Frontend build",
                 "local completion summary gate",
@@ -632,9 +644,11 @@ def _write_minimal_acceptance_repo(
                 model_setup_runtime_refresh_marker,
                 frontend_model_config_error_safety_marker,
                 frontend_onboarding_error_safety_marker,
+                frontend_onboarding_blank_page_guard_marker,
                 frontend_bot_tool_config_error_safety_marker,
                 frontend_market_universe_error_safety_marker,
                 frontend_market_symbol_sanitizer_marker,
+                kline_local_db_api_marker,
                 private_factor_per_user_result_schema_marker,
                 private_factor_precompute_writer_reader_marker,
                 private_factor_precompute_db_smoke_marker,
@@ -902,6 +916,29 @@ def test_private_factor_precompute_writer_reader_uses_user_scoped_tables() -> No
 
     assert "| AI Trading private factor precompute writer-reader | Done |" in status_source
     assert "| AI Trading private factor precompute DB smoke | Done |" in status_source
+
+
+def test_kline_local_db_api_is_implemented_and_gated() -> None:
+    route_source = (
+        REPO_ROOT / "backend" / "api" / "kline_routes.py"
+    ).read_text(encoding="utf-8")
+    runner_source = (
+        REPO_ROOT / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    assert "K-line data service not implemented yet" not in route_source
+    assert "CryptoKline" in route_source
+    assert "\"source\": \"local_db\"" in route_source
+    assert "_resolve_exchange(db, current_user, exchange)" in route_source
+    assert "CryptoKline.symbol.in_(symbol_candidates)" in route_source
+    assert "Invalid symbol" in route_source
+    assert "Unsupported period" in route_source
+    assert "Failed to get K-line data for local DB request: {type(e).__name__}" in route_source
+    assert "tests/test_kline_routes.py" in runner_source
+    assert "| AI Trading K-line local DB API | Done |" in status_source
 
 
 def test_production_evidence_template_builder_uses_required_item_ids_without_secrets():
@@ -1444,6 +1481,21 @@ def test_completion_audit_blocks_local_acceptance_when_ai_stream_routes_regressi
     assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
     runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
     assert "tests/test_ai_stream_routes.py" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_kline_routes_regression_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_kline_routes_regression_gate=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    local_blockers = report["summary"]["local_blockers"]
+    assert "aggregate_local_acceptance_runner" in local_blockers
+    assert "status_progress_marker" in local_blockers
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert "tests/test_kline_routes.py" in runner_evidence["missing_phrases"]
+    assert "| AI Trading K-line local DB API | Done |" in status_evidence["missing_phrases"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_explain_gate_is_missing(tmp_path):
@@ -2589,6 +2641,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_onboarding_error
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend onboarding error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_onboarding_blank_page_guard_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_onboarding_blank_page_guard_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend onboarding blank-page guard | Done |"
         in status_evidence["missing_phrases"]
     )
 

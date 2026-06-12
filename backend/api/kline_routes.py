@@ -3,8 +3,9 @@ K线数据管理API路由
 """
 
 import asyncio
+import re
 from datetime import datetime, timedelta
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel
@@ -12,13 +13,17 @@ import logging
 
 from api.auth_utils import get_current_user_dependency
 from database.connection import SessionLocal
-from database.models import KlineCollectionTask, User
+from database.models import CryptoKline, KlineCollectionTask, User
 from services.kline_data_service import kline_service
 from services.kline_backfill_manager import BackfillManager
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/klines", tags=["klines"])
+VALID_KLINE_PERIODS = {
+    "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M"
+}
+_SAFE_SYMBOL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9:_./-]{0,39}$")
 
 
 def get_db():
@@ -88,6 +93,31 @@ def _task_response(task: KlineCollectionTask) -> BackfillTaskResponse:
     )
 
 
+def _normalize_ts(value: Optional[int]) -> Optional[int]:
+    if value is None:
+        return None
+    if value < 0:
+        raise HTTPException(status_code=400, detail="timestamp must be non-negative")
+    return int(value // 1000) if value > 10_000_000_000 else int(value)
+
+
+def _safe_symbol_candidates(symbol: str) -> list[str]:
+    raw = (symbol or "").strip()
+    if not raw or not _SAFE_SYMBOL_RE.match(raw):
+        raise HTTPException(status_code=400, detail="Invalid symbol")
+
+    candidates = [raw, raw.upper()]
+    if ":" in raw:
+        dex, asset = raw.split(":", 1)
+        candidates.append(f"{dex.lower()}:{asset.upper()}")
+
+    ordered: list[str] = []
+    for item in candidates:
+        if item not in ordered:
+            ordered.append(item)
+    return ordered
+
+
 @router.get("/coverage", response_model=List[CoverageResponse])
 async def get_data_coverage(
     symbols: Optional[str] = None,  # 逗号分隔的交易对列表
@@ -150,9 +180,82 @@ async def get_backfill_tasks(
         return {"tasks": []}
 
 @router.get("/data")
-async def get_kline_data(symbol: str, period: str = "1m", limit: int = 1000):
-    """获取K线数据"""
-    return {"success": False, "data": [], "message": "K-line data service not implemented yet"}
+async def get_kline_data(
+    symbol: str,
+    period: str = "1m",
+    limit: int = Query(1000, ge=1, le=5000),
+    exchange: Optional[str] = None,
+    start_ts: Optional[int] = None,
+    end_ts: Optional[int] = None,
+    environment: str = Query("mainnet", pattern="^(mainnet|testnet|all)$"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user_dependency),
+):
+    """获取本地已采集的 K 线数据，不触发外部交易所请求。"""
+    try:
+        if period not in VALID_KLINE_PERIODS:
+            raise HTTPException(status_code=400, detail="Unsupported period")
+
+        resolved_exchange = _resolve_exchange(db, current_user, exchange)
+        symbol_candidates = _safe_symbol_candidates(symbol)
+        start_seconds = _normalize_ts(start_ts)
+        end_seconds = _normalize_ts(end_ts)
+        if start_seconds is not None and end_seconds is not None and start_seconds > end_seconds:
+            raise HTTPException(status_code=400, detail="start_ts must be <= end_ts")
+
+        query = db.query(CryptoKline).filter(
+            CryptoKline.exchange == resolved_exchange,
+            CryptoKline.symbol.in_(symbol_candidates),
+            CryptoKline.period == period,
+        )
+        if environment != "all":
+            query = query.filter(CryptoKline.environment == environment)
+        if start_seconds is not None:
+            query = query.filter(CryptoKline.timestamp >= start_seconds)
+        if end_seconds is not None:
+            query = query.filter(CryptoKline.timestamp <= end_seconds)
+
+        rows = query.order_by(CryptoKline.timestamp.desc()).limit(limit).all()
+        rows = list(reversed(rows))
+        data = [
+            {
+                "timestamp": int(row.timestamp),
+                "datetime": row.datetime_str,
+                "datetime_str": row.datetime_str,
+                "open": float(row.open_price) if row.open_price is not None else None,
+                "high": float(row.high_price) if row.high_price is not None else None,
+                "low": float(row.low_price) if row.low_price is not None else None,
+                "close": float(row.close_price) if row.close_price is not None else None,
+                "volume": float(row.volume) if row.volume is not None else None,
+                "amount": float(row.amount) if row.amount is not None else None,
+                "change": float(row.change) if row.change is not None else None,
+                "percent": float(row.percent) if row.percent is not None else None,
+                "exchange": row.exchange,
+                "symbol": row.symbol,
+                "period": row.period,
+                "environment": row.environment,
+            }
+            for row in rows
+        ]
+
+        return {
+            "success": True,
+            "source": "local_db",
+            "exchange": resolved_exchange,
+            "requested_symbol": symbol,
+            "matched_symbol": data[-1]["symbol"] if data else None,
+            "period": period,
+            "environment": environment,
+            "count": len(data),
+            "data": data,
+            "message": "ok" if data else "No local K-line data found",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get K-line data for local DB request: {type(e).__name__}")
+        raise HTTPException(status_code=500, detail="Failed to get K-line data")
 
 @router.post("/backfill", response_model=Dict[str, Any])
 async def create_backfill_task(
