@@ -363,8 +363,9 @@ def _call_llm_for_dedup(
 
         if response.status_code != 200:
             logger.warning(
-                f"[Memory] Dedup API error: status={response.status_code}, "
-                f"body={response.text[:500]}"
+                "[Memory] Dedup API error: status=%s response_body_present=%s",
+                response.status_code,
+                bool(getattr(response, "content", b"")),
             )
             return None
 
@@ -382,20 +383,20 @@ def _call_llm_for_dedup(
             result = json.loads(json_match.group())
             return result.get("actions", [])
 
-        logger.warning(f"[Memory] Dedup response not valid JSON: {text[:200]}")
+        logger.warning("[Memory] Dedup response not valid JSON")
         return None
 
     except requests.exceptions.Timeout:
         logger.warning("[Memory] Dedup API timeout (60s)")
         return None
-    except requests.exceptions.ConnectionError as e:
-        logger.warning(f"[Memory] Dedup API connection error: {e}")
+    except requests.exceptions.ConnectionError:
+        logger.warning("[Memory] Dedup API connection error")
         return None
-    except json.JSONDecodeError as e:
-        logger.warning(f"[Memory] Dedup response JSON parse error: {e}")
+    except json.JSONDecodeError:
+        logger.warning("[Memory] Dedup response JSON parse error")
         return None
-    except Exception as e:
-        logger.warning(f"[Memory] Dedup unexpected error: {type(e).__name__}: {e}")
+    except Exception:
+        logger.warning("[Memory] Dedup unexpected error")
         return None
 
 
@@ -537,8 +538,9 @@ def extract_memories_from_conversation(
 
         if response.status_code != 200:
             logger.warning(
-                f"[Memory] Extraction API error: status={response.status_code}, "
-                f"body={response.text[:500]}"
+                "[Memory] Extraction API error: status=%s response_body_present=%s",
+                response.status_code,
+                bool(getattr(response, "content", b"")),
             )
             return []
 
@@ -561,12 +563,12 @@ def extract_memories_from_conversation(
 
     except requests.exceptions.Timeout:
         logger.warning("[Memory] Extraction API timeout (60s)")
-    except requests.exceptions.ConnectionError as e:
-        logger.warning(f"[Memory] Extraction API connection error: {e}")
-    except json.JSONDecodeError as e:
-        logger.warning(f"[Memory] Extraction response JSON parse error: {e}")
-    except Exception as e:
-        logger.warning(f"[Memory] Extraction unexpected error: {type(e).__name__}: {e}")
+    except requests.exceptions.ConnectionError:
+        logger.warning("[Memory] Extraction API connection error")
+    except json.JSONDecodeError:
+        logger.warning("[Memory] Extraction response JSON parse error")
+    except Exception:
+        logger.warning("[Memory] Extraction unexpected error")
 
     return []
 
