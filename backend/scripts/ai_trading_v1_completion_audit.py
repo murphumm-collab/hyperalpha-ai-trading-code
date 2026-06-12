@@ -491,6 +491,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading model-adjust output sanitizer | Done |",
             "| AI Trading frontend model-adjust output safety | Done |",
             "| AI Trading model/gateway exception type safety | Done |",
+            "| AI Trading route exception detail safety | Done |",
             "| AI Trading Hyper AI tool error safety | Done |",
             "| AI Trading Hyper AI service stream error safety | Done |",
             "| AI Trading frontend validation warning labels | Done |",

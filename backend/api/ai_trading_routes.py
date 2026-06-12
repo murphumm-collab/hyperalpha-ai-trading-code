@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path as FilesystemPath
 from typing import Any, Dict, Optional
 
@@ -74,6 +75,42 @@ router = APIRouter(prefix="/api/ai-trading", tags=["AI Trading"])
 AI_TRADING_REPO_ROOT = FilesystemPath(__file__).resolve().parents[2]
 AI_TRADING_PRODUCTION_EVIDENCE_MAX_PAYLOAD_BYTES = 40000
 AI_TRADING_PRODUCTION_EVIDENCE_MAX_ITEM_KEYS = 14
+SAFE_AI_TRADING_ROUTE_ERROR_DETAIL = "AI Trading request failed"
+AI_TRADING_ROUTE_ERROR_DETAIL_MAX_CHARS = 500
+AI_TRADING_ROUTE_SENSITIVE_LABEL_PATTERN = re.compile(
+    r"((api[_-]?key|secret|token|private[_-]?key|password|authorization)\s*[:=]"
+    r"|bearer\s+[A-Za-z0-9._~+/=-]+)",
+    re.IGNORECASE,
+)
+AI_TRADING_ROUTE_SENSITIVE_URL_PATTERN = re.compile(r"https?://[^\s)>\"]+", re.IGNORECASE)
+
+
+def _safe_ai_trading_route_error_detail(exc: BaseException) -> str:
+    detail = str(exc).strip()
+    if not detail:
+        return SAFE_AI_TRADING_ROUTE_ERROR_DETAIL
+    if (
+        AI_TRADING_ROUTE_SENSITIVE_LABEL_PATTERN.search(detail)
+        or AI_TRADING_ROUTE_SENSITIVE_URL_PATTERN.search(detail)
+    ):
+        return SAFE_AI_TRADING_ROUTE_ERROR_DETAIL
+    return detail[:AI_TRADING_ROUTE_ERROR_DETAIL_MAX_CHARS]
+
+
+def _ai_trading_route_value_error(exc: ValueError, *, default_status: int = 400) -> HTTPException:
+    raw_detail = str(exc).lower()
+    status_code = 404 if "not found" in raw_detail else default_status
+    return HTTPException(
+        status_code=status_code,
+        detail=_safe_ai_trading_route_error_detail(exc),
+    )
+
+
+def _ai_trading_route_exception(exc: BaseException, *, status_code: int) -> HTTPException:
+    return HTTPException(
+        status_code=status_code,
+        detail=_safe_ai_trading_route_error_detail(exc),
+    )
 
 
 class StrategySpecDraftRequest(BaseModel):
@@ -404,7 +441,7 @@ def create_ai_trading_agent_session_endpoint(
             agent_session_id=request.agent_session_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "agent_session": serialize_ai_trading_agent_session_record(record),
@@ -428,9 +465,7 @@ def update_ai_trading_agent_session_endpoint(
             context_summary=request.context_summary,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "agent_session": serialize_ai_trading_agent_session_record(record),
@@ -451,7 +486,7 @@ def archive_ai_trading_agent_session_endpoint(
             agent_session_id=agent_session_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc, default_status=404) from exc
     return {
         "success": True,
         "agent_session": serialize_ai_trading_agent_session_record(record),
@@ -478,9 +513,7 @@ def ai_trading_agent_session_context_endpoint(
             attempt_limit=attempt_limit,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "context": context,
@@ -507,9 +540,7 @@ def compress_ai_trading_agent_session_context_endpoint(
             attempt_limit=attempt_limit,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "agent_session": serialize_ai_trading_agent_session_record(result["record"]),
@@ -548,7 +579,7 @@ def draft_strategy_spec_endpoint(
     try:
         spec = draft_strategy_spec(_model_dump(request), user_id=current_user.id)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc) from exc
 
     return {
         "success": True,
@@ -585,7 +616,7 @@ def adjust_strategy_spec_endpoint(
             source=request.source or "natural_language_adjustment",
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc) from exc
 
     return {
         "success": True,
@@ -615,9 +646,7 @@ def model_adjust_strategy_spec_endpoint(
             require_current_user_agent_session=bool(request.agent_session_id),
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
 
     spec = result["spec"]
     return {
@@ -648,7 +677,7 @@ def list_strategy_specs_endpoint(
             limit=limit,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "specs": [
             serialize_strategy_spec_record(
@@ -681,7 +710,7 @@ def save_strategy_spec_endpoint(
             agent_context_summary=request.agent_context_summary,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(
@@ -730,9 +759,7 @@ def adjust_strategy_spec_record_endpoint(
             source=request.source or "natural_language_adjustment",
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
 
     return {
         "success": True,
@@ -762,9 +789,7 @@ def model_adjust_strategy_spec_record_endpoint(
             source=request.source or "model_adjustment",
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
 
     return {
         "success": True,
@@ -789,9 +814,7 @@ def approve_strategy_spec_endpoint(
     try:
         record = approve_strategy_spec_record(db, user_id=current_user.id, record_id=spec_id)
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(
@@ -819,9 +842,7 @@ def attach_strategy_backtest_summary_endpoint(
             summary=_model_dump(request),
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(
@@ -851,9 +872,7 @@ def attach_strategy_backtest_result_endpoint(
             notes=request.notes,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(
@@ -882,9 +901,7 @@ def attach_latest_strategy_backtest_result_endpoint(
             notes=request.notes,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(
@@ -915,9 +932,7 @@ def strategy_backtest_preflight_endpoint(
             fee_rate=request.fee_rate,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": preflight.get("ready", False),
         "preflight": preflight,
@@ -940,9 +955,7 @@ def strategy_backtest_evidence_endpoint(
             trigger_limit=trigger_limit,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "evidence": evidence,
@@ -959,7 +972,7 @@ def archive_strategy_spec_endpoint(
     try:
         record = archive_strategy_spec_record(db, user_id=current_user.id, record_id=spec_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc, default_status=404) from exc
     return {
         "success": True,
         "spec_record": serialize_strategy_spec_record(
@@ -990,9 +1003,7 @@ def strategy_signal_preview_endpoint(
             db=db,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "signal_preview": serialize_signal_preview_payload(signal_preview),
@@ -1015,9 +1026,7 @@ def create_strategy_signal_event_endpoint(
             market_context=request.market_context,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "signal_event": serialize_signal_event_record(
@@ -1049,7 +1058,7 @@ def list_signal_events_endpoint(
             limit=limit,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "signal_events": [
             serialize_signal_event_record(
@@ -1128,9 +1137,7 @@ def reject_signal_event_endpoint(
             reason=request.reason,
         )
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "signal_event": serialize_signal_event_record(
@@ -1160,11 +1167,9 @@ def submit_signal_event_handoff_endpoint(
             confirmation_source=handoff_request.confirmation_source,
         )
     except SignalGatewayDisabledError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+        raise _ai_trading_route_exception(exc, status_code=409) from exc
     except ValueError as exc:
-        detail = str(exc)
-        status_code = 404 if "not found" in detail.lower() else 400
-        raise HTTPException(status_code=status_code, detail=detail) from exc
+        raise _ai_trading_route_value_error(exc) from exc
     return {
         "success": True,
         "signal_event": serialize_signal_event_record(

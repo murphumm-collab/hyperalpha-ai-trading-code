@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 import services.ai_trading_market_universe_service as market_universe_service
 import services.ai_trading_strategy_spec_service as strategy_service
+import api.ai_trading_routes as ai_trading_routes
 from api.ai_trading_routes import router
 from api.auth_utils import get_current_user_dependency
 from database.connection import Base, get_db
@@ -4280,6 +4281,91 @@ def test_ai_trading_agent_session_id_rejects_sensitive_values_without_echo(tmp_p
     assert too_long.status_code == 400
     assert "agent_session_id must be 1-80 chars" in too_long.json()["detail"]
     assert too_long_session_id not in json.dumps(too_long.json())
+
+
+def test_ai_trading_route_exception_details_are_redacted_without_status_loss(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    sensitive_detail = (
+        "provider failed api_key=secret-route-key Authorization: Bearer route-token "
+        "https://order-backend.test/signals"
+    )
+
+    def raise_sensitive_value_error(*args, **kwargs):
+        raise ValueError(sensitive_detail)
+
+    monkeypatch.setattr(ai_trading_routes, "draft_strategy_spec", raise_sensitive_value_error)
+    draft_error = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m long breakout with stop-loss and take-profit.",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+        },
+    )
+    assert draft_error.status_code == 400
+    assert draft_error.json()["detail"] == ai_trading_routes.SAFE_AI_TRADING_ROUTE_ERROR_DETAIL
+
+    def raise_sensitive_not_found(*args, **kwargs):
+        raise ValueError("AI Trading agent session not found api_key=secret-not-found")
+
+    monkeypatch.setattr(
+        ai_trading_routes,
+        "build_ai_trading_agent_session_context",
+        raise_sensitive_not_found,
+    )
+    not_found_error = client.get("/api/ai-trading/agent-sessions/session:safe/context")
+    assert not_found_error.status_code == 404
+    assert not_found_error.json()["detail"] == ai_trading_routes.SAFE_AI_TRADING_ROUTE_ERROR_DETAIL
+
+    def raise_sensitive_gateway_disabled(*args, **kwargs):
+        raise ai_trading_routes.SignalGatewayDisabledError(
+            "AI Trading signal gateway is disabled token=secret-gateway-token"
+        )
+
+    monkeypatch.setattr(
+        ai_trading_routes,
+        "submit_signal_event_to_gateway",
+        raise_sensitive_gateway_disabled,
+    )
+    gateway_error = client.post(
+        "/api/ai-trading/signal-events/123/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert gateway_error.status_code == 409
+    assert gateway_error.json()["detail"] == ai_trading_routes.SAFE_AI_TRADING_ROUTE_ERROR_DETAIL
+
+    serialized = json.dumps(
+        {
+            "draft": draft_error.json(),
+            "not_found": not_found_error.json(),
+            "gateway": gateway_error.json(),
+        },
+        ensure_ascii=False,
+    )
+    assert "secret-route-key" not in serialized
+    assert "route-token" not in serialized
+    assert "order-backend.test" not in serialized
+    assert "secret-not-found" not in serialized
+    assert "secret-gateway-token" not in serialized
+
+
+def test_ai_trading_route_exception_detail_source_guard() -> None:
+    with open(ai_trading_routes.__file__, "r", encoding="utf-8") as handle:
+        source = handle.read()
+
+    forbidden = (
+        "detail=str(exc)",
+        "detail = str(exc)\n",
+        "detail=detail",
+        'status_code = 404 if "not found" in detail.lower() else 400',
+        "raise HTTPException(status_code=409, detail=str(exc))",
+    )
+    for pattern in forbidden:
+        assert pattern not in source
+
+    assert "SAFE_AI_TRADING_ROUTE_ERROR_DETAIL" in source
+    assert "_safe_ai_trading_route_error_detail" in source
 
 
 def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, monkeypatch):
