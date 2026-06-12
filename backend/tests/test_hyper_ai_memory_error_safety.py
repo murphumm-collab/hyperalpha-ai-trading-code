@@ -1,3 +1,4 @@
+import json
 import logging
 
 from services import hyper_ai_memory_service
@@ -32,6 +33,143 @@ def _api_config() -> dict:
         "model": "qwen-plus",
         "api_format": "openai",
     }
+
+
+def test_memory_extraction_redacts_sensitive_conversation_and_filters_output(monkeypatch) -> None:
+    captured: dict = {}
+
+    def successful_post(*args, **kwargs):
+        captured["body"] = kwargs.get("json", {})
+        return ResponseStub(
+            200,
+            payload={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "memories": [
+                                        {
+                                            "category": "risk_memory",
+                                            "content": "Use max loss 2% on BTC",
+                                            "importance": 0.9,
+                                        },
+                                        {
+                                            "category": "execution_memory",
+                                            "content": "authorization=Bearer secret-memory-output",
+                                            "importance": 0.9,
+                                        },
+                                    ]
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(hyper_ai_memory_service.requests, "post", successful_post)
+
+    result = hyper_ai_memory_service.extract_memories_from_conversation(
+        (
+            "Keep BTC risk low. api_key=secret-user-key "
+            "Bearer token=secret-token postgres://provider.example/db"
+        ),
+        _api_config(),
+    )
+
+    assert result == [
+        {
+            "category": "risk_memory",
+            "content": "Use max loss 2% on BTC",
+            "importance": 0.9,
+        }
+    ]
+    rendered_body = json.dumps(captured["body"], ensure_ascii=False)
+    assert "api_key" not in rendered_body.lower()
+    assert "secret-user-key" not in rendered_body
+    assert "secret-token" not in rendered_body
+    assert "postgres://provider.example/db" not in rendered_body
+    assert "[redacted_sensitive_memory_text]" in rendered_body
+
+
+def test_memory_dedup_redacts_prompt_and_refuses_sensitive_merge(monkeypatch) -> None:
+    captured: dict = {}
+    updates: list[dict] = []
+    adds: list[dict] = []
+
+    monkeypatch.setattr(
+        hyper_ai_memory_service,
+        "get_memories",
+        lambda *args, **kwargs: [
+            {
+                "id": 1,
+                "category": "risk_memory",
+                "content": "api_key=legacy-existing-secret",
+                "importance": 0.6,
+            }
+        ],
+    )
+    monkeypatch.setattr(hyper_ai_memory_service, "enforce_memory_limit", lambda *args, **kwargs: 0)
+
+    def fake_add_memory(db, category, content, source="conversation", importance=0.5, user_id=None):
+        adds.append({"category": category, "content": content, "importance": importance, "user_id": user_id})
+        return object()
+
+    def fake_update_memory(db, memory_id, content=None, importance=None, is_active=None, user_id=None):
+        updates.append({"id": memory_id, "content": content, "importance": importance, "user_id": user_id})
+        return object()
+
+    monkeypatch.setattr(hyper_ai_memory_service, "add_memory", fake_add_memory)
+    monkeypatch.setattr(hyper_ai_memory_service, "update_memory", fake_update_memory)
+
+    def successful_post(*args, **kwargs):
+        captured["body"] = kwargs.get("json", {})
+        return ResponseStub(
+            200,
+            payload={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "actions": [
+                                        {
+                                            "new_index": 0,
+                                            "action": "UPDATE",
+                                            "existing_id": 1,
+                                            "merged": "authorization=Bearer secret-merge",
+                                        },
+                                        {"new_index": 1, "action": "ADD"},
+                                    ]
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    monkeypatch.setattr(hyper_ai_memory_service.requests, "post", successful_post)
+
+    count = hyper_ai_memory_service.batch_dedup_memories(
+        object(),
+        [
+            {"category": "risk_memory", "content": "Use max loss 2% on BTC", "importance": 0.9},
+            {"category": "execution_memory", "content": "token=secret-new-memory", "importance": 0.8},
+        ],
+        _api_config(),
+        user_id=7,
+    )
+
+    assert count == 1
+    assert adds == []
+    assert updates == [{"id": 1, "content": "Use max loss 2% on BTC", "importance": 0.9, "user_id": 7}]
+    rendered_body = json.dumps(captured["body"], ensure_ascii=False)
+    assert "api_key" not in rendered_body.lower()
+    assert "legacy-existing-secret" not in rendered_body
+    assert "token=secret-new-memory" not in rendered_body
+    assert "[redacted_sensitive_memory_text]" in rendered_body
 
 
 def test_memory_dedup_provider_failure_logs_are_safe(monkeypatch, caplog) -> None:
@@ -131,6 +269,10 @@ def test_hyper_ai_memory_error_source_guard() -> None:
         source = handle.read()
 
     forbidden = (
+        "conversation=conversation_text[:6000]",
+        "f\"[ID:{m['id']}] ({m['category']}) {m['content']}\"",
+        "f\"[{i}] ({m.get('category','context')}) {m.get('content','')}\"",
+        "update_memory(db, eid, content=merged",
         "body={response.text",
         "response.text[:",
         "Dedup response not valid JSON: {text",

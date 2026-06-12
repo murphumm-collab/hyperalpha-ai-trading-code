@@ -497,6 +497,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading Hyper AI tool error safety | Done |",
             "| AI Trading Hyper AI service stream error safety | Done |",
             "| AI Trading Hyper AI memory error safety | Done |",
+            "| AI Trading Hyper AI memory prompt safety | Done |",
             "| AI Trading context compression error safety | Done |",
             "| AI Trading context compression prompt safety | Done |",
             "| AI Trading frontend validation warning labels | Done |",

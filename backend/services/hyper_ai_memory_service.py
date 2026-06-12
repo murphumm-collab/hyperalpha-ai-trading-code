@@ -53,6 +53,57 @@ MEMORY_CATEGORIES = [
     "execution_memory",    # Order backend and execution operations
 ]
 
+_MEMORY_SENSITIVE_PATTERN = re.compile(
+    r"api[_-]?key|authorization|bearer|private[_-]?key|password|"
+    r"secret\s*[:=]|token\s*[:=]|postgres://|redis://",
+    re.IGNORECASE,
+)
+
+_REDACTED_MEMORY_PROMPT_TEXT = "[redacted_sensitive_memory_text]"
+
+
+def _memory_text(value: Any) -> str:
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, default=str)
+    except Exception:
+        return str(value)
+
+
+def _redact_sensitive_text_for_memory_prompt(value: Any) -> str:
+    text = _memory_text(value)
+    if _MEMORY_SENSITIVE_PATTERN.search(text):
+        return _REDACTED_MEMORY_PROMPT_TEXT
+    return text
+
+
+def _sanitize_memory_content_for_storage(value: Any) -> Optional[str]:
+    text = _memory_text(value).strip()
+    if not text:
+        return None
+    if _MEMORY_SENSITIVE_PATTERN.search(text):
+        return None
+    return text
+
+
+def _sanitize_memory_candidates(memories: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    sanitized: List[Dict[str, Any]] = []
+    for mem in memories:
+        if not isinstance(mem, dict):
+            continue
+        category = mem.get("category", "context")
+        if category not in MEMORY_CATEGORIES:
+            continue
+        content = _sanitize_memory_content_for_storage(mem.get("content", ""))
+        if not content:
+            continue
+        sanitized_mem = dict(mem)
+        sanitized_mem["category"] = category
+        sanitized_mem["content"] = content
+        sanitized.append(sanitized_mem)
+    return sanitized
+
 
 def _require_user_id(user_id: Optional[int], context: str) -> int:
     if user_id is None:
@@ -236,6 +287,9 @@ def batch_dedup_memories(
     if not new_memories:
         return 0
     resolved_user_id = _require_user_id(user_id, "Hyper AI memory dedup")
+    new_memories = _sanitize_memory_candidates(new_memories)
+    if not new_memories:
+        return 0
 
     # Get all active memories (exclude user_info from onboarding)
     existing = get_memories(db, limit=MAX_MEMORIES, user_id=resolved_user_id)
@@ -246,20 +300,23 @@ def batch_dedup_memories(
         count = 0
         for mem in new_memories:
             cat = mem.get("category", "context")
-            if cat not in MEMORY_CATEGORIES or not mem.get("content"):
+            content = _sanitize_memory_content_for_storage(mem.get("content"))
+            if cat not in MEMORY_CATEGORIES or not content:
                 continue
-            add_memory(db, cat, mem["content"], source, mem.get("importance", 0.5), user_id=resolved_user_id)
+            add_memory(db, cat, content, source, mem.get("importance", 0.5), user_id=resolved_user_id)
             count += 1
         enforce_memory_limit(db, user_id=resolved_user_id)
         return count
 
     # Build prompt with existing and new memories
     existing_text = "\n".join(
-        f"[ID:{m['id']}] ({m['category']}) {m['content']}"
+        f"[ID:{m['id']}] ({m['category']}) "
+        f"{_redact_sensitive_text_for_memory_prompt(m.get('content', ''))}"
         for m in existing
     )
     new_text = "\n".join(
-        f"[{i}] ({m.get('category','context')}) {m.get('content','')}"
+        f"[{i}] ({m.get('category','context')}) "
+        f"{_redact_sensitive_text_for_memory_prompt(m.get('content', ''))}"
         for i, m in enumerate(new_memories)
     )
 
@@ -291,7 +348,7 @@ def batch_dedup_memories(
             continue
         mem = new_memories[idx]
         cat = mem.get("category", "context")
-        content = mem.get("content", "")
+        content = _sanitize_memory_content_for_storage(mem.get("content", ""))
         importance = mem.get("importance", 0.5)
         if not content or cat not in MEMORY_CATEGORIES:
             continue
@@ -307,7 +364,8 @@ def batch_dedup_memories(
             if eid:
                 old = next((m for m in existing if m["id"] == eid), None)
                 old_imp = old.get("importance", 0.5) if old else 0.5
-                update_memory(db, eid, content=merged, importance=max(importance, old_imp), user_id=resolved_user_id)
+                safe_merged = _sanitize_memory_content_for_storage(merged) or content
+                update_memory(db, eid, content=safe_merged, importance=max(importance, old_imp), user_id=resolved_user_id)
                 count += 1
             else:
                 add_memory(db, cat, content, source, importance, user_id=resolved_user_id)
@@ -503,8 +561,9 @@ def extract_memories_from_conversation(
     Returns:
         List of {"category", "content", "importance"} dicts
     """
+    safe_conversation_text = _redact_sensitive_text_for_memory_prompt(conversation_text)
     prompt = EXTRACT_MEMORIES_PROMPT.format(
-        conversation=conversation_text[:6000]
+        conversation=safe_conversation_text[:6000]
     )
 
     base_url = api_config.get("base_url", "")
@@ -559,7 +618,9 @@ def extract_memories_from_conversation(
         json_match = re.search(r'\{.*\}', text, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group())
-            return result.get("memories", [])
+            memories = result.get("memories", [])
+            if isinstance(memories, list):
+                return _sanitize_memory_candidates(memories)
 
     except requests.exceptions.Timeout:
         logger.warning("[Memory] Extraction API timeout (60s)")
@@ -596,10 +657,7 @@ def process_compression_memories(
         return 0
 
     # Filter valid memories
-    valid = [
-        m for m in memories
-        if m.get("content") and m.get("category", "context") in MEMORY_CATEGORIES
-    ]
+    valid = _sanitize_memory_candidates(memories)
 
     if not valid:
         return 0
