@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Wallet, Eye, EyeOff, CheckCircle, RefreshCw, Trash2 } from 'lucide-react'
@@ -54,6 +55,10 @@ export default function BinanceWalletSection({
   const [savingMainnet, setSavingMainnet] = useState(false)
   const [testingTestnet, setTestingTestnet] = useState(false)
   const [testingMainnet, setTestingMainnet] = useState(false)
+  const [deleteWalletConfirmed, setDeleteWalletConfirmed] = useState<Record<'testnet' | 'mainnet', boolean>>({
+    testnet: false,
+    mainnet: false,
+  })
 
   // Editing states
   const [editingTestnet, setEditingTestnet] = useState(false)
@@ -87,8 +92,13 @@ export default function BinanceWalletSection({
   const [mainnetQuota, setMainnetQuota] = useState<{ limited: boolean; used: number; limit: number; remaining: number } | null>(null)
 
   useEffect(() => {
+    setDeleteWalletConfirmed({ testnet: false, mainnet: false })
     loadWalletInfo()
   }, [accountId])
+
+  const setWalletDeleteConfirmed = (environment: 'testnet' | 'mainnet', confirmed: boolean) => {
+    setDeleteWalletConfirmed(prev => ({ ...prev, [environment]: confirmed }))
+  }
 
   const loadWalletInfo = async () => {
     try {
@@ -165,6 +175,11 @@ export default function BinanceWalletSection({
         setMainnetWallet(null)
         setMainnetQuota(null)
       }
+
+      setDeleteWalletConfirmed(prev => ({
+        testnet: testnetConfigured ? prev.testnet : false,
+        mainnet: mainnetConfigured ? prev.mainnet : false,
+      }))
     } catch (error) {
       console.error('Failed to load Binance config:', error)
     } finally {
@@ -311,7 +326,10 @@ export default function BinanceWalletSection({
   }
 
   const handleDeleteWallet = async (environment: 'testnet' | 'mainnet') => {
-    if (!confirm(`Delete Binance ${environment} wallet?`)) return
+    if (!deleteWalletConfirmed[environment]) {
+      toast.error(t('wallet.delete.confirmRequired', 'Confirm wallet deletion before continuing'))
+      return
+    }
     const setSaving = environment === 'testnet' ? setSavingTestnet : setSavingMainnet
     try {
       setSaving(true)
@@ -326,6 +344,7 @@ export default function BinanceWalletSection({
     } catch (error) {
       toast.error('Failed to delete wallet')
     } finally {
+      setWalletDeleteConfirmed(environment, false)
       setSaving(false)
     }
   }
@@ -371,7 +390,17 @@ export default function BinanceWalletSection({
               <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
                 {t('common.edit', 'Edit')}
               </Button>
-              <Button variant="destructive" size="sm" onClick={() => handleDeleteWallet(environment)} disabled={saving}>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => handleDeleteWallet(environment)}
+                disabled={saving || !deleteWalletConfirmed[environment]}
+                title={
+                  deleteWalletConfirmed[environment]
+                    ? t('wallet.delete.action', 'Delete wallet')
+                    : t('wallet.delete.confirmRequired', 'Confirm wallet deletion before continuing')
+                }
+              >
                 <Trash2 className="h-3 w-3" />
               </Button>
             </div>
@@ -419,6 +448,19 @@ export default function BinanceWalletSection({
                 <div className="font-medium">{wallet.defaultLeverage}x</div>
               </div>
             </div>
+
+            <label className="flex items-start gap-2 rounded-md border bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+              <Checkbox
+                data-testid="binance-wallet-delete-confirm"
+                checked={deleteWalletConfirmed[environment]}
+                onCheckedChange={(checked) => setWalletDeleteConfirmed(environment, checked === true)}
+                disabled={saving}
+                className="mt-0.5 h-3.5 w-3.5"
+              />
+              <span>
+                {t('wallet.delete.confirmInline', 'Delete this trading wallet from this AI trader. Existing audit records stay available.')}
+              </span>
+            </label>
 
             <Button variant="outline" size="sm" onClick={() => handleTestConnection(environment)} disabled={testing} className="w-full">
               {testing ? <><RefreshCw className="mr-2 h-3 w-3 animate-spin" />{t('wallet.testing', 'Testing...')}</> : t('wallet.testConnection', 'Test Connection')}

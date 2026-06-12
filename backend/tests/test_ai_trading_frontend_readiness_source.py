@@ -6,6 +6,7 @@ SETTINGS_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "settings" / "Se
 HYPER_AI_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiPage.tsx"
 HYPERLIQUID_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "HyperliquidWalletSection.tsx"
 WALLET_CONFIG_PANEL = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "WalletConfigPanel.tsx"
+BINANCE_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "BinanceWalletSection.tsx"
 READINESS_HELPER = REPO_ROOT / "frontend" / "app" / "lib" / "aiTradingReadiness.ts"
 
 
@@ -590,6 +591,27 @@ def test_ai_trading_hyperliquid_wallet_delete_uses_inline_confirmation_without_b
 
     assert "disabled={loading || !deleteWalletConfirmed[environment]}" in one_click_source
     assert "disabled={loading || !deleteWalletConfirmed[environment]}" in manual_source
+
+
+def test_ai_trading_binance_wallet_delete_uses_inline_confirmation_without_browser_confirm() -> None:
+    binance_source = BINANCE_WALLET_SECTION.read_text(encoding="utf-8")
+    delete_block = binance_source.split(
+        "const handleDeleteWallet = async",
+        1,
+    )[1].split("const renderWalletBlock", 1)[0]
+    controls_block = binance_source.split(
+        'data-testid="binance-wallet-delete-confirm"',
+        1,
+    )[1].split("wallet.testConnection", 1)[0]
+
+    assert "window.confirm" not in delete_block
+    assert "confirm(" not in delete_block
+    assert "deleteWalletConfirmed[environment]" in delete_block
+    assert "wallet.delete.confirmRequired" in delete_block
+    assert "setWalletDeleteConfirmed(environment, false)" in delete_block
+    assert "setWalletDeleteConfirmed(environment, checked === true)" in controls_block
+    assert "wallet.delete.confirmInline" in controls_block
+    assert "disabled={saving || !deleteWalletConfirmed[environment]}" in binance_source
 
 
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
