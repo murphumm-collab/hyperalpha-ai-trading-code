@@ -18,6 +18,10 @@ from database.models import User
 
 router = APIRouter(prefix="/api/ai-stream", tags=["AI Stream"])
 
+PUBLIC_AI_STREAM_ERROR_CODE = "ai_stream_task_failed"
+PUBLIC_AI_STREAM_ERROR_MESSAGE = "AI stream task failed"
+AI_STREAM_ERROR_CHUNK_TYPES = {"error", "interrupted"}
+
 
 def _sanitize_runtime_last_error(
     component: object,
@@ -48,6 +52,22 @@ def sanitize_admin_ai_runtime_stats(stats: dict) -> dict:
         code="dispatch_queue_stats_unavailable",
     )
     return sanitized
+
+
+def _safe_ai_stream_error_payload() -> dict:
+    """Return a stable public error payload without provider/internal text."""
+    return {
+        "message": PUBLIC_AI_STREAM_ERROR_MESSAGE,
+        "error_code": PUBLIC_AI_STREAM_ERROR_CODE,
+        "error_present": True,
+    }
+
+
+def _sanitize_ai_stream_chunk(event_type: object, data: object) -> object:
+    """Hide raw error chunk data before returning poll responses."""
+    if str(event_type or "").lower() not in AI_STREAM_ERROR_CHUNK_TYPES:
+        return data
+    return _safe_ai_stream_error_payload()
 
 
 @router.get("/admin/runtime")
@@ -111,7 +131,7 @@ def poll_task_chunks(
         "chunks": [
             {
                 "event_type": c.event_type,
-                "data": c.data,
+                "data": _sanitize_ai_stream_chunk(c.event_type, c.data),
                 "timestamp": c.timestamp
             }
             for c in chunks
@@ -124,8 +144,10 @@ def poll_task_chunks(
     if task:
         if status == "completed" and task.result:
             response["result"] = task.result
-        elif status == "error" and task.error_message:
-            response["error"] = task.error_message
+        elif status == "error":
+            response["error"] = PUBLIC_AI_STREAM_ERROR_MESSAGE
+            response["error_code"] = PUBLIC_AI_STREAM_ERROR_CODE
+            response["error_present"] = True
 
     return response
 
@@ -163,6 +185,8 @@ def get_task_status(
             response["result"] = task.result
     elif task.status == "error":
         response["completed_at"] = task.completed_at
-        response["error"] = task.error_message
+        response["error"] = PUBLIC_AI_STREAM_ERROR_MESSAGE
+        response["error_code"] = PUBLIC_AI_STREAM_ERROR_CODE
+        response["error_present"] = True
 
     return response

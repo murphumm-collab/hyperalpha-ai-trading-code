@@ -106,6 +106,7 @@ def _write_minimal_acceptance_repo(
     include_production_url_host_secret_redaction_marker: bool = True,
     include_production_url_port_safety_marker: bool = True,
     include_production_url_parse_error_safety_marker: bool = True,
+    include_ai_stream_routes_regression_gate: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -141,6 +142,7 @@ def _write_minimal_acceptance_repo(
     include_production_evidence_non_object_dry_run_safety_marker: bool = True,
     include_production_evidence_frontend_error_safety_marker: bool = True,
     include_admin_ai_runtime_last_error_redaction_marker: bool = True,
+    include_ai_stream_polling_error_redaction_marker: bool = True,
     include_frontend_ai_runtime_error_safety_marker: bool = True,
     include_frontend_production_readiness_error_safety_marker: bool = True,
     include_frontend_strategy_action_error_safety_marker: bool = True,
@@ -202,6 +204,9 @@ def _write_minimal_acceptance_repo(
     local_acceptance_transient_retry_status_marker = (
         "| AI Trading local acceptance transient retry | Done |"
     ) if include_local_acceptance_transient_retry_gate else ""
+    ai_stream_routes_regression_text = (
+        "tests/test_ai_stream_routes.py\n"
+    ) if include_ai_stream_routes_regression_gate else ""
     frontend_source_guard_text = (
         "tests/test_ai_trading_frontend_readiness_source.py\n"
     ) if include_frontend_source_guard else ""
@@ -309,6 +314,9 @@ def _write_minimal_acceptance_repo(
     admin_ai_runtime_last_error_redaction_marker = (
         "| AI Trading admin AI runtime last-error redaction | Done |"
     ) if include_admin_ai_runtime_last_error_redaction_marker else ""
+    ai_stream_polling_error_redaction_marker = (
+        "| AI Trading AI stream polling error redaction | Done |"
+    ) if include_ai_stream_polling_error_redaction_marker else ""
     frontend_ai_runtime_error_safety_marker = (
         "| AI Trading frontend AI runtime error safety | Done |"
     ) if include_frontend_ai_runtime_error_safety_marker else ""
@@ -461,6 +469,7 @@ def _write_minimal_acceptance_repo(
                 local_dev_shell_syntax_text,
                 local_acceptance_transient_retry_runner_text,
                 db_gate_text,
+                ai_stream_routes_regression_text,
                 frontend_source_guard_text,
                 "Frontend build",
                 "local completion summary gate",
@@ -563,6 +572,7 @@ def _write_minimal_acceptance_repo(
                 production_evidence_non_object_dry_run_safety_marker,
                 production_evidence_frontend_error_safety_marker,
                 admin_ai_runtime_last_error_redaction_marker,
+                ai_stream_polling_error_redaction_marker,
                 frontend_ai_runtime_error_safety_marker,
                 frontend_production_readiness_error_safety_marker,
                 frontend_strategy_action_error_safety_marker,
@@ -1302,6 +1312,17 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_source_guard_is_
     assert "tests/test_ai_trading_frontend_readiness_source.py" in runner_evidence["missing_phrases"]
 
 
+def test_completion_audit_blocks_local_acceptance_when_ai_stream_routes_regression_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_ai_stream_routes_regression_gate=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert "tests/test_ai_stream_routes.py" in runner_evidence["missing_phrases"]
+
+
 def test_completion_audit_blocks_local_acceptance_when_explain_gate_is_missing(tmp_path):
     _write_minimal_acceptance_repo(tmp_path, include_production_evidence_explain_gate=False)
 
@@ -1833,6 +1854,24 @@ def test_completion_audit_blocks_local_acceptance_when_admin_ai_runtime_last_err
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading admin AI runtime last-error redaction | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_ai_stream_polling_error_redaction_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_ai_stream_polling_error_redaction_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading AI stream polling error redaction | Done |"
         in status_evidence["missing_phrases"]
     )
 
