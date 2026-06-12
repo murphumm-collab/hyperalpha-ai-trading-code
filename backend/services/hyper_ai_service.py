@@ -81,6 +81,13 @@ HYPER_AI_ONBOARDING_TASK_TYPE = "hyper_ai.onboarding"
 
 logger = logging.getLogger(__name__)
 
+SAFE_HYPER_AI_PROVIDER_REQUEST_FAILED_MESSAGE = "Hyper AI provider request failed. Please retry later."
+SAFE_HYPER_AI_RESPONSE_PARSE_FAILED_MESSAGE = "Hyper AI response could not be parsed."
+SAFE_HYPER_AI_PROCESSING_FAILED_MESSAGE = "Hyper AI processing failed. Please retry later."
+SAFE_HYPER_AI_CONNECTION_TEST_FAILED_MESSAGE = (
+    "Model connection test failed. Please verify the provider, model, endpoint, and API key."
+)
+
 # Maximum tool call iterations to prevent infinite loops
 MAX_TOOL_ITERATIONS = 100
 
@@ -119,6 +126,36 @@ def _should_retry_api(status_code: Optional[int], error: Optional[str]) -> bool:
     return False
 
 
+def _safe_hyper_ai_error_event(
+    *,
+    code: str = "hyper_ai_processing_failed",
+    message: str = SAFE_HYPER_AI_PROCESSING_FAILED_MESSAGE,
+    status_code: Optional[int] = None,
+) -> Dict[str, Any]:
+    payload: Dict[str, Any] = {
+        "message": message,
+        "error_code": code,
+    }
+    if status_code is not None:
+        payload["status"] = status_code
+    return payload
+
+
+def _safe_hyper_ai_provider_failure_event(status_code: Optional[int] = None) -> Dict[str, Any]:
+    return _safe_hyper_ai_error_event(
+        code="hyper_ai_provider_request_failed",
+        message=SAFE_HYPER_AI_PROVIDER_REQUEST_FAILED_MESSAGE,
+        status_code=status_code,
+    )
+
+
+def _safe_hyper_ai_parse_failure_event() -> Dict[str, Any]:
+    return _safe_hyper_ai_error_event(
+        code="hyper_ai_response_parse_failed",
+        message=SAFE_HYPER_AI_RESPONSE_PARSE_FAILED_MESSAGE,
+    )
+
+
 def _get_retry_delay(attempt: int) -> float:
     """Calculate retry delay with exponential backoff and jitter."""
     delay = min(API_BASE_DELAY * (2 ** attempt), API_MAX_DELAY)
@@ -131,8 +168,8 @@ def load_system_prompt() -> str:
     try:
         with open(SYSTEM_PROMPT_PATH, 'r', encoding='utf-8') as f:
             return f.read()
-    except Exception as e:
-        logger.error(f"Failed to load Hyper AI system prompt: {e}")
+    except Exception:
+        logger.error("Failed to load Hyper AI system prompt")
         return "You are Hyper AI, an intelligent trading assistant."
 
 
@@ -142,8 +179,8 @@ def load_onboarding_prompt(lang: str = "en") -> str:
     try:
         with open(prompt_path, 'r', encoding='utf-8') as f:
             return f.read()
-    except Exception as e:
-        logger.error(f"Failed to load onboarding prompt ({lang}): {e}")
+    except Exception:
+        logger.error("Failed to load onboarding prompt (%s)", lang)
         if lang == "zh":
             return DEFAULT_ONBOARDING_PROMPT_ZH
         return DEFAULT_ONBOARDING_PROMPT_EN
@@ -217,8 +254,8 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
     if profile.llm_api_key_encrypted:
         try:
             api_key = decrypt_private_key(profile.llm_api_key_encrypted)
-        except Exception as e:
-            logger.error(f"Failed to decrypt API key: {e}")
+        except Exception:
+            logger.error("Failed to decrypt API key")
 
     # Detect API format from URL for custom provider
     if profile.llm_provider == "custom" and base_url:
@@ -286,26 +323,32 @@ def test_llm_connection(
 
         if response.status_code == 200:
             return {"success": True}
-        else:
-            error_msg = response.text[:200] if response.text else f"HTTP {response.status_code}"
-            # Try to extract error message from JSON
-            try:
-                err_json = response.json()
-                if "error" in err_json:
-                    if isinstance(err_json["error"], dict):
-                        error_msg = err_json["error"].get("message", error_msg)
-                    else:
-                        error_msg = str(err_json["error"])
-            except:
-                pass
-            return {"success": False, "error": error_msg}
+        logger.warning("[HyperAI] LLM connection test failed: status=%s", response.status_code)
+        return {
+            "success": False,
+            "error": SAFE_HYPER_AI_CONNECTION_TEST_FAILED_MESSAGE,
+            "error_code": "hyper_ai_llm_connection_test_failed",
+            "status": response.status_code,
+        }
 
     except requests.exceptions.Timeout:
-        return {"success": False, "error": "Connection timeout"}
-    except requests.exceptions.ConnectionError as e:
-        return {"success": False, "error": f"Connection failed: {str(e)[:100]}"}
-    except Exception as e:
-        return {"success": False, "error": str(e)[:200]}
+        return {
+            "success": False,
+            "error": "Connection timeout",
+            "error_code": "hyper_ai_llm_connection_timeout",
+        }
+    except requests.exceptions.ConnectionError:
+        return {
+            "success": False,
+            "error": SAFE_HYPER_AI_CONNECTION_TEST_FAILED_MESSAGE,
+            "error_code": "hyper_ai_llm_connection_failed",
+        }
+    except Exception:
+        return {
+            "success": False,
+            "error": SAFE_HYPER_AI_CONNECTION_TEST_FAILED_MESSAGE,
+            "error_code": "hyper_ai_llm_connection_test_failed",
+        }
 
 
 def save_llm_config(
@@ -912,7 +955,7 @@ def stream_chat_response(
             response = None
             last_error = None
             last_status_code = None
-            last_response_text = None
+            last_response_body_present = False
 
             for attempt in range(API_MAX_RETRIES):
                 for endpoint in endpoints:
@@ -922,19 +965,19 @@ def stream_chat_response(
                             timeout=180  # Longer timeout for reasoning models
                         )
                         last_status_code = response.status_code
-                        last_response_text = response.text[:2000] if response.text else None
+                        last_response_body_present = bool(getattr(response, "content", b""))
 
                         if response.status_code == 200:
                             break
                         else:
                             last_error = f"HTTP {response.status_code}"
-                            logger.warning(f"[HyperAI] Endpoint failed: {response.status_code} - {response.text[:500]}")
-                    except requests.exceptions.Timeout as e:
-                        last_error = f"Timeout: {str(e)}"
-                        logger.warning(f"[HyperAI] Endpoint timeout: {e}")
-                    except requests.exceptions.RequestException as e:
-                        last_error = str(e)
-                        logger.warning(f"[HyperAI] Request error: {e}")
+                            logger.warning("[HyperAI] Endpoint failed: status=%s", response.status_code)
+                    except requests.exceptions.Timeout:
+                        last_error = "timeout"
+                        logger.warning("[HyperAI] Endpoint timeout")
+                    except requests.exceptions.RequestException:
+                        last_error = "connection_error"
+                        logger.warning("[HyperAI] Request error")
 
                 if response and response.status_code == 200:
                     break
@@ -953,40 +996,41 @@ def stream_chat_response(
 
             # Check for failure
             if not response or response.status_code != 200:
-                error_parts = []
-                if last_error:
-                    error_parts.append(f"error={last_error}")
-                if last_status_code:
-                    error_parts.append(f"status={last_status_code}")
-                if last_response_text:
-                    error_parts.append(f"response={last_response_text[:500]}")
-                error_detail = "; ".join(error_parts) if error_parts else "No response from API"
-                logger.error(f"[HyperAI] API failed at round {iteration}: {error_detail}")
+                safe_event = _safe_hyper_ai_provider_failure_event(last_status_code)
+                safe_message = safe_event["message"]
+                logger.error(
+                    "[HyperAI] API failed at round %s: status=%s error=%s response_present=%s",
+                    iteration,
+                    last_status_code,
+                    last_error,
+                    last_response_body_present,
+                )
 
                 if tool_calls_log:
-                    assistant_msg.content = f"[Interrupted at round {iteration}] {error_detail}"
+                    assistant_msg.content = f"[Interrupted at round {iteration}] {safe_message}"
                     assistant_msg.tool_calls_log = json.dumps(tool_calls_log)
                     assistant_msg.reasoning_snapshot = reasoning_snapshot if reasoning_snapshot else None
-                    assistant_msg.interrupt_reason = f"Round {iteration}: {error_detail}"
+                    assistant_msg.interrupt_reason = f"Round {iteration}: {safe_message}"
                     db.commit()
                     yield format_sse_event("interrupted", {
                         "message_id": assistant_msg.id,
                         "round": iteration,
-                        "error": error_detail,
+                        "error": safe_message,
+                        "error_code": safe_event["error_code"],
                         "conversation_id": conversation_id
                     })
                 else:
                     db.delete(assistant_msg)
                     db.commit()
-                    yield format_sse_event("error", {"message": error_detail})
+                    yield format_sse_event("error", safe_event)
                 return
 
             # Parse response
             try:
                 resp_json = response.json()
-            except Exception as e:
-                logger.error(f"[HyperAI] Failed to parse response: {e}")
-                yield format_sse_event("error", {"message": f"Failed to parse response: {e}"})
+            except Exception:
+                logger.error("[HyperAI] Failed to parse response")
+                yield format_sse_event("error", _safe_hyper_ai_parse_failure_event())
                 return
 
             # Extract message based on API format
@@ -1212,28 +1256,31 @@ def stream_chat_response(
                 done_data["token_usage"] = calculate_token_usage(ml, profile.llm_model)
             if conv and conv.compression_points:
                 done_data["compression_points"] = json_mod.loads(conv.compression_points)
-        except Exception as te:
-            logger.warning(f"[HyperAI] Token calc in done event failed: {te}")
+        except Exception:
+            logger.warning("[HyperAI] Token calc in done event failed")
 
         yield format_sse_event("done", done_data)
 
-    except Exception as e:
-        logger.error(f"[HyperAI] Error: {e}", exc_info=True)
+    except Exception:
+        logger.error("[HyperAI] Error", exc_info=True)
+        safe_event = _safe_hyper_ai_error_event()
+        safe_message = safe_event["message"]
         if tool_calls_log:
-            assistant_msg.content = f"[Error during processing] {str(e)}"
+            assistant_msg.content = f"[Error during processing] {safe_message}"
             assistant_msg.tool_calls_log = json.dumps(tool_calls_log)
             assistant_msg.reasoning_snapshot = reasoning_snapshot if reasoning_snapshot else None
-            assistant_msg.interrupt_reason = f"Error: {str(e)}"
+            assistant_msg.interrupt_reason = f"Error: {safe_message}"
             db.commit()
             yield format_sse_event("interrupted", {
                 "message_id": assistant_msg.id,
-                "error": str(e),
+                "error": safe_message,
+                "error_code": safe_event["error_code"],
                 "conversation_id": conversation_id
             })
         else:
             db.delete(assistant_msg)
             db.commit()
-            yield format_sse_event("error", {"message": str(e)})
+            yield format_sse_event("error", safe_event)
 
 
 def start_chat_task(
@@ -1573,7 +1620,7 @@ def stream_insight_response(
     response = None
     last_error = None
     last_status_code = None
-    last_response_text = None
+    last_response_body_present = False
 
     for attempt in range(API_MAX_RETRIES):
         for endpoint in endpoints:
@@ -1586,14 +1633,14 @@ def stream_insight_response(
                     timeout=180,
                 )
                 last_status_code = response.status_code
-                last_response_text = response.text[:2000] if response.text else None
+                last_response_body_present = bool(getattr(response, "content", b""))
                 if response.status_code == 200:
                     break
                 last_error = f"HTTP {response.status_code}"
-            except requests.exceptions.Timeout as e:
-                last_error = f"Timeout: {str(e)}"
-            except requests.exceptions.RequestException as e:
-                last_error = str(e)
+            except requests.exceptions.Timeout:
+                last_error = "timeout"
+            except requests.exceptions.RequestException:
+                last_error = "connection_error"
 
         if response and response.status_code == 200:
             break
@@ -1609,15 +1656,13 @@ def stream_insight_response(
             time.sleep(_get_retry_delay(attempt))
 
     if not response or response.status_code != 200:
-        error_parts = []
-        if last_error:
-            error_parts.append(f"error={last_error}")
-        if last_status_code:
-            error_parts.append(f"status={last_status_code}")
-        if last_response_text:
-            error_parts.append(f"response={last_response_text[:500]}")
-        error_detail = "; ".join(error_parts) if error_parts else "No response from API"
-        yield format_sse_event("error", {"message": error_detail})
+        logger.error(
+            "[HyperAI] Insight API failed: status=%s error=%s response_present=%s",
+            last_status_code,
+            last_error,
+            last_response_body_present,
+        )
+        yield format_sse_event("error", _safe_hyper_ai_provider_failure_event(last_status_code))
         return
 
     content_parts: List[str] = []
@@ -1683,8 +1728,9 @@ def stream_insight_response(
             "content": full_content.strip(),
             "reasoning": full_reasoning,
         })
-    except Exception as e:
-        yield format_sse_event("error", {"message": str(e)})
+    except Exception:
+        logger.error("[HyperAI] Insight stream processing failed", exc_info=True)
+        yield format_sse_event("error", _safe_hyper_ai_error_event())
 
 
 def start_insight_task(
@@ -1908,9 +1954,9 @@ def _process_onboarding_stream_response(
             "onboarding_complete": onboarding_complete
         })
 
-    except Exception as e:
-        logger.error(f"Onboarding stream processing error: {e}", exc_info=True)
-        yield format_sse_event("error", {"message": str(e)})
+    except Exception:
+        logger.error("Onboarding stream processing error", exc_info=True)
+        yield format_sse_event("error", _safe_hyper_ai_error_event())
 
 
 # ============================================================================
@@ -2080,7 +2126,7 @@ def generate_suggested_questions(db: Session, user_id: Optional[int] = None) -> 
         response = requests.post(endpoint, headers=headers, json=body, timeout=30)
 
         if response.status_code != 200:
-            logger.warning(f"[Suggestions] LLM error: status={response.status_code}, body={response.text[:200]}")
+            logger.warning("[Suggestions] LLM error: status=%s", response.status_code)
             return []
 
         data = response.json()
@@ -2117,14 +2163,14 @@ def generate_suggested_questions(db: Session, user_id: Optional[int] = None) -> 
     except requests.exceptions.Timeout:
         logger.warning("[Suggestions] LLM timeout (30s)")
         return []
-    except requests.exceptions.ConnectionError as e:
-        logger.warning(f"[Suggestions] LLM connection error: {e}")
+    except requests.exceptions.ConnectionError:
+        logger.warning("[Suggestions] LLM connection error")
         return []
-    except json.JSONDecodeError as e:
-        logger.warning(f"[Suggestions] JSON parse error: {e}")
+    except json.JSONDecodeError:
+        logger.warning("[Suggestions] JSON parse error")
         return []
-    except Exception as e:
-        logger.warning(f"[Suggestions] Unexpected error: {type(e).__name__}: {e}")
+    except Exception:
+        logger.warning("[Suggestions] Unexpected error")
         return []
 
 
@@ -2199,8 +2245,8 @@ def get_or_update_suggestions(db: Session, user_id: Optional[int] = None) -> Dic
                     task_profile.suggested_questions_at = datetime.utcnow()
                     task_db.commit()
                     logger.info(f"Updated suggested questions: {questions}")
-            except Exception as e:
-                logger.error(f"Failed to update suggestions: {e}")
+            except Exception:
+                logger.error("Failed to update suggestions")
             finally:
                 task_db.close()
                 with _suggestions_update_lock:

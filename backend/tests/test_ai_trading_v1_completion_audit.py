@@ -175,6 +175,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_model_adjust_output_safety_marker: bool = True,
     include_model_gateway_exception_type_safety_marker: bool = True,
     include_hyper_ai_tool_error_safety_marker: bool = True,
+    include_hyper_ai_service_stream_error_safety_marker: bool = True,
     include_frontend_validation_warning_labels_marker: bool = True,
     include_model_readiness_ui_source_guard_marker: bool = True,
     include_model_readiness_next_actions_marker: bool = True,
@@ -231,6 +232,9 @@ def _write_minimal_acceptance_repo(
     ai_stream_routes_regression_text = (
         "tests/test_ai_stream_routes.py\n"
     ) if include_ai_stream_routes_regression_gate else ""
+    hyper_ai_service_error_safety_regression_text = (
+        "tests/test_hyper_ai_service_error_safety.py\n"
+    ) if include_hyper_ai_service_stream_error_safety_marker else ""
     hyper_ai_tool_error_safety_regression_text = (
         "tests/test_hyper_ai_tool_error_safety.py\n"
     ) if include_hyper_ai_tool_error_safety_marker else ""
@@ -436,6 +440,9 @@ def _write_minimal_acceptance_repo(
     hyper_ai_tool_error_safety_marker = (
         "| AI Trading Hyper AI tool error safety | Done |"
     ) if include_hyper_ai_tool_error_safety_marker else ""
+    hyper_ai_service_stream_error_safety_marker = (
+        "| AI Trading Hyper AI service stream error safety | Done |"
+    ) if include_hyper_ai_service_stream_error_safety_marker else ""
     frontend_validation_warning_labels_marker = (
         "| AI Trading frontend validation warning labels | Done |"
     ) if include_frontend_validation_warning_labels_marker else ""
@@ -574,6 +581,7 @@ def _write_minimal_acceptance_repo(
                 local_acceptance_transient_retry_runner_text,
                 db_gate_text,
                 ai_stream_routes_regression_text,
+                hyper_ai_service_error_safety_regression_text,
                 hyper_ai_tool_error_safety_regression_text,
                 kline_routes_regression_text,
                 kline_collectors_regression_text,
@@ -710,6 +718,7 @@ def _write_minimal_acceptance_repo(
                 frontend_model_adjust_output_safety_marker,
                 model_gateway_exception_type_safety_marker,
                 hyper_ai_tool_error_safety_marker,
+                hyper_ai_service_stream_error_safety_marker,
                 frontend_validation_warning_labels_marker,
                 model_readiness_ui_source_guard_marker,
                 model_readiness_next_actions_marker,
@@ -2938,6 +2947,24 @@ def test_completion_audit_blocks_local_acceptance_when_hyper_ai_tool_error_safet
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading Hyper AI tool error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_hyper_ai_service_stream_error_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_hyper_ai_service_stream_error_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading Hyper AI service stream error safety | Done |"
         in status_evidence["missing_phrases"]
     )
 
