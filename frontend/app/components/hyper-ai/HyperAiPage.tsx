@@ -2708,11 +2708,12 @@ export default function HyperAiPage() {
     try {
       const parsed = JSON.parse(metricsText)
       if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error('Metrics must be a JSON object')
+        setStrategyDraftError(t('hyperAi.aiTradingBacktestMetricsObjectRequired', 'Metrics JSON must be an object'))
+        return
       }
       metrics = parsed as Record<string, unknown>
-    } catch (error) {
-      setStrategyDraftError(error instanceof Error ? error.message : 'Invalid metrics JSON')
+    } catch {
+      setStrategyDraftError(t('hyperAi.aiTradingInvalidBacktestMetricsJson', 'Invalid metrics JSON'))
       return
     }
 

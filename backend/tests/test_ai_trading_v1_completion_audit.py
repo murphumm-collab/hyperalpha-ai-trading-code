@@ -147,6 +147,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_ai_runtime_error_safety_marker: bool = True,
     include_frontend_production_readiness_error_safety_marker: bool = True,
     include_frontend_strategy_action_error_safety_marker: bool = True,
+    include_frontend_backtest_metrics_json_error_safety_marker: bool = True,
     include_frontend_backtest_summary_inline_no_prompt_marker: bool = True,
     include_frontend_program_backtest_inline_no_prompt_marker: bool = True,
     include_frontend_program_backtest_run_inline_confirm_marker: bool = True,
@@ -330,6 +331,9 @@ def _write_minimal_acceptance_repo(
     frontend_strategy_action_error_safety_marker = (
         "| AI Trading frontend strategy-action error safety | Done |"
     ) if include_frontend_strategy_action_error_safety_marker else ""
+    frontend_backtest_metrics_json_error_safety_marker = (
+        "| AI Trading frontend backtest metrics JSON error safety | Done |"
+    ) if include_frontend_backtest_metrics_json_error_safety_marker else ""
     frontend_backtest_summary_inline_no_prompt_marker = (
         "| AI Trading frontend backtest summary inline no-prompt | Done |"
     ) if include_frontend_backtest_summary_inline_no_prompt_marker else ""
@@ -581,6 +585,7 @@ def _write_minimal_acceptance_repo(
                 frontend_ai_runtime_error_safety_marker,
                 frontend_production_readiness_error_safety_marker,
                 frontend_strategy_action_error_safety_marker,
+                frontend_backtest_metrics_json_error_safety_marker,
                 frontend_backtest_summary_inline_no_prompt_marker,
                 frontend_program_backtest_inline_no_prompt_marker,
                 frontend_program_backtest_run_inline_confirm_marker,
@@ -1967,6 +1972,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_strategy_action_
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend strategy-action error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_backtest_metrics_json_error_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_backtest_metrics_json_error_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend backtest metrics JSON error safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

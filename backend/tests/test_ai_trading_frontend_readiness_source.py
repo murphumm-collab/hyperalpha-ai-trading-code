@@ -524,15 +524,19 @@ def test_ai_trading_strategy_action_error_paths_use_safe_formatter() -> None:
     assert "formatAiTradingStrategyActionApiError(response.status, null" in strategy_actions_block
     assert "formatAiTradingStrategyActionApiError(res.status, data.detail, fallback)" in backtest_page_block
     assert "formatAiTradingStrategyActionApiError(0, null, fallback)" in backtest_page_block
+    assert "aiTradingBacktestMetricsObjectRequired" in strategy_actions_block
+    assert "aiTradingInvalidBacktestMetricsJson" in strategy_actions_block
 
     for safe_error_block in (strategy_actions_block, backtest_page_block):
         assert "throw new Error(data.detail" not in safe_error_block
         assert "throw new Error(attachData.detail" not in safe_error_block
+        assert "throw new Error('Metrics must be a JSON object')" not in safe_error_block
         assert "data.detail ||" not in safe_error_block
         assert "attachData.detail ||" not in safe_error_block
         assert "response.text()" not in safe_error_block
         assert "event.message" not in safe_error_block
         assert "e instanceof Error ? e.message" not in safe_error_block
+        assert "error instanceof Error ? error.message" not in safe_error_block
 
 
 def test_ai_trading_backtest_summary_uses_inline_inputs_without_browser_prompt() -> None:
