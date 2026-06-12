@@ -442,6 +442,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading frontend program backtest run inline confirm | Done |",
             "| AI Trading frontend signal handoff inline confirm | Done |",
             "| AI Trading frontend agent-session archive inline confirm | Done |",
+            "| AI Trading Hyperliquid wallet delete inline confirm | Done |",
             "| AI Trading frontend prompt-packet sanitizer | Done |",
             "| AI Trading frontend handoff error safety | Done |",
             "| AI Trading frontend agent-session error safety | Done |",

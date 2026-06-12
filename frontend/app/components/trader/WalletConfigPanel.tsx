@@ -7,6 +7,7 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Wallet, Eye, EyeOff, CheckCircle, RefreshCw, Plus, Trash2 } from 'lucide-react'
@@ -77,6 +78,10 @@ export default function WalletConfigPanel({
   const [loading, setLoading] = useState(false)
   const [testingTestnet, setTestingTestnet] = useState(false)
   const [testingMainnet, setTestingMainnet] = useState(false)
+  const [deleteWalletConfirmed, setDeleteWalletConfirmed] = useState<Record<'testnet' | 'mainnet', boolean>>({
+    testnet: false,
+    mainnet: false,
+  })
 
   // Editing states
   const [editingTestnet, setEditingTestnet] = useState(false)
@@ -101,8 +106,13 @@ export default function WalletConfigPanel({
   const [authModalOpen, setAuthModalOpen] = useState(false)
 
   useEffect(() => {
+    setDeleteWalletConfirmed({ testnet: false, mainnet: false })
     loadWalletInfo()
   }, [accountId])
+
+  const setWalletDeleteConfirmed = (environment: 'testnet' | 'mainnet', confirmed: boolean) => {
+    setDeleteWalletConfirmed(prev => ({ ...prev, [environment]: confirmed }))
+  }
 
   const loadWalletInfo = async () => {
     try {
@@ -124,6 +134,11 @@ export default function WalletConfigPanel({
       } else {
         setMainnetWallet(null)
       }
+
+      setDeleteWalletConfirmed(prev => ({
+        testnet: info.testnetWallet ? prev.testnet : false,
+        mainnet: info.mainnetWallet ? prev.mainnet : false,
+      }))
     } catch (error) {
       console.error('Failed to load wallet info:', error)
       toast.error('Failed to load wallet information')
@@ -271,7 +286,8 @@ export default function WalletConfigPanel({
   const handleDeleteWallet = async (environment: 'testnet' | 'mainnet') => {
     const envName = environment === 'testnet' ? 'Testnet' : 'Mainnet'
 
-    if (!confirm(`Are you sure you want to delete the ${envName} wallet? This action cannot be undone.`)) {
+    if (!deleteWalletConfirmed[environment]) {
+      toast.error(t('wallet.delete.confirmRequired', 'Confirm wallet deletion before continuing'))
       return
     }
 
@@ -290,6 +306,7 @@ export default function WalletConfigPanel({
       const message = error instanceof Error ? error.message : 'Failed to delete wallet'
       toast.error(message)
     } finally {
+      setWalletDeleteConfirmed(environment, false)
       setLoading(false)
     }
   }
@@ -336,7 +353,12 @@ export default function WalletConfigPanel({
                 variant="destructive"
                 size="sm"
                 onClick={() => handleDeleteWallet(environment)}
-                disabled={loading}
+                disabled={loading || !deleteWalletConfirmed[environment]}
+                title={
+                  deleteWalletConfirmed[environment]
+                    ? t('wallet.delete.action', 'Delete wallet')
+                    : t('wallet.delete.confirmRequired', 'Confirm wallet deletion before continuing')
+                }
               >
                 <Trash2 className="h-3 w-3" />
               </Button>
@@ -397,6 +419,19 @@ export default function WalletConfigPanel({
                 <div className="font-medium">{wallet.defaultLeverage}x</div>
               </div>
             </div>
+
+            <label className="flex items-start gap-2 rounded-md border bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+              <Checkbox
+                data-testid="manual-hyperliquid-wallet-delete-confirm"
+                checked={deleteWalletConfirmed[environment]}
+                onCheckedChange={(checked) => setWalletDeleteConfirmed(environment, checked === true)}
+                disabled={loading}
+                className="mt-0.5 h-3.5 w-3.5"
+              />
+              <span>
+                {t('wallet.delete.confirmInline', 'Delete this trading wallet from this AI trader. Existing audit records stay available.')}
+              </span>
+            </label>
 
             <Button
               variant="outline"

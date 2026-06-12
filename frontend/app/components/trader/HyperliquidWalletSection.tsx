@@ -8,6 +8,7 @@
 import { useState, useEffect } from 'react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -61,6 +62,10 @@ export default function HyperliquidWalletSection({
   const [loading, setLoading] = useState(false)
   const [testingTestnet, setTestingTestnet] = useState(false)
   const [testingMainnet, setTestingMainnet] = useState(false)
+  const [deleteWalletConfirmed, setDeleteWalletConfirmed] = useState<Record<'testnet' | 'mainnet', boolean>>({
+    testnet: false,
+    mainnet: false,
+  })
 
   // One-click setup state
   const [setupProgress, setSetupProgress] = useState<Record<string, SetupProgress | null>>({
@@ -75,8 +80,13 @@ export default function HyperliquidWalletSection({
   const [mainnetDefaultLev, setMainnetDefaultLev] = useState(1)
 
   useEffect(() => {
+    setDeleteWalletConfirmed({ testnet: false, mainnet: false })
     loadWalletInfo()
   }, [accountId])
+
+  const setWalletDeleteConfirmed = (environment: 'testnet' | 'mainnet', confirmed: boolean) => {
+    setDeleteWalletConfirmed(prev => ({ ...prev, [environment]: confirmed }))
+  }
 
   const loadWalletInfo = async () => {
     try {
@@ -103,6 +113,10 @@ export default function HyperliquidWalletSection({
 
       onStatusChange?.('testnet', hasTestnet)
       onStatusChange?.('mainnet', hasMainnet)
+      setDeleteWalletConfirmed(prev => ({
+        testnet: hasTestnet ? prev.testnet : false,
+        mainnet: hasMainnet ? prev.mainnet : false,
+      }))
     } catch (error) {
       console.error('Failed to load wallet info:', error)
     } finally {
@@ -173,7 +187,10 @@ export default function HyperliquidWalletSection({
   }
 
   const handleDeleteWallet = async (environment: 'testnet' | 'mainnet') => {
-    if (!confirm(t('wallet.delete.confirm', 'Delete {{env}} wallet?', { env: environment }))) return
+    if (!deleteWalletConfirmed[environment]) {
+      toast.error(t('wallet.delete.confirmRequired', 'Confirm wallet deletion before continuing'))
+      return
+    }
     try {
       setLoading(true)
       const result = await deleteAccountWallet(accountId, environment)
@@ -185,6 +202,7 @@ export default function HyperliquidWalletSection({
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('wallet.delete.failed', 'Failed to delete wallet'))
     } finally {
+      setWalletDeleteConfirmed(environment, false)
       setLoading(false)
     }
   }
@@ -242,7 +260,17 @@ export default function HyperliquidWalletSection({
             </Badge>
           </div>
           {wallet && (
-            <Button variant="destructive" size="sm" onClick={() => handleDeleteWallet(environment)} disabled={loading}>
+            <Button
+              variant="destructive"
+              size="sm"
+              onClick={() => handleDeleteWallet(environment)}
+              disabled={loading || !deleteWalletConfirmed[environment]}
+              title={
+                deleteWalletConfirmed[environment]
+                  ? t('wallet.delete.action', 'Delete wallet')
+                  : t('wallet.delete.confirmRequired', 'Confirm wallet deletion before continuing')
+              }
+            >
               <Trash2 className="h-3 w-3" />
             </Button>
           )}
@@ -326,6 +354,19 @@ export default function HyperliquidWalletSection({
                 <div className="font-medium">{wallet.defaultLeverage}x</div>
               </div>
             </div>
+
+            <label className="flex items-start gap-2 rounded-md border bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+              <Checkbox
+                data-testid="hyperliquid-wallet-delete-confirm"
+                checked={deleteWalletConfirmed[environment]}
+                onCheckedChange={(checked) => setWalletDeleteConfirmed(environment, checked === true)}
+                disabled={loading}
+                className="mt-0.5 h-3.5 w-3.5"
+              />
+              <span>
+                {t('wallet.delete.confirmInline', 'Delete this trading wallet from this AI trader. Existing audit records stay available.')}
+              </span>
+            </label>
 
             <Button variant="outline" size="sm" onClick={() => handleTestConnection(environment)} disabled={testing} className="w-full">
               {testing ? <><RefreshCw className="mr-2 h-3 w-3 animate-spin" />{t('wallet.testing', 'Testing...')}</> : t('wallet.testConnection', 'Test Connection')}

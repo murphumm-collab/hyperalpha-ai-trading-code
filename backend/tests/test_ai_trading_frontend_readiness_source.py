@@ -4,6 +4,8 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "settings" / "SettingsPage.tsx"
 HYPER_AI_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiPage.tsx"
+HYPERLIQUID_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "HyperliquidWalletSection.tsx"
+WALLET_CONFIG_PANEL = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "WalletConfigPanel.tsx"
 READINESS_HELPER = REPO_ROOT / "frontend" / "app" / "lib" / "aiTradingReadiness.ts"
 
 
@@ -553,6 +555,41 @@ def test_ai_trading_agent_session_archive_uses_inline_confirmation_without_brows
     assert "setAgentSessionArchiveConfirmed(checked === true)" in session_controls_block
     assert "!agentSessionArchiveConfirmed" in session_controls_block
     assert "aiTradingArchiveSessionConfirmInline" in session_controls_block
+
+
+def test_ai_trading_hyperliquid_wallet_delete_uses_inline_confirmation_without_browser_confirm() -> None:
+    one_click_source = HYPERLIQUID_WALLET_SECTION.read_text(encoding="utf-8")
+    manual_source = WALLET_CONFIG_PANEL.read_text(encoding="utf-8")
+    one_click_delete_block = one_click_source.split(
+        "const handleDeleteWallet = async",
+        1,
+    )[1].split("const renderSetupProgress", 1)[0]
+    one_click_controls_block = one_click_source.split(
+        'data-testid="hyperliquid-wallet-delete-confirm"',
+        1,
+    )[1].split("wallet.testConnection", 1)[0]
+    manual_delete_block = manual_source.split(
+        "const handleDeleteWallet = async",
+        1,
+    )[1].split("const renderWalletBlock", 1)[0]
+    manual_controls_block = manual_source.split(
+        'data-testid="manual-hyperliquid-wallet-delete-confirm"',
+        1,
+    )[1].split("wallet.testConnection", 1)[0]
+
+    for delete_block in (one_click_delete_block, manual_delete_block):
+        assert "window.confirm" not in delete_block
+        assert "confirm(" not in delete_block
+        assert "deleteWalletConfirmed[environment]" in delete_block
+        assert "wallet.delete.confirmRequired" in delete_block
+        assert "setWalletDeleteConfirmed(environment, false)" in delete_block
+
+    for controls_block in (one_click_controls_block, manual_controls_block):
+        assert "setWalletDeleteConfirmed(environment, checked === true)" in controls_block
+        assert "wallet.delete.confirmInline" in controls_block
+
+    assert "disabled={loading || !deleteWalletConfirmed[environment]}" in one_click_source
+    assert "disabled={loading || !deleteWalletConfirmed[environment]}" in manual_source
 
 
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
