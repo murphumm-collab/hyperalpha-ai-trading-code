@@ -36,6 +36,7 @@ import {
   extractAiTradingProductionEvidenceTemplateGuidance,
   formatAiTradingProductionEvidenceApiError,
   formatAiTradingProductionEvidenceBlocker,
+  formatAiTradingProductionReadinessApiError,
 } from '@/lib/aiTradingReadiness'
 import type {
   HyperliquidSymbolMeta,
@@ -406,19 +407,21 @@ export default function SettingsPage() {
   const fetchAiTradingReadiness = useCallback(async () => {
     setAiTradingReadinessLoading(true)
     setAiTradingReadinessError(null)
+    const fallback = t('settings.aiTradingReadinessFailed', 'Failed to load AI Trading readiness')
     try {
       const res = await authFetch('/api/ai-trading/admin/production-readiness')
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(data.detail || 'Failed to load AI Trading readiness')
+        setAiTradingReadinessError(formatAiTradingProductionReadinessApiError(res.status, data.detail, fallback))
+        return
       }
       setAiTradingReadiness(data.readiness || null)
-    } catch (err) {
-      setAiTradingReadinessError(err instanceof Error ? err.message : 'Failed to load AI Trading readiness')
+    } catch {
+      setAiTradingReadinessError(formatAiTradingProductionReadinessApiError(0, null, fallback))
     } finally {
       setAiTradingReadinessLoading(false)
     }
-  }, [])
+  }, [t])
 
   const fetchAiTradingEvidenceExplain = useCallback(async () => {
     setAiTradingEvidenceExplainLoading(true)

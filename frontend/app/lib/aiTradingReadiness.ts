@@ -276,6 +276,28 @@ const PRODUCTION_EVIDENCE_API_STATUS_LABELS: Record<number, string> = {
   422: 'Evidence request was rejected by the safe validator',
 }
 
+const PRODUCTION_READINESS_API_DETAIL_LABELS: Record<string, string> = {
+  'Admin privileges required': 'Admin role required',
+  'Authentication required': 'Admin authentication required',
+  'Bearer token expired': 'Admin authentication required',
+  'Invalid authentication credentials': 'Admin authentication required',
+  'Invalid bearer token': 'Admin authentication required',
+  'Invalid or expired session': 'Admin authentication required',
+  'Not authenticated': 'Admin authentication required',
+  'Session user not found': 'Admin authentication required',
+}
+
+const PRODUCTION_READINESS_API_STATUS_LABELS: Record<number, string> = {
+  400: 'AI Trading production readiness request is invalid',
+  401: 'Admin authentication required',
+  403: 'Admin role required',
+  404: 'AI Trading production readiness endpoint was not found',
+  422: 'AI Trading production readiness request is invalid',
+  429: 'Too many AI Trading production readiness requests',
+  500: 'AI Trading production readiness service failed',
+  503: 'AI Trading production readiness service is unavailable',
+}
+
 const MODEL_CONFIG_API_DETAIL_LABELS: Record<string, string> = {
   'Base URL is required for custom provider': 'Base URL is required for custom provider',
   'Connection test failed': 'Model connection test failed',
@@ -339,6 +361,28 @@ export const formatAiTradingProductionEvidenceApiError = (
     ? PRODUCTION_EVIDENCE_API_ERROR_LABELS[safeCode] || PRODUCTION_EVIDENCE_BLOCKER_LABELS[safeCode]
     : PRODUCTION_EVIDENCE_API_STATUS_LABELS[status] || fallback
   return `${statusLabel}: ${safeDetail}`
+}
+
+const safeProductionReadinessApiDetailLabel = (detail: unknown): string | null => {
+  if (typeof detail === 'string') {
+    return PRODUCTION_READINESS_API_DETAIL_LABELS[detail] || null
+  }
+  if (isRecord(detail) && typeof detail.code === 'string') {
+    return PRODUCTION_READINESS_API_DETAIL_LABELS[detail.code] || null
+  }
+  return null
+}
+
+export const formatAiTradingProductionReadinessApiError = (
+  status: number,
+  detail: unknown,
+  fallback: string
+): string => {
+  const statusLabel = status > 0 ? `HTTP ${status}` : 'Request failed'
+  const safeDetail = safeProductionReadinessApiDetailLabel(detail)
+    || PRODUCTION_READINESS_API_STATUS_LABELS[status]
+    || fallback
+  return `${statusLabel}: ${safeDetail || readableEvidenceSuffix(fallback)}`
 }
 
 const safeModelConfigApiDetailLabel = (detail: unknown): string | null => {

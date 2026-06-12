@@ -436,6 +436,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production evidence dry-run safety metadata | Done |",
             "| AI Trading production evidence non-object dry-run safety | Done |",
             "| AI Trading production evidence frontend error safety | Done |",
+            "| AI Trading frontend production-readiness error safety | Done |",
             "| AI Trading frontend strategy-action error safety | Done |",
             "| AI Trading frontend backtest summary inline no-prompt | Done |",
             "| AI Trading frontend program backtest inline no-prompt | Done |",

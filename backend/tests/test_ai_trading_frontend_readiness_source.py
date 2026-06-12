@@ -123,6 +123,29 @@ def test_admin_production_evidence_explain_ui_uses_safe_projection() -> None:
     assert "production_evidence_file" not in helper_source
 
 
+def test_admin_production_readiness_ui_uses_safe_api_error_formatter() -> None:
+    settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    readiness_loader_block = settings_source.split(
+        "const fetchAiTradingReadiness",
+        1,
+    )[1].split("const fetchAiTradingEvidenceExplain", 1)[0]
+
+    assert "formatAiTradingProductionReadinessApiError" in settings_source
+    assert "formatAiTradingProductionReadinessApiError" in helper_source
+    assert "PRODUCTION_READINESS_API_DETAIL_LABELS" in helper_source
+    assert "PRODUCTION_READINESS_API_STATUS_LABELS" in helper_source
+    assert "Admin authentication required" in helper_source
+    assert "AI Trading production readiness service failed" in helper_source
+
+    assert "formatAiTradingProductionReadinessApiError(res.status, data.detail, fallback)" in readiness_loader_block
+    assert "formatAiTradingProductionReadinessApiError(0, null, fallback)" in readiness_loader_block
+    assert "throw new Error(data.detail" not in readiness_loader_block
+    assert "data.detail ||" not in readiness_loader_block
+    assert "err instanceof Error ? err.message" not in readiness_loader_block
+    assert "setAiTradingReadinessError(err" not in readiness_loader_block
+
+
 def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")
