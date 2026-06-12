@@ -6,7 +6,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from api.ai_trading_routes import router
+from api.ai_stream_routes import router as ai_stream_router
+from api.ai_trading_routes import router as ai_trading_router
 from database.connection import Base, get_db
 from database.models import (
     AiTradingAgentSessionRecord,
@@ -88,7 +89,8 @@ def _build_client(tmp_path):
             db.close()
 
     app = FastAPI()
-    app.include_router(router)
+    app.include_router(ai_trading_router)
+    app.include_router(ai_stream_router)
     app.dependency_overrides[get_db] = override_db
     client = TestClient(app)
     client._ai_trading_session_factory = Session
@@ -799,6 +801,89 @@ def test_ai_trading_production_readiness_api_requires_admin_session(tmp_path, mo
 
     assert anonymous.status_code == 401
     assert ordinary.status_code == 403
+
+
+def test_admin_ai_runtime_sanitizes_component_last_errors(tmp_path, monkeypatch):
+    _clear_relevant_env(monkeypatch)
+    client, admin_token, ordinary_token, admin_id = _build_client(tmp_path)
+    redis_error = "redis://:secret-redis-password@redis.internal:6379/0 Authorization: Bearer leaked"
+    dispatch_error = "OperationalError gateway token=secret-dispatch-token"
+
+    def fake_runtime_stats():
+        return {
+            "runner_id": "pytest-runner",
+            "running_tasks": 0,
+            "remote_running_tasks": 0,
+            "effective_running_tasks": 0,
+            "persisted_running_tasks": 0,
+            "stale_running_tasks": 0,
+            "completed_buffered_tasks": 0,
+            "error_buffered_tasks": 0,
+            "total_buffered_tasks": 0,
+            "task_max_workers": 12,
+            "task_max_running_global": 12,
+            "task_max_running_per_user": 2,
+            "task_threads": 0,
+            "task_queue": 0,
+            "background_max_workers": 4,
+            "background_threads": 0,
+            "background_queue": 0,
+            "distributed_admission": {
+                "enabled": True,
+                "available": False,
+                "lease_ttl_seconds": 30,
+                "last_error": redis_error,
+            },
+            "dispatch_queue": {
+                "enabled": True,
+                "claim_stale_seconds": 60,
+                "pending": 0,
+                "claimed": 0,
+                "running": 0,
+                "completed": 0,
+                "failed": 1,
+                "total": 1,
+                "last_error": dispatch_error,
+            },
+            "users": [
+                {
+                    "user_id": admin_id,
+                    "total_tasks": 0,
+                    "running_tasks": 0,
+                    "remote_running_tasks": 0,
+                    "persisted_running_tasks": 0,
+                    "stale_running_tasks": 0,
+                    "completed_tasks": 0,
+                    "error_tasks": 0,
+                }
+            ],
+        }
+
+    monkeypatch.setattr("api.ai_stream_routes.get_ai_runtime_stats", fake_runtime_stats)
+
+    ordinary = client.get(f"/api/ai-stream/admin/runtime?session_token={ordinary_token}")
+    assert ordinary.status_code == 403
+
+    response = client.get(f"/api/ai-stream/admin/runtime?session_token={admin_token}")
+    assert response.status_code == 200
+    data = response.json()
+
+    distributed = data["distributed_admission"]
+    assert distributed["last_error_present"] is True
+    assert distributed["last_error_code"] == "distributed_admission_unavailable"
+    assert distributed["last_error"] == "distributed_admission_unavailable"
+
+    dispatch = data["dispatch_queue"]
+    assert dispatch["last_error_present"] is True
+    assert dispatch["last_error_code"] == "dispatch_queue_stats_unavailable"
+    assert dispatch["last_error"] == "dispatch_queue_stats_unavailable"
+
+    serialized = json.dumps(data, ensure_ascii=False)
+    assert redis_error not in serialized
+    assert dispatch_error not in serialized
+    assert "secret-redis-password" not in serialized
+    assert "Bearer leaked" not in serialized
+    assert "secret-dispatch-token" not in serialized
 
 
 def test_ai_trading_production_evidence_explain_api_requires_admin_session(tmp_path, monkeypatch):

@@ -35,6 +35,7 @@ import {
   extractAiTradingProductionEvidenceExplain,
   extractAiTradingProductionEvidenceTemplateGuidance,
   formatAiTradingAiRuntimeApiError,
+  formatAiTradingAiRuntimeLastError,
   formatAiTradingProductionEvidenceApiError,
   formatAiTradingProductionEvidenceBlocker,
   formatAiTradingProductionReadinessApiError,
@@ -133,6 +134,8 @@ interface AiRuntimeStats {
     lease_ttl_seconds?: number
     fail_open?: boolean
     last_error?: string | null
+    last_error_code?: string | null
+    last_error_present?: boolean
   }
   dispatch_queue?: {
     enabled: boolean
@@ -144,6 +147,8 @@ interface AiRuntimeStats {
     failed: number
     total: number
     last_error?: string | null
+    last_error_code?: string | null
+    last_error_present?: boolean
   }
   users: AiRuntimeUserStats[]
 }
@@ -1969,9 +1974,13 @@ export default function SettingsPage() {
                           <div className="text-xs text-muted-foreground">{t('settings.staleRunningTasks', 'Stale DB')}</div>
                           <div className="font-medium">{aiRuntimeStats.stale_running_tasks ?? 0}</div>
                         </div>
-                        {aiRuntimeStats.distributed_admission?.last_error && (
+                        {aiRuntimeStats.distributed_admission?.last_error_present && (
                           <div className="min-w-0 text-xs text-red-500 md:col-span-6">
-                            {aiRuntimeStats.distributed_admission.last_error}
+                            {formatAiTradingAiRuntimeLastError(
+                              aiRuntimeStats.distributed_admission.last_error_code
+                                || aiRuntimeStats.distributed_admission.last_error,
+                              t('settings.redisAdmissionUnavailable', 'Redis admission is unavailable')
+                            )}
                           </div>
                         )}
                       </div>
@@ -2014,9 +2023,13 @@ export default function SettingsPage() {
                             <div className="text-xs text-muted-foreground">{t('settings.failed', 'Failed')}</div>
                             <div className="font-medium">{aiRuntimeStats.dispatch_queue.failed}</div>
                           </div>
-                          {aiRuntimeStats.dispatch_queue.last_error && (
+                          {aiRuntimeStats.dispatch_queue.last_error_present && (
                             <div className="min-w-0 text-xs text-red-500 md:col-span-6">
-                              {aiRuntimeStats.dispatch_queue.last_error}
+                              {formatAiTradingAiRuntimeLastError(
+                                aiRuntimeStats.dispatch_queue.last_error_code
+                                  || aiRuntimeStats.dispatch_queue.last_error,
+                                t('settings.dispatchQueueStatsUnavailable', 'AI dispatch queue stats are unavailable')
+                              )}
                             </div>
                           )}
                         </div>

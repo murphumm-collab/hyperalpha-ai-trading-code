@@ -320,6 +320,11 @@ const AI_RUNTIME_API_STATUS_LABELS: Record<number, string> = {
   503: 'AI runtime service is unavailable',
 }
 
+const AI_RUNTIME_LAST_ERROR_LABELS: Record<string, string> = {
+  dispatch_queue_stats_unavailable: 'AI dispatch queue stats are unavailable',
+  distributed_admission_unavailable: 'Redis admission is unavailable',
+}
+
 const MODEL_CONFIG_API_DETAIL_LABELS: Record<string, string> = {
   'Base URL is required for custom provider': 'Base URL is required for custom provider',
   'Connection test failed': 'Model connection test failed',
@@ -427,6 +432,19 @@ export const formatAiTradingAiRuntimeApiError = (
     || AI_RUNTIME_API_STATUS_LABELS[status]
     || fallback
   return `${statusLabel}: ${safeDetail || readableEvidenceSuffix(fallback)}`
+}
+
+export const formatAiTradingAiRuntimeLastError = (
+  errorCode: unknown,
+  fallback: string
+): string => {
+  if (typeof errorCode === 'string') {
+    return AI_RUNTIME_LAST_ERROR_LABELS[errorCode] || fallback
+  }
+  if (isRecord(errorCode) && typeof errorCode.code === 'string') {
+    return AI_RUNTIME_LAST_ERROR_LABELS[errorCode.code] || fallback
+  }
+  return fallback
 }
 
 const safeModelConfigApiDetailLabel = (detail: unknown): string | null => {

@@ -170,6 +170,25 @@ def test_admin_ai_runtime_ui_uses_safe_api_error_formatter() -> None:
     assert "setAiRuntimeError(err" not in runtime_loader_block
 
 
+def test_admin_ai_runtime_ui_redacts_component_last_errors() -> None:
+    settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
+    helper_source = READINESS_HELPER.read_text(encoding="utf-8")
+    runtime_display_block = settings_source.split(
+        "settings.distributedAdmission",
+        1,
+    )[1].split("{aiRuntimeStats.users.length", 1)[0]
+
+    assert "formatAiTradingAiRuntimeLastError" in settings_source
+    assert "formatAiTradingAiRuntimeLastError" in helper_source
+    assert "AI_RUNTIME_LAST_ERROR_LABELS" in helper_source
+    assert "distributed_admission_unavailable" in helper_source
+    assert "dispatch_queue_stats_unavailable" in helper_source
+    assert "last_error_present" in runtime_display_block
+    assert "last_error_code" in runtime_display_block
+    assert "{aiRuntimeStats.distributed_admission.last_error}" not in runtime_display_block
+    assert "{aiRuntimeStats.dispatch_queue.last_error}" not in runtime_display_block
+
+
 def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     settings_source = SETTINGS_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

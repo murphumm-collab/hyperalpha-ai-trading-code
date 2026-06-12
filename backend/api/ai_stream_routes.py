@@ -19,13 +19,44 @@ from database.models import User
 router = APIRouter(prefix="/api/ai-stream", tags=["AI Stream"])
 
 
+def _sanitize_runtime_last_error(
+    component: object,
+    *,
+    code: str,
+) -> object:
+    """Return admin runtime component metadata without raw exception text."""
+    if not isinstance(component, dict):
+        return component
+
+    sanitized = dict(component)
+    has_error = bool(sanitized.get("last_error") or sanitized.get("last_error_code"))
+    sanitized["last_error_present"] = has_error
+    sanitized["last_error_code"] = code if has_error else None
+    sanitized["last_error"] = code if has_error else None
+    return sanitized
+
+
+def sanitize_admin_ai_runtime_stats(stats: dict) -> dict:
+    """Remove raw runtime exception strings before returning admin AI stats."""
+    sanitized = dict(stats)
+    sanitized["distributed_admission"] = _sanitize_runtime_last_error(
+        sanitized.get("distributed_admission"),
+        code="distributed_admission_unavailable",
+    )
+    sanitized["dispatch_queue"] = _sanitize_runtime_last_error(
+        sanitized.get("dispatch_queue"),
+        code="dispatch_queue_stats_unavailable",
+    )
+    return sanitized
+
+
 @router.get("/admin/runtime")
 def get_admin_ai_runtime(
     current_user: User = Depends(get_admin_user_dependency),
     db: Session = Depends(get_db),
 ):
     """Return admin-only AI stream runtime capacity and per-user occupancy."""
-    stats = get_ai_runtime_stats()
+    stats = sanitize_admin_ai_runtime_stats(get_ai_runtime_stats())
     user_entries = stats.get("users", [])
     user_ids = [
         entry.get("user_id")
