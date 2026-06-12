@@ -958,25 +958,20 @@ def test_ai_trading_model_config_modal_uses_safe_api_error_formatter() -> None:
     assert "setError(e instanceof Error ? e.message" not in modal_block
 
 
-def test_hyper_ai_onboarding_uses_safe_model_and_stream_errors() -> None:
+def test_hyper_ai_onboarding_uses_safe_stream_errors_and_no_model_key_setup() -> None:
     source = HYPER_AI_ONBOARDING.read_text(encoding="utf-8")
-    config_block = source.split(
-        "const handleTestAndContinue = async () => {",
-        1,
-    )[1].split("  // Render based on current step", 1)[0]
     stream_block = source.split(
         "const pollStreamResponse = async (taskId: string) => {",
         1,
     )[1].split("  const handleKeyDown", 1)[0]
 
-    assert "formatAiTradingModelConfigApiError" in source
-    assert "const data = await saveRes.json().catch(() => ({}))" in config_block
-    assert "setError(formatAiTradingModelConfigApiError(saveRes.status, data.detail, fallback))" in config_block
-    assert "setError(formatAiTradingModelConfigApiError(0, null, fallback))" in config_block
-    assert "throw new Error(errData.detail" not in config_block
-    assert "errData.detail ||" not in config_block
-    assert "setError(e.message" not in config_block
-    assert "catch (e: any)" not in config_block
+    assert "formatAiTradingModelConfigApiError" not in source
+    assert "const handleTestAndContinue" not in source
+    assert "/api/hyper-ai/profile/llm" not in source
+    assert "api_key" not in source
+    assert "value={apiKey}" not in source
+    assert "type=\"password\"" not in source
+    assert "hyperAi.onboarding.apiKey', 'API Key'" not in source
 
     assert "throw new Error(t('hyperAi.onboarding.streamError', 'Stream error'))" in stream_block
     assert "chunk.data?.message || 'Stream error'" not in stream_block
@@ -985,29 +980,24 @@ def test_hyper_ai_onboarding_uses_safe_model_and_stream_errors() -> None:
 def test_hyper_ai_onboarding_defers_api_key_to_main_page_by_default() -> None:
     source = HYPER_AI_ONBOARDING.read_text(encoding="utf-8")
     default_entry_block = source.split(
-        "if (!showInlineConfig) {",
+        "// Entry step. LLM/API-key setup lives inside the Hyper AI page",
         1,
     )[1].split(
-        "  // Optional config step for users who explicitly choose to configure now.",
+        "// Chat step component - Full implementation with SSE streaming",
         1,
     )[0]
-    optional_config_block = source.split(
-        "data-testid=\"hyper-ai-onboarding-inline-config\"",
-        1,
-    )[1]
 
-    assert "LLM/API-key setup is optional and lives in the" in source
-    assert "const [showInlineConfig, setShowInlineConfig] = useState(false)" in source
+    assert "legacy onboarding path must never gate app entry or render key fields" in source
     assert "data-testid=\"hyper-ai-onboarding-enter-system\"" in default_entry_block
     assert "onClick={onSkip}" in default_entry_block
-    assert "data-testid=\"hyper-ai-onboarding-optional-model-config\"" in default_entry_block
-    assert "setShowInlineConfig(true)" in default_entry_block
+    assert "data-testid=\"hyper-ai-onboarding-optional-model-config\"" not in source
+    assert "data-testid=\"hyper-ai-onboarding-inline-config\"" not in source
+    assert "setShowInlineConfig(true)" not in source
+    assert "const [showInlineConfig" not in source
     assert "value={apiKey}" not in default_entry_block
     assert "type=\"password\"" not in default_entry_block
     assert "hyperAi.onboarding.apiKey', 'API Key'" not in default_entry_block
-
-    assert "value={apiKey}" in optional_config_block
-    assert "Enter without API key" in optional_config_block
+    assert "/api/hyper-ai/profile/llm" not in source
 
 
 def test_root_app_has_error_boundary_for_onboarding_skip_blank_page() -> None:

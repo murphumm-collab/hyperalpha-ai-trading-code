@@ -7,54 +7,17 @@
 import { useState, useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { Loader2, CheckCircle2, AlertCircle, ArrowRight, Bot, User, ChevronDown, Send, Settings } from 'lucide-react'
+import { Loader2, CheckCircle2, ArrowRight, Bot, User, Send } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
 import { authFetch } from '@/lib/authFetch'
-import { formatAiTradingModelConfigApiError } from '@/lib/aiTradingReadiness'
-
-interface LLMProvider {
-  id: string
-  name: string
-  base_url: string
-  models: string[]
-  api_format: string
-}
 
 interface HyperAiOnboardingProps {
   onComplete: () => void
   onSkip: () => void
 }
 
-type OnboardingStep = 'config' | 'chat' | 'complete'
-
-export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboardingProps) {
+export default function HyperAiOnboarding({ onSkip }: HyperAiOnboardingProps) {
   const { t, i18n } = useTranslation()
-  const [step, setStep] = useState<OnboardingStep>('config')
-  const [providers, setProviders] = useState<LLMProvider[]>([])
-  const [selectedProvider, setSelectedProvider] = useState<string>('')
-  const [apiKey, setApiKey] = useState('')
-  const [modelInput, setModelInput] = useState('')
-  const [customBaseUrl, setCustomBaseUrl] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [testing, setTesting] = useState(false)
-  const [testResult, setTestResult] = useState<'success' | 'error' | null>(null)
-  const [error, setError] = useState('')
-  const [showInlineConfig, setShowInlineConfig] = useState(false)
 
   // Detect browser language on mount
   useEffect(() => {
@@ -64,257 +27,36 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
     }
   }, [i18n])
 
-  // Fetch providers on mount
-  useEffect(() => {
-    fetchProviders()
-  }, [])
-
-  const fetchProviders = async () => {
-    try {
-      const res = await authFetch('/api/hyper-ai/providers')
-      const data = await res.json()
-      setProviders(data.providers || [])
-    } catch (e) {
-      console.error('Failed to fetch providers:', e)
-    }
-  }
-
-  const currentProvider = providers.find(p => p.id === selectedProvider)
-
-  // Set default model when provider changes
-  useEffect(() => {
-    if (selectedProvider && currentProvider && currentProvider.models.length > 0 && !modelInput) {
-      setModelInput(currentProvider.models[0])
-    }
-  }, [selectedProvider, currentProvider])
-
-  const handleProviderChange = (value: string) => {
-    setSelectedProvider(value)
-    setModelInput('')  // Reset model when provider changes
-  }
-
-  const handleTestAndContinue = async () => {
-    if (!selectedProvider || !apiKey) {
-      setError(t('hyperAi.onboarding.fillRequired', 'Please fill in all required fields'))
-      return
-    }
-
-    if (selectedProvider === 'custom' && !customBaseUrl) {
-      setError(t('hyperAi.onboarding.baseUrlRequired', 'Base URL is required for custom provider'))
-      return
-    }
-
-    setTesting(true)
-    setError('')
-    setTestResult(null)
-    const fallback = 'Connection test failed'
-
-    try {
-      const saveRes = await authFetch('/api/hyper-ai/profile/llm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          provider: selectedProvider,
-          api_key: apiKey,
-          model: modelInput,
-          base_url: selectedProvider === 'custom' ? customBaseUrl : undefined
-        })
-      })
-
-      if (!saveRes.ok) {
-        const data = await saveRes.json().catch(() => ({}))
-        setError(formatAiTradingModelConfigApiError(saveRes.status, data.detail, fallback))
-        setTestResult('error')
-        return
-      }
-
-      setTestResult('success')
-      setTimeout(() => setStep('chat'), 800)
-    } catch {
-      setTestResult('error')
-      setError(formatAiTradingModelConfigApiError(0, null, fallback))
-    } finally {
-      setTesting(false)
-    }
-  }
-
-  // Render based on current step
-  if (step === 'chat') {
-    return <ChatStep onSkip={onComplete} onComplete={onComplete} />
-  }
-
-  // Entry step (default). LLM/API-key setup is optional and lives in the
-  // Hyper AI page, so this legacy onboarding path must not gate app entry.
-  if (!showInlineConfig) {
-    return (
-      <div className="fixed inset-0 bg-background/95 backdrop-blur-sm flex items-center justify-center z-50">
-        <div className="w-full max-w-md p-8 space-y-6 text-center">
+  // Entry step. LLM/API-key setup lives inside the Hyper AI page, so this
+  // legacy onboarding path must never gate app entry or render key fields.
+  return (
+    <div className="fixed inset-0 bg-background/95 backdrop-blur-sm flex items-center justify-center z-50">
+      <div className="w-full max-w-md p-8 space-y-6 text-center">
+        <div className="space-y-2">
           <img
             src="/arena_logo_app_small.png"
             alt="Hyper Alpha Arena"
             className="w-16 h-16 mx-auto"
           />
-          <div className="space-y-2">
-            <h1 className="text-2xl font-bold">
-              {t('hyperAi.onboarding.welcome', 'Welcome to Hyper Alpha Arena')}
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              {t(
-                'hyperAi.onboarding.apiKeyDeferred',
-                'You can enter Hyper AI now. Configure DeepSeek/Qwen API keys later from the AI Trading model panel.'
-              )}
-            </p>
-          </div>
-
-          <div className="grid gap-3">
-            <Button
-              onClick={onSkip}
-              className="h-11 w-full"
-              data-testid="hyper-ai-onboarding-enter-system"
-            >
-              <ArrowRight className="mr-2 h-4 w-4" />
-              {t('hyperAi.onboarding.enterSystem', 'Enter System')}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowInlineConfig(true)}
-              className="h-10 w-full"
-              data-testid="hyper-ai-onboarding-optional-model-config"
-            >
-              <Settings className="mr-2 h-4 w-4" />
-              {t('hyperAi.onboarding.configureModelOptional', 'Configure model now')}
-            </Button>
-          </div>
-        </div>
-      </div>
-    )
-  }
-
-  // Optional config step for users who explicitly choose to configure now.
-  return (
-    <div className="fixed inset-0 bg-background/95 backdrop-blur-sm flex items-center justify-center z-50" data-testid="hyper-ai-onboarding-inline-config">
-      <div className="w-full max-w-md p-8 space-y-6">
-        {/* Header */}
-        <div className="text-center space-y-2">
-          <img
-            src="/arena_logo_app_small.png"
-            alt="Hyper Alpha Arena"
-            className="w-16 h-16 mx-auto mb-4"
-          />
           <h1 className="text-2xl font-bold">
-            {t('hyperAi.onboarding.configureModelOptional', 'Configure model now')}
+            {t('hyperAi.onboarding.welcome', 'Welcome to Hyper Alpha Arena')}
           </h1>
-          <p className="text-muted-foreground">
-            {t('hyperAi.onboarding.configureLaterHint', 'This is optional. You can skip and configure API keys later inside Hyper AI.')}
+          <p className="text-sm text-muted-foreground">
+            {t(
+              'hyperAi.onboarding.apiKeyDeferred',
+              'You can enter Hyper AI now. Configure DeepSeek/Qwen API keys later from the AI Trading model panel.'
+            )}
           </p>
         </div>
 
-        {/* Provider Selection */}
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>{t('hyperAi.onboarding.provider', 'AI Provider')}</Label>
-            <Select value={selectedProvider} onValueChange={handleProviderChange}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('hyperAi.onboarding.selectProvider', 'Select provider')} />
-              </SelectTrigger>
-              <SelectContent>
-                {providers.map(p => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Custom base URL for custom provider */}
-          {selectedProvider === 'custom' && (
-            <div className="space-y-2">
-              <Label>{t('hyperAi.onboarding.baseUrl', 'Base URL')}</Label>
-              <Input
-                value={customBaseUrl}
-                onChange={e => setCustomBaseUrl(e.target.value)}
-                placeholder="https://api.example.com/v1"
-              />
-            </div>
-          )}
-
-          {/* API Key */}
-          <div className="space-y-2">
-            <Label>{t('hyperAi.onboarding.apiKey', 'API Key')}</Label>
-            <Input
-              type="password"
-              value={apiKey}
-              onChange={e => setApiKey(e.target.value)}
-              placeholder="sk-..."
-            />
-          </div>
-
-          {/* Model Selection - Input + Dropdown */}
-          {selectedProvider && (
-            <div className="space-y-2">
-              <Label>{t('hyperAi.onboarding.model', 'Model')}</Label>
-              <div className="flex gap-1">
-                <Input
-                  value={modelInput}
-                  onChange={e => setModelInput(e.target.value)}
-                  placeholder={t('hyperAi.onboarding.modelPlaceholder', 'Enter or select model')}
-                  className="flex-1"
-                />
-                {currentProvider && currentProvider.models.length > 0 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="icon" className="shrink-0">
-                        <ChevronDown className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
-                      {currentProvider.models.map(m => (
-                        <DropdownMenuItem key={m} onClick={() => setModelInput(m)}>
-                          {m}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Error message */}
-        {error && (
-          <div className="flex items-center gap-2 text-destructive text-sm">
-            <AlertCircle className="w-4 h-4" />
-            {error}
-          </div>
-        )}
-
-        {/* Test result */}
-        {testResult === 'success' && (
-          <div className="flex items-center gap-2 text-green-600 text-sm">
-            <CheckCircle2 className="w-4 h-4" />
-            {t('hyperAi.onboarding.connectionSuccess', 'Connection successful!')}
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="flex gap-3">
-          <Button variant="ghost" onClick={onSkip} className="flex-1">
-            {t('hyperAi.onboarding.enterWithoutApiKey', 'Enter without API key')}
-          </Button>
-          <Button
-            onClick={handleTestAndContinue}
-            disabled={!selectedProvider || !apiKey || testing}
-            className="flex-1"
-          >
-            {testing ? (
-              <Loader2 className="w-4 h-4 animate-spin mr-2" />
-            ) : (
-              <ArrowRight className="w-4 h-4 mr-2" />
-            )}
-            {t('common.next', 'Continue')}
-          </Button>
-        </div>
+        <Button
+          onClick={onSkip}
+          className="h-11 w-full"
+          data-testid="hyper-ai-onboarding-enter-system"
+        >
+          <ArrowRight className="mr-2 h-4 w-4" />
+          {t('hyperAi.onboarding.enterSystem', 'Enter System')}
+        </Button>
       </div>
     </div>
   )
