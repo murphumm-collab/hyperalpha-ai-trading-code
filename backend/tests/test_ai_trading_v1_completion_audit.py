@@ -178,6 +178,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_onboarding_error_safety_marker: bool = True,
     include_frontend_onboarding_blank_page_guard_marker: bool = True,
     include_frontend_model_config_nonblocking_entry_marker: bool = True,
+    include_frontend_onboarding_api_key_deferral_marker: bool = True,
     include_frontend_public_asset_path_guard_marker: bool = True,
     include_frontend_bot_tool_config_error_safety_marker: bool = True,
     include_frontend_market_universe_error_safety_marker: bool = True,
@@ -186,6 +187,7 @@ def _write_minimal_acceptance_repo(
     include_private_factor_precompute_writer_reader_marker: bool = True,
     include_private_factor_precompute_db_smoke_marker: bool = True,
     include_agent_session_id_safety_marker: bool = True,
+    include_agent_session_id_validation_error_safety_marker: bool = True,
     include_agent_session_name_safety_marker: bool = True,
     include_strategy_spec_name_safety_marker: bool = True,
     include_handoff_error_message_safety_marker: bool = True,
@@ -431,6 +433,9 @@ def _write_minimal_acceptance_repo(
     frontend_model_config_nonblocking_entry_marker = (
         "| AI Trading frontend model-config nonblocking entry | Done |"
     ) if include_frontend_model_config_nonblocking_entry_marker else ""
+    frontend_onboarding_api_key_deferral_marker = (
+        "| AI Trading frontend onboarding API-key deferral | Done |"
+    ) if include_frontend_onboarding_api_key_deferral_marker else ""
     frontend_public_asset_path_guard_marker = (
         "| AI Trading frontend public asset path guard | Done |"
     ) if include_frontend_public_asset_path_guard_marker else ""
@@ -464,6 +469,9 @@ def _write_minimal_acceptance_repo(
     agent_session_id_safety_marker = (
         "| AI Trading agent-session id safety | Done |"
     ) if include_agent_session_id_safety_marker else ""
+    agent_session_id_validation_error_safety_marker = (
+        "| AI Trading agent-session id validation error safety | Done |"
+    ) if include_agent_session_id_validation_error_safety_marker else ""
     agent_session_name_safety_marker = (
         "| AI Trading agent-session name safety | Done |"
     ) if include_agent_session_name_safety_marker else ""
@@ -670,6 +678,7 @@ def _write_minimal_acceptance_repo(
                 frontend_onboarding_error_safety_marker,
                 frontend_onboarding_blank_page_guard_marker,
                 frontend_model_config_nonblocking_entry_marker,
+                frontend_onboarding_api_key_deferral_marker,
                 frontend_public_asset_path_guard_marker,
                 frontend_bot_tool_config_error_safety_marker,
                 frontend_market_universe_error_safety_marker,
@@ -681,6 +690,7 @@ def _write_minimal_acceptance_repo(
                 private_factor_precompute_writer_reader_marker,
                 private_factor_precompute_db_smoke_marker,
                 agent_session_id_safety_marker,
+                agent_session_id_validation_error_safety_marker,
                 agent_session_name_safety_marker,
                 strategy_spec_name_safety_marker,
                 handoff_error_message_safety_marker,
@@ -973,6 +983,32 @@ def test_agent_session_id_safety_is_implemented_and_gated() -> None:
     assert "test_ai_trading_agent_session_id_rejects_sensitive_values_without_echo" in route_test_source
     assert "test_hyper_ai_agent_session_route_id_rejects_sensitive_values_source_guard" in frontend_test_source
     assert "| AI Trading agent-session id safety | Done |" in status_source
+
+
+def test_agent_session_id_validation_error_safety_is_implemented_and_gated() -> None:
+    service_source = (
+        REPO_ROOT / "backend" / "services" / "ai_trading_strategy_spec_service.py"
+    ).read_text(encoding="utf-8")
+    route_source = (
+        REPO_ROOT / "backend" / "api" / "ai_trading_routes.py"
+    ).read_text(encoding="utf-8")
+    route_test_source = (
+        REPO_ROOT / "backend" / "tests" / "test_ai_trading_routes.py"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    assert "if len(raw) > 80:" in service_source
+    assert "raw = raw[:80]" not in service_source
+    assert "agent_session_id: Optional[str] = None" in route_source
+    assert "agent_session_id: str = Path(...)" in route_source
+    assert "agent_session_id: Optional[str] = Query(default=None)" in route_source
+    assert "agent_session_id: Optional[str] = Field(" not in route_source
+    assert "agent_session_id_rejects_sensitive_values_without_echo" in route_test_source
+    assert "session:api_key=secret-validation-echo" in route_test_source
+    assert "too_long_session_id" in route_test_source
+    assert "| AI Trading agent-session id validation error safety | Done |" in status_source
 
 
 def test_kline_local_db_api_is_implemented_and_gated() -> None:
@@ -2818,6 +2854,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_model_config_non
     )
 
 
+def test_completion_audit_blocks_local_acceptance_when_frontend_onboarding_api_key_deferral_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_onboarding_api_key_deferral_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend onboarding API-key deferral | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
 def test_completion_audit_blocks_local_acceptance_when_frontend_public_asset_path_marker_is_missing(tmp_path):
     _write_minimal_acceptance_repo(
         tmp_path,
@@ -2922,6 +2976,24 @@ def test_completion_audit_blocks_local_acceptance_when_agent_session_id_safety_m
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading agent-session id safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_agent_session_id_validation_error_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_agent_session_id_validation_error_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading agent-session id validation error safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

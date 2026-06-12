@@ -4053,6 +4053,7 @@ def test_ai_trading_agent_session_manual_context_rejects_sensitive_values(tmp_pa
 def test_ai_trading_agent_session_id_rejects_sensitive_values_without_echo(tmp_path):
     client = _build_client(tmp_path)
     sensitive_session_id = "session:token.secret"
+    invalid_sensitive_session_id = "session:api_key=secret-validation-echo"
 
     rejected_create = client.post(
         "/api/ai-trading/agent-sessions",
@@ -4099,6 +4100,62 @@ def test_ai_trading_agent_session_id_rejects_sensitive_values_without_echo(tmp_p
         assert response.status_code == 400
         assert "agent_session_id must not contain" in response.json()["detail"]
         assert sensitive_session_id not in json.dumps(response.json())
+
+    rejected_invalid_create = client.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": invalid_sensitive_session_id,
+            "name": "Invalid Sensitive ID Session",
+            "context_summary": "Safe BTC risk notes only.",
+        },
+    )
+    rejected_invalid_save = client.post(
+        "/api/ai-trading/strategy-specs",
+        json={
+            "spec": draft.json()["spec"],
+            "name": "Invalid Sensitive ID Spec",
+            "source": "pytest",
+            "agent_session_id": invalid_sensitive_session_id,
+        },
+    )
+    invalid_list_specs = client.get(
+        f"/api/ai-trading/strategy-specs?agent_session_id={invalid_sensitive_session_id}"
+    )
+    invalid_list_signals = client.get(
+        f"/api/ai-trading/signal-events?agent_session_id={invalid_sensitive_session_id}"
+    )
+    invalid_context = client.get(
+        f"/api/ai-trading/agent-sessions/{invalid_sensitive_session_id}/context"
+    )
+    invalid_compress = client.post(
+        f"/api/ai-trading/agent-sessions/{invalid_sensitive_session_id}/compress-context"
+    )
+
+    for response in (
+        rejected_invalid_create,
+        rejected_invalid_save,
+        invalid_list_specs,
+        invalid_list_signals,
+        invalid_context,
+        invalid_compress,
+    ):
+        assert response.status_code == 400
+        assert "agent_session_id must not contain" in response.json()["detail"]
+        assert invalid_sensitive_session_id not in json.dumps(response.json())
+        assert "secret-validation-echo" not in json.dumps(response.json())
+
+    too_long_session_id = "session:" + ("a" * 81)
+    too_long = client.post(
+        "/api/ai-trading/agent-sessions",
+        json={
+            "agent_session_id": too_long_session_id,
+            "name": "Too Long ID Session",
+            "context_summary": "Safe BTC risk notes only.",
+        },
+    )
+    assert too_long.status_code == 400
+    assert "agent_session_id must be 1-80 chars" in too_long.json()["detail"]
+    assert too_long_session_id not in json.dumps(too_long.json())
 
 
 def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, monkeypatch):

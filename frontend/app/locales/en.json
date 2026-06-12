@@ -1801,6 +1801,10 @@
     "onboarding": {
       "welcome": "Welcome to Hyper Alpha Arena",
       "configureAi": "Configure Hyper AI to get started",
+      "apiKeyDeferred": "You can enter Hyper AI now. Configure DeepSeek/Qwen API keys later from the AI Trading model panel.",
+      "configureModelOptional": "Configure model now",
+      "configureLaterHint": "This is optional. You can skip and configure API keys later inside Hyper AI.",
+      "enterWithoutApiKey": "Enter without API key",
       "provider": "AI Provider",
       "selectProvider": "Select provider",
       "baseUrl": "Base URL",

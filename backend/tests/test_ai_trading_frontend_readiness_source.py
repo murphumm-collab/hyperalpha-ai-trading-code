@@ -953,6 +953,34 @@ def test_hyper_ai_onboarding_uses_safe_model_and_stream_errors() -> None:
     assert "chunk.data?.message || 'Stream error'" not in stream_block
 
 
+def test_hyper_ai_onboarding_defers_api_key_to_main_page_by_default() -> None:
+    source = HYPER_AI_ONBOARDING.read_text(encoding="utf-8")
+    default_entry_block = source.split(
+        "if (!showInlineConfig) {",
+        1,
+    )[1].split(
+        "  // Optional config step for users who explicitly choose to configure now.",
+        1,
+    )[0]
+    optional_config_block = source.split(
+        "data-testid=\"hyper-ai-onboarding-inline-config\"",
+        1,
+    )[1]
+
+    assert "LLM/API-key setup is optional and lives in the" in source
+    assert "const [showInlineConfig, setShowInlineConfig] = useState(false)" in source
+    assert "data-testid=\"hyper-ai-onboarding-enter-system\"" in default_entry_block
+    assert "onClick={onSkip}" in default_entry_block
+    assert "data-testid=\"hyper-ai-onboarding-optional-model-config\"" in default_entry_block
+    assert "setShowInlineConfig(true)" in default_entry_block
+    assert "value={apiKey}" not in default_entry_block
+    assert "type=\"password\"" not in default_entry_block
+    assert "hyperAi.onboarding.apiKey', 'API Key'" not in default_entry_block
+
+    assert "value={apiKey}" in optional_config_block
+    assert "Enter without API key" in optional_config_block
+
+
 def test_root_app_has_error_boundary_for_onboarding_skip_blank_page() -> None:
     main_source = FRONTEND_MAIN.read_text(encoding="utf-8")
     boundary_source = APP_ERROR_BOUNDARY.read_text(encoding="utf-8")

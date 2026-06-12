@@ -981,16 +981,20 @@ def _clean_agent_session_id(value: Any) -> Optional[str]:
     raw = str(value or "").strip()
     if not raw:
         return None
-    raw = raw[:80]
-    if not AGENT_SESSION_ID_PATTERN.match(raw):
-        raise ValueError(
-            "agent_session_id must be 1-80 chars of letters, numbers, "
-            "colon, dot, underscore, or dash"
-        )
     if SENSITIVE_AI_TRADING_KEY_PATTERN.search(raw):
         raise ValueError(
             "agent_session_id must not contain API keys, tokens, secrets, "
             "private keys, passwords, or authorization headers"
+        )
+    if len(raw) > 80:
+        raise ValueError(
+            "agent_session_id must be 1-80 chars of letters, numbers, "
+            "colon, dot, underscore, or dash"
+        )
+    if not AGENT_SESSION_ID_PATTERN.match(raw):
+        raise ValueError(
+            "agent_session_id must be 1-80 chars of letters, numbers, "
+            "colon, dot, underscore, or dash"
         )
     return raw
 

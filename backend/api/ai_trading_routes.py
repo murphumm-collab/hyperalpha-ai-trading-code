@@ -111,12 +111,7 @@ class StrategySpecModelAdjustRequest(BaseModel):
     spec: Dict[str, Any]
     instruction: str = Field(..., min_length=1, max_length=4000)
     source: Optional[str] = Field(default="model_adjustment", max_length=50)
-    agent_session_id: Optional[str] = Field(
-        default=None,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    )
+    agent_session_id: Optional[str] = None
     agent_session_name: Optional[str] = Field(default=None, max_length=120)
     agent_context_summary: Optional[str] = Field(default=None, max_length=2000)
 
@@ -135,12 +130,7 @@ class StrategySpecSaveRequest(BaseModel):
     spec: Dict[str, Any]
     name: Optional[str] = Field(default=None, max_length=120)
     source: Optional[str] = Field(default="manual", max_length=50)
-    agent_session_id: Optional[str] = Field(
-        default=None,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    )
+    agent_session_id: Optional[str] = None
     agent_session_name: Optional[str] = Field(default=None, max_length=120)
     agent_context_summary: Optional[str] = Field(default=None, max_length=2000)
 
@@ -148,12 +138,7 @@ class StrategySpecSaveRequest(BaseModel):
 class AiTradingAgentSessionCreateRequest(BaseModel):
     name: Optional[str] = Field(default=None, max_length=120)
     context_summary: Optional[str] = Field(default=None, max_length=2000)
-    agent_session_id: Optional[str] = Field(
-        default=None,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    )
+    agent_session_id: Optional[str] = None
 
 
 class AiTradingAgentSessionUpdateRequest(BaseModel):
@@ -392,12 +377,7 @@ def create_ai_trading_agent_session_endpoint(
 @router.patch("/agent-sessions/{agent_session_id}")
 def update_ai_trading_agent_session_endpoint(
     request: AiTradingAgentSessionUpdateRequest,
-    agent_session_id: str = Path(
-        ...,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    ),
+    agent_session_id: str = Path(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ):
@@ -422,12 +402,7 @@ def update_ai_trading_agent_session_endpoint(
 
 @router.delete("/agent-sessions/{agent_session_id}")
 def archive_ai_trading_agent_session_endpoint(
-    agent_session_id: str = Path(
-        ...,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    ),
+    agent_session_id: str = Path(...),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
 ):
@@ -448,12 +423,7 @@ def archive_ai_trading_agent_session_endpoint(
 
 @router.get("/agent-sessions/{agent_session_id}/context")
 def ai_trading_agent_session_context_endpoint(
-    agent_session_id: str = Path(
-        ...,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    ),
+    agent_session_id: str = Path(...),
     strategy_limit: int = Query(default=5, ge=1, le=AGENT_CONTEXT_STRATEGY_MAX_LIMIT),
     signal_limit: int = Query(default=10, ge=1, le=AGENT_CONTEXT_SIGNAL_MAX_LIMIT),
     attempt_limit: int = Query(default=20, ge=1, le=AGENT_CONTEXT_ATTEMPT_MAX_LIMIT),
@@ -482,12 +452,7 @@ def ai_trading_agent_session_context_endpoint(
 
 @router.post("/agent-sessions/{agent_session_id}/compress-context")
 def compress_ai_trading_agent_session_context_endpoint(
-    agent_session_id: str = Path(
-        ...,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    ),
+    agent_session_id: str = Path(...),
     strategy_limit: int = Query(default=10, ge=1, le=AGENT_CONTEXT_STRATEGY_MAX_LIMIT),
     signal_limit: int = Query(default=20, ge=1, le=AGENT_CONTEXT_SIGNAL_MAX_LIMIT),
     attempt_limit: int = Query(default=20, ge=1, le=AGENT_CONTEXT_ATTEMPT_MAX_LIMIT),
@@ -631,12 +596,7 @@ def model_adjust_strategy_spec_endpoint(
 @router.get("/strategy-specs")
 def list_strategy_specs_endpoint(
     status: Optional[str] = None,
-    agent_session_id: Optional[str] = Query(
-        default=None,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    ),
+    agent_session_id: Optional[str] = Query(default=None),
     limit: int = 50,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user_dependency),
@@ -1035,12 +995,7 @@ def create_strategy_signal_event_endpoint(
 @router.get("/signal-events")
 def list_signal_events_endpoint(
     strategy_spec_id: Optional[int] = None,
-    agent_session_id: Optional[str] = Query(
-        default=None,
-        min_length=1,
-        max_length=80,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9:._-]{0,79}$",
-    ),
+    agent_session_id: Optional[str] = Query(default=None),
     status: Optional[str] = None,
     limit: int = 50,
     db: Session = Depends(get_db),

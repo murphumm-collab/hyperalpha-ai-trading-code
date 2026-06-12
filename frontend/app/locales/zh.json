@@ -1821,6 +1821,10 @@
     "onboarding": {
       "welcome": "欢迎使用 Hyper Alpha Arena",
       "configureAi": "配置 Hyper AI 轻松上手",
+      "apiKeyDeferred": "现在可以直接进入 Hyper AI。DeepSeek/Qwen API 密钥稍后在 AI Trading 模型面板里配置。",
+      "configureModelOptional": "现在配置模型",
+      "configureLaterHint": "这一步是可选的。你可以先进入系统，之后在 Hyper AI 里再配置 API 密钥。",
+      "enterWithoutApiKey": "不填 API key 进入",
       "provider": "AI 服务商",
       "selectProvider": "选择服务商",
       "baseUrl": "API 地址",

@@ -22,7 +22,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Loader2, CheckCircle2, AlertCircle, ArrowRight, Bot, User, ChevronDown, Send } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertCircle, ArrowRight, Bot, User, ChevronDown, Send, Settings } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
 import { authFetch } from '@/lib/authFetch'
 import { formatAiTradingModelConfigApiError } from '@/lib/aiTradingReadiness'
@@ -54,6 +54,7 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null)
   const [error, setError] = useState('')
+  const [showInlineConfig, setShowInlineConfig] = useState(false)
 
   // Detect browser language on mount
   useEffect(() => {
@@ -142,9 +143,57 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
     return <ChatStep onSkip={onComplete} onComplete={onComplete} />
   }
 
-  // Config step (default)
+  // Entry step (default). LLM/API-key setup is optional and lives in the
+  // Hyper AI page, so this legacy onboarding path must not gate app entry.
+  if (!showInlineConfig) {
+    return (
+      <div className="fixed inset-0 bg-background/95 backdrop-blur-sm flex items-center justify-center z-50">
+        <div className="w-full max-w-md p-8 space-y-6 text-center">
+          <img
+            src="/arena_logo_app_small.png"
+            alt="Hyper Alpha Arena"
+            className="w-16 h-16 mx-auto"
+          />
+          <div className="space-y-2">
+            <h1 className="text-2xl font-bold">
+              {t('hyperAi.onboarding.welcome', 'Welcome to Hyper Alpha Arena')}
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              {t(
+                'hyperAi.onboarding.apiKeyDeferred',
+                'You can enter Hyper AI now. Configure DeepSeek/Qwen API keys later from the AI Trading model panel.'
+              )}
+            </p>
+          </div>
+
+          <div className="grid gap-3">
+            <Button
+              onClick={onSkip}
+              className="h-11 w-full"
+              data-testid="hyper-ai-onboarding-enter-system"
+            >
+              <ArrowRight className="mr-2 h-4 w-4" />
+              {t('hyperAi.onboarding.enterSystem', 'Enter System')}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowInlineConfig(true)}
+              className="h-10 w-full"
+              data-testid="hyper-ai-onboarding-optional-model-config"
+            >
+              <Settings className="mr-2 h-4 w-4" />
+              {t('hyperAi.onboarding.configureModelOptional', 'Configure model now')}
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Optional config step for users who explicitly choose to configure now.
   return (
-    <div className="fixed inset-0 bg-background/95 backdrop-blur-sm flex items-center justify-center z-50">
+    <div className="fixed inset-0 bg-background/95 backdrop-blur-sm flex items-center justify-center z-50" data-testid="hyper-ai-onboarding-inline-config">
       <div className="w-full max-w-md p-8 space-y-6">
         {/* Header */}
         <div className="text-center space-y-2">
@@ -154,10 +203,10 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
             className="w-16 h-16 mx-auto mb-4"
           />
           <h1 className="text-2xl font-bold">
-            {t('hyperAi.onboarding.welcome', 'Welcome to Hyper Alpha Arena')}
+            {t('hyperAi.onboarding.configureModelOptional', 'Configure model now')}
           </h1>
           <p className="text-muted-foreground">
-            {t('hyperAi.onboarding.configureAi', 'Configure Hyper AI to get started')}
+            {t('hyperAi.onboarding.configureLaterHint', 'This is optional. You can skip and configure API keys later inside Hyper AI.')}
           </p>
         </div>
 
@@ -251,7 +300,7 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
         {/* Actions */}
         <div className="flex gap-3">
           <Button variant="ghost" onClick={onSkip} className="flex-1">
-            {t('common.skip', 'Skip')}
+            {t('hyperAi.onboarding.enterWithoutApiKey', 'Enter without API key')}
           </Button>
           <Button
             onClick={handleTestAndContinue}
