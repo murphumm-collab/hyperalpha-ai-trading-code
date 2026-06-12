@@ -38,6 +38,10 @@ router = APIRouter(prefix="/api/account", tags=["account"])
 SAFE_LLM_CONNECTION_TEST_FAILED_MESSAGE = "Model connection test failed. Please check the provider settings."
 SAFE_LLM_CONNECTION_TIMEOUT_MESSAGE = "Model connection timed out. Please retry later."
 SAFE_LLM_INVALID_RESPONSE_MESSAGE = "Model connection returned an invalid response."
+SAFE_BUILDER_AUTHORIZATION_CHECK_FAILED_MESSAGE = "Failed to check Hyperliquid builder authorization."
+SAFE_BUILDER_APPROVAL_FAILED_MESSAGE = "Failed to approve Hyperliquid builder fee."
+SAFE_BUILDER_MAINNET_CHECK_FAILED_MESSAGE = "Failed to check Hyperliquid mainnet builder authorization."
+SAFE_BUILDER_AUTHORIZATION_FAILED_MESSAGE = "Builder fee authorization failed."
 
 
 def get_db():
@@ -46,6 +50,12 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def _safe_builder_fee_result_status(result) -> dict:
+    if isinstance(result, dict) and result.get("status") == "err":
+        return {"status": "err"}
+    return {"status": "ok"}
 
 
 def _normalize_bool(value, default=True) -> bool:
@@ -1343,16 +1353,22 @@ def check_builder_authorization(
         }
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"Network error checking builder authorization: {e}")
+        logger.error(
+            "Network error checking builder authorization",
+            extra={"error_type": type(e).__name__},
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Network error: {str(e)}"
+            detail=SAFE_BUILDER_AUTHORIZATION_CHECK_FAILED_MESSAGE
         )
     except Exception as e:
-        logger.error(f"Error checking builder authorization: {e}", exc_info=True)
+        logger.error(
+            "Error checking builder authorization",
+            extra={"error_type": type(e).__name__},
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to check authorization: {str(e)}"
+            detail=SAFE_BUILDER_AUTHORIZATION_CHECK_FAILED_MESSAGE
         )
 
 
@@ -1431,33 +1447,38 @@ def approve_builder_fee(
         # Check if authorization was successful based on Hyperliquid response
         is_success = not (isinstance(result, dict) and result.get('status') == 'err')
 
+        safe_result = _safe_builder_fee_result_status(result)
+
         if is_success:
-            print(f"[BUILDER_AUTH] SUCCESS for account {account_id}: result={result}")
+            print(f"[BUILDER_AUTH] SUCCESS for account {account_id}: status={safe_result['status']}")
         else:
-            print(f"[BUILDER_AUTH] FAILED for account {account_id}: result={result}")
+            print(f"[BUILDER_AUTH] FAILED for account {account_id}: status={safe_result['status']}")
 
         logger.info(
             f"Builder fee approval initiated for account {account_id}: "
             f"builder={HYPERLIQUID_BUILDER_CONFIG.builder_address}, "
-            f"fee={fee_percentage}, result={result}"
+            f"fee={fee_percentage}, status={safe_result['status']}"
         )
 
         return {
             "success": is_success,
-            "message": result.get('response', 'Authorization failed') if not is_success else "Builder fee authorized successfully",
+            "message": SAFE_BUILDER_AUTHORIZATION_FAILED_MESSAGE if not is_success else "Builder fee authorized successfully",
             "builder_address": HYPERLIQUID_BUILDER_CONFIG.builder_address,
             "approved_fee": fee_percentage,
-            "result": result
+            "result": safe_result
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        print(f"[BUILDER_AUTH] EXCEPTION for account {account_id}: {type(e).__name__}: {e}")
-        logger.error(f"Failed to approve builder fee for account {account_id}: {e}", exc_info=True)
+        print(f"[BUILDER_AUTH] EXCEPTION for account {account_id}: {type(e).__name__}")
+        logger.error(
+            "Failed to approve builder fee",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to approve builder fee: {str(e)}"
+            detail=SAFE_BUILDER_APPROVAL_FAILED_MESSAGE
         )
 
 
@@ -1561,8 +1582,8 @@ def check_mainnet_accounts(
                     )
             except Exception as account_err:
                 logger.error(
-                    f"Error checking account {account.id} from wallets table: {account_err}",
-                    exc_info=True
+                    "Error checking account from wallets table",
+                    extra={"account_id": account.id, "error_type": type(account_err).__name__},
                 )
                 continue
 
@@ -1628,8 +1649,8 @@ def check_mainnet_accounts(
                     )
             except Exception as account_err:
                 logger.error(
-                    f"Error checking account {account.id}: {account_err}",
-                    exc_info=True
+                    "Error checking account",
+                    extra={"account_id": account.id, "error_type": type(account_err).__name__},
                 )
                 continue
 
@@ -1644,10 +1665,13 @@ def check_mainnet_accounts(
         }
 
     except Exception as e:
-        logger.error(f"Failed to check mainnet accounts: {e}", exc_info=True)
+        logger.error(
+            "Failed to check mainnet accounts",
+            extra={"error_type": type(e).__name__},
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to check mainnet accounts: {str(e)}"
+            detail=SAFE_BUILDER_MAINNET_CHECK_FAILED_MESSAGE
         )
 
 
