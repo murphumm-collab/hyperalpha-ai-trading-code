@@ -32,6 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import { Checkbox } from '@/components/ui/checkbox'
 import PacmanLoader from '@/components/ui/pacman-loader'
 import {
   Plus,
@@ -1215,6 +1216,7 @@ export default function HyperAiPage() {
   const [strategyBacktestSummaryId, setStrategyBacktestSummaryId] = useState('')
   const [strategyBacktestSummaryMetricsText, setStrategyBacktestSummaryMetricsText] = useState(AI_TRADING_BACKTEST_SUMMARY_METRICS_TEMPLATE)
   const [strategyProgramBacktestResultId, setStrategyProgramBacktestResultId] = useState('')
+  const [strategyProgramBacktestRunConfirmed, setStrategyProgramBacktestRunConfirmed] = useState(false)
   const [strategyBacktestLoadingId, setStrategyBacktestLoadingId] = useState<number | null>(null)
   const [strategyBacktestLoadingSource, setStrategyBacktestLoadingSource] = useState<'summary' | 'program' | 'latest' | 'preflight' | 'run' | 'evidence' | null>(null)
   const [strategyBacktestRunStatus, setStrategyBacktestRunStatus] = useState<AiTradingBacktestRunStatus | null>(null)
@@ -2961,6 +2963,10 @@ export default function HyperAiPage() {
       setStrategyDraftError(archivedSessionActionTitle)
       return
     }
+    if (!strategyProgramBacktestRunConfirmed) {
+      setStrategyDraftError(t('hyperAi.aiTradingRunBacktestConfirmRequired', 'Confirm this historical Program Backtest run before starting it'))
+      return
+    }
 
     setStrategyBacktestLoadingId(targetRecordId)
     setStrategyBacktestLoadingSource('run')
@@ -2977,17 +2983,6 @@ export default function HyperAiPage() {
           : `Program Backtest preflight for AI Trading Strategy Spec #${targetRecordId} is blocked, so the backtest was not started. Fix the blockers first; no order was placed.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(preflight), null, 2)}\n\`\`\``
         setInputValue(prompt)
         setStrategyDraftError(formatAiTradingStrategyActionApiError(0, `Backtest preflight blocked: ${blockers}`, fallback))
-        return
-      }
-
-      const confirmed = window.confirm(
-        t(
-          'hyperAi.aiTradingRunBacktestConfirm',
-          'Run a Program Backtest now? This uses historical data only and will not place orders.'
-        )
-      )
-      if (!confirmed) {
-        setStrategyBacktestRunStatus(null)
         return
       }
 
@@ -3087,6 +3082,7 @@ export default function HyperAiPage() {
         ? `Program Backtest #${backtestId} 已完成并绑定到 AI Trading Strategy Spec #${targetRecordId}。请复核结果质量、drawdown、trade_count、handoff gate，以及是否需要调整策略；不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket({ result: completePayload, attached_backtest: attachedBacktest }), null, 2)}\n\`\`\``
         : `Program Backtest #${backtestId} completed and was attached to AI Trading Strategy Spec #${targetRecordId}. Review result quality, drawdown, trade_count, handoff gate, and whether the strategy should be adjusted. Do not place an order directly.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket({ result: completePayload, attached_backtest: attachedBacktest }), null, 2)}\n\`\`\``
       setInputValue(prompt)
+      setStrategyProgramBacktestRunConfirmed(false)
       refreshAiTradingState()
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
@@ -5156,6 +5152,18 @@ export default function HyperAiPage() {
                     disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving || currentStrategyActionBlockedByArchivedSession}
                     rows={2}
                   />
+                  <label className="flex items-start gap-2 rounded-md border bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                    <Checkbox
+                      data-testid="ai-trading-program-backtest-run-confirm"
+                      checked={strategyProgramBacktestRunConfirmed}
+                      onCheckedChange={(checked) => setStrategyProgramBacktestRunConfirmed(checked === true)}
+                      disabled={strategyBacktestLoadingId !== null || strategyDraftSaving || strategyDraftApproving || currentStrategyActionBlockedByArchivedSession}
+                      className="mt-0.5 h-3.5 w-3.5"
+                    />
+                    <span>
+                      {t('hyperAi.aiTradingRunBacktestConfirmInline', 'Run Program Backtest using historical data only; no orders will be placed.')}
+                    </span>
+                  </label>
                 </div>
                 <div className="mt-2 flex items-center justify-between gap-2 border-t pt-2">
                   <span className="min-w-0 truncate text-muted-foreground">
@@ -5246,8 +5254,14 @@ export default function HyperAiPage() {
                       type="button"
                       onClick={() => handleRunStrategyProgramBacktest(strategyDraftRecord?.id)}
                       className="flex h-7 w-7 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession}
-                      title={currentStrategyActionBlockedByArchivedSession ? archivedSessionActionTitle : t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
+                      disabled={strategyDraftSaving || strategyDraftApproving || strategyAdjusting || strategyModelAdjusting || strategySignalPreviewLoading || strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession || !strategyProgramBacktestRunConfirmed}
+                      title={
+                        currentStrategyActionBlockedByArchivedSession
+                          ? archivedSessionActionTitle
+                          : !strategyProgramBacktestRunConfirmed
+                            ? t('hyperAi.aiTradingRunBacktestConfirmRequired', 'Confirm this historical Program Backtest run before starting it')
+                            : t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')
+                      }
                     >
                       {strategyBacktestLoadingId === strategyDraftRecord?.id && strategyBacktestLoadingSource === 'run' ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -5664,8 +5678,14 @@ export default function HyperAiPage() {
                             type="button"
                             onClick={() => handleRunStrategyProgramBacktest(record.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                            disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record)}
-                            title={isStrategyRecordActionBlockedByArchivedSession(record) ? archivedSessionActionTitle : t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')}
+                            disabled={strategyBacktestLoadingId !== null || isStrategyRecordActionBlockedByArchivedSession(record) || !strategyProgramBacktestRunConfirmed}
+                            title={
+                              isStrategyRecordActionBlockedByArchivedSession(record)
+                                ? archivedSessionActionTitle
+                                : !strategyProgramBacktestRunConfirmed
+                                  ? t('hyperAi.aiTradingRunBacktestConfirmRequired', 'Confirm this historical Program Backtest run before starting it')
+                                  : t('hyperAi.aiTradingRunProgramBacktest', 'Run Program Backtest')
+                            }
                           >
                             {strategyBacktestLoadingId === record.id && strategyBacktestLoadingSource === 'run' ? (
                               <Loader2 className="h-3.5 w-3.5 animate-spin" />

@@ -481,6 +481,36 @@ def test_ai_trading_program_backtest_result_uses_inline_input_without_browser_pr
     assert "handleAttachProgramBacktestResult(record.id, undefined, record)" in recent_specs_block
 
 
+def test_ai_trading_program_backtest_run_uses_inline_confirmation_without_browser_confirm() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    program_backtest_run_block = hyper_ai_source.split(
+        "const handleRunStrategyProgramBacktest = async",
+        1,
+    )[1].split("const handleInspectStrategyBacktestEvidence = async", 1)[0]
+    program_backtest_preflight_block = hyper_ai_source.split(
+        "const handleStrategyBacktestPreflight = async",
+        1,
+    )[1].split("const handleRunStrategyProgramBacktest = async", 1)[0]
+    current_strategy_controls_block = hyper_ai_source.split(
+        'data-testid="ai-trading-program-backtest-run-confirm"',
+        1,
+    )[1].split("strategyBacktestRunStatus && strategyBacktestRunStatus.specId", 1)[0]
+    recent_specs_block = hyper_ai_source.split(
+        "{recentStrategySpecs.map(record =>",
+        1,
+    )[1].split("onClick={() => handleInspectStrategyBacktestEvidence(record.id)}", 1)[0]
+
+    assert "window.confirm" not in program_backtest_run_block
+    assert "strategyProgramBacktestRunConfirmed" in program_backtest_run_block
+    assert "aiTradingRunBacktestConfirmRequired" in program_backtest_run_block
+    assert "setStrategyProgramBacktestRunConfirmed(false)" in program_backtest_run_block
+    assert "strategyProgramBacktestRunConfirmed" not in program_backtest_preflight_block
+    assert "strategyProgramBacktestRunConfirmed" in current_strategy_controls_block
+    assert "ai-trading-program-backtest-run-confirm" in hyper_ai_source
+    assert "!strategyProgramBacktestRunConfirmed" in current_strategy_controls_block
+    assert "!strategyProgramBacktestRunConfirmed" in recent_specs_block
+
+
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

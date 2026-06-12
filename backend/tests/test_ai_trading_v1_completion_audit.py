@@ -143,6 +143,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_strategy_action_error_safety_marker: bool = True,
     include_frontend_backtest_summary_inline_no_prompt_marker: bool = True,
     include_frontend_program_backtest_inline_no_prompt_marker: bool = True,
+    include_frontend_program_backtest_run_inline_confirm_marker: bool = True,
     include_frontend_prompt_packet_sanitizer_marker: bool = True,
     include_frontend_handoff_error_safety_marker: bool = True,
     include_frontend_agent_session_error_safety_marker: bool = True,
@@ -306,6 +307,9 @@ def _write_minimal_acceptance_repo(
     frontend_program_backtest_inline_no_prompt_marker = (
         "| AI Trading frontend program backtest inline no-prompt | Done |"
     ) if include_frontend_program_backtest_inline_no_prompt_marker else ""
+    frontend_program_backtest_run_inline_confirm_marker = (
+        "| AI Trading frontend program backtest run inline confirm | Done |"
+    ) if include_frontend_program_backtest_run_inline_confirm_marker else ""
     frontend_prompt_packet_sanitizer_marker = (
         "| AI Trading frontend prompt-packet sanitizer | Done |"
     ) if include_frontend_prompt_packet_sanitizer_marker else ""
@@ -532,6 +536,7 @@ def _write_minimal_acceptance_repo(
                 frontend_strategy_action_error_safety_marker,
                 frontend_backtest_summary_inline_no_prompt_marker,
                 frontend_program_backtest_inline_no_prompt_marker,
+                frontend_program_backtest_run_inline_confirm_marker,
                 frontend_prompt_packet_sanitizer_marker,
                 frontend_handoff_error_safety_marker,
                 frontend_agent_session_error_safety_marker,
@@ -1834,6 +1839,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_program_backtest
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend program backtest inline no-prompt | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_program_backtest_run_inline_confirm_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_program_backtest_run_inline_confirm_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend program backtest run inline confirm | Done |"
         in status_evidence["missing_phrases"]
     )
 
