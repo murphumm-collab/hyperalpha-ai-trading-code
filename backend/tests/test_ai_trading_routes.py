@@ -1208,6 +1208,60 @@ def test_ai_trading_model_adjustment_sanitizes_model_output_public_fields(tmp_pa
     assert "secret-model-key" not in json.dumps(calls[0]["json"], ensure_ascii=False)
 
 
+def test_ai_trading_model_adjustment_redacts_sensitive_exception_type(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    draft = client.post(
+        "/api/ai-trading/strategy-spec/draft",
+        json={
+            "symbol": "BTC",
+            "strategy_text": "15m breakout with strict stop loss and staged take profit",
+            "max_loss_pct": 1,
+            "max_leverage": 3,
+            "model_provider": "qwen",
+            "model_name": "qwen-plus",
+            "model_source": "pytest",
+        },
+    )
+    assert draft.status_code == 200
+    calls = []
+
+    def fake_llm_config(db, user_id=None):
+        return {
+            "configured": True,
+            "provider": "qwen",
+            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            "model": "qwen-plus",
+            "api_key": "secret-model-key",
+            "api_format": "openai",
+        }
+
+    SecretApiKeyModelError = type("SecretApiKeyModelError", (Exception,), {})
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
+        raise SecretApiKeyModelError("Authorization: Bearer secret-model-key")
+
+    monkeypatch.setattr(strategy_service, "get_llm_config", fake_llm_config)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    response = client.post(
+        "/api/ai-trading/strategy-spec/model-adjust",
+        json={
+            "spec": draft.json()["spec"],
+            "instruction": "Use Qwen to reduce risk",
+            "source": "pytest_model_exception_safety",
+        },
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "LLM request failed: Exception"
+    serialized_response = json.dumps(response.json(), ensure_ascii=False)
+    assert "SecretApiKeyModelError" not in serialized_response
+    assert "secret-model-key" not in serialized_response
+    assert calls[0]["headers"]["Authorization"] == "Bearer secret-model-key"
+    assert "secret-model-key" not in json.dumps(calls[0]["json"], ensure_ascii=False)
+
+
 def test_ai_trading_saved_model_adjustment_enforces_service_context_summary_budget(tmp_path, monkeypatch):
     client = _build_client(tmp_path)
     draft = client.post(
@@ -1989,6 +2043,76 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
         "source": "pytest_retry",
     }
     assert "secret-success-authorization" not in str(retry_rows)
+
+
+def test_ai_trading_gateway_handoff_redacts_sensitive_exception_type(tmp_path, monkeypatch):
+    client = _build_client(tmp_path)
+    _, event = _create_approved_signal_event(client)
+    gateway_calls = []
+    SecretApiKeyGatewayError = type("SecretApiKeyGatewayError", (Exception,), {})
+
+    class FakeResponse:
+        status_code = 503
+
+        def json(self):
+            return {
+                "accepted": False,
+                "status": "rejected",
+                "request_id": "req_gateway_secret_type",
+                "message": "secret-response-body",
+            }
+
+        def raise_for_status(self):
+            exc = SecretApiKeyGatewayError(
+                "https://order-backend.test/signals token=secret-gateway-token"
+            )
+            exc.response = self
+            raise exc
+
+    def fake_post(url, json=None, headers=None, timeout=None):
+        gateway_calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse()
+
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_ENABLED", True)
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_URL", "https://order-backend.test/signals")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_TOKEN", "secret-gateway-token")
+    monkeypatch.setattr(strategy_service, "SIGNAL_GATEWAY_PRODUCTION_HANDOFF_APPROVED", True)
+    monkeypatch.setattr(strategy_service.requests, "post", fake_post)
+
+    failed = client.post(
+        f"/api/ai-trading/signal-events/{event['id']}/handoff",
+        json={"confirmed_by_user": True, "confirmation_source": "pytest"},
+    )
+    assert failed.status_code == 400
+    assert failed.json()["detail"] == "Signal gateway handoff failed: Exception (status 503)"
+
+    detail = client.get(f"/api/ai-trading/signal-events/{event['id']}")
+    assert detail.status_code == 200
+    failed_event = detail.json()["signal_event"]
+    assert failed_event["handoff_status"] == "failed"
+    assert failed_event["error_message"] == "Signal gateway handoff failed: Exception (status 503)"
+
+    attempts = client.get(f"/api/ai-trading/signal-events/{event['id']}/handoff-attempts")
+    assert attempts.status_code == 200
+    attempt = attempts.json()["attempts"][0]
+    assert attempt["result"] == "failed"
+    assert attempt["error_message"] == "Signal gateway handoff failed: Exception (status 503)"
+    assert attempt["eligibility"]["gateway_response"]["error_type"] == "Exception"
+    assert attempt["eligibility"]["gateway_response"]["status_code"] == 503
+    assert len(gateway_calls) == 1
+
+    serialized = json.dumps(
+        {
+            "failed": failed.json(),
+            "event": failed_event,
+            "attempt": attempt,
+        },
+        ensure_ascii=False,
+    )
+    assert "SecretApiKeyGatewayError" not in serialized
+    assert "secret-gateway-token" not in serialized
+    assert "order-backend.test" not in serialized
+    assert "secret-response-body" not in serialized
 
 
 def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tmp_path, monkeypatch):

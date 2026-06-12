@@ -2142,7 +2142,7 @@ def adjust_strategy_spec_with_model(
                 break
             last_error = "LLM adjustment response did not contain JSON"
         except Exception as exc:
-            last_error = f"LLM request failed: {exc.__class__.__name__}"
+            last_error = f"LLM request failed: {_safe_exception_type_label(exc)}"
 
     raw_model_instruction = _clean_text(parsed.get("instruction"), 4000)
     raw_rationale = _clean_text(parsed.get("rationale"), 1000)
@@ -4106,11 +4106,25 @@ def _gateway_response_audit(response: Any = None, exc: Optional[BaseException] =
         "status_code": int(status_code) if isinstance(status_code, int) else None,
     }
     if exc is not None:
-        audit["error_type"] = _clean_text(exc.__class__.__name__, 120) or "Exception"
+        audit["error_type"] = _safe_exception_type_label(exc)
     response_summary = _gateway_response_summary(response if response is not None else error_response)
     if response_summary:
         audit["response_summary"] = response_summary
     return audit
+
+
+def _safe_exception_type_label(exc: BaseException, *, fallback: str = "Exception") -> str:
+    """Return a bounded exception type label without secret-like class names."""
+    error_type = _clean_text(exc.__class__.__name__, 120)
+    if not error_type:
+        return fallback
+    if SENSITIVE_AI_TRADING_KEY_PATTERN.search(error_type):
+        return fallback
+    if SENSITIVE_ERROR_MESSAGE_URL_PATTERN.search(error_type):
+        return fallback
+    if any(pattern.search(error_type) for pattern in SENSITIVE_AI_TRADING_TEXT_PATTERNS):
+        return fallback
+    return error_type
 
 
 def _gateway_response_summary(response: Any) -> Dict[str, Any]:

@@ -173,6 +173,7 @@ def _write_minimal_acceptance_repo(
     include_model_adjust_untrusted_context_boundary_marker: bool = True,
     include_model_adjust_output_sanitizer_marker: bool = True,
     include_frontend_model_adjust_output_safety_marker: bool = True,
+    include_model_gateway_exception_type_safety_marker: bool = True,
     include_frontend_validation_warning_labels_marker: bool = True,
     include_model_readiness_ui_source_guard_marker: bool = True,
     include_model_readiness_next_actions_marker: bool = True,
@@ -425,6 +426,9 @@ def _write_minimal_acceptance_repo(
     frontend_model_adjust_output_safety_marker = (
         "| AI Trading frontend model-adjust output safety | Done |"
     ) if include_frontend_model_adjust_output_safety_marker else ""
+    model_gateway_exception_type_safety_marker = (
+        "| AI Trading model/gateway exception type safety | Done |"
+    ) if include_model_gateway_exception_type_safety_marker else ""
     frontend_validation_warning_labels_marker = (
         "| AI Trading frontend validation warning labels | Done |"
     ) if include_frontend_validation_warning_labels_marker else ""
@@ -696,6 +700,7 @@ def _write_minimal_acceptance_repo(
                 model_adjust_untrusted_context_boundary_marker,
                 model_adjust_output_sanitizer_marker,
                 frontend_model_adjust_output_safety_marker,
+                model_gateway_exception_type_safety_marker,
                 frontend_validation_warning_labels_marker,
                 model_readiness_ui_source_guard_marker,
                 model_readiness_next_actions_marker,
@@ -2888,6 +2893,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_model_adjust_out
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend model-adjust output safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_model_gateway_exception_type_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_model_gateway_exception_type_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading model/gateway exception type safety | Done |"
         in status_evidence["missing_phrases"]
     )
 
