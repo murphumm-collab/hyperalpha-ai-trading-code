@@ -155,6 +155,41 @@ def test_operator_preflight_redacts_secret_like_external_evidence_paths(tmp_path
     assert completion_audit._secret_pattern_hits(report) == []
 
 
+def test_operator_preflight_blocks_dirty_worktree_without_file_name_leakage(tmp_path, monkeypatch):
+    _write_minimal_accepted_repo(tmp_path)
+
+    def fake_run_git(repo_root, args):
+        if args == ["rev-parse", "--abbrev-ref", "HEAD"]:
+            return completion_audit.EXPECTED_LOCAL_DEVELOPMENT_BRANCH
+        if args == ["rev-parse", "HEAD"]:
+            return "abc123def456abc123def456abc123def456abcd"
+        if args == ["status", "--porcelain"]:
+            return " M backend/secret-strategy.py\n?? .env.secret"
+        raise AssertionError(f"Unexpected git args: {args}")
+
+    monkeypatch.setattr(operator_preflight, "_run_git", fake_run_git)
+
+    report = operator_preflight.build_operator_preflight_report(
+        repo_root=tmp_path,
+        skip_local_runtime=True,
+    )
+    serialized = json.dumps(report, ensure_ascii=False, sort_keys=True)
+    git_report = report["components"]["git"]
+
+    assert report["summary"]["git_branch_ready"] is False
+    assert report["summary"]["git_dirty"] is True
+    assert "git:working_tree_has_uncommitted_changes" in report["blockers"]
+    assert "git:working_tree_has_uncommitted_changes" in report["warnings"]
+    assert git_report["branch_ready"] is False
+    assert git_report["dirty"] is True
+    assert git_report["dirty_entry_count"] == 2
+    assert git_report["blockers"] == ["working_tree_has_uncommitted_changes"]
+    assert any("Commit or discard local source changes" in action for action in report["next_actions"])
+    assert "backend/secret-strategy.py" not in serialized
+    assert ".env.secret" not in serialized
+    assert completion_audit._secret_pattern_hits(report) == []
+
+
 def test_operator_preflight_cli_strict_exits_one_for_default_blockers(tmp_path):
     _write_minimal_accepted_repo(tmp_path)
 

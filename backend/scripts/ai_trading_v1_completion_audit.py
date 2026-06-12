@@ -488,6 +488,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading completion audit git governance gate | Done |",
             "| AI Trading local completion summary gate | Done |",
             "| AI Trading production operator preflight | Done |",
+            "| AI Trading production operator preflight dirty-tree blocker | Done |",
             "| AI Trading production operator preflight output redaction | Done |",
             "| AI Trading production URL host secret redaction | Done |",
             "| AI Trading production URL port safety | Done |",

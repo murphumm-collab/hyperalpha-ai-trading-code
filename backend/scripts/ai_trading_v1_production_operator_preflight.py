@@ -54,6 +54,7 @@ def _git_report(repo_root: Path) -> dict[str, Any]:
     dirty_entries = [line for line in (porcelain or "").splitlines() if line.strip()]
     blockers: list[str] = []
     warnings: list[str] = []
+    next_actions: list[str] = []
 
     if branch is None:
         blockers.append("git_metadata_unavailable")
@@ -62,7 +63,12 @@ def _git_report(repo_root: Path) -> dict[str, Any]:
     elif branch != EXPECTED_BRANCH:
         blockers.append("unexpected_branch")
     if dirty_entries:
+        blockers.append("working_tree_has_uncommitted_changes")
         warnings.append("working_tree_has_uncommitted_changes")
+        next_actions.append(
+            "Commit or discard local source changes before production operator preflight; "
+            "dirty worktrees cannot be used for live-order cutover acceptance."
+        )
 
     return {
         "expected_branch": EXPECTED_BRANCH,
@@ -73,6 +79,7 @@ def _git_report(repo_root: Path) -> dict[str, Any]:
         "dirty_entry_count": len(dirty_entries),
         "blockers": blockers,
         "warnings": warnings,
+        "next_actions": next_actions,
         "github_upload": "deferred_by_user_request",
         "secret_policy": "metadata_only_no_remote_or_credentials",
     }
@@ -196,6 +203,7 @@ def build_operator_preflight_report(
 
     next_actions = _dedupe(
         [
+            *(git.get("next_actions") or []),
             *(completion.get("next_actions") or []),
             *(production_readiness.get("next_actions") or []),
             *(local_runtime.get("next_actions") or []),
