@@ -179,6 +179,7 @@ def _write_minimal_acceptance_repo(
     include_hyper_ai_service_stream_error_safety_marker: bool = True,
     include_hyper_ai_memory_error_safety_marker: bool = True,
     include_hyper_ai_memory_prompt_safety_marker: bool = True,
+    include_hyper_ai_memory_storage_safety_marker: bool = True,
     include_context_compression_error_safety_marker: bool = True,
     include_context_compression_prompt_safety_marker: bool = True,
     include_frontend_validation_warning_labels_marker: bool = True,
@@ -463,6 +464,9 @@ def _write_minimal_acceptance_repo(
     hyper_ai_memory_prompt_safety_marker = (
         "| AI Trading Hyper AI memory prompt safety | Done |"
     ) if include_hyper_ai_memory_prompt_safety_marker else ""
+    hyper_ai_memory_storage_safety_marker = (
+        "| AI Trading Hyper AI memory storage safety | Done |"
+    ) if include_hyper_ai_memory_storage_safety_marker else ""
     context_compression_error_safety_marker = (
         "| AI Trading context compression error safety | Done |"
     ) if include_context_compression_error_safety_marker else ""
@@ -750,6 +754,7 @@ def _write_minimal_acceptance_repo(
                 hyper_ai_service_stream_error_safety_marker,
                 hyper_ai_memory_error_safety_marker,
                 hyper_ai_memory_prompt_safety_marker,
+                hyper_ai_memory_storage_safety_marker,
                 context_compression_error_safety_marker,
                 context_compression_prompt_safety_marker,
                 frontend_validation_warning_labels_marker,
@@ -3052,6 +3057,24 @@ def test_completion_audit_blocks_local_acceptance_when_hyper_ai_memory_prompt_sa
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading Hyper AI memory prompt safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_hyper_ai_memory_storage_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_hyper_ai_memory_storage_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading Hyper AI memory storage safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

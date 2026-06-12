@@ -60,6 +60,8 @@ _MEMORY_SENSITIVE_PATTERN = re.compile(
 )
 
 _REDACTED_MEMORY_PROMPT_TEXT = "[redacted_sensitive_memory_text]"
+REDACTED_SENSITIVE_MEMORY_CONTENT = "[redacted_sensitive_memory_content]"
+SENSITIVE_MEMORY_CONTENT_ERROR = "memory_content_rejected_sensitive"
 
 
 def _memory_text(value: Any) -> str:
@@ -78,12 +80,32 @@ def _redact_sensitive_text_for_memory_prompt(value: Any) -> str:
     return text
 
 
-def _sanitize_memory_content_for_storage(value: Any) -> Optional[str]:
+def is_memory_content_sensitive(value: Any) -> bool:
+    return bool(_MEMORY_SENSITIVE_PATTERN.search(_memory_text(value)))
+
+
+def validate_memory_content_for_storage(value: Any) -> str:
     text = _memory_text(value).strip()
     if not text:
+        raise ValueError("memory_content_empty")
+    if is_memory_content_sensitive(text):
+        raise ValueError(SENSITIVE_MEMORY_CONTENT_ERROR)
+    return text
+
+
+def _sanitize_memory_content_for_storage(value: Any) -> Optional[str]:
+    try:
+        return validate_memory_content_for_storage(value)
+    except ValueError:
         return None
-    if _MEMORY_SENSITIVE_PATTERN.search(text):
-        return None
+
+
+def _redact_memory_content_for_response(value: Any) -> str:
+    text = _memory_text(value).strip()
+    if not text:
+        return ""
+    if is_memory_content_sensitive(text):
+        return REDACTED_SENSITIVE_MEMORY_CONTENT
     return text
 
 
@@ -145,18 +167,20 @@ def get_memories(
         HyperAiMemory.created_at.desc()
     ).limit(limit).all()
 
-    return [
-        {
+    safe_memories = []
+    for m in memories:
+        safe_content = _redact_memory_content_for_response(m.content)
+        safe_memories.append({
             "id": m.id,
             "user_id": m.user_id,
             "category": m.category,
-            "content": m.content,
+            "content": safe_content,
+            "content_redacted": safe_content == REDACTED_SENSITIVE_MEMORY_CONTENT,
             "source": m.source,
             "importance": m.importance,
             "created_at": m.created_at.isoformat() if m.created_at else None,
-        }
-        for m in memories
-    ]
+        })
+    return safe_memories
 
 
 def add_memory(
@@ -181,10 +205,11 @@ def add_memory(
         Created memory object
     """
     resolved_user_id = _require_user_id(user_id, "Hyper AI memory")
+    safe_content = validate_memory_content_for_storage(content)
     memory = HyperAiMemory(
         user_id=resolved_user_id,
         category=category,
-        content=content,
+        content=safe_content,
         source=source,
         importance=importance,
         is_active=True
@@ -213,7 +238,7 @@ def update_memory(
         return None
 
     if content is not None:
-        memory.content = content
+        memory.content = validate_memory_content_for_storage(content)
     if importance is not None:
         memory.importance = importance
     if is_active is not None:

@@ -1,6 +1,13 @@
 import json
 import logging
 
+import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from database.connection import Base
+from database.models import HyperAiMemory, User
+from services import hyper_ai_service, hyper_ai_tools
 from services import hyper_ai_memory_service
 
 
@@ -33,6 +40,120 @@ def _api_config() -> dict:
         "model": "qwen-plus",
         "api_format": "openai",
     }
+
+
+def _build_memory_db(tmp_path):
+    db_path = tmp_path / "hyper_ai_memory_safety.db"
+    engine = create_engine(f"sqlite:///{db_path}")
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+    Session = sessionmaker(bind=engine)
+    db = Session()
+    user = User(username="memory-safety-user", is_active="true")
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+    return db, user.id
+
+
+def test_manual_memory_writes_reject_sensitive_content(tmp_path) -> None:
+    db, user_id = _build_memory_db(tmp_path)
+    try:
+        memory = hyper_ai_memory_service.add_memory(
+            db,
+            "risk_memory",
+            "Use max loss 2% on BTC swing trades",
+            source="manual",
+            importance=0.8,
+            user_id=user_id,
+        )
+
+        with pytest.raises(ValueError) as add_error:
+            hyper_ai_memory_service.add_memory(
+                db,
+                "risk_memory",
+                "api_key=secret-user-key should never be remembered",
+                source="manual",
+                importance=0.8,
+                user_id=user_id,
+            )
+        assert str(add_error.value) == hyper_ai_memory_service.SENSITIVE_MEMORY_CONTENT_ERROR
+
+        with pytest.raises(ValueError) as update_error:
+            hyper_ai_memory_service.update_memory(
+                db,
+                memory.id,
+                content="authorization=Bearer secret-memory-update",
+                user_id=user_id,
+            )
+        assert str(update_error.value) == hyper_ai_memory_service.SENSITIVE_MEMORY_CONTENT_ERROR
+
+        db.refresh(memory)
+        assert memory.content == "Use max loss 2% on BTC swing trades"
+    finally:
+        db.close()
+
+
+def test_legacy_sensitive_memory_is_redacted_from_reads_and_system_prompt(tmp_path) -> None:
+    db, user_id = _build_memory_db(tmp_path)
+    try:
+        legacy = HyperAiMemory(
+            user_id=user_id,
+            category="context",
+            content="api_key=legacy-secret-memory postgres://provider.example/db",
+            source="legacy",
+            importance=0.9,
+            is_active=True,
+        )
+        safe = HyperAiMemory(
+            user_id=user_id,
+            category="risk_memory",
+            content="Use 2% max loss per BTC setup",
+            source="manual",
+            importance=0.8,
+            is_active=True,
+        )
+        db.add_all([legacy, safe])
+        db.commit()
+
+        memories = hyper_ai_memory_service.get_memories(db, limit=10, user_id=user_id)
+        rendered = json.dumps(memories, ensure_ascii=False)
+        assert "api_key" not in rendered.lower()
+        assert "legacy-secret-memory" not in rendered
+        assert "postgres://provider.example/db" not in rendered
+        assert hyper_ai_memory_service.REDACTED_SENSITIVE_MEMORY_CONTENT in rendered
+        assert any(m.get("content_redacted") is True for m in memories)
+        assert "Use 2% max loss per BTC setup" in rendered
+
+        context = hyper_ai_service._build_memory_context(db, user_id=user_id)
+        assert "api_key" not in context.lower()
+        assert "legacy-secret-memory" not in context
+        assert "postgres://provider.example/db" not in context
+        assert hyper_ai_memory_service.REDACTED_SENSITIVE_MEMORY_CONTENT in context
+        assert "Use 2% max loss per BTC setup" in context
+    finally:
+        db.close()
+
+
+def test_save_memory_tool_blocks_sensitive_content_without_echo() -> None:
+    result = hyper_ai_tools.execute_save_memory(
+        object(),
+        "risk_memory",
+        "api_key=secret-tool-memory Bearer token=secret-token",
+        user_id=7,
+    )
+
+    payload = json.loads(result)
+    assert payload == {
+        "status": "blocked",
+        "message": "Memory content was rejected by the safety policy.",
+        "executed": False,
+    }
+    rendered = result.lower()
+    assert "api_key" not in rendered
+    assert "secret-tool-memory" not in rendered
+    assert "secret-token" not in rendered
+    assert "bearer" not in rendered
 
 
 def test_memory_extraction_redacts_sensitive_conversation_and_filters_output(monkeypatch) -> None:
@@ -273,6 +394,8 @@ def test_hyper_ai_memory_error_source_guard() -> None:
         "f\"[ID:{m['id']}] ({m['category']}) {m['content']}\"",
         "f\"[{i}] ({m.get('category','context')}) {m.get('content','')}\"",
         "update_memory(db, eid, content=merged",
+        '"content": m.content',
+        "memory.content = content",
         "body={response.text",
         "response.text[:",
         "Dedup response not valid JSON: {text",

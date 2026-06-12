@@ -2993,7 +2993,7 @@ def execute_save_memory(
     """
     from services.hyper_ai_memory_service import (
         add_memory, MEMORY_CATEGORIES, enforce_memory_limit,
-        batch_dedup_memories
+        batch_dedup_memories, is_memory_content_sensitive
     )
 
     try:
@@ -3010,6 +3010,12 @@ def execute_save_memory(
         content = content.strip()
         if len(content) < 10:
             return json.dumps({"error": "Content must be at least 10 characters"})
+        if is_memory_content_sensitive(content):
+            return json.dumps({
+                "status": "blocked",
+                "message": "Memory content was rejected by the safety policy.",
+                "executed": False
+            }, ensure_ascii=False)
 
         importance = max(0.0, min(1.0, importance))
 
