@@ -669,22 +669,23 @@ def generate_summary(
         response = requests.post(endpoint, headers=headers, json=body, timeout=600)
 
         if response.status_code != 200:
-            resp_snippet = response.text[:500] if response.text else "empty"
+            response_body_present = bool(getattr(response, "content", b""))
             logger.error(
-                f"Compression API error: status={response.status_code}, "
-                f"model={model}, endpoint={endpoint}, "
-                f"prompt_tokens~{estimate_tokens(prompt)}, "
-                f"response={resp_snippet}"
+                "Compression API error: status=%s model=%s prompt_tokens~%s "
+                "response_body_present=%s",
+                response.status_code,
+                model,
+                estimate_tokens(prompt),
+                response_body_present,
             )
             system_logger.add_log(
                 "ERROR", "system_error",
                 f"Compression API error: {response.status_code}",
                 {
                     "model": model,
-                    "endpoint": endpoint,
                     "status": response.status_code,
                     "prompt_tokens": estimate_tokens(prompt),
-                    "response_snippet": resp_snippet[:200],
+                    "response_body_present": response_body_present,
                 }
             )
             return None
@@ -701,12 +702,12 @@ def generate_summary(
             if choices:
                 return choices[0].get("message", {}).get("content", "")
 
-    except Exception as e:
-        logger.error(f"Compression failed: {type(e).__name__}: {e}")
+    except Exception:
+        logger.error("Compression failed")
         system_logger.add_log(
             "ERROR", "system_error",
-            f"Compression exception: {type(e).__name__}",
-            {"model": model, "error": str(e)[:300]}
+            "Compression exception",
+            {"model": model}
         )
 
     return None
@@ -806,14 +807,14 @@ def compress_messages(
                         user_id=user_id_bg,
                     )
                     logger.warning(f"[Compression] Background memory extraction done: {count} memories")
-                except Exception as e:
-                    logger.warning(f"[Compression] Background memory extraction failed: {type(e).__name__}: {e}")
+                except Exception:
+                    logger.warning("[Compression] Background memory extraction failed")
                 finally:
                     bg_db.close()
 
             submit_ai_background_task(_extract_memories_bg, conv_text, api_config_copy, user_id)
-        except Exception as e:
-            logger.warning(f"[Compression] Failed to start memory extraction thread: {e}")
+        except Exception:
+            logger.warning("[Compression] Failed to start memory extraction thread")
 
     # Generate summary
     summary = generate_summary(to_compress, api_config)
