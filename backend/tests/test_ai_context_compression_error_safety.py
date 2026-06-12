@@ -50,6 +50,83 @@ def _assert_no_secret_echo(text: str) -> None:
     assert "apikeysecretcompressionerror" not in rendered
 
 
+def test_generate_summary_redacts_sensitive_context_before_provider_call(monkeypatch) -> None:
+    captured: dict = {}
+
+    def successful_post(*args, **kwargs):
+        captured["body"] = kwargs.get("json", {})
+        return ResponseStub(200)
+
+    def response_json(self):
+        return {
+            "choices": [
+                {"message": {"content": "Safe compressed summary"}}
+            ]
+        }
+
+    monkeypatch.setattr(ResponseStub, "json", response_json)
+    monkeypatch.setattr(compression_service.requests, "post", successful_post)
+
+    summary = compression_service.generate_summary(
+        [
+            {
+                "role": "user",
+                "content": (
+                    "Keep BTC risk low. api_key=secret-user-key "
+                    "Bearer token=secret-token postgres://provider.example/db"
+                ),
+            },
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "private_key=secret-tool-name",
+                    },
+                    {
+                        "type": "tool_result",
+                        "content": "authorization=Bearer secret-tool-result",
+                    },
+                ],
+            },
+            {
+                "role": "assistant",
+                "content": "Called search safely.",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "safe_market_scan",
+                            "arguments": '{"ignored": "not included"}',
+                        }
+                    },
+                    {
+                        "function": {
+                            "name": "token=secret-tool-call-name",
+                            "arguments": "{}",
+                        }
+                    },
+                ],
+            },
+        ],
+        _api_config(),
+    )
+
+    assert summary == "Safe compressed summary"
+    rendered_body = json.dumps(captured["body"], ensure_ascii=False)
+    assert "Keep BTC risk low" not in rendered_body
+    assert "api_key" not in rendered_body.lower()
+    assert "secret-user-key" not in rendered_body
+    assert "secret-token" not in rendered_body
+    assert "postgres://provider.example/db" not in rendered_body
+    assert "private_key" not in rendered_body.lower()
+    assert "secret-tool-name" not in rendered_body
+    assert "authorization" not in rendered_body.lower()
+    assert "secret-tool-result" not in rendered_body
+    assert "secret-tool-call-name" not in rendered_body
+    assert "safe_market_scan" in rendered_body
+    assert "[redacted_sensitive_text]" in rendered_body
+
+
 def _capture_system_logs(monkeypatch) -> list[dict]:
     captured: list[dict] = []
 
@@ -178,6 +255,8 @@ def test_ai_context_compression_error_source_guard() -> None:
         "response_snippet",
         '"endpoint": endpoint',
         "endpoint={endpoint}",
+        "conv_parts.append(f\"{role.upper()}: {content}\")",
+        "TOOL_RESULT: {tc",
         "Compression failed: {type(e).__name__}: {e}",
         "Compression exception: {type(e).__name__}",
         '"error": str(e)',

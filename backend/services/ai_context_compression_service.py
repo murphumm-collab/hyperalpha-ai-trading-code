@@ -27,6 +27,7 @@ Usage:
 """
 import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
@@ -126,6 +127,21 @@ COMPRESSION_THRESHOLD = 0.7
 
 # Reserved tokens for system prompt and response
 RESERVED_TOKENS = 4000
+
+_COMPRESSION_PROMPT_SENSITIVE_PATTERN = re.compile(
+    r"api[_-]?key|authorization|bearer|private[_-]?key|password|"
+    r"secret\s*[:=]|token\s*[:=]|postgres://|redis://",
+    re.IGNORECASE,
+)
+
+_REDACTED_COMPRESSION_TEXT = "[redacted_sensitive_text]"
+
+
+def _redact_sensitive_text_for_compression_prompt(value: Any) -> str:
+    text = value if isinstance(value, str) else str(value)
+    if _COMPRESSION_PROMPT_SENSITIVE_PATTERN.search(text):
+        return _REDACTED_COMPRESSION_TEXT
+    return text
 
 
 def estimate_tokens(text: str) -> int:
@@ -616,21 +632,29 @@ def generate_summary(
         role = msg.get("role", "unknown")
         content = msg.get("content", "")
         if isinstance(content, str) and content.strip():
-            conv_parts.append(f"{role.upper()}: {content}")
+            safe_content = _redact_sensitive_text_for_compression_prompt(content)
+            conv_parts.append(f"{role.upper()}: {safe_content}")
         elif isinstance(content, list):
             # Anthropic format or tool_use/tool_result blocks
             for block in content:
                 if isinstance(block, dict):
                     if block.get("type") == "tool_use":
-                        conv_parts.append(f"ASSISTANT: [Called tool: {block.get('name', '?')}]")
+                        safe_name = _redact_sensitive_text_for_compression_prompt(block.get("name", "?"))
+                        conv_parts.append(f"ASSISTANT: [Called tool: {safe_name}]")
                     elif block.get("type") == "tool_result":
                         tc = block.get("content", "")
-                        snippet = tc[:200] if isinstance(tc, str) else str(tc)[:200]
+                        safe_tc = _redact_sensitive_text_for_compression_prompt(tc)
+                        snippet = safe_tc[:200]
                         conv_parts.append(f"TOOL_RESULT: {snippet}")
         # OpenAI tool_calls on assistant messages
         tool_calls = msg.get("tool_calls", [])
         if tool_calls:
-            names = [tc.get("function", {}).get("name", "?") for tc in tool_calls]
+            names = [
+                _redact_sensitive_text_for_compression_prompt(
+                    tc.get("function", {}).get("name", "?")
+                )
+                for tc in tool_calls
+            ]
             conv_parts.append(f"ASSISTANT: [Called tools: {', '.join(names)}]")
 
     conversation_text = "\n\n".join(conv_parts)
