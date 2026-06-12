@@ -105,7 +105,12 @@ def _sanitized_url_parts(url: str) -> Dict[str, Any]:
         parts["parse_error"] = True
         return parts
 
-    host = parsed.hostname or ""
+    try:
+        host = parsed.hostname or ""
+    except ValueError:
+        parts = _empty_url_parts()
+        parts["parse_error"] = True
+        return parts
     host_secret_pattern_detected = bool(host and SENSITIVE_URL_HOST_PATTERN.search(host))
     port_invalid = False
     try:
@@ -135,7 +140,12 @@ def _url_check_context(url: str) -> tuple[Dict[str, Any], str, str]:
     except ValueError:
         parts["parse_error"] = True
         return parts, "", ""
-    return parts, (parsed.hostname or "").lower(), parsed.path.lower()
+    try:
+        parsed_host = (parsed.hostname or "").lower()
+    except ValueError:
+        parts["parse_error"] = True
+        return parts, "", ""
+    return parts, parsed_host, parsed.path.lower()
 
 
 def build_report(

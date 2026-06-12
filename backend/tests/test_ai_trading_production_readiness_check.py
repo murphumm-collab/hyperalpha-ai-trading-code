@@ -149,6 +149,29 @@ def test_invalid_url_ports_block_aggregate_readiness_without_port_value_leakage(
     assert "Port could not be cast" not in serialized
 
 
+def test_malformed_urls_block_aggregate_readiness_without_url_value_leakage():
+    report = readiness_check.build_report(
+        _ready_env(
+            AUTH_JWKS_URL="https://[secret-jwks-parse-123456789/.well-known/jwks.json",
+            AI_TRADING_SIGNAL_GATEWAY_URL=(
+                "https://[secret-gateway-parse-123456789/api/ai-trading/signals"
+            ),
+        )
+    )
+
+    assert report["production_ready"] is False
+    assert "auth:auth_jwks_url_invalid" in report["blockers"]
+    assert "signal_handoff:signal_gateway_url_invalid" in report["blockers"]
+    assert report["checks"]["auth"]["checks"]["jwks_url"]["host"] is None
+    assert report["checks"]["signal_handoff"]["checks"]["gateway_url"]["host"] is None
+    assert report["checks"]["auth"]["checks"]["jwks_url"]["parse_error"] is True
+    assert report["checks"]["signal_handoff"]["checks"]["gateway_url"]["parse_error"] is True
+    serialized = str(report)
+    assert "secret-jwks-parse-123456789" not in serialized
+    assert "secret-gateway-parse-123456789" not in serialized
+    assert "Invalid IPv6 URL" not in serialized
+
+
 def test_auth_and_distributed_ai_stream_blockers_are_specific():
     report = readiness_check.build_report(
         _ready_env(

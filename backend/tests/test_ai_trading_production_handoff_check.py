@@ -112,6 +112,24 @@ def test_invalid_gateway_url_port_is_blocked_without_exception_or_port_echo():
     assert "Port could not be cast" not in serialized
 
 
+def test_malformed_gateway_url_is_blocked_without_exception_or_url_echo():
+    report = production_check.build_report(
+        _base_env(
+            AI_TRADING_SIGNAL_GATEWAY_URL=(
+                "https://[secret-token-parse-123456789/api/ai-trading/signals"
+            ),
+        )
+    )
+
+    assert report["production_handoff_ready"] is False
+    assert "signal_gateway_url_invalid" in report["blockers"]
+    assert report["checks"]["gateway_url"]["host"] is None
+    assert report["checks"]["gateway_url"]["parse_error"] is True
+    serialized = str(report)
+    assert "secret-token-parse-123456789" not in serialized
+    assert "Invalid IPv6 URL" not in serialized
+
+
 def test_ready_report_never_returns_secret_token_value():
     report = production_check.build_report(_base_env())
 
