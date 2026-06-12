@@ -2,6 +2,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -15,11 +16,65 @@ sys.modules[SPEC.name] = completion_audit
 SPEC.loader.exec_module(completion_audit)
 
 _UNSET = object()
+_TRANSIENT_RESOURCE_MARKERS = (
+    "Resource temporarily unavailable",
+    "Failed to spawn",
+    "fork failed",
+)
 
 
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _runner_function_source() -> str:
+    source = RUNNER_SCRIPT_PATH.read_text(encoding="utf-8")
+    start = source.index("positive_int_or_default()")
+    end = source.index('\ncd "$REPO_ROOT"', start)
+    return source[start:end]
+
+
+def _has_transient_resource_output(output: str) -> bool:
+    return any(marker in output for marker in _TRANSIENT_RESOURCE_MARKERS)
+
+
+def _run_subprocess_with_transient_retry(*popenargs, attempts: int = 3, **kwargs):
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(attempts):
+        try:
+            result = subprocess.run(*popenargs, **kwargs)
+        except subprocess.CalledProcessError as exc:
+            output = (exc.stdout or "") + (exc.stderr or "")
+            if attempt < attempts - 1 and _has_transient_resource_output(output):
+                time.sleep(1)
+                continue
+            raise
+        except OSError as exc:
+            if attempt < attempts - 1 and getattr(exc, "errno", None) == 35:
+                time.sleep(1)
+                continue
+            raise
+
+        last_result = result
+        output = (result.stdout or "") + (result.stderr or "")
+        if result.returncode == 0:
+            return result
+        if attempt < attempts - 1 and _has_transient_resource_output(output):
+            time.sleep(1)
+            continue
+        return result
+    assert last_result is not None
+    return last_result
+
+
+def _run_bash_script_with_transient_retry(script: str, attempts: int = 3) -> subprocess.CompletedProcess[str]:
+    return _run_subprocess_with_transient_retry(
+        ["bash", "-c", script],
+        attempts=attempts,
+        capture_output=True,
+        text=True,
+    )
 
 
 def _utc_iso(offset: timedelta = timedelta()) -> str:
@@ -823,7 +878,7 @@ def test_production_evidence_explain_keeps_live_orders_blocked_without_explicit_
 def test_production_evidence_explain_cli_outputs_non_secret_checklist(tmp_path):
     _write_minimal_acceptance_repo(tmp_path)
 
-    completed = subprocess.run(
+    completed = _run_subprocess_with_transient_retry(
         [
             sys.executable,
             str(SCRIPT_PATH),
@@ -921,17 +976,101 @@ def test_completion_audit_blocks_local_acceptance_when_local_dev_shell_syntax_ga
 def test_local_acceptance_runner_retries_transient_resource_failures_without_masking_contract_errors():
     runner_source = RUNNER_SCRIPT_PATH.read_text(encoding="utf-8")
 
+    expected_failure_start = runner_source.index("run_expected_failure()")
+    transient_guard_index = runner_source.index(
+        'if is_transient_resource_failure "$rc" "$output_file"; then',
+        expected_failure_start,
+    )
+    expected_blocker_index = runner_source.index('if [[ "$rc" -eq 1 ]]; then', expected_failure_start)
+
     assert "run_command_with_transient_retry" in runner_source
+    assert "output_contains_transient_resource_failure" in runner_source
+    assert "sleep_before_retry" in runner_source
+    assert "Retry sleep could not start under local resource pressure" in runner_source
     assert "AI_TRADING_TRANSIENT_RETRY_ATTEMPTS" in runner_source
     assert "AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS" in runner_source
     assert "Transient local resource failure" in runner_source
     assert "Resource temporarily unavailable" in runner_source
     assert "Failed to spawn" in runner_source
     assert "fork failed" in runner_source
-    assert '"$rc" -eq 2 || "$rc" -eq 128' in runner_source
+    assert '"$rc" -eq 2 || "$rc" -eq 128' not in runner_source
+    assert '[[ "$rc" -ne 0 ]] || return 1' in runner_source
+    assert transient_guard_index < expected_blocker_index
+    assert "refusing to treat it as the expected blocker" in runner_source
     assert 'if [[ "$rc" -eq 1 ]]; then' in runner_source
     assert "Expected blocker confirmed with exit status 1" in runner_source
     assert "Expected exit status 1, got $rc" in runner_source
+
+
+def test_local_acceptance_expected_failure_gate_retries_rc1_resource_pressure_before_accepting_blocker(tmp_path):
+    counter_path = tmp_path / "flaky-counter"
+    shell_script = f"""
+set -euo pipefail
+{_runner_function_source()}
+counter_path={counter_path.as_posix()!r}
+printf '0' > "$counter_path"
+flaky_expected_gate() {{
+  local current
+  current="$(cat "$counter_path")"
+  if [[ "$current" -eq 0 ]]; then
+    printf '1' > "$counter_path"
+    echo "fork: Resource temporarily unavailable"
+    return 1
+  fi
+  echo "default production blocker"
+  return 1
+}}
+AI_TRADING_TRANSIENT_RETRY_ATTEMPTS=2 \\
+AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS=1 \\
+  run_expected_failure "Simulated expected failure gate" flaky_expected_gate
+[[ "$(cat "$counter_path")" == "1" ]]
+"""
+
+    result = _run_bash_script_with_transient_retry(shell_script)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Transient local resource failure during Simulated expected failure gate" in result.stderr
+    assert "Expected blocker confirmed with exit status 1" in result.stdout
+
+
+def test_local_acceptance_transient_resource_detection_is_not_exit_code_whitelisted(tmp_path):
+    output_path = tmp_path / "fork-pressure.log"
+    shell_script = f"""
+set -euo pipefail
+{_runner_function_source()}
+output_path={output_path.as_posix()!r}
+printf '%s\\n' "bash: fork: Resource temporarily unavailable" > "$output_path"
+is_transient_resource_failure 1 "$output_path"
+is_transient_resource_failure 254 "$output_path"
+if is_transient_resource_failure 0 "$output_path"; then
+  exit 10
+fi
+printf '%s\\n' "regular contract failure" > "$output_path"
+if is_transient_resource_failure 1 "$output_path"; then
+  exit 11
+fi
+"""
+
+    result = _run_bash_script_with_transient_retry(shell_script)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_local_acceptance_retry_sleep_failure_does_not_abort_runner(tmp_path):
+    shell_script = f"""
+set -euo pipefail
+{_runner_function_source()}
+sleep() {{
+  echo "fork: Resource temporarily unavailable" >&2
+  return 128
+}}
+sleep_before_retry 1
+"""
+
+    result = _run_bash_script_with_transient_retry(shell_script)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Retry sleep could not start under local resource pressure" in result.stderr
 
 
 def test_local_acceptance_runner_uses_macos_portable_mktemp_templates():

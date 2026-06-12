@@ -85,12 +85,18 @@ transient_retry_sleep_seconds() {
   positive_int_or_default "${AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS:-}" 5
 }
 
-is_transient_resource_failure() {
-  local rc="$1"
-  local output_file="$2"
-  local line
+sleep_before_retry() {
+  local delay_seconds="$1"
 
-  [[ "$rc" -eq 2 || "$rc" -eq 128 ]] || return 1
+  sleep "$delay_seconds" || {
+    echo "Retry sleep could not start under local resource pressure; continuing without delay." >&2
+    return 0
+  }
+}
+
+output_contains_transient_resource_failure() {
+  local output_file="$1"
+  local line
 
   while IFS= read -r line; do
     case "$line" in
@@ -101,6 +107,14 @@ is_transient_resource_failure() {
   done < "$output_file"
 
   return 1
+}
+
+is_transient_resource_failure() {
+  local rc="$1"
+  local output_file="$2"
+
+  [[ "$rc" -ne 0 ]] || return 1
+  output_contains_transient_resource_failure "$output_file"
 }
 
 run_command_with_transient_retry() {
@@ -131,7 +145,7 @@ run_command_with_transient_retry() {
     if is_transient_resource_failure "$rc" "$output_file" && [[ "$attempt" -lt "$attempts" ]]; then
       echo "Transient local resource failure during $name (exit $rc); retrying in ${delay_seconds}s ($attempt/$attempts)..." >&2
       rm -f "$output_file"
-      sleep "$delay_seconds"
+      sleep_before_retry "$delay_seconds"
       continue
     fi
 
@@ -171,17 +185,23 @@ run_expected_failure() {
     set -e
     cat "$output_file"
 
+    if is_transient_resource_failure "$rc" "$output_file"; then
+      if [[ "$attempt" -lt "$attempts" ]]; then
+        echo "Transient local resource failure during $name (exit $rc); retrying in ${delay_seconds}s ($attempt/$attempts)..." >&2
+        rm -f "$output_file"
+        sleep_before_retry "$delay_seconds"
+        continue
+      fi
+
+      rm -f "$output_file"
+      echo "Transient local resource failure during $name persisted after $attempts attempts; refusing to treat it as the expected blocker." >&2
+      return "$rc"
+    fi
+
     if [[ "$rc" -eq 1 ]]; then
       rm -f "$output_file"
       echo "Expected blocker confirmed with exit status 1"
       return 0
-    fi
-
-    if is_transient_resource_failure "$rc" "$output_file" && [[ "$attempt" -lt "$attempts" ]]; then
-      echo "Transient local resource failure during $name (exit $rc); retrying in ${delay_seconds}s ($attempt/$attempts)..." >&2
-      rm -f "$output_file"
-      sleep "$delay_seconds"
-      continue
     fi
 
     rm -f "$output_file"
@@ -465,7 +485,7 @@ run_runtime_readiness_with_retry() {
     fi
     if [[ "$attempt" -lt "$attempts" ]]; then
       echo "Runtime not ready after LaunchAgent sync; waiting ${delay_seconds}s before retry..."
-      sleep "$delay_seconds"
+      sleep_before_retry "$delay_seconds"
     fi
   done
 
