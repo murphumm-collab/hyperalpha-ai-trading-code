@@ -145,6 +145,39 @@ def test_legacy_sensitive_base_url_is_redacted_and_blocked(tmp_path) -> None:
     assert config["base_url"] == hyper_ai_service.REDACTED_SENSITIVE_LLM_BASE_URL
 
 
+def test_legacy_sensitive_base_url_blocks_provider_profile_even_with_preset(tmp_path) -> None:
+    client = _build_client(tmp_path)
+
+    with client._hyper_ai_session_factory() as db:
+        profile = HyperAiProfile(
+            user_id=client._hyper_ai_user_id,
+            llm_provider="qwen",
+            llm_model="qwen-plus",
+            llm_base_url="https://token:secret-llm-base-url@dashscope.aliyuncs.com/compatible-mode/v1",
+        )
+        db.add(profile)
+        db.commit()
+
+    response = client.get("/api/hyper-ai/profile")
+    assert response.status_code == 200
+    body = response.json()
+    rendered = json.dumps(body, ensure_ascii=False)
+    _assert_no_secret_echo(rendered)
+    assert body["llm_configured"] is False
+    assert body["llm_base_url"] == hyper_ai_service.REDACTED_SENSITIVE_LLM_BASE_URL
+
+    with client._hyper_ai_session_factory() as db:
+        config = hyper_ai_service.get_llm_config(db, user_id=client._hyper_ai_user_id)
+
+    rendered_config = json.dumps(config, ensure_ascii=False)
+    _assert_no_secret_echo(rendered_config)
+    assert config["configured"] is False
+    assert config["provider"] == "qwen"
+    assert config["model"] == "qwen-plus"
+    assert config["base_url_blocked"] is True
+    assert config["base_url"] == hyper_ai_service.REDACTED_SENSITIVE_LLM_BASE_URL
+
+
 def test_valid_llm_base_url_is_preserved_for_storage() -> None:
     assert (
         hyper_ai_service.validate_llm_base_url_for_storage(" https://llm.example.test/v1 ")

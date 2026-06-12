@@ -902,6 +902,7 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
     assert "model_provider_not_deepseek_or_qwen" in model_readiness_helper_block
     assert "model_name_missing" in model_readiness_helper_block
     assert "model_base_url_missing" in model_readiness_helper_block
+    assert "model_base_url_rejected_sensitive" in model_readiness_helper_block
     assert "next_actions?: string[]" in hyper_ai_source
     assert "aiTradingModelAdjustmentNextActions" in model_readiness_helper_block
     assert "modelAdjustmentNextActionSummary()" in model_readiness_helper_block

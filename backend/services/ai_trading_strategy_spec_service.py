@@ -37,7 +37,6 @@ from database.models import (
     AiTradingStrategySpecRecord,
     BacktestResult,
     BacktestTriggerLog,
-    HyperAiProfile,
     SignalPool,
     TradingProgram,
 )
@@ -50,8 +49,6 @@ from services.ai_decision_service import (
     strip_thinking_tags,
 )
 from services.hyper_ai_service import get_llm_config
-from services.hyper_ai_llm_providers import get_provider
-from utils.encryption import decrypt_private_key
 
 
 SPEC_VERSION = "hyperalpha.ai_trading.strategy_spec.v1"
@@ -4466,39 +4463,32 @@ def _model_adjustment_next_actions(blockers: List[str]) -> List[str]:
         ),
         "model_name_missing": "Select a model name in the Hyper AI profile before model-adjust.",
         "model_base_url_missing": "Set the provider endpoint in the Hyper AI profile before model-adjust.",
+        "model_base_url_rejected_sensitive": (
+            "Re-save the Hyper AI model endpoint without API keys, tokens, passwords, or embedded credentials."
+        ),
     }
     return list(dict.fromkeys(labels[blocker] for blocker in blockers if blocker in labels))
 
 
 def _summarize_model_adjustment_readiness(db: Session, *, user_id: int) -> Dict[str, Any]:
     blockers: List[str] = []
-    profile = db.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).first()
-    provider = _clean_text(profile.llm_provider if profile else None, 50).lower()
-    provider_config = get_provider(provider) if provider else None
-    model = _clean_text(
-        (profile.llm_model if profile else None)
-        or (provider_config.models[0] if provider_config and provider_config.models else None),
-        100,
-    )
-    base_url_present = bool(
-        _clean_text(
-            (profile.llm_base_url if profile else None)
-            or (provider_config.base_url if provider_config else None),
-            500,
-        )
-    )
-    configured = bool(profile and provider)
-    credential_present = False
-    if profile and profile.llm_api_key_encrypted:
-        try:
-            credential_present = bool(decrypt_private_key(profile.llm_api_key_encrypted))
-        except Exception:
-            blockers.append("model_profile_credential_unreadable")
+    llm_config = get_llm_config(db, user_id=user_id)
+    provider = _clean_text(llm_config.get("provider"), 50).lower()
+    model = _clean_text(llm_config.get("model"), 100)
+    base_url_present = bool(_clean_text(llm_config.get("base_url"), 500))
+    base_url_blocked = bool(llm_config.get("base_url_blocked"))
+    configured = bool(llm_config.get("configured"))
+    credential_present = bool(llm_config.get("api_key"))
+    credential_unreadable = bool(llm_config.get("credential_unreadable"))
     provider_supported = provider in AI_TRADING_V1_MODEL_PROVIDERS
 
-    if not configured:
+    if base_url_blocked:
+        blockers.append("model_base_url_rejected_sensitive")
+    elif not provider:
         blockers.append("model_profile_not_configured")
-    if configured and not credential_present:
+    if configured and credential_unreadable:
+        blockers.append("model_profile_credential_unreadable")
+    elif configured and not credential_present:
         blockers.append("model_profile_credential_missing")
     if configured and not provider_supported:
         blockers.append("model_provider_not_deepseek_or_qwen")

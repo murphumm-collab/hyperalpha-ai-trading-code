@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 import services.ai_trading_market_universe_service as market_universe_service
 import services.ai_trading_strategy_spec_service as strategy_service
+import services.hyper_ai_service as hyper_ai_service
 import api.ai_trading_routes as ai_trading_routes
 from api.ai_trading_routes import router
 from api.auth_utils import get_current_user_dependency
@@ -830,7 +831,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
         "encrypted-qwen-key": "secret-qwen-key",
     }
     monkeypatch.setattr(
-        strategy_service,
+        hyper_ai_service,
         "decrypt_private_key",
         lambda encrypted_value: secrets_by_encrypted_value[encrypted_value],
     )
@@ -917,6 +918,33 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
     ready_serialized = str(ready_runtime.json())
     assert "secret-qwen-key" not in ready_serialized
     assert "dashscope.aliyuncs.com" not in ready_serialized
+
+    session = session_factory()
+    try:
+        profile = session.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).one()
+        profile.llm_base_url = "https://token:secret-runtime-base-url@dashscope.aliyuncs.com/compatible-mode/v1"
+        session.commit()
+    finally:
+        session.close()
+
+    blocked_base_url_runtime = client.get("/api/ai-trading/runtime")
+    assert blocked_base_url_runtime.status_code == 200
+    blocked_base_url_model = blocked_base_url_runtime.json()["model_adjustment"]
+    assert blocked_base_url_model["ready"] is False
+    assert blocked_base_url_model["configured"] is False
+    assert blocked_base_url_model["provider"] == "qwen"
+    assert blocked_base_url_model["model"] == "qwen-plus"
+    assert blocked_base_url_model["provider_supported"] is True
+    assert blocked_base_url_model["blockers"] == ["model_base_url_rejected_sensitive"]
+    assert blocked_base_url_model["next_actions"] == [
+        "Re-save the Hyper AI model endpoint without API keys, tokens, passwords, or embedded credentials."
+    ]
+    assert blocked_base_url_model["credential_present"] is False
+    assert blocked_base_url_model["credential_value_returned"] is False
+    blocked_base_url_serialized = str(blocked_base_url_runtime.json())
+    assert "secret-runtime-base-url" not in blocked_base_url_serialized
+    assert "secret-qwen-key" not in blocked_base_url_serialized
+    assert "dashscope.aliyuncs.com" not in blocked_base_url_serialized
 
 
 def test_ai_trading_runtime_reports_current_user_agent_context_budget_without_summaries(tmp_path):

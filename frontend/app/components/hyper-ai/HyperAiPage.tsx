@@ -1616,6 +1616,7 @@ export default function HyperAiPage() {
       model_provider_not_deepseek_or_qwen: t('hyperAi.aiTradingModelProviderUnsupported', 'DeepSeek/Qwen required'),
       model_name_missing: t('hyperAi.aiTradingModelNameMissing', 'Model missing'),
       model_base_url_missing: t('hyperAi.aiTradingModelEndpointMissing', 'Endpoint missing'),
+      model_base_url_rejected_sensitive: t('hyperAi.aiTradingModelEndpointRejected', 'Endpoint rejected'),
     }
     return labels[blocker] || t('hyperAi.aiTradingModelBlocked', 'Blocked')
   }
@@ -1646,6 +1647,9 @@ export default function HyperAiPage() {
     }
     if (aiTradingModelAdjustmentBlockers.includes('model_base_url_missing')) {
       return t('hyperAi.aiTradingModelEndpointMissing', 'Endpoint missing')
+    }
+    if (aiTradingModelAdjustmentBlockers.includes('model_base_url_rejected_sensitive')) {
+      return t('hyperAi.aiTradingModelEndpointRejected', 'Endpoint rejected')
     }
     return t('hyperAi.aiTradingModelBlocked', 'Blocked')
   }

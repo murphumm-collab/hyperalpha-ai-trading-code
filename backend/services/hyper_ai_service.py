@@ -349,23 +349,23 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
             "Hyper AI LLM base URL blocked by safety policy: provider=%s",
             profile.llm_provider,
         )
-        if profile.llm_provider == "custom" or not provider:
-            return {
-                "configured": False,
-                "provider": profile.llm_provider,
-                "base_url": REDACTED_SENSITIVE_LLM_BASE_URL,
-                "model": model,
-                "base_url_blocked": True,
-            }
-        profile_base_url = None
+        return {
+            "configured": False,
+            "provider": profile.llm_provider,
+            "base_url": REDACTED_SENSITIVE_LLM_BASE_URL,
+            "model": model,
+            "base_url_blocked": True,
+        }
     base_url = profile_base_url or (provider.base_url if provider else "")
 
     # Decrypt API key
     api_key = None
+    credential_unreadable = False
     if profile.llm_api_key_encrypted:
         try:
             api_key = decrypt_private_key(profile.llm_api_key_encrypted)
         except Exception:
+            credential_unreadable = True
             logger.error("Failed to decrypt API key")
 
     # Detect API format from URL for custom provider
@@ -381,6 +381,7 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
         "base_url": base_url,
         "model": model,
         "api_key": api_key,
+        "credential_unreadable": credential_unreadable,
         "api_format": api_format
     }
 
