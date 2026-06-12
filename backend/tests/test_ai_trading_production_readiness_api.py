@@ -235,7 +235,7 @@ def test_admin_can_read_ai_trading_production_evidence_explain_without_secret_le
     assert data["requested_by_user_id"] == admin_id
     explain = data["explain"]
     assert explain["mode"] == "production_evidence_explain"
-    assert explain["github_upload"] == "deferred_by_user_request"
+    assert explain["github_upload"] == "pushed_to_origin"
     assert explain["local_v1_accepted"] is True
     assert explain["ready_for_live_orders"] is False
     assert explain["production_track"] == "pending_external_acceptance"
@@ -446,7 +446,7 @@ def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_
     )
     validation = data["validation"]
     assert validation["mode"] == "production_evidence_payload_validation"
-    assert validation["github_upload"] == "deferred_by_user_request"
+    assert validation["github_upload"] == "pushed_to_origin"
     assert validation["local_v1_accepted"] is True
     assert validation["ready_for_live_orders"] is False
     assert validation["production_track"] == "external_evidence_accepted_pending_explicit_confirmation"

@@ -32,6 +32,8 @@ from urllib.parse import urlparse
 
 EXTERNAL_ACCEPTANCE_EVIDENCE_VERSION = "hyperalpha.ai_trading.external_acceptance.v1"
 EXPECTED_LOCAL_DEVELOPMENT_BRANCH = "codex/ai-agent-multitenant-foundation"
+EXPECTED_GITHUB_UPLOAD_STATUS = "pushed_to_origin"
+EXPECTED_REMOTE_TRACKING_BRANCH = f"origin/{EXPECTED_LOCAL_DEVELOPMENT_BRANCH}"
 SAFE_ARTIFACT_REF_SCHEMES = {"https", "ops", "lark", "notion"}
 ALLOWED_PRODUCTION_EVIDENCE_ROOT_FIELDS = {
     "version",
@@ -345,7 +347,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "local completion summary gate",
             "git_governance.status",
             "ready_for_live_orders_false",
-            "deferred_by_user_request",
+            EXPECTED_GITHUB_UPLOAD_STATUS,
             "codex/ai-agent-multitenant-foundation",
             "ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff",
             "Production evidence template remains blocked",
@@ -403,10 +405,10 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="status_progress_marker",
         track="local_v1",
-        description="Feature status marks the production operator preflight flow as accepted and remote push as skipped.",
+        description="Feature status marks the production operator preflight flow as accepted and the remote branch as synced.",
         path="docs/hyperalpha/status/ai-agent-multitenant-foundation.status.md",
         required_phrases=(
-            "Local V1 Production Operator Preflight Accepted / Remote Push Skipped",
+            "Local V1 Production Operator Preflight Accepted / Remote Push Synced",
             "| AI Trading aggregate acceptance DB-audit gate | Done |",
             "| AI Trading V1 completion boundary audit | Done |",
             "| AI Trading production evidence gate | Done |",
@@ -511,7 +513,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading production URL host secret redaction | Done |",
             "| AI Trading production URL port safety | Done |",
             "| AI Trading production URL parse-error safety | Done |",
-            "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
+            "| Remote push | Done | Branch pushed to origin/codex/ai-agent-multitenant-foundation; no merge performed |",
         ),
     ),
     EvidenceRequirement(
@@ -657,9 +659,9 @@ def _latest_memory_report(repo_root: Path) -> dict[str, Any]:
     memory_path = f"docs/hyperalpha/memory/{memory_file}" if memory_file else ""
     memory_text = _read_text(repo_root, memory_path) if memory_path else None
     required_memory_phrases = (
-        "GitHub 上传：按用户要求跳过",
+        "GitHub 上传：已同步到 origin/codex/ai-agent-multitenant-foundation",
         EXPECTED_LOCAL_DEVELOPMENT_BRANCH,
-        "不 push、不 merge",
+        "已 push，不 merge",
         "default production readiness DB-audit blocker",
         "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
         "真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key",
@@ -728,27 +730,28 @@ def _git_governance_report(repo_root: Path) -> dict[str, Any]:
     elif branch_report["branch"] != EXPECTED_LOCAL_DEVELOPMENT_BRANCH:
         blockers.append("unexpected_branch")
 
-    if f"`{EXPECTED_LOCAL_DEVELOPMENT_BRANCH}` 分支本地提交" not in acceptance_text:
+    if f"`{EXPECTED_LOCAL_DEVELOPMENT_BRANCH}` 分支开发" not in acceptance_text:
         blockers.append("acceptance_checklist_missing_local_branch_boundary")
-    if "GitHub 上传按当前用户要求暂不处理" not in acceptance_text:
-        blockers.append("acceptance_checklist_missing_github_upload_deferred_boundary")
+    if "GitHub 上传已同步到 origin/codex/ai-agent-multitenant-foundation" not in acceptance_text:
+        blockers.append("acceptance_checklist_missing_github_upload_synced_boundary")
     if f"Branch: `{EXPECTED_LOCAL_DEVELOPMENT_BRANCH}`" not in status_text:
         blockers.append("status_missing_expected_branch")
-    if "| Remote push | Deferred | GitHub upload intentionally skipped per user request |" not in status_text:
-        blockers.append("status_missing_remote_push_deferred")
-    if EXPECTED_LOCAL_DEVELOPMENT_BRANCH not in memory_text or "不 push、不 merge" not in memory_text:
-        blockers.append("latest_memory_missing_branch_or_no_push_boundary")
+    if "| Remote push | Done | Branch pushed to origin/codex/ai-agent-multitenant-foundation; no merge performed |" not in status_text:
+        blockers.append("status_missing_remote_push_synced")
+    if EXPECTED_LOCAL_DEVELOPMENT_BRANCH not in memory_text or "已 push，不 merge" not in memory_text:
+        blockers.append("latest_memory_missing_branch_or_no_merge_boundary")
 
     return {
         "id": "git_governance",
         "track": "governance",
-        "description": "Local V1 must stay on the approved codex branch, with GitHub upload deferred and no merge/push boundary recorded.",
+        "description": "Local V1 must stay on the approved codex branch, with GitHub upload synced to the remote feature branch and no merge boundary recorded.",
         "status": "accepted" if not blockers else "incomplete_evidence",
         "path": ".git/HEAD",
         "expected_branch": EXPECTED_LOCAL_DEVELOPMENT_BRANCH,
+        "expected_remote_tracking_branch": EXPECTED_REMOTE_TRACKING_BRANCH,
         "current_branch": branch_report["branch"],
         "detached": branch_report["detached"],
-        "github_upload": "deferred_by_user_request",
+        "github_upload": EXPECTED_GITHUB_UPLOAD_STATUS,
         "blockers": blockers,
         "missing_phrases": [],
         "missing_patterns": [],
@@ -1708,7 +1711,7 @@ def build_completion_report(
     return {
         "local_v1_accepted": local_v1_accepted,
         "ready_for_live_orders": ready_for_live_orders,
-        "github_upload": "deferred_by_user_request",
+        "github_upload": EXPECTED_GITHUB_UPLOAD_STATUS,
         "git_governance": next(item for item in governance_items if item["id"] == "git_governance"),
         "repo_root": str(root),
         "summary": {
@@ -1724,7 +1727,7 @@ def build_completion_report(
         "external_acceptance": external_items,
         "production_evidence": production_evidence,
         "next_actions": [
-            "Continue local development only on codex/ai-agent-multitenant-foundation; do not push or merge while GitHub upload is skipped.",
+            "Continue local development only on codex/ai-agent-multitenant-foundation; push updates only to the remote feature branch and do not merge without explicit acceptance.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
             "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
             "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, generated_at/validated_at/expires_at ISO timestamps, and unique item-specific safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",

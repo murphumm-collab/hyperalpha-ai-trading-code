@@ -266,7 +266,7 @@ summary = report.get("summary") or {}
 checks = {
     "local_v1_accepted": report.get("local_v1_accepted") is True,
     "ready_for_live_orders_false": report.get("ready_for_live_orders") is False,
-    "github_upload_deferred": report.get("github_upload") == "deferred_by_user_request",
+    "github_upload_synced": report.get("github_upload") == "pushed_to_origin",
     "git_governance.status": git_governance.get("status") == "accepted",
     "git_governance.current_branch": git_governance.get("current_branch") == expected_branch,
     "local_blockers_empty": summary.get("local_blockers") == [],
@@ -483,7 +483,7 @@ checks = {
     "live_orders_false": report.get("ready_for_live_orders") is False,
     "completion_blocker": "completion:live_orders_not_ready" in blockers,
     "production_readiness_blocker": "production_readiness:not_ready" in blockers,
-    "github_upload_deferred": summary.get("github_upload") == "deferred_by_user_request",
+    "github_upload_synced": summary.get("github_upload") == "pushed_to_origin",
     "local_runtime_skipped": local_runtime.get("skipped") is True,
 }
 failed = [name for name, ok in checks.items() if not ok]

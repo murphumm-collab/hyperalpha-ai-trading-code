@@ -5,7 +5,7 @@ Branch: `codex/ai-agent-multitenant-foundation`
 
 ## Current Status
 
-Status: Local V1 Production Operator Preflight Accepted / Remote Push Skipped
+Status: Local V1 Production Operator Preflight Accepted / Remote Push Synced
 
 Local checkpoint: current branch `HEAD`
 
@@ -676,7 +676,7 @@ Local checkpoint: current branch `HEAD`
 | Backend checks | Passed | `python3 -m py_compile` on changed backend files |
 | Frontend checks | Passed | `corepack pnpm -C frontend build` |
 | Local commit | Done | Current branch `HEAD` |
-| Remote push | Deferred | GitHub upload intentionally skipped per user request |
+| Remote push | Done | Branch pushed to origin/codex/ai-agent-multitenant-foundation; no merge performed |
 | Acceptance | Partial | Multi-user AI foundation, Redis distributed admission leases, cross-instance AI confirmation mailbox, and automated hard-risk checks passed; live Casdoor env acceptance, distributed worker queue routing, and real exchange execution remain unaccepted |
 
 ## Verification Log
@@ -1712,7 +1712,7 @@ Local checkpoint: current branch `HEAD`
 - Passed: private factor per-user result schema local migration verification: `DATABASE_URL=postgresql://alpha_user:alpha_pass@127.0.0.1:5432/alpha_arena uv run python -c "from database.migrations.create_user_factor_result_tables import upgrade; upgrade()"` completed; a follow-up information_schema query returned `['user_factor_effectiveness', 'user_factor_values']`.
 - Passed: aggregate AI Trading regression after private factor per-user result schema: `cd backend && uv run pytest tests/test_ai_stream_routes.py tests/test_ai_trading_v1_completion_audit.py tests/test_ai_trading_env_check.py tests/test_ai_trading_frontend_readiness_source.py tests/test_ai_trading_live_stack_acceptance.py tests/test_ai_trading_model_adjust_live_acceptance.py tests/test_ai_trading_production_readiness_check.py tests/test_ai_trading_production_operator_preflight.py tests/test_ai_trading_production_readiness_api.py tests/test_ai_trading_routes.py tests/test_ai_trading_mock_gateway.py tests/test_ai_trading_production_handoff_check.py -q` returned 269 passing tests with 17 existing UTC deprecation warnings.
 - Passed: aggregate AI Trading V1 local acceptance runner after private factor per-user result schema: `AI_TRADING_TRANSIENT_RETRY_ATTEMPTS=5 AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS=10 AI_TRADING_RUNTIME_READINESS_ATTEMPTS=60 AI_TRADING_RUNTIME_READINESS_SLEEP_SECONDS=5 scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff` completed local dev shell syntax, backend compile, 269 AI Trading regressions, API-level smoke, live model-adjust default blocker, default production handoff/readiness/DB-audit blockers, production operator preflight default blocker, dirty-tree blocker, output redaction marker, production URL host/port/parse-error safety, completion/evidence/template gates, frontend build, local LaunchAgent runtime sync, runtime readiness with `--require-runtime-mirror-current`, and live local mock handoff. Runtime readiness attempts 1-2 waited through frontend/backend/mock gateway/backend cold start; attempt 3/60 returned `ready=true`, `runtime_mirror.current=true`, `runtime_gateway.mode=http`, `target_kind=local_mock`, `runtime_config_blockers=[]`, Docker `required_for_readiness=false`, counts-only agent context budget, and model-adjust next action `Create a Hyper AI model profile with DeepSeek or Qwen before model-adjust.` Latest local/mock evidence is spec `#169`, signal event `#167`, handoff attempt `#165`, gateway response `mock_accepted`, runtime `mode=http`, runtime `target_kind=local_mock`, `agent_sessions.total=154`, `handoff_attempts.total=165`, and `model_adjustment.ready=false` with blocker `model_profile_not_configured`.
-- Deferred: GitHub upload is intentionally skipped per user request; no GitHub push was attempted in this slice.
+- Passed: GitHub sync enabled and branch uploaded: installed GitHub CLI `v2.94.0` in the user directory, completed device login as `murphumm-collab`, ran `gh auth setup-git`, verified `git push --dry-run origin codex/ai-agent-multitenant-foundation`, then pushed and tracked `origin/codex/ai-agent-multitenant-foundation`. No merge was performed.
 
 ## Known Not-Accepted Items
 

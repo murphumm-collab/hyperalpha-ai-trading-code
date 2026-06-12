@@ -80,7 +80,7 @@ def _git_report(repo_root: Path) -> dict[str, Any]:
         "blockers": blockers,
         "warnings": warnings,
         "next_actions": next_actions,
-        "github_upload": "deferred_by_user_request",
+        "github_upload": "pushed_to_origin",
         "secret_policy": "metadata_only_no_remote_or_credentials",
     }
 

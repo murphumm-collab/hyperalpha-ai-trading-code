@@ -90,7 +90,7 @@ def _write_minimal_accepted_repo(root: Path) -> None:
         "\n".join(
             [
                 acceptance_text,
-                "Git：只在 `codex/ai-agent-multitenant-foundation` 分支本地提交；GitHub 上传按当前用户要求暂不处理。",
+                "Git：只在 `codex/ai-agent-multitenant-foundation` 分支开发；GitHub 上传已同步到 origin/codex/ai-agent-multitenant-foundation；不合并。",
             ]
         ),
     )
@@ -102,7 +102,7 @@ def _write_minimal_accepted_repo(root: Path) -> None:
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
                 status_text,
-                "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
+                "| Remote push | Done | Branch pushed to origin/codex/ai-agent-multitenant-foundation; no merge performed |",
             ]
         ),
     )
@@ -113,9 +113,9 @@ def _write_minimal_accepted_repo(root: Path) -> None:
         root / "docs/hyperalpha/memory" / memory_file,
         "\n".join(
             [
-                "GitHub 上传：按用户要求跳过",
+                "GitHub 上传：已同步到 origin/codex/ai-agent-multitenant-foundation",
                 completion_audit.EXPECTED_LOCAL_DEVELOPMENT_BRANCH,
-                "不 push、不 merge",
+                "已 push，不 merge",
                 "default production readiness DB-audit blocker",
                 "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
                 "真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key",
@@ -246,7 +246,7 @@ def test_operator_preflight_cli_strict_exits_one_for_default_blockers(tmp_path):
     assert completed.returncode == 1
     assert payload["mode"] == "ai_trading_production_operator_preflight"
     assert payload["preflight_ready"] is False
-    assert payload["summary"]["github_upload"] == "deferred_by_user_request"
+    assert payload["summary"]["github_upload"] == "pushed_to_origin"
     assert "completion:live_orders_not_ready" in payload["blockers"]
     assert "production_readiness:not_ready" in payload["blockers"]
     assert completion_audit._secret_pattern_hits(payload) == []

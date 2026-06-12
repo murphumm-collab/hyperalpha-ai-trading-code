@@ -496,7 +496,7 @@ def _write_minimal_acceptance_repo(
                 "local completion summary gate",
                 "git_governance.status",
                 "ready_for_live_orders_false",
-                "deferred_by_user_request",
+                "pushed_to_origin",
                 "codex/ai-agent-multitenant-foundation",
                 "ai_trading_v1_live_stack_acceptance.py --confirm-local-mock-handoff",
                 "Production evidence template remains blocked",
@@ -532,7 +532,7 @@ def _write_minimal_acceptance_repo(
         root / "docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md",
         "\n".join(
             [
-                "Git：只在 `codex/ai-agent-multitenant-foundation` 分支本地提交；GitHub 上传按当前用户要求暂不处理。",
+                "Git：只在 `codex/ai-agent-multitenant-foundation` 分支开发；GitHub 上传已同步到 origin/codex/ai-agent-multitenant-foundation；不合并。",
                 "一键本地 V1 验收通过",
                 "默认生产 DB-audit readiness gate 阻断",
                 "当前未验收",
@@ -546,7 +546,7 @@ def _write_minimal_acceptance_repo(
         "\n".join(
             [
                 "Branch: `codex/ai-agent-multitenant-foundation`",
-                "Local V1 Production Operator Preflight Accepted / Remote Push Skipped",
+                "Local V1 Production Operator Preflight Accepted / Remote Push Synced",
                 "| AI Trading aggregate acceptance DB-audit gate | Done |",
                 "| AI Trading V1 completion boundary audit | Done |",
                 "| AI Trading production evidence gate | Done |",
@@ -651,7 +651,7 @@ def _write_minimal_acceptance_repo(
                 production_url_host_secret_redaction_status_marker,
                 production_url_port_safety_status_marker,
                 production_url_parse_error_safety_status_marker,
-                "| Remote push | Deferred | GitHub upload intentionally skipped per user request |",
+                "| Remote push | Done | Branch pushed to origin/codex/ai-agent-multitenant-foundation; no merge performed |",
             ]
         ),
     )
@@ -690,9 +690,9 @@ def _write_minimal_acceptance_repo(
         root / "docs/hyperalpha/memory/2026-06-10-ai-trading-production-readiness-cli-db-audits.zh-CN.md",
         "\n".join(
             [
-                "GitHub 上传：按用户要求跳过",
+                "GitHub 上传：已同步到 origin/codex/ai-agent-multitenant-foundation",
                 "codex/ai-agent-multitenant-foundation",
-                "不 push、不 merge",
+                "已 push，不 merge",
                 "default production readiness DB-audit blocker",
                 "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
                 "真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key",
@@ -789,7 +789,7 @@ def test_current_repo_completion_audit_accepts_local_v1_but_not_live_orders():
 
     assert report["local_v1_accepted"] is True
     assert report["ready_for_live_orders"] is False
-    assert report["github_upload"] == "deferred_by_user_request"
+    assert report["github_upload"] == "pushed_to_origin"
     assert report["git_governance"]["status"] == "accepted"
     assert report["git_governance"]["current_branch"] == "codex/ai-agent-multitenant-foundation"
     assert report["summary"]["local_track"] == "accepted"
@@ -1020,7 +1020,7 @@ def test_production_evidence_explain_cli_outputs_non_secret_checklist(tmp_path):
     payload = json.loads(completed.stdout)
 
     assert payload["mode"] == "production_evidence_explain"
-    assert payload["github_upload"] == "deferred_by_user_request"
+    assert payload["github_upload"] == "pushed_to_origin"
     assert payload["production_evidence"]["ready"] is False
     assert "bearer tokens" in payload["items"][0]["forbidden_values"]
     assert completion_audit._secret_pattern_hits(payload) == []
