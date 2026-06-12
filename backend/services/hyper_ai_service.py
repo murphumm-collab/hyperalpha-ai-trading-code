@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import random
+import re
 import threading
 import time
 from typing import Any, Dict, Generator, List, Optional
@@ -80,6 +81,14 @@ HYPER_AI_CHAT_TASK_TYPE = "hyper_ai.chat"
 HYPER_AI_ONBOARDING_TASK_TYPE = "hyper_ai.onboarding"
 
 logger = logging.getLogger(__name__)
+
+PROFILE_SENSITIVE_TEXT_PATTERN = re.compile(
+    r"api[_-]?key|authorization|bearer|private[_-]?key|password|"
+    r"secret\s*[:=]|token\s*[:=]|postgres://|redis://",
+    re.IGNORECASE,
+)
+REDACTED_SENSITIVE_PROFILE_TEXT = "[redacted_sensitive_profile_text]"
+SENSITIVE_PROFILE_FIELD_ERROR = "profile_field_rejected_sensitive"
 
 SAFE_HYPER_AI_PROVIDER_REQUEST_FAILED_MESSAGE = "Hyper AI provider request failed. Please retry later."
 SAFE_HYPER_AI_RESPONSE_PARSE_FAILED_MESSAGE = "Hyper AI response could not be parsed."
@@ -219,6 +228,35 @@ def _require_user_id(user_id: Optional[int], context: str) -> int:
     if user_id is None:
         raise ValueError(f"{context} requires authenticated user context")
     return user_id
+
+
+def is_profile_text_sensitive(value: Any) -> bool:
+    text = value if isinstance(value, str) else str(value or "")
+    return bool(PROFILE_SENSITIVE_TEXT_PATTERN.search(text))
+
+
+def validate_profile_text_for_storage(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    text = text.strip()
+    if not text:
+        return None
+    if is_profile_text_sensitive(text):
+        raise ValueError(SENSITIVE_PROFILE_FIELD_ERROR)
+    return text
+
+
+def sanitize_profile_text_for_response(value: Any) -> Optional[str]:
+    if value is None:
+        return None
+    text = value if isinstance(value, str) else str(value)
+    text = text.strip()
+    if not text:
+        return None
+    if is_profile_text_sensitive(text):
+        return REDACTED_SENSITIVE_PROFILE_TEXT
+    return text
 
 
 def get_or_create_profile(db: Session, user_id: Optional[int] = None) -> HyperAiProfile:
@@ -638,18 +676,24 @@ def build_messages_for_api(
 def _build_profile_context(profile: HyperAiProfile) -> str:
     """Build profile context string for system prompt."""
     parts = []
-    if profile.trading_style:
-        parts.append(f"Trading Style: {profile.trading_style}")
-    if profile.risk_preference:
-        parts.append(f"Risk Preference: {profile.risk_preference}")
-    if profile.experience_level:
-        parts.append(f"Experience Level: {profile.experience_level}")
-    if profile.preferred_symbols:
-        parts.append(f"Preferred Symbols: {profile.preferred_symbols}")
-    if profile.preferred_timeframe:
-        parts.append(f"Preferred Timeframe: {profile.preferred_timeframe}")
-    if profile.capital_scale:
-        parts.append(f"Capital Scale: {profile.capital_scale}")
+    trading_style = sanitize_profile_text_for_response(profile.trading_style)
+    risk_preference = sanitize_profile_text_for_response(profile.risk_preference)
+    experience_level = sanitize_profile_text_for_response(profile.experience_level)
+    preferred_symbols = sanitize_profile_text_for_response(profile.preferred_symbols)
+    preferred_timeframe = sanitize_profile_text_for_response(profile.preferred_timeframe)
+    capital_scale = sanitize_profile_text_for_response(profile.capital_scale)
+    if trading_style:
+        parts.append(f"Trading Style: {trading_style}")
+    if risk_preference:
+        parts.append(f"Risk Preference: {risk_preference}")
+    if experience_level:
+        parts.append(f"Experience Level: {experience_level}")
+    if preferred_symbols:
+        parts.append(f"Preferred Symbols: {preferred_symbols}")
+    if preferred_timeframe:
+        parts.append(f"Preferred Timeframe: {preferred_timeframe}")
+    if capital_scale:
+        parts.append(f"Capital Scale: {capital_scale}")
     return "\n".join(parts)
 
 
@@ -1843,25 +1887,41 @@ def _save_profile_from_onboarding(
     # Save nickname to profile
     nickname = profile_data.get('nickname', '')
     if nickname:
-        profile.nickname = nickname
+        try:
+            profile.nickname = validate_profile_text_for_storage(nickname)
+        except ValueError:
+            profile.nickname = None
 
     # Save profile fields (natural language descriptions)
     if profile_data.get('experience'):
-        profile.experience_level = profile_data['experience']
+        try:
+            profile.experience_level = validate_profile_text_for_storage(profile_data['experience'])
+        except ValueError:
+            profile.experience_level = None
 
     if profile_data.get('risk'):
-        profile.risk_preference = profile_data['risk']
+        try:
+            profile.risk_preference = validate_profile_text_for_storage(profile_data['risk'])
+        except ValueError:
+            profile.risk_preference = None
 
     if profile_data.get('style'):
         style = profile_data['style']
         if style.lower() not in ['未提及', 'not mentioned']:
-            profile.trading_style = style
+            try:
+                profile.trading_style = validate_profile_text_for_storage(style)
+            except ValueError:
+                profile.trading_style = None
 
     # Mark onboarding as completed
     profile.onboarding_completed = True
 
     db.commit()
-    logger.info(f"Saved onboarding profile: nickname={nickname}, experience={profile.experience_level}")
+    logger.info(
+        "Saved onboarding profile: nickname_present=%s, experience_present=%s",
+        bool(profile.nickname),
+        bool(profile.experience_level),
+    )
 
 
 def _process_onboarding_stream_response(
@@ -2015,11 +2075,11 @@ def get_suggestions_context(db: Session, user_id: Optional[int] = None) -> Dict[
 
     return {
         "profile": {
-            "nickname": profile.nickname,
-            "trading_style": profile.trading_style,
-            "risk_preference": profile.risk_preference,
-            "experience_level": profile.experience_level,
-            "preferred_symbols": profile.preferred_symbols,
+            "nickname": sanitize_profile_text_for_response(profile.nickname),
+            "trading_style": sanitize_profile_text_for_response(profile.trading_style),
+            "risk_preference": sanitize_profile_text_for_response(profile.risk_preference),
+            "experience_level": sanitize_profile_text_for_response(profile.experience_level),
+            "preferred_symbols": sanitize_profile_text_for_response(profile.preferred_symbols),
         },
         "conversations": conversations_context,
         "config_status": {
@@ -2043,14 +2103,18 @@ def build_suggestions_prompt(context: Dict[str, Any]) -> str:
     # User profile
     if any([profile.get("nickname"), profile.get("trading_style"), profile.get("experience_level")]):
         prompt_parts.append("User Profile:")
-        if profile.get("nickname"):
-            prompt_parts.append(f"- Name: {profile['nickname']}")
-        if profile.get("experience_level"):
-            prompt_parts.append(f"- Experience: {profile['experience_level']}")
-        if profile.get("trading_style"):
-            prompt_parts.append(f"- Style: {profile['trading_style']}")
-        if profile.get("risk_preference"):
-            prompt_parts.append(f"- Risk: {profile['risk_preference']}")
+        nickname = sanitize_profile_text_for_response(profile.get("nickname"))
+        experience_level = sanitize_profile_text_for_response(profile.get("experience_level"))
+        trading_style = sanitize_profile_text_for_response(profile.get("trading_style"))
+        risk_preference = sanitize_profile_text_for_response(profile.get("risk_preference"))
+        if nickname:
+            prompt_parts.append(f"- Name: {nickname}")
+        if experience_level:
+            prompt_parts.append(f"- Experience: {experience_level}")
+        if trading_style:
+            prompt_parts.append(f"- Style: {trading_style}")
+        if risk_preference:
+            prompt_parts.append(f"- Risk: {risk_preference}")
         prompt_parts.append("")
 
     # Configuration status

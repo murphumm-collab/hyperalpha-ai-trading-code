@@ -26,10 +26,13 @@ from database.connection import get_db
 from database.models import HyperAiConversation, User
 from api.auth_utils import get_authenticated_user_dependency, get_current_user_dependency
 from services.hyper_ai_service import (
+    SENSITIVE_PROFILE_FIELD_ERROR,
     get_or_create_profile,
     get_llm_config,
     save_llm_config,
+    sanitize_profile_text_for_response,
     test_llm_connection,
+    validate_profile_text_for_storage,
     get_or_create_conversation,
     get_conversation_messages,
     start_chat_task,
@@ -103,13 +106,13 @@ def get_profile(
         "llm_model": profile.llm_model,
         "llm_base_url": base_url,
         "onboarding_completed": profile.onboarding_completed,
-        "nickname": profile.nickname,
-        "trading_style": profile.trading_style,
-        "risk_preference": profile.risk_preference,
-        "experience_level": profile.experience_level,
-        "preferred_symbols": profile.preferred_symbols,
-        "preferred_timeframe": profile.preferred_timeframe,
-        "capital_scale": profile.capital_scale,
+        "nickname": sanitize_profile_text_for_response(profile.nickname),
+        "trading_style": sanitize_profile_text_for_response(profile.trading_style),
+        "risk_preference": sanitize_profile_text_for_response(profile.risk_preference),
+        "experience_level": sanitize_profile_text_for_response(profile.experience_level),
+        "preferred_symbols": sanitize_profile_text_for_response(profile.preferred_symbols),
+        "preferred_timeframe": sanitize_profile_text_for_response(profile.preferred_timeframe),
+        "capital_scale": sanitize_profile_text_for_response(profile.capital_scale),
     }
 
 
@@ -219,18 +222,22 @@ def save_preferences(
     """Save trading preferences and mark onboarding as completed."""
     profile = get_or_create_profile(db, user_id=current_user.id)
 
-    if request.trading_style is not None:
-        profile.trading_style = request.trading_style
-    if request.risk_preference is not None:
-        profile.risk_preference = request.risk_preference
-    if request.experience_level is not None:
-        profile.experience_level = request.experience_level
-    if request.preferred_symbols is not None:
-        profile.preferred_symbols = request.preferred_symbols
-    if request.preferred_timeframe is not None:
-        profile.preferred_timeframe = request.preferred_timeframe
-    if request.capital_scale is not None:
-        profile.capital_scale = request.capital_scale
+    try:
+        if request.trading_style is not None:
+            profile.trading_style = validate_profile_text_for_storage(request.trading_style)
+        if request.risk_preference is not None:
+            profile.risk_preference = validate_profile_text_for_storage(request.risk_preference)
+        if request.experience_level is not None:
+            profile.experience_level = validate_profile_text_for_storage(request.experience_level)
+        if request.preferred_symbols is not None:
+            profile.preferred_symbols = validate_profile_text_for_storage(request.preferred_symbols)
+        if request.preferred_timeframe is not None:
+            profile.preferred_timeframe = validate_profile_text_for_storage(request.preferred_timeframe)
+        if request.capital_scale is not None:
+            profile.capital_scale = validate_profile_text_for_storage(request.capital_scale)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=SENSITIVE_PROFILE_FIELD_ERROR) from exc
 
     # Mark onboarding as completed if we have basic info
     if profile.trading_style and profile.risk_preference:
