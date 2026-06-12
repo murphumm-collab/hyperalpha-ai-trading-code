@@ -13,6 +13,7 @@ Provides tools for:
 import json
 import logging
 import os
+import re
 from typing import Dict, List, Any, Optional
 from datetime import datetime, timezone, timedelta
 
@@ -23,6 +24,69 @@ from sqlalchemy import text, func, or_
 from services.hyper_ai_subagents import SUBAGENT_TOOLS, execute_subagent_tool
 
 logger = logging.getLogger(__name__)
+
+SAFE_HYPER_AI_TOOL_ERROR_MESSAGE = "Hyper AI tool failed."
+SAFE_HYPER_AI_TOOL_INVALID_INPUT_MESSAGE = "Invalid tool input."
+SAFE_HYPER_AI_TOOL_ITEM_ERROR_MESSAGE = "Hyper AI tool item failed."
+SAFE_LLM_CONNECTION_FAILURE_DETAILS = (
+    "Connection failed. Please verify the provider, model, endpoint, and API key."
+)
+_SAFE_HYPER_AI_TOOL_NAME_PATTERN = re.compile(r"^[A-Za-z0-9_:-]{1,80}$")
+_SENSITIVE_HYPER_AI_TOOL_TEXT_PATTERN = re.compile(
+    r"("
+    r"api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password|"
+    r"postgres://|mysql://|redis://|mongodb://|https?://|sk-[A-Za-z0-9]"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def _safe_hyper_ai_tool_name(tool_name: Any) -> str:
+    text = str(tool_name or "").strip()
+    if (
+        not text
+        or not _SAFE_HYPER_AI_TOOL_NAME_PATTERN.fullmatch(text)
+        or _SENSITIVE_HYPER_AI_TOOL_TEXT_PATTERN.search(text)
+    ):
+        return "unknown_tool"
+    return text
+
+
+def _safe_tool_error_payload(
+    tool_name: Any,
+    *,
+    code: str = "hyper_ai_tool_failed",
+    message: str = SAFE_HYPER_AI_TOOL_ERROR_MESSAGE,
+) -> str:
+    return json.dumps(
+        {
+            "error": message,
+            "error_code": code,
+            "tool": _safe_hyper_ai_tool_name(tool_name),
+        },
+        ensure_ascii=False,
+    )
+
+
+def _safe_tool_item_error(code: str = "hyper_ai_tool_item_failed") -> Dict[str, str]:
+    return {
+        "error": SAFE_HYPER_AI_TOOL_ITEM_ERROR_MESSAGE,
+        "error_code": code,
+    }
+
+
+def _safe_llm_connection_failed_payload(tool_name: Any) -> str:
+    return json.dumps(
+        {
+            "success": False,
+            "error": "LLM connection test failed",
+            "error_code": "llm_connection_test_failed",
+            "details": SAFE_LLM_CONNECTION_FAILURE_DETAILS,
+            "tool": _safe_hyper_ai_tool_name(tool_name),
+            "note": "Please check your LLM credentials and try again.",
+        },
+        ensure_ascii=False,
+    )
 
 
 # Tool definitions in OpenAI format
@@ -1019,9 +1083,9 @@ def execute_get_system_overview(db: Session, user_id: Optional[int] = None) -> s
 
         return json.dumps(result, indent=2)
 
-    except Exception as e:
-        logger.error(f"[get_system_overview] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_system_overview] Error")
+        return _safe_tool_error_payload("get_system_overview")
 
 
 def execute_get_wallet_status(
@@ -1092,8 +1156,11 @@ def execute_get_wallet_status(
                             })
 
                     wallets.append(wallet_info)
-                except Exception as e:
-                    logger.warning(f"[get_wallet_status] Failed to get Hyperliquid data for {account.name}: {e}")
+                except Exception:
+                    logger.warning(
+                        "[get_wallet_status] Failed to get Hyperliquid data for account_id=%s",
+                        account.id,
+                    )
                     wallets.append({
                         "exchange": "hyperliquid",
                         "environment": wallet.environment,
@@ -1102,7 +1169,7 @@ def execute_get_wallet_status(
                         "trader_name": account.name,
                         "balance": {"total_equity": 0, "available_balance": 0, "used_margin": 0},
                         "positions": [],
-                        "error": str(e)
+                        **_safe_tool_item_error(),
                     })
 
         # Query Binance wallets - use real-time API
@@ -1139,8 +1206,11 @@ def execute_get_wallet_status(
                         "last_updated": "real-time"
                     }
                     wallets.append(wallet_info)
-                except Exception as e:
-                    logger.warning(f"[get_wallet_status] Failed to get Binance data for {account.name}: {e}")
+                except Exception:
+                    logger.warning(
+                        "[get_wallet_status] Failed to get Binance data for account_id=%s",
+                        account.id,
+                    )
                     wallets.append({
                         "exchange": "binance",
                         "environment": wallet.environment,
@@ -1148,14 +1218,14 @@ def execute_get_wallet_status(
                         "trader_name": account.name,
                         "balance": {"total_equity": 0, "available_balance": 0, "unrealized_pnl": 0},
                         "positions": [],
-                        "error": str(e)
+                        **_safe_tool_item_error(),
                     })
 
         return json.dumps({"wallets": wallets}, indent=2)
 
-    except Exception as e:
-        logger.error(f"[get_wallet_status] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_wallet_status] Error")
+        return _safe_tool_error_payload("get_wallet_status")
 
 
 def execute_get_api_reference(doc_type: str, api_type: str = "all", lang: str = "en") -> str:
@@ -1189,9 +1259,9 @@ def execute_get_api_reference(doc_type: str, api_type: str = "all", lang: str = 
         else:
             return json.dumps({"error": f"Invalid doc_type: {doc_type}"})
 
-    except Exception as e:
-        logger.error(f"[get_api_reference] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_api_reference] Error")
+        return _safe_tool_error_payload("get_api_reference")
 
 
 def execute_get_klines(db: Session, symbol: str, period: str = "1h", limit: int = 50, exchange: str = "hyperliquid") -> str:
@@ -1227,9 +1297,9 @@ def execute_get_klines(db: Session, symbol: str, period: str = "1h", limit: int 
             "count": len(candles)
         }, indent=2)
 
-    except Exception as e:
-        logger.error(f"[get_klines] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_klines] Error")
+        return _safe_tool_error_payload("get_klines")
 
 
 def execute_get_market_regime(db: Session, symbol: str, period: str = "1h", exchange: str = "hyperliquid") -> str:
@@ -1258,9 +1328,9 @@ def execute_get_market_regime(db: Session, symbol: str, period: str = "1h", exch
                 "note": "Unable to determine market regime"
             })
 
-    except Exception as e:
-        logger.error(f"[get_market_regime] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_market_regime] Error")
+        return _safe_tool_error_payload("get_market_regime")
 
 
 def execute_get_market_flow(db: Session, symbol: str, period: str = "1h", exchange: str = "hyperliquid") -> str:
@@ -1283,9 +1353,9 @@ def execute_get_market_flow(db: Session, symbol: str, period: str = "1h", exchan
             "flow": flow
         }, indent=2)
 
-    except Exception as e:
-        logger.error(f"[get_market_flow] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_market_flow] Error")
+        return _safe_tool_error_payload("get_market_flow")
 
 
 def execute_get_system_logs(
@@ -1386,9 +1456,9 @@ def execute_get_system_logs(
 
         return json.dumps(result, indent=2)
 
-    except Exception as e:
-        logger.error(f"[get_system_logs] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_system_logs] Error")
+        return _safe_tool_error_payload("get_system_logs")
 
 
 def execute_get_contact_config() -> str:
@@ -1400,8 +1470,8 @@ def execute_get_contact_config() -> str:
         resp = requests.get("https://www.akooi.com/api/config/contact", timeout=5)
         if resp.status_code == 200:
             return json.dumps(resp.json(), indent=2)
-    except Exception as e:
-        logger.warning(f"[get_contact_config] Failed to fetch from API: {e}")
+    except Exception:
+        logger.warning("[get_contact_config] Failed to fetch from API")
 
     # Fallback to defaults
     return json.dumps({
@@ -1422,9 +1492,9 @@ def execute_get_trading_environment(db: Session) -> str:
             "description": "testnet" if environment == "testnet" else "mainnet (real money)",
             "note": "Environment affects which wallets are used and which exchange endpoints are called. To switch, use the mode switcher in the top-right of the UI."
         }, indent=2)
-    except Exception as e:
-        logger.error(f"[get_trading_environment] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_trading_environment] Error")
+        return _safe_tool_error_payload("get_trading_environment")
 
 
 def execute_get_watchlist(db: Session, user_id: Optional[int] = None) -> str:
@@ -1472,9 +1542,9 @@ def execute_get_watchlist(db: Session, user_id: Optional[int] = None) -> str:
 
         return json.dumps(result, indent=2)
 
-    except Exception as e:
-        logger.error(f"[get_watchlist] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[get_watchlist] Error")
+        return _safe_tool_error_payload("get_watchlist")
 
 
 def execute_update_watchlist(
@@ -1511,11 +1581,15 @@ def execute_update_watchlist(
             "note": "Watchlist updated. Data collection will now include these symbols. It may take a few minutes for historical data to be backfilled."
         }, indent=2)
 
-    except ValueError as e:
-        return json.dumps({"error": str(e)})
-    except Exception as e:
-        logger.error(f"[update_watchlist] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except ValueError:
+        return _safe_tool_error_payload(
+            "update_watchlist",
+            code="hyper_ai_tool_invalid_input",
+            message=SAFE_HYPER_AI_TOOL_INVALID_INPUT_MESSAGE,
+        )
+    except Exception:
+        logger.error("[update_watchlist] Error")
+        return _safe_tool_error_payload("update_watchlist")
 
 
 def execute_diagnose_trader_issues(
@@ -1679,9 +1753,9 @@ def execute_diagnose_trader_issues(
             "recent_errors": recent_errors
         }, indent=2)
 
-    except Exception as e:
-        logger.error(f"[diagnose_trader_issues] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[diagnose_trader_issues] Error")
+        return _safe_tool_error_payload("diagnose_trader_issues")
 
 
 def execute_save_signal_pool(
@@ -1743,10 +1817,10 @@ def execute_save_signal_pool(
             "note": "Signal pool created. Bind it to an AI Trader to start receiving triggers."
         })
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[save_signal_pool] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[save_signal_pool] Error")
+        return _safe_tool_error_payload("save_signal_pool")
 
 
 def execute_save_prompt(
@@ -1826,10 +1900,10 @@ def execute_save_prompt(
             "note": "Prompt saved. Changes apply to bound AI Traders on next trigger."
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[save_prompt] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[save_prompt] Error")
+        return _safe_tool_error_payload("save_prompt")
 
 
 def execute_save_program(
@@ -1872,14 +1946,14 @@ def execute_save_program(
             "note": "Program saved. Use test_run_code to verify logic before binding."
         }, indent=2)
 
-    except HTTPException as e:
+    except HTTPException:
         db.rollback()
-        logger.error(f"[save_program] HTTPException: {e.detail}")
-        return json.dumps({"success": False, "error": e.detail})
-    except Exception as e:
+        logger.error("[save_program] HTTPException")
+        return _safe_tool_error_payload("save_program")
+    except Exception:
         db.rollback()
-        logger.error(f"[save_program] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[save_program] Error")
+        return _safe_tool_error_payload("save_program")
 
 
 def execute_create_ai_trader(
@@ -1915,12 +1989,7 @@ def execute_create_ai_trader(
         }))
 
         if not test_result.get("success"):
-            return json.dumps({
-                "success": False,
-                "error": "LLM connection test failed",
-                "details": test_result.get("message", "Unknown error"),
-                "note": "Please check your LLM credentials and try again."
-            })
+            return _safe_llm_connection_failed_payload("create_ai_trader")
 
         # Step 2: Create Account with LLM config only
         account = Account(
@@ -1954,10 +2023,10 @@ def execute_create_ai_trader(
             "note": "AI Trader created with LLM config. Complete wallet and strategy setup to start trading."
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[create_ai_trader] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[create_ai_trader] Error")
+        return _safe_tool_error_payload("create_ai_trader")
 
 
 # =============================================================================
@@ -2070,9 +2139,9 @@ def execute_list_traders(
 
         return json.dumps({"traders": traders, "count": len(traders)}, indent=2)
 
-    except Exception as e:
-        logger.error(f"[list_traders] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[list_traders] Error")
+        return _safe_tool_error_payload("list_traders")
 
 
 def execute_list_signal_pools(
@@ -2163,9 +2232,9 @@ def execute_list_signal_pools(
 
         return json.dumps({"signal_pools": result, "count": len(result)}, indent=2)
 
-    except Exception as e:
-        logger.error(f"[list_signal_pools] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[list_signal_pools] Error")
+        return _safe_tool_error_payload("list_signal_pools")
 
 
 def execute_analyze_tracked_address(
@@ -2403,9 +2472,9 @@ def execute_list_strategies(
             "program_count": len(programs)
         }, indent=2)
 
-    except Exception as e:
-        logger.error(f"[list_strategies] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[list_strategies] Error")
+        return _safe_tool_error_payload("list_strategies")
 
 
 # =============================================================================
@@ -2459,10 +2528,10 @@ def execute_bind_prompt_to_trader(
             "prompt_name": template.name
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[bind_prompt_to_trader] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[bind_prompt_to_trader] Error")
+        return _safe_tool_error_payload("bind_prompt_to_trader")
 
 
 def _validate_signal_pool_exchange_consistency(
@@ -2591,10 +2660,10 @@ def execute_bind_program_to_trader(
             "is_active": is_active
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[bind_program_to_trader] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[bind_program_to_trader] Error")
+        return _safe_tool_error_payload("bind_program_to_trader")
 
 
 def execute_update_trader_strategy(
@@ -2645,10 +2714,10 @@ def execute_update_trader_strategy(
             "trigger_interval": trigger_interval
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[update_trader_strategy] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[update_trader_strategy] Error")
+        return _safe_tool_error_payload("update_trader_strategy")
 
 
 # =============================================================================
@@ -2698,11 +2767,7 @@ def execute_update_ai_trader(
                 "api_key": new_api_key
             }))
             if not test_result.get("success"):
-                return json.dumps({
-                    "success": False,
-                    "error": "LLM connection test failed",
-                    "details": test_result.get("message", "Unknown error")
-                })
+                return _safe_llm_connection_failed_payload("update_ai_trader")
 
         updated = []
         if name:
@@ -2726,10 +2791,10 @@ def execute_update_ai_trader(
             "llm_tested": need_test
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[update_ai_trader] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[update_ai_trader] Error")
+        return _safe_tool_error_payload("update_ai_trader")
 
 
 def execute_update_program_binding(
@@ -2795,10 +2860,10 @@ def execute_update_program_binding(
             "updated_fields": updated
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[update_program_binding] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[update_program_binding] Error")
+        return _safe_tool_error_payload("update_program_binding")
 
 
 def execute_update_signal_pool(
@@ -2863,10 +2928,10 @@ def execute_update_signal_pool(
             "updated_fields": updated
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[update_signal_pool] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[update_signal_pool] Error")
+        return _safe_tool_error_payload("update_signal_pool")
 
 
 def execute_update_prompt_binding(
@@ -2910,10 +2975,10 @@ def execute_update_prompt_binding(
             "prompt_id": prompt_id, "prompt_name": template.name
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[update_prompt_binding] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[update_prompt_binding] Error")
+        return _safe_tool_error_payload("update_prompt_binding")
 
 
 def execute_save_memory(
@@ -2964,10 +3029,10 @@ def execute_save_memory(
             "note": "Memory processed with intelligent dedup. It will be included in future conversations."
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[save_memory] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[save_memory] Error")
+        return _safe_tool_error_payload("save_memory")
 
 
 # =============================================================================
@@ -3211,9 +3276,9 @@ def execute_query_factors(
             "factors": factors
         }, indent=2)
 
-    except Exception as e:
-        logger.error(f"[query_factors] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[query_factors] Error")
+        return _safe_tool_error_payload("query_factors")
 
 
 def execute_evaluate_factor(
@@ -3249,9 +3314,9 @@ def execute_evaluate_factor(
             "effectiveness": results
         }, indent=2)
 
-    except Exception as e:
-        logger.error(f"[evaluate_factor] Error: {e}")
-        return json.dumps({"error": str(e)})
+    except Exception:
+        logger.error("[evaluate_factor] Error")
+        return _safe_tool_error_payload("evaluate_factor")
 
 
 def execute_save_factor(
@@ -3304,10 +3369,10 @@ def execute_save_factor(
             "note": f"Factor '{name}' saved. Use compute_factor to run full evaluation across all symbols."
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[save_factor] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[save_factor] Error")
+        return _safe_tool_error_payload("save_factor")
 
 
 def execute_edit_factor(
@@ -3362,10 +3427,10 @@ def execute_edit_factor(
             "note": f"Factor '{factor.name}' updated."
         }, indent=2)
 
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[edit_factor] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[edit_factor] Error")
+        return _safe_tool_error_payload("edit_factor")
 
 
 def execute_compute_factor(
@@ -3386,10 +3451,10 @@ def execute_compute_factor(
         eff_svc = FactorEffectivenessService()
         result = eff_svc.compute_single_factor(db, exchange, factor_name, user_id=user_id)
         return json.dumps(result, indent=2)
-    except Exception as e:
+    except Exception:
         db.rollback()
-        logger.error(f"[compute_factor] Error: {e}")
-        return json.dumps({"error": str(e)})
+        logger.error("[compute_factor] Error")
+        return _safe_tool_error_payload("compute_factor")
 
 
 def execute_get_factor_functions(category: str = None) -> str:
@@ -3463,8 +3528,8 @@ def execute_web_search(
         err = str(e)
         if "401" in err or "Unauthorized" in err:
             return json.dumps({"error": "Tavily API key is invalid or expired. Please update it in Tools settings."})
-        logger.error(f"[web_search] Error: {e}")
-        return json.dumps({"error": f"Search failed: {err}"})
+        logger.error("[web_search] Error")
+        return _safe_tool_error_payload("web_search")
 
 
 def execute_fetch_url(url: str, max_length: int = 8000) -> str:
@@ -3490,8 +3555,8 @@ def execute_fetch_url(url: str, max_length: int = 8000) -> str:
         if resp.status_code == 200 and len(resp.text.strip()) > 100:
             content = resp.text.strip()
             source = "jina_reader"
-    except Exception as e:
-        logger.warning(f"[fetch_url] Jina Reader failed for {url}: {e}")
+    except Exception:
+        logger.warning("[fetch_url] Jina Reader failed")
 
     # Strategy 2: Trafilatura local extraction (fallback)
     if not content:
@@ -3508,8 +3573,8 @@ def execute_fetch_url(url: str, max_length: int = 8000) -> str:
                 if extracted and len(extracted.strip()) > 50:
                     content = extracted.strip()
                     source = "trafilatura"
-        except Exception as e:
-            logger.warning(f"[fetch_url] Trafilatura failed for {url}: {e}")
+        except Exception:
+            logger.warning("[fetch_url] Trafilatura failed")
 
     # Strategy 3: Raw requests fallback (minimal extraction)
     if not content:
@@ -3528,11 +3593,11 @@ def execute_fetch_url(url: str, max_length: int = 8000) -> str:
                 if len(text) > 50:
                     content = text
                     source = "raw_requests"
-        except Exception as e:
-            logger.warning(f"[fetch_url] Raw fetch failed for {url}: {e}")
+        except Exception:
+            logger.warning("[fetch_url] Raw fetch failed")
 
     if not content:
-        return json.dumps({"error": f"Failed to fetch content from {url}. The page may be inaccessible or require authentication."})
+        return _safe_tool_error_payload("fetch_url")
 
     # Truncate to max_length
     truncated = len(content) > max_length
@@ -4309,6 +4374,6 @@ def execute_hyper_ai_tool(
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
-    except Exception as e:
-        logger.error(f"[execute_hyper_ai_tool] Error executing {tool_name}: {e}")
-        return json.dumps({"error": str(e), "_error_class": type(e).__name__})
+    except Exception:
+        logger.error("[execute_hyper_ai_tool] Error executing tool=%s", _safe_hyper_ai_tool_name(tool_name))
+        return _safe_tool_error_payload(tool_name)

@@ -44,6 +44,7 @@ Local checkpoint: current branch `HEAD`
 - Hyper AI profile and LLM config reads require explicit user context and no longer fall back to the first stored profile.
 - Hyper AI conversation helper reads, message writes, and LLM context construction validate conversation ownership.
 - Hyper AI memory helper reads, saves, updates, deletes, and `save_memory` tool writes require explicit user context.
+- Hyper AI direct tool outputs now use fixed safe error envelopes for unexpected failures, wallet item failures, web-search/fetch failures, LLM connection failures, and dispatcher fallback errors instead of returning raw exception text, provider details, URLs, secret-like values, or exception class names to the Agent context.
 - Prompt, Signal, Program, Attribution, and Kline AI service entry points reject missing user context and validate AI account ownership.
 - Attribution AI internal tool calls list, summarize, and inspect only the current user's accounts, signal pools, signals, and decision logs.
 - Prompt/Program shared AI tools list and inspect only the current user's signal pools, prompt context, trader details, decision statistics, decision lists, and decision snapshots.
@@ -437,6 +438,7 @@ Local checkpoint: current branch `HEAD`
 | AI Trading model-adjust output sanitizer | Done | Model-adjust sanitizes instruction/rationale/risk_notes before applying, returning, or persisting them, redacting secret-like text and replacing direct execution wording while preserving safe parser edits |
 | AI Trading frontend model-adjust output safety | Done | Hyper AI shows a current-strategy safety warning for sanitized model-adjust output and includes `model_output_safety` in the review packet without exposing secret text |
 | AI Trading model/gateway exception type safety | Done | Model-adjust and signal-gateway handoff failure paths sanitize exception class names before API detail, signal event error, or handoff attempt audit output, replacing secret-like labels with `Exception` while preserving non-secret status codes |
+| AI Trading Hyper AI tool error safety | Done | Hyper AI direct tools and dispatcher return fixed safe error envelopes for unexpected failures, without raw exception text, provider response details, URLs, secret-like values, or exception class names entering Agent context |
 | AI Trading frontend validation warning labels | Done | Hyper AI session-detail strategy history maps known validation warning IDs such as model-output redaction/direct-order suppression into readable labels |
 | AI Trading model readiness UI source guard | Done | Hyper AI AI Trading maps model-adjust runtime blockers into readable readiness labels/tooltips while source guards prevent raw `llm_api_key`, `llm_base_url`, `api_key`, or `base_url` profile fields from entering the model runtime card/action UI |
 | AI Trading model readiness next actions | Done | `/api/ai-trading/runtime` returns non-secret model-adjust `next_actions` for missing profile/key/provider/model/endpoint blockers, and Hyper AI displays those safe actions in the Model card/disabled action tooltip |
@@ -709,6 +711,7 @@ Local checkpoint: current branch `HEAD`
 
 ## Verification Log
 
+- Passed: Hyper AI tool error safety focused checks: `cd backend && uv run python -m py_compile services/hyper_ai_tools.py tests/test_hyper_ai_tool_error_safety.py scripts/ai_trading_v1_completion_audit.py tests/test_ai_trading_v1_completion_audit.py` passed; `cd backend && uv run pytest tests/test_hyper_ai_tool_error_safety.py -q` returned 4 passing tests; static source search found no remaining raw `{"error": str(e)}`, `_error_class`, provider message, `e.detail`, search error, or fetch URL error echo paths in `hyper_ai_tools.py`; `cd backend && uv run pytest tests/test_ai_trading_v1_completion_audit.py -q -k "hyper_ai_tool_error_safety or current_repo_completion_audit"` returned 2 passing tests; `cd backend && uv run python scripts/ai_trading_v1_completion_audit.py --strict-local` returned `local_v1_accepted=true`, `ready_for_live_orders=false`, `github_upload=pushed_to_origin`, current branch `codex/ai-agent-multitenant-foundation`, and no local blockers.
 - Passed: Python syntax compile for changed backend files.
 - Passed: Auth utility syntax compile after configurable JWKS verification implementation.
 - Passed: `uv run` backend environment now resolves with Python 3.13.13 after constraining backend Python to `>=3.12,<3.14`.
