@@ -511,6 +511,29 @@ def test_ai_trading_program_backtest_run_uses_inline_confirmation_without_browse
     assert "!strategyProgramBacktestRunConfirmed" in recent_specs_block
 
 
+def test_ai_trading_signal_handoff_uses_inline_confirmation_without_browser_confirm() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    signal_handoff_block = hyper_ai_source.split(
+        "const handleSubmitSignalEventHandoff = async",
+        1,
+    )[1].split("const handleInspectSignalHandoffAttempts = async", 1)[0]
+    recent_signals_block = hyper_ai_source.split(
+        "{recentSignalEvents.map(event =>",
+        1,
+    )[1].split("{/* Memory Entry */}", 1)[0]
+
+    assert "window.confirm" not in signal_handoff_block
+    assert "signalHandoffConfirmedEventIds[eventId]" in signal_handoff_block
+    assert "aiTradingSignalHandoffConfirmRequired" in signal_handoff_block
+    assert "confirmed_by_user: true" in signal_handoff_block
+    assert "confirmation_source: 'hyper_ai_recent_signal_panel'" in signal_handoff_block
+    assert "setSignalHandoffEventConfirmed(eventId, false)" in signal_handoff_block
+    assert 'data-testid="ai-trading-signal-handoff-confirm"' in recent_signals_block
+    assert "setSignalHandoffEventConfirmed(event.id, checked === true)" in recent_signals_block
+    assert "!signalHandoffConfirmedEventIds[event.id]" in recent_signals_block
+    assert "aiTradingSignalHandoffConfirmRequired" in hyper_ai_source
+
+
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

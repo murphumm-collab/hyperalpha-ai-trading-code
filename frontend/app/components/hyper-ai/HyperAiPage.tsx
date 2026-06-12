@@ -1233,6 +1233,7 @@ export default function HyperAiPage() {
   const [agentSessionDetailReloadKey, setAgentSessionDetailReloadKey] = useState(0)
   const [agentSessionDetailCompressing, setAgentSessionDetailCompressing] = useState(false)
   const [signalHandoffLoadingId, setSignalHandoffLoadingId] = useState<number | null>(null)
+  const [signalHandoffConfirmedEventIds, setSignalHandoffConfirmedEventIds] = useState<Record<number, boolean>>({})
   const [signalHandoffAttemptsLoadingId, setSignalHandoffAttemptsLoadingId] = useState<number | null>(null)
   const [signalRejectLoadingId, setSignalRejectLoadingId] = useState<number | null>(null)
   const [strategyDraftError, setStrategyDraftError] = useState<string | null>(null)
@@ -1450,6 +1451,17 @@ export default function HyperAiPage() {
       event.handoff_status !== 'submitted'
     )
   )
+  const setSignalHandoffEventConfirmed = (eventId: number, checked: boolean) => {
+    setSignalHandoffConfirmedEventIds(prev => {
+      const next = { ...prev }
+      if (checked) {
+        next[eventId] = true
+      } else {
+        delete next[eventId]
+      }
+      return next
+    })
+  }
   const formatDurationCompact = (seconds: unknown): string => {
     const value = Number(seconds)
     if (!Number.isFinite(value)) {
@@ -1512,6 +1524,9 @@ export default function HyperAiPage() {
   }
   const signalHandoffTitle = (event: AiTradingSignalEventRecord): string => {
     if (isSignalHandoffEligible(event)) {
+      if (!signalHandoffConfirmedEventIds[event.id]) {
+        return t('hyperAi.aiTradingSignalHandoffConfirmRequired', 'Confirm this signal handoff before submitting it to the order backend')
+      }
       if (event.handoff_status === 'failed') {
         return t('hyperAi.aiTradingRetryHandoff', 'Retry handoff')
       }
@@ -3227,13 +3242,8 @@ export default function HyperAiPage() {
   }
 
   const handleSubmitSignalEventHandoff = async (eventId: number) => {
-    const event = recentSignalEvents.find(item => item.id === eventId)
-    const confirmed = window.confirm(
-      currentLang === 'zh'
-        ? `确认把 AI Trading Signal Event #${eventId}${event ? ` (${event.symbol} · ${event.action})` : ''} 提交给订单后端？这可能进入实盘执行流程。`
-        : `Submit AI Trading Signal Event #${eventId}${event ? ` (${event.symbol} · ${event.action})` : ''} to the order backend? This can enter the live execution flow.`
-    )
-    if (!confirmed) {
+    if (!signalHandoffConfirmedEventIds[eventId]) {
+      setStrategyDraftError(t('hyperAi.aiTradingSignalHandoffConfirmRequired', 'Confirm this signal handoff before submitting it to the order backend'))
       return
     }
 
@@ -3265,6 +3275,7 @@ export default function HyperAiPage() {
       console.error('Failed to submit AI trading signal handoff:', e)
       setStrategyDraftError(formatAiTradingSignalActionApiError(0, null, fallback))
     } finally {
+      setSignalHandoffEventConfirmed(eventId, false)
       setSignalHandoffLoadingId(null)
     }
   }
@@ -5771,12 +5782,28 @@ export default function HyperAiPage() {
                               <X className="h-3.5 w-3.5" />
                             )}
                           </button>
+                          {isSignalHandoffEligible(event) && event.handoff_status !== 'submitted' && (
+                            <label
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600"
+                              title={t('hyperAi.aiTradingConfirmSignalHandoff', 'Confirm signal handoff')}
+                              aria-label={t('hyperAi.aiTradingConfirmSignalHandoff', 'Confirm signal handoff')}
+                            >
+                              <Checkbox
+                                data-testid="ai-trading-signal-handoff-confirm"
+                                checked={Boolean(signalHandoffConfirmedEventIds[event.id])}
+                                onCheckedChange={(checked) => setSignalHandoffEventConfirmed(event.id, checked === true)}
+                                disabled={signalHandoffLoadingId !== null || signalRejectLoadingId !== null}
+                                className="h-3.5 w-3.5"
+                              />
+                            </label>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleSubmitSignalEventHandoff(event.id)}
                             className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-green-500/10 hover:text-green-600 disabled:cursor-not-allowed disabled:opacity-50"
                             disabled={
                               !isSignalHandoffEligible(event) ||
+                              !signalHandoffConfirmedEventIds[event.id] ||
                               signalHandoffLoadingId !== null ||
                               event.handoff_status === 'submitted'
                             }
