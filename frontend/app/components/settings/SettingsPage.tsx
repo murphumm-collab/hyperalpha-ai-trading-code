@@ -257,6 +257,7 @@ export default function SettingsPage() {
   const [aiTradingEvidenceValidationLoading, setAiTradingEvidenceValidationLoading] = useState(false)
   const [aiTradingEvidenceValidationError, setAiTradingEvidenceValidationError] = useState<string | null>(null)
   const [aiTradingEvidenceTemplateLoading, setAiTradingEvidenceTemplateLoading] = useState(false)
+  const [aiTradingEvidencePreparedTemplateLoading, setAiTradingEvidencePreparedTemplateLoading] = useState(false)
   const [aiTradingEvidenceTemplateGuidance, setAiTradingEvidenceTemplateGuidance] =
     useState<AiTradingProductionEvidenceTemplateGuidanceView | null>(null)
 
@@ -523,6 +524,32 @@ export default function SettingsPage() {
       setAiTradingEvidenceValidationError(formatAiTradingProductionEvidenceApiError(0, null, fallback))
     } finally {
       setAiTradingEvidenceTemplateLoading(false)
+    }
+  }, [t])
+
+  const loadAiTradingEvidencePreparedTemplate = useCallback(async () => {
+    setAiTradingEvidencePreparedTemplateLoading(true)
+    setAiTradingEvidenceValidationError(null)
+    setAiTradingEvidenceValidation(null)
+    setAiTradingEvidenceDryRun(null)
+    const fallback = t('settings.aiTradingEvidencePreparedTemplateFailed', 'Failed to load AI Trading prepared evidence packet')
+    try {
+      const res = await authFetch('/api/ai-trading/admin/production-evidence-prepared-template')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setAiTradingEvidenceValidationError(formatAiTradingProductionEvidenceApiError(res.status, data.detail, fallback))
+        return
+      }
+      setAiTradingEvidenceValidationJson(JSON.stringify(data.template || {}, null, 2))
+      setAiTradingEvidenceValidation(extractAiTradingProductionEvidenceExplain(data.validation) || null)
+      setAiTradingEvidenceDryRun(extractAiTradingProductionEvidenceDryRun(data.dry_run) || null)
+      setAiTradingEvidenceTemplateGuidance(
+        extractAiTradingProductionEvidenceTemplateGuidance(data.guidance) || null
+      )
+    } catch {
+      setAiTradingEvidenceValidationError(formatAiTradingProductionEvidenceApiError(0, null, fallback))
+    } finally {
+      setAiTradingEvidencePreparedTemplateLoading(false)
     }
   }, [t])
 
@@ -2500,12 +2527,16 @@ export default function SettingsPage() {
                               {t('settings.aiTradingEvidenceValidateDesc', 'Admin-only dry run for sanitized external evidence')}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2">
                             <Button
                               size="sm"
                               variant="outline"
                               onClick={loadAiTradingEvidenceTemplate}
-                              disabled={aiTradingEvidenceTemplateLoading || aiTradingEvidenceValidationLoading}
+                              disabled={
+                                aiTradingEvidenceTemplateLoading ||
+                                aiTradingEvidencePreparedTemplateLoading ||
+                                aiTradingEvidenceValidationLoading
+                              }
                             >
                               {aiTradingEvidenceTemplateLoading
                                 ? t('common.loading', 'Loading...')
@@ -2513,8 +2544,26 @@ export default function SettingsPage() {
                             </Button>
                             <Button
                               size="sm"
+                              variant="outline"
+                              onClick={loadAiTradingEvidencePreparedTemplate}
+                              disabled={
+                                aiTradingEvidenceTemplateLoading ||
+                                aiTradingEvidencePreparedTemplateLoading ||
+                                aiTradingEvidenceValidationLoading
+                              }
+                            >
+                              {aiTradingEvidencePreparedTemplateLoading
+                                ? t('common.loading', 'Loading...')
+                                : t('settings.aiTradingEvidencePreparedTemplateAction', 'Load prepared packet')}
+                            </Button>
+                            <Button
+                              size="sm"
                               onClick={validateAiTradingEvidence}
-                              disabled={aiTradingEvidenceValidationLoading || aiTradingEvidenceTemplateLoading}
+                              disabled={
+                                aiTradingEvidenceValidationLoading ||
+                                aiTradingEvidenceTemplateLoading ||
+                                aiTradingEvidencePreparedTemplateLoading
+                              }
                             >
                               {aiTradingEvidenceValidationLoading
                                 ? t('common.loading', 'Loading...')

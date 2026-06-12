@@ -15,6 +15,7 @@ from database.models import User
 from scripts.ai_trading_v1_completion_audit import (
     build_external_acceptance_evidence_template as build_ai_trading_external_acceptance_evidence_template,
     build_external_acceptance_evidence_template_guidance as build_ai_trading_external_acceptance_evidence_template_guidance,
+    build_prepared_external_acceptance_evidence_template as build_ai_trading_prepared_external_acceptance_evidence_template,
     build_production_evidence_explain as build_ai_trading_production_evidence_explain,
     build_production_evidence_payload_validation as build_ai_trading_production_evidence_payload_validation,
 )
@@ -310,6 +311,42 @@ def ai_trading_production_evidence_template_endpoint(
             "Fill the template only after each real external acceptance item is complete.",
             "Keep filled evidence outside the code repository or in a private ops evidence location.",
             "Validate the filled JSON with the admin dry-run endpoint before any production cutover audit.",
+        ],
+    }
+
+
+@router.get("/admin/production-evidence-prepared-template")
+def ai_trading_production_evidence_prepared_template_endpoint(
+    current_user: User = Depends(get_admin_user_dependency),
+):
+    """Return a pending evidence packet with safe root metadata prefilled."""
+    template = build_ai_trading_prepared_external_acceptance_evidence_template()
+    validation = build_ai_trading_production_evidence_payload_validation(
+        AI_TRADING_REPO_ROOT,
+        template,
+    )
+    dry_run = _production_evidence_dry_run_metadata(template)
+    root_blockers = [
+        blocker for blocker in validation["production_evidence"]["blockers"]
+        if not blocker.startswith("external_evidence_item_blocked:")
+    ]
+    return {
+        "success": True,
+        "requested_by_user_id": current_user.id,
+        "template": template,
+        "validation": validation,
+        "dry_run": dry_run,
+        "guidance": build_ai_trading_external_acceptance_evidence_template_guidance(),
+        "ready_for_live_orders": False,
+        "production_evidence_ready": validation["production_evidence"]["ready"],
+        "production_evidence_accepted_count": validation["production_evidence"]["accepted_count"],
+        "production_evidence_required_count": validation["production_evidence"]["required_count"],
+        "production_evidence_root_blockers": root_blockers,
+        "persistence": "not_stored",
+        "next_actions": [
+            "Use this packet as a traceable starting point only; every item must remain pending until real external acceptance is completed.",
+            "Replace each pending artifact ref with final non-secret evidence refs after validation.",
+            "Validate the filled JSON with the admin dry-run endpoint before any strict production cutover audit.",
         ],
     }
 

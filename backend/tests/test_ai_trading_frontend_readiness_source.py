@@ -236,15 +236,25 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
         1,
     )[0]
     template_block = settings_source.split("const loadAiTradingEvidenceTemplate", 1)[1].split(
+        "const loadAiTradingEvidencePreparedTemplate",
+        1,
+    )[0]
+    prepared_template_block = settings_source.split("const loadAiTradingEvidencePreparedTemplate", 1)[1].split(
         "const fetchAdminData",
         1,
     )[0]
 
     assert "/api/ai-trading/admin/production-evidence-template" in settings_source
+    assert "/api/ai-trading/admin/production-evidence-prepared-template" in settings_source
     assert "/api/ai-trading/admin/production-evidence-validate" in settings_source
     assert "loadAiTradingEvidenceTemplate" in settings_source
+    assert "loadAiTradingEvidencePreparedTemplate" in settings_source
+    assert "aiTradingEvidencePreparedTemplateLoading" in settings_source
+    assert "settings.aiTradingEvidencePreparedTemplateAction" in settings_source
+    assert "settings.aiTradingEvidencePreparedTemplateFailed" in settings_source
     assert "extractAiTradingProductionEvidenceTemplateGuidance(data.guidance)" in settings_source
     assert "extractAiTradingProductionEvidenceDryRun(data.dry_run)" in settings_source
+    assert "extractAiTradingProductionEvidenceExplain(data.validation)" in prepared_template_block
     assert "formatAiTradingProductionEvidenceApiError" in settings_source
     assert "formatAiTradingProductionEvidenceApiError" in helper_source
     assert "PRODUCTION_EVIDENCE_API_ERROR_LABELS" in helper_source
@@ -254,12 +264,19 @@ def test_admin_production_evidence_validate_ui_uses_safe_projection() -> None:
     assert "production_evidence_items_too_many" in helper_source
     assert "Admin authentication required" in helper_source
     assert "Admin role required" in helper_source
-    for safe_error_block in (explain_block, validate_block, template_block):
+    for safe_error_block in (explain_block, validate_block, template_block, prepared_template_block):
         assert "formatAiTradingProductionEvidenceApiError(res.status, data.detail" in safe_error_block
         assert "formatAiTradingProductionEvidenceApiError(0, null" in safe_error_block
         assert "throw new Error(data.detail" not in safe_error_block
         assert "data.detail ||" not in safe_error_block
         assert "err instanceof Error ? err.message" not in safe_error_block
+    assert "setAiTradingEvidenceValidationJson(JSON.stringify(data.template || {}, null, 2))" in template_block
+    assert "setAiTradingEvidenceValidationJson(JSON.stringify(data.template || {}, null, 2))" in prepared_template_block
+    assert "setAiTradingEvidenceValidation(extractAiTradingProductionEvidenceExplain(data.validation) || null)" in prepared_template_block
+    assert "setAiTradingEvidenceDryRun(extractAiTradingProductionEvidenceDryRun(data.dry_run) || null)" in prepared_template_block
+    assert "data.path" not in prepared_template_block
+    assert "repo_root" not in prepared_template_block
+    assert "AI_TRADING_SIGNAL_GATEWAY_TOKEN" not in prepared_template_block
     assert "aiTradingEvidenceDryRun.payloadBytes" in settings_source
     assert "aiTradingEvidenceDryRun.maxPayloadBytes" in settings_source
     assert "aiTradingEvidenceDryRun.itemKeyCount" in settings_source

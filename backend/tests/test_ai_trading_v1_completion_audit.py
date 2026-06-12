@@ -120,6 +120,8 @@ def _write_minimal_acceptance_repo(
     include_admin_production_evidence_validation_ui_marker: bool = True,
     include_admin_production_evidence_template_api_marker: bool = True,
     include_admin_production_evidence_template_ui_marker: bool = True,
+    include_admin_production_evidence_prepared_template_api_marker: bool = True,
+    include_admin_production_evidence_prepared_template_ui_marker: bool = True,
     include_production_evidence_template_guidance_marker: bool = True,
     include_production_evidence_validation_guidance_marker: bool = True,
     include_production_evidence_root_guidance_marker: bool = True,
@@ -264,6 +266,12 @@ def _write_minimal_acceptance_repo(
     admin_template_ui_marker = (
         "| AI Trading admin production evidence template UI | Done |"
     ) if include_admin_production_evidence_template_ui_marker else ""
+    admin_prepared_template_api_marker = (
+        "| AI Trading admin production evidence prepared template API | Done |"
+    ) if include_admin_production_evidence_prepared_template_api_marker else ""
+    admin_prepared_template_ui_marker = (
+        "| AI Trading admin production evidence prepared template UI | Done |"
+    ) if include_admin_production_evidence_prepared_template_ui_marker else ""
     production_evidence_template_guidance_marker = (
         "| AI Trading production evidence template guidance | Done |"
     ) if include_production_evidence_template_guidance_marker else ""
@@ -634,6 +642,8 @@ def _write_minimal_acceptance_repo(
                 admin_validation_ui_marker,
                 admin_template_api_marker,
                 admin_template_ui_marker,
+                admin_prepared_template_api_marker,
+                admin_prepared_template_ui_marker,
                 production_evidence_template_guidance_marker,
                 production_evidence_validation_guidance_marker,
                 production_evidence_root_guidance_marker,
@@ -1924,6 +1934,42 @@ def test_completion_audit_blocks_local_acceptance_when_admin_template_ui_marker_
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading admin production evidence template UI | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_admin_prepared_template_api_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_admin_production_evidence_prepared_template_api_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading admin production evidence prepared template API | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_admin_prepared_template_ui_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_admin_production_evidence_prepared_template_ui_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading admin production evidence prepared template UI | Done |"
         in status_evidence["missing_phrases"]
     )
 

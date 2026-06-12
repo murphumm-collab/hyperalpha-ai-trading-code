@@ -394,6 +394,94 @@ def test_admin_can_load_ai_trading_production_evidence_template_without_secret_l
     assert "secret-deepseek-key" not in serialized
 
 
+def test_admin_can_load_ai_trading_prepared_production_evidence_template_without_unlocking_live_orders(tmp_path, monkeypatch):
+    _set_ready_env(monkeypatch)
+    client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
+
+    response = client.get(f"/api/ai-trading/admin/production-evidence-prepared-template?session_token={admin_token}")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["success"] is True
+    assert data["requested_by_user_id"] == admin_id
+    assert data["ready_for_live_orders"] is False
+    assert data["production_evidence_ready"] is False
+    assert data["production_evidence_accepted_count"] == 0
+    assert data["production_evidence_required_count"] == 7
+    assert data["production_evidence_root_blockers"] == []
+    assert data["persistence"] == "not_stored"
+    assert "path" not in data
+    assert "repo_root" not in data
+
+    dry_run = data["dry_run"]
+    assert dry_run["persistence"] == "not_stored"
+    assert dry_run["ready_for_live_orders"] is False
+    assert dry_run["live_orders_unlocked"] is False
+    assert dry_run["network_calls"] is False
+    assert dry_run["model_calls"] is False
+    assert dry_run["order_backend_calls"] is False
+    assert dry_run["exchange_calls"] is False
+    assert dry_run["github_calls"] is False
+    assert dry_run["secret_policy"] == "metadata_only_no_env_or_credentials"
+
+    template = data["template"]
+    run_id = template["evidence_run_id"]
+    assert isinstance(run_id, str)
+    assert run_id.startswith("hyperalpha-prod-")
+    assert template["generated_at"].endswith("Z")
+    assert template["expires_at"].endswith("Z")
+    assert template["cutover_window"]["start_at"].endswith("Z")
+    assert template["cutover_window"]["end_at"].endswith("Z")
+    assert template["cutover_approval_ref"] == (
+        f"ops://hyperalpha/production-acceptance/{run_id}/cutover-approval"
+    )
+    assert template["secret_values_returned"] is False
+    assert set(template["items"]) == {
+        "macos_reboot_recovery",
+        "real_model_profile_live_acceptance",
+        "real_order_backend_handoff",
+        "production_auth_hard_risk_readiness",
+        "admin_readiness_real_auth_visual",
+        "production_agent_session_visual",
+        "real_exchange_execution",
+    }
+    for item_id, item in template["items"].items():
+        assert item["status"] == "pending_external_acceptance"
+        assert item["validated_at"] is None
+        assert item["validated_by"] is None
+        assert item["evidence_summary"] == ""
+        assert item["secret_values_returned"] is False
+        assert item["artifact_refs"] == [
+            f"ops://hyperalpha/production-acceptance/{run_id}/{item_id}/evidence-pending"
+        ]
+
+    validation = data["validation"]
+    assert validation["production_evidence"]["provided"] is True
+    assert validation["production_evidence"]["evidence_run_id_present"] is True
+    assert validation["production_evidence"]["cutover_window_present"] is True
+    assert validation["production_evidence"]["cutover_approval_ref_present"] is True
+    assert validation["production_evidence"]["secret_pattern_count"] == 0
+    assert validation["production_evidence"]["accepted_count"] == 0
+    assert validation["production_evidence"]["required_count"] == 7
+    assert validation["production_evidence"]["ready"] is False
+    assert validation["ready_for_live_orders"] is False
+    assert validation["progress"]["pending_count"] == 7
+    assert validation["progress"]["accepted_count"] == 0
+    assert validation["progress"]["blocked_count"] == 7
+    assert validation["progress"]["live_order_gate_blockers"] == ["production_evidence_not_ready"]
+    assert all(not item["ready"] for item in validation["items"])
+    assert all(item["artifact_ref_count"] == 1 for item in validation["items"])
+    assert all("external_evidence_item_not_accepted" in item["blockers"] for item in validation["items"])
+    assert data["guidance"]["secret_policy"] == "metadata_only_no_env_or_credentials"
+    assert any("pending" in action for action in data["next_actions"])
+
+    serialized = json.dumps(data, ensure_ascii=False)
+    assert "secret-order-gateway-token" not in serialized
+    assert "secret-deepseek-key" not in serialized
+    assert "AI_TRADING_SIGNAL_GATEWAY_TOKEN" not in serialized
+    assert "DEEPSEEK_API_KEY" not in serialized
+
+
 def test_admin_can_validate_ai_trading_production_evidence_payload_without_live_unlock(tmp_path, monkeypatch):
     _set_ready_env(monkeypatch)
     client, admin_token, _ordinary_token, admin_id = _build_client(tmp_path)
@@ -903,6 +991,19 @@ def test_ai_trading_production_evidence_template_api_requires_admin_session(tmp_
 
     anonymous = client.get("/api/ai-trading/admin/production-evidence-template")
     ordinary = client.get(f"/api/ai-trading/admin/production-evidence-template?session_token={ordinary_token}")
+
+    assert anonymous.status_code == 401
+    assert ordinary.status_code == 403
+
+
+def test_ai_trading_prepared_production_evidence_template_api_requires_admin_session(tmp_path, monkeypatch):
+    _clear_relevant_env(monkeypatch)
+    client, _admin_token, ordinary_token, _admin_id = _build_client(tmp_path)
+
+    anonymous = client.get("/api/ai-trading/admin/production-evidence-prepared-template")
+    ordinary = client.get(
+        f"/api/ai-trading/admin/production-evidence-prepared-template?session_token={ordinary_token}"
+    )
 
     assert anonymous.status_code == 401
     assert ordinary.status_code == 403

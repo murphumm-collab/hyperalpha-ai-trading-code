@@ -476,6 +476,8 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading admin production evidence validation UI | Done |",
             "| AI Trading admin production evidence template API | Done |",
             "| AI Trading admin production evidence template UI | Done |",
+            "| AI Trading admin production evidence prepared template API | Done |",
+            "| AI Trading admin production evidence prepared template UI | Done |",
             "| AI Trading production evidence template guidance | Done |",
             "| AI Trading production evidence validation guidance | Done |",
             "| AI Trading production evidence root guidance | Done |",
