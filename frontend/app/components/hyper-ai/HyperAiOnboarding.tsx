@@ -25,6 +25,7 @@ import {
 import { Loader2, CheckCircle2, AlertCircle, ArrowRight, Bot, User, ChevronDown, Send } from 'lucide-react'
 import { pollAiStream } from '@/lib/pollAiStream'
 import { authFetch } from '@/lib/authFetch'
+import { formatAiTradingModelConfigApiError } from '@/lib/aiTradingReadiness'
 
 interface LLMProvider {
   id: string
@@ -105,6 +106,7 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
     setTesting(true)
     setError('')
     setTestResult(null)
+    const fallback = 'Connection test failed'
 
     try {
       const saveRes = await authFetch('/api/hyper-ai/profile/llm', {
@@ -119,15 +121,17 @@ export default function HyperAiOnboarding({ onComplete, onSkip }: HyperAiOnboard
       })
 
       if (!saveRes.ok) {
-        const errData = await saveRes.json()
-        throw new Error(errData.detail || 'Connection test failed')
+        const data = await saveRes.json().catch(() => ({}))
+        setError(formatAiTradingModelConfigApiError(saveRes.status, data.detail, fallback))
+        setTestResult('error')
+        return
       }
 
       setTestResult('success')
       setTimeout(() => setStep('chat'), 800)
-    } catch (e: any) {
+    } catch {
       setTestResult('error')
-      setError(e.message || 'Connection test failed')
+      setError(formatAiTradingModelConfigApiError(0, null, fallback))
     } finally {
       setTesting(false)
     }
@@ -399,7 +403,7 @@ function ChatStep({ onSkip, onComplete }: { onSkip: () => void; onComplete: () =
             isOnboardingComplete = true
           }
         } else if (eventType === 'error') {
-          throw new Error(chunk.data?.message || 'Stream error')
+          throw new Error(t('hyperAi.onboarding.streamError', 'Stream error'))
         }
       },
     })

@@ -4,6 +4,7 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SETTINGS_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "settings" / "SettingsPage.tsx"
 HYPER_AI_PAGE = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiPage.tsx"
+HYPER_AI_ONBOARDING = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "HyperAiOnboarding.tsx"
 BOT_INTEGRATION_MODAL = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "BotIntegrationModal.tsx"
 TOOL_CONFIG_MODAL = REPO_ROOT / "frontend" / "app" / "components" / "hyper-ai" / "ToolConfigModal.tsx"
 HYPERLIQUID_WALLET_SECTION = REPO_ROOT / "frontend" / "app" / "components" / "trader" / "HyperliquidWalletSection.tsx"
@@ -923,6 +924,30 @@ def test_ai_trading_model_config_modal_uses_safe_api_error_formatter() -> None:
     assert "errData.detail ||" not in modal_block
     assert "setError(e.message" not in modal_block
     assert "setError(e instanceof Error ? e.message" not in modal_block
+
+
+def test_hyper_ai_onboarding_uses_safe_model_and_stream_errors() -> None:
+    source = HYPER_AI_ONBOARDING.read_text(encoding="utf-8")
+    config_block = source.split(
+        "const handleTestAndContinue = async () => {",
+        1,
+    )[1].split("  // Render based on current step", 1)[0]
+    stream_block = source.split(
+        "const pollStreamResponse = async (taskId: string) => {",
+        1,
+    )[1].split("  const handleKeyDown", 1)[0]
+
+    assert "formatAiTradingModelConfigApiError" in source
+    assert "const data = await saveRes.json().catch(() => ({}))" in config_block
+    assert "setError(formatAiTradingModelConfigApiError(saveRes.status, data.detail, fallback))" in config_block
+    assert "setError(formatAiTradingModelConfigApiError(0, null, fallback))" in config_block
+    assert "throw new Error(errData.detail" not in config_block
+    assert "errData.detail ||" not in config_block
+    assert "setError(e.message" not in config_block
+    assert "catch (e: any)" not in config_block
+
+    assert "throw new Error(t('hyperAi.onboarding.streamError', 'Stream error'))" in stream_block
+    assert "chunk.data?.message || 'Stream error'" not in stream_block
 
 
 def test_hyper_ai_bot_and_tool_config_errors_use_safe_labels() -> None:
