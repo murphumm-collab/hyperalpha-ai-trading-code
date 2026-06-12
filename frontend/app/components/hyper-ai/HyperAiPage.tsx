@@ -1245,6 +1245,7 @@ export default function HyperAiPage() {
   const [agentSessionSummaryDraft, setAgentSessionSummaryDraft] = useState('')
   const [agentSessionSaving, setAgentSessionSaving] = useState(false)
   const [agentSessionArchiving, setAgentSessionArchiving] = useState(false)
+  const [agentSessionArchiveConfirmed, setAgentSessionArchiveConfirmed] = useState(false)
   const [agentSessionCompressing, setAgentSessionCompressing] = useState(false)
   const [agentSessionContext, setAgentSessionContext] = useState<AiTradingAgentSessionContext | null>(null)
   const [agentSessionContextLoading, setAgentSessionContextLoading] = useState(false)
@@ -1794,6 +1795,7 @@ export default function HyperAiPage() {
       setAgentSessionNameDraft('')
       setAgentSessionSummaryDraft('')
     }
+    setAgentSessionArchiveConfirmed(false)
   }, [selectedAiTradingAgentSession, selectedAiTradingAgentSessionId])
 
   // Check for pending prompt from other pages (e.g. Factor Analysis "Ask AI")
@@ -2316,10 +2318,8 @@ export default function HyperAiPage() {
     if (!selectedAiTradingAgentSession) {
       return
     }
-    if (!window.confirm(t(
-      'hyperAi.aiTradingArchiveSessionConfirm',
-      'Archive this AI Trading agent session? Audit records will stay available.'
-    ))) {
+    if (!agentSessionArchiveConfirmed) {
+      setStrategyDraftError(t('hyperAi.aiTradingArchiveSessionConfirmRequired', 'Confirm this agent-session archive before continuing'))
       return
     }
     setAgentSessionArchiving(true)
@@ -2336,6 +2336,7 @@ export default function HyperAiPage() {
         return
       }
       setSelectedAiTradingAgentSessionId(AI_TRADING_NEW_AGENT_SESSION_VALUE)
+      setAgentSessionArchiveConfirmed(false)
       refreshAiTradingState()
     } catch (e) {
       console.error('Failed to archive AI Trading agent session:', e)
@@ -4870,9 +4871,19 @@ export default function HyperAiPage() {
                 <button
                   type="button"
                   onClick={handleArchiveAgentSession}
-                  disabled={!selectedAiTradingAgentSession || selectedAiTradingAgentSession.status === 'archived' || agentSessionSaving || agentSessionArchiving}
+                  disabled={
+                    !selectedAiTradingAgentSession ||
+                    selectedAiTradingAgentSession.status === 'archived' ||
+                    agentSessionSaving ||
+                    agentSessionArchiving ||
+                    !agentSessionArchiveConfirmed
+                  }
                   className="flex h-8 w-8 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-red-500/10 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-50"
-                  title={t('hyperAi.aiTradingArchiveSession', 'Archive session')}
+                  title={
+                    !agentSessionArchiveConfirmed && selectedAiTradingAgentSession?.status !== 'archived'
+                      ? t('hyperAi.aiTradingArchiveSessionConfirmRequired', 'Confirm this agent-session archive before continuing')
+                      : t('hyperAi.aiTradingArchiveSession', 'Archive session')
+                  }
                   aria-label={t('hyperAi.aiTradingArchiveSession', 'Archive session')}
                 >
                   {agentSessionArchiving ? (
@@ -4882,6 +4893,23 @@ export default function HyperAiPage() {
                   )}
                 </button>
               </div>
+              <label className="mt-2 flex items-start gap-2 rounded-md border bg-background/60 px-2 py-1.5 text-[11px] text-muted-foreground">
+                <Checkbox
+                  data-testid="ai-trading-agent-session-archive-confirm"
+                  checked={agentSessionArchiveConfirmed}
+                  onCheckedChange={(checked) => setAgentSessionArchiveConfirmed(checked === true)}
+                  disabled={
+                    !selectedAiTradingAgentSession ||
+                    selectedAiTradingAgentSession.status === 'archived' ||
+                    agentSessionSaving ||
+                    agentSessionArchiving
+                  }
+                  className="mt-0.5 h-3.5 w-3.5"
+                />
+                <span>
+                  {t('hyperAi.aiTradingArchiveSessionConfirmInline', 'Archive this agent session; audit records remain available.')}
+                </span>
+              </label>
               <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
                 <span>{t('hyperAi.aiTradingAgentSessionSummary', 'Context summary')}</span>
                 <span className="shrink-0 font-medium">

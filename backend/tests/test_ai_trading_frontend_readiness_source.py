@@ -534,6 +534,27 @@ def test_ai_trading_signal_handoff_uses_inline_confirmation_without_browser_conf
     assert "aiTradingSignalHandoffConfirmRequired" in hyper_ai_source
 
 
+def test_ai_trading_agent_session_archive_uses_inline_confirmation_without_browser_confirm() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    archive_session_block = hyper_ai_source.split(
+        "const handleArchiveAgentSession = async",
+        1,
+    )[1].split("const handleSaveStrategyDraft = async", 1)[0]
+    session_controls_block = hyper_ai_source.split(
+        "onClick={handleArchiveAgentSession}",
+        1,
+    )[1].split('value={agentSessionSummaryDraft}', 1)[0]
+
+    assert "window.confirm" not in archive_session_block
+    assert "agentSessionArchiveConfirmed" in archive_session_block
+    assert "aiTradingArchiveSessionConfirmRequired" in archive_session_block
+    assert "setAgentSessionArchiveConfirmed(false)" in archive_session_block
+    assert 'data-testid="ai-trading-agent-session-archive-confirm"' in hyper_ai_source
+    assert "setAgentSessionArchiveConfirmed(checked === true)" in session_controls_block
+    assert "!agentSessionArchiveConfirmed" in session_controls_block
+    assert "aiTradingArchiveSessionConfirmInline" in session_controls_block
+
+
 def test_ai_trading_agent_session_error_paths_use_safe_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

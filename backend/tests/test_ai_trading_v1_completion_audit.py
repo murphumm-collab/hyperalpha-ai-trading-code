@@ -145,6 +145,7 @@ def _write_minimal_acceptance_repo(
     include_frontend_program_backtest_inline_no_prompt_marker: bool = True,
     include_frontend_program_backtest_run_inline_confirm_marker: bool = True,
     include_frontend_signal_handoff_inline_confirm_marker: bool = True,
+    include_frontend_agent_session_archive_inline_confirm_marker: bool = True,
     include_frontend_prompt_packet_sanitizer_marker: bool = True,
     include_frontend_handoff_error_safety_marker: bool = True,
     include_frontend_agent_session_error_safety_marker: bool = True,
@@ -188,6 +189,7 @@ def _write_minimal_acceptance_repo(
         "AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS\n"
         "Transient local resource failure\n"
         "run_command_with_transient_retry\n"
+        "make_temp_file_with_retry\n"
         "Resource temporarily unavailable\n"
         "Failed to spawn\n"
         "fork failed\n"
@@ -314,6 +316,9 @@ def _write_minimal_acceptance_repo(
     frontend_signal_handoff_inline_confirm_marker = (
         "| AI Trading frontend signal handoff inline confirm | Done |"
     ) if include_frontend_signal_handoff_inline_confirm_marker else ""
+    frontend_agent_session_archive_inline_confirm_marker = (
+        "| AI Trading frontend agent-session archive inline confirm | Done |"
+    ) if include_frontend_agent_session_archive_inline_confirm_marker else ""
     frontend_prompt_packet_sanitizer_marker = (
         "| AI Trading frontend prompt-packet sanitizer | Done |"
     ) if include_frontend_prompt_packet_sanitizer_marker else ""
@@ -542,6 +547,7 @@ def _write_minimal_acceptance_repo(
                 frontend_program_backtest_inline_no_prompt_marker,
                 frontend_program_backtest_run_inline_confirm_marker,
                 frontend_signal_handoff_inline_confirm_marker,
+                frontend_agent_session_archive_inline_confirm_marker,
                 frontend_prompt_packet_sanitizer_marker,
                 frontend_handoff_error_safety_marker,
                 frontend_agent_session_error_safety_marker,
@@ -1113,6 +1119,17 @@ def test_local_acceptance_runner_uses_macos_portable_mktemp_templates():
     assert "ai-trading-production-operator-preflight.json.XXXXXX" in runner_source
 
 
+def test_local_acceptance_runner_retries_temp_file_creation_under_resource_pressure():
+    runner_source = _runner_function_source()
+
+    assert "make_temp_file_with_retry()" in runner_source
+    assert "Transient local resource failure while creating temp file" in runner_source
+    assert "make_temp_file_with_retry output_file" in runner_source
+    assert "make_temp_file_with_retry report_file" in runner_source
+    assert "make_temp_file_with_retry evidence_file" in runner_source
+    assert "make_temp_file_with_retry preflight_report_file" in runner_source
+
+
 def test_completion_audit_blocks_local_acceptance_when_transient_retry_gate_is_missing(tmp_path):
     _write_minimal_acceptance_repo(tmp_path, include_local_acceptance_transient_retry_gate=False)
 
@@ -1127,6 +1144,7 @@ def test_completion_audit_blocks_local_acceptance_when_transient_retry_gate_is_m
     assert "AI_TRADING_TRANSIENT_RETRY_SLEEP_SECONDS" in runner_evidence["missing_phrases"]
     assert "Transient local resource failure" in runner_evidence["missing_phrases"]
     assert "run_command_with_transient_retry" in runner_evidence["missing_phrases"]
+    assert "make_temp_file_with_retry" in runner_evidence["missing_phrases"]
     assert "| AI Trading local acceptance transient retry | Done |" in status_evidence["missing_phrases"]
 
 
@@ -1880,6 +1898,24 @@ def test_completion_audit_blocks_local_acceptance_when_frontend_signal_handoff_i
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading frontend signal handoff inline confirm | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_frontend_agent_session_archive_inline_confirm_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_frontend_agent_session_archive_inline_confirm_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading frontend agent-session archive inline confirm | Done |"
         in status_evidence["missing_phrases"]
     )
 

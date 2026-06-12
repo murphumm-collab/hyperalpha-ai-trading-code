@@ -94,6 +94,40 @@ sleep_before_retry() {
   }
 }
 
+make_temp_file_with_retry() {
+  local result_var="$1"
+  local template="$2"
+  local attempts
+  local delay_seconds
+  local attempt
+  local created_file
+  local rc
+
+  attempts="$(transient_retry_attempts)"
+  delay_seconds="$(transient_retry_sleep_seconds)"
+
+  for ((attempt = 1; attempt <= attempts; attempt++)); do
+    set +e
+    created_file="$(mktemp "$template" 2>&1)"
+    rc=$?
+    set -e
+
+    if [[ "$rc" -eq 0 && -n "$created_file" ]]; then
+      printf -v "$result_var" '%s' "$created_file"
+      return 0
+    fi
+
+    if [[ "$attempt" -lt "$attempts" ]]; then
+      echo "Transient local resource failure while creating temp file (exit $rc); retrying in ${delay_seconds}s ($attempt/$attempts)..." >&2
+      sleep_before_retry "$delay_seconds"
+      continue
+    fi
+
+    printf '%s\n' "$created_file" >&2
+    return "$rc"
+  done
+}
+
 output_contains_transient_resource_failure() {
   local output_file="$1"
   local line
@@ -130,7 +164,7 @@ run_command_with_transient_retry() {
   delay_seconds="$(transient_retry_sleep_seconds)"
 
   for ((attempt = 1; attempt <= attempts; attempt++)); do
-    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-step.log.XXXXXX")"
+    make_temp_file_with_retry output_file "${TMPDIR:-/tmp}/ai-trading-local-step.log.XXXXXX" || return $?
     set +e
     "$@" > "$output_file" 2>&1
     rc=$?
@@ -178,7 +212,7 @@ run_expected_failure() {
   delay_seconds="$(transient_retry_sleep_seconds)"
 
   for ((attempt = 1; attempt <= attempts; attempt++)); do
-    output_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-local-expected-failure.log.XXXXXX")"
+    make_temp_file_with_retry output_file "${TMPDIR:-/tmp}/ai-trading-local-expected-failure.log.XXXXXX" || return $?
     set +e
     "$@" > "$output_file" 2>&1
     rc=$?
@@ -212,7 +246,7 @@ run_expected_failure() {
 
 run_local_completion_summary_gate() {
   local report_file
-  report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-completion-audit.json.XXXXXX")"
+  make_temp_file_with_retry report_file "${TMPDIR:-/tmp}/ai-trading-completion-audit.json.XXXXXX"
   (
     cd backend
     uv run python scripts/ai_trading_v1_completion_audit.py --strict-local > "$report_file"
@@ -256,9 +290,9 @@ run_production_evidence_initializer_gate() {
   local evidence_file
   local init_report_file
   local audit_report_file
-  evidence_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence.json.XXXXXX")"
-  init_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-init.json.XXXXXX")"
-  audit_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-audit.json.XXXXXX")"
+  make_temp_file_with_retry evidence_file "${TMPDIR:-/tmp}/ai-trading-production-evidence.json.XXXXXX"
+  make_temp_file_with_retry init_report_file "${TMPDIR:-/tmp}/ai-trading-production-evidence-init.json.XXXXXX"
+  make_temp_file_with_retry audit_report_file "${TMPDIR:-/tmp}/ai-trading-production-evidence-audit.json.XXXXXX"
   rm -f "$evidence_file"
 
   (
@@ -347,7 +381,7 @@ PY
 
 run_production_evidence_explain_gate() {
   local explain_report_file
-  explain_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-evidence-explain.json.XXXXXX")"
+  make_temp_file_with_retry explain_report_file "${TMPDIR:-/tmp}/ai-trading-production-evidence-explain.json.XXXXXX"
   (
     cd backend
     uv run python scripts/ai_trading_v1_completion_audit.py --explain-production-evidence > "$explain_report_file"
@@ -402,7 +436,7 @@ PY
 
 run_production_operator_preflight_gate() {
   local preflight_report_file
-  preflight_report_file="$(mktemp "${TMPDIR:-/tmp}/ai-trading-production-operator-preflight.json.XXXXXX")"
+  make_temp_file_with_retry preflight_report_file "${TMPDIR:-/tmp}/ai-trading-production-operator-preflight.json.XXXXXX"
   set +e
   (
     cd backend

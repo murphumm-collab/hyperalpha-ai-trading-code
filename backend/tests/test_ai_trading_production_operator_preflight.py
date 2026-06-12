@@ -2,6 +2,7 @@ import importlib.util
 import json
 import subprocess
 import sys
+import time
 from collections import defaultdict
 from pathlib import Path
 
@@ -26,6 +27,39 @@ operator_preflight = importlib.util.module_from_spec(PREFLIGHT_SPEC)
 assert PREFLIGHT_SPEC.loader is not None
 sys.modules[PREFLIGHT_SPEC.name] = operator_preflight
 PREFLIGHT_SPEC.loader.exec_module(operator_preflight)
+
+_TRANSIENT_RESOURCE_MARKERS = (
+    "Resource temporarily unavailable",
+    "Failed to spawn",
+    "fork failed",
+)
+
+
+def _has_transient_resource_output(output: str) -> bool:
+    return any(marker in output for marker in _TRANSIENT_RESOURCE_MARKERS)
+
+
+def _run_subprocess_with_transient_retry(*popenargs, attempts: int = 3, **kwargs):
+    last_result: subprocess.CompletedProcess[str] | None = None
+    for attempt in range(attempts):
+        try:
+            result = subprocess.run(*popenargs, **kwargs)
+        except OSError as exc:
+            if attempt < attempts - 1 and getattr(exc, "errno", None) == 35:
+                time.sleep(1)
+                continue
+            raise
+
+        last_result = result
+        output = (result.stdout or "") + (result.stderr or "")
+        if result.returncode == 0:
+            return result
+        if attempt < attempts - 1 and _has_transient_resource_output(output):
+            time.sleep(1)
+            continue
+        return result
+    assert last_result is not None
+    return last_result
 
 
 def _write(path: Path, text: str) -> None:
@@ -193,7 +227,7 @@ def test_operator_preflight_blocks_dirty_worktree_without_file_name_leakage(tmp_
 def test_operator_preflight_cli_strict_exits_one_for_default_blockers(tmp_path):
     _write_minimal_accepted_repo(tmp_path)
 
-    completed = subprocess.run(
+    completed = _run_subprocess_with_transient_retry(
         [
             sys.executable,
             str(PREFLIGHT_SCRIPT_PATH),
