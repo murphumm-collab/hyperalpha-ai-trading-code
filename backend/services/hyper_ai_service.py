@@ -84,10 +84,11 @@ logger = logging.getLogger(__name__)
 
 PROFILE_SENSITIVE_TEXT_PATTERN = re.compile(
     r"api[_-]?key|authorization|bearer|private[_-]?key|password|"
-    r"secret\s*[:=]|token\s*[:=]|postgres://|redis://",
+    r"secret\s*[:=]|token\s*[:=]|postgres://|redis://|sk-[A-Za-z0-9]",
     re.IGNORECASE,
 )
 REDACTED_SENSITIVE_PROFILE_TEXT = "[redacted_sensitive_profile_text]"
+REDACTED_SENSITIVE_CONVERSATION_TEXT = "[redacted_sensitive_conversation_text]"
 SENSITIVE_PROFILE_FIELD_ERROR = "profile_field_rejected_sensitive"
 
 SAFE_HYPER_AI_PROVIDER_REQUEST_FAILED_MESSAGE = "Hyper AI provider request failed. Please retry later."
@@ -257,6 +258,25 @@ def sanitize_profile_text_for_response(value: Any) -> Optional[str]:
     if is_profile_text_sensitive(text):
         return REDACTED_SENSITIVE_PROFILE_TEXT
     return text
+
+
+def sanitize_conversation_text_for_response(value: Any) -> str:
+    if value is None:
+        return ""
+    text = value if isinstance(value, str) else str(value)
+    text = text.strip()
+    if not text:
+        return ""
+    if is_profile_text_sensitive(text):
+        return REDACTED_SENSITIVE_CONVERSATION_TEXT
+    return text
+
+
+def build_safe_conversation_title(content: Any) -> str:
+    text = sanitize_conversation_text_for_response(content)
+    if not text:
+        return "Hyper AI Chat"
+    return text[:50] + ("..." if len(text) > 50 else "")
 
 
 def get_or_create_profile(db: Session, user_id: Optional[int] = None) -> HyperAiProfile:
@@ -509,7 +529,7 @@ def save_message(
     conv.message_count = (conv.message_count or 0) + 1
     # Auto-generate title from first user message
     if role == "user" and conv.title == "Hyper AI Chat" and content:
-        conv.title = content[:50] + ("..." if len(content) > 50 else "")
+        conv.title = build_safe_conversation_title(content)
 
     db.commit()
     db.refresh(message)
@@ -2053,13 +2073,14 @@ def get_suggestions_context(db: Session, user_id: Optional[int] = None) -> Dict[
 
         msg_snippets = []
         for msg in reversed(messages):
-            content = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+            safe_content = sanitize_conversation_text_for_response(msg.content)
+            content = safe_content[:80] + "..." if len(safe_content) > 80 else safe_content
             role_label = "User" if msg.role == "user" else "AI"
             msg_snippets.append(f"- {role_label}: {content}")
 
         if msg_snippets:
             conversations_context.append({
-                "title": conv.title,
+                "title": sanitize_conversation_text_for_response(conv.title),
                 "snippets": msg_snippets
             })
 
@@ -2128,9 +2149,11 @@ def build_suggestions_prompt(context: Dict[str, Any]) -> str:
     if conversations:
         prompt_parts.append("Recent Conversations:")
         for conv in conversations:
-            prompt_parts.append(f"\n[{conv['title']}]")
-            for snippet in conv["snippets"]:
-                prompt_parts.append(snippet)
+            title = sanitize_conversation_text_for_response(conv.get("title"))
+            prompt_parts.append(f"\n[{title or 'Hyper AI Chat'}]")
+            for snippet in conv.get("snippets", []):
+                safe_snippet = sanitize_conversation_text_for_response(snippet)
+                prompt_parts.append(safe_snippet or "- Message unavailable")
         prompt_parts.append("")
 
     prompt_parts.append("---")
@@ -2186,7 +2209,11 @@ def generate_suggested_questions(db: Session, user_id: Optional[int] = None) -> 
             temperature=0.7,
         )
 
-        logger.info(f"[Suggestions] Calling LLM: {endpoint}, model: {model}")
+        logger.info(
+            "[Suggestions] Calling LLM: api_format=%s, model_present=%s",
+            api_format,
+            bool(model),
+        )
         response = requests.post(endpoint, headers=headers, json=body, timeout=30)
 
         if response.status_code != 200:
@@ -2308,7 +2335,7 @@ def get_or_update_suggestions(db: Session, user_id: Optional[int] = None) -> Dic
                     task_profile.suggested_questions = json.dumps(questions)
                     task_profile.suggested_questions_at = datetime.utcnow()
                     task_db.commit()
-                    logger.info(f"Updated suggested questions: {questions}")
+                    logger.info("Updated suggested questions: count=%s", len(questions))
             except Exception:
                 logger.error("Failed to update suggestions")
             finally:

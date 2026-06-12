@@ -29,6 +29,7 @@ from services.hyper_ai_service import (
     SENSITIVE_PROFILE_FIELD_ERROR,
     get_or_create_profile,
     get_llm_config,
+    sanitize_conversation_text_for_response,
     save_llm_config,
     sanitize_profile_text_for_response,
     test_llm_connection,
@@ -284,7 +285,7 @@ def list_conversations(
         "conversations": [
             {
                 "id": c.id,
-                "title": c.title,
+                "title": sanitize_conversation_text_for_response(c.title),
                 "message_count": c.message_count,
                 "is_bot_conversation": bool(c.is_bot_conversation),
                 "created_at": c.created_at.isoformat() if c.created_at else None,
