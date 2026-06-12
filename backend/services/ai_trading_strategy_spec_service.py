@@ -2128,7 +2128,13 @@ def adjust_strategy_spec_with_model(
     parsed: Dict[str, Any] = {}
     for endpoint in endpoints:
         try:
-            response = requests.post(endpoint, headers=headers, json=payload, timeout=60)
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=60,
+                allow_redirects=False,
+            )
             if response.status_code >= 400:
                 last_error = f"LLM request failed with status {response.status_code}"
                 continue
@@ -4313,6 +4319,7 @@ def submit_signal_event_to_gateway(
             json=payload,
             headers=headers,
             timeout=SIGNAL_GATEWAY_TIMEOUT_SECONDS,
+            allow_redirects=False,
         )
         response.raise_for_status()
     except Exception as exc:

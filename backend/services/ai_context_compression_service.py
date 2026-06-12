@@ -690,7 +690,13 @@ def generate_summary(
             max_tokens=12000,
         )
 
-        response = requests.post(endpoint, headers=headers, json=body, timeout=600)
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=body,
+            timeout=600,
+            allow_redirects=False,
+        )
 
         if response.status_code != 200:
             response_body_present = bool(getattr(response, "content", b""))

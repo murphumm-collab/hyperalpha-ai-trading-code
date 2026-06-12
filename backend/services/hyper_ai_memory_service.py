@@ -442,7 +442,13 @@ def _call_llm_for_dedup(
             temperature=None,
         )
 
-        response = requests.post(endpoint, headers=headers, json=body, timeout=60)
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=body,
+            timeout=60,
+            allow_redirects=False,
+        )
 
         if response.status_code != 200:
             logger.warning(
@@ -618,7 +624,13 @@ def extract_memories_from_conversation(
             temperature=None,
         )
 
-        response = requests.post(endpoint, headers=headers, json=body, timeout=60)
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=body,
+            timeout=60,
+            allow_redirects=False,
+        )
 
         if response.status_code != 200:
             logger.warning(

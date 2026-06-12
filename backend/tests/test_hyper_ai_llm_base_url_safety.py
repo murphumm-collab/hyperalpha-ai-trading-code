@@ -1,3 +1,4 @@
+import ast
 import json
 from types import SimpleNamespace
 
@@ -430,6 +431,7 @@ def test_preset_provider_connection_uses_preset_endpoint(monkeypatch) -> None:
 
     def fake_post(url, **kwargs):
         captured["url"] = url
+        captured["kwargs"] = kwargs
         return Response()
 
     monkeypatch.setattr(hyper_ai_service.requests, "post", fake_post)
@@ -443,6 +445,7 @@ def test_preset_provider_connection_uses_preset_endpoint(monkeypatch) -> None:
 
     assert result == {"success": True}
     assert captured["url"] == "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+    assert captured["kwargs"]["allow_redirects"] is False
 
 
 def test_hyper_ai_llm_base_url_safety_source_guard() -> None:
@@ -465,3 +468,47 @@ def test_hyper_ai_llm_base_url_safety_source_guard() -> None:
         assert pattern not in service_source
     for pattern in route_forbidden:
         assert pattern not in route_source
+
+
+def _requests_post_lines_missing_redirect_guard(module) -> list[int]:
+    with open(module.__file__, "r", encoding="utf-8") as handle:
+        source = handle.read()
+    tree = ast.parse(source)
+    missing_lines: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if not isinstance(node.func, ast.Attribute) or node.func.attr != "post":
+            continue
+        if not isinstance(node.func.value, ast.Name) or node.func.value.id != "requests":
+            continue
+        has_redirect_guard = any(
+            keyword.arg == "allow_redirects"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is False
+            for keyword in node.keywords
+        )
+        if not has_redirect_guard:
+            missing_lines.append(node.lineno)
+    return missing_lines
+
+
+def test_outbound_llm_and_signal_gateway_requests_disable_redirects_source_guard() -> None:
+    from services import ai_context_compression_service
+    from services import ai_trading_strategy_spec_service
+    from services import hyper_ai_memory_service
+
+    modules = (
+        hyper_ai_service,
+        hyper_ai_memory_service,
+        ai_context_compression_service,
+        ai_trading_strategy_spec_service,
+    )
+
+    missing = {
+        module.__name__: lines
+        for module in modules
+        if (lines := _requests_post_lines_missing_redirect_guard(module))
+    }
+
+    assert missing == {}

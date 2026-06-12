@@ -508,6 +508,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "| AI Trading Hyper AI LLM base URL safety | Done |",
             "| AI Trading Hyper AI preset endpoint override guard | Done |",
             "| AI Trading Hyper AI custom endpoint SSRF guard | Done |",
+            "| AI Trading Hyper AI LLM redirect guard | Done |",
             "| AI Trading model readiness sensitive endpoint gate | Done |",
             "| AI Trading context compression error safety | Done |",
             "| AI Trading context compression prompt safety | Done |",

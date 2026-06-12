@@ -456,7 +456,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
         def raise_for_status(self):
             return None
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse({
             "accepted": True,
@@ -558,7 +558,7 @@ def test_ai_trading_signal_handoff_requires_production_approval_for_external_gat
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called without production handoff approval")
 
@@ -667,7 +667,7 @@ def test_ai_trading_signal_gateway_payload_contract_is_stable_signal_only(tmp_pa
         def raise_for_status(self):
             return None
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse()
 
@@ -1080,7 +1080,7 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
                 ]
             }
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
         return FakeResponse()
 
@@ -1195,7 +1195,7 @@ def test_ai_trading_model_adjustment_sanitizes_model_output_public_fields(tmp_pa
                 ]
             }
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
         return FakeResponse()
 
@@ -1266,7 +1266,7 @@ def test_ai_trading_model_adjustment_redacts_sensitive_exception_type(tmp_path, 
 
     SecretApiKeyModelError = type("SecretApiKeyModelError", (Exception,), {})
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
         raise SecretApiKeyModelError("Authorization: Bearer secret-model-key")
 
@@ -1354,7 +1354,7 @@ def test_ai_trading_saved_model_adjustment_enforces_service_context_summary_budg
                 ]
             }
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
         return FakeResponse()
 
@@ -1446,7 +1446,7 @@ def test_ai_trading_model_adjustment_redacts_sensitive_agent_session_context(tmp
                 ]
             }
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
         return FakeResponse()
 
@@ -1534,7 +1534,7 @@ def test_ai_trading_saved_spec_model_adjustment_redacts_sensitive_agent_session_
                 ]
             }
 
-    def fake_post(url, headers=None, json=None, timeout=None):
+    def fake_post(url, headers=None, json=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "headers": headers, "json": json, "timeout": timeout})
         return FakeResponse()
 
@@ -1665,7 +1665,7 @@ def test_ai_trading_signal_handoff_blocks_stale_signal_events(tmp_path, monkeypa
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called for stale signal events")
 
@@ -1720,7 +1720,7 @@ def test_ai_trading_signal_handoff_requires_signal_only_boundary(tmp_path, monke
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called when signal_only boundary is missing")
 
@@ -1773,7 +1773,7 @@ def test_ai_trading_signal_handoff_requires_user_confirmation_boundary(tmp_path,
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called without the user-confirmation boundary")
 
@@ -1828,7 +1828,7 @@ def test_ai_trading_signal_handoff_requires_expected_signal_identity(tmp_path, m
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called for wrong signal identity")
 
@@ -1890,7 +1890,7 @@ def test_ai_trading_signal_handoff_requires_event_signal_action_symbol_consisten
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called when signal action/symbol mismatch event")
 
@@ -1962,7 +1962,7 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
                 self,
             )
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         gateway_calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse()
 
@@ -2029,7 +2029,7 @@ def test_ai_trading_failed_gateway_handoff_audit_is_non_secret(tmp_path, monkeyp
         def raise_for_status(self):
             return None
 
-    def fake_retry_post(url, json=None, headers=None, timeout=None):
+    def fake_retry_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         gateway_calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return SuccessResponse()
 
@@ -2098,7 +2098,7 @@ def test_ai_trading_gateway_handoff_redacts_sensitive_exception_type(tmp_path, m
             exc.response = self
             raise exc
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         gateway_calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse()
 
@@ -2181,7 +2181,7 @@ def test_ai_trading_signal_detail_and_gateway_payload_redact_sensitive_fields(tm
         def raise_for_status(self):
             return None
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse()
 
@@ -2309,7 +2309,7 @@ def test_ai_trading_signal_market_context_responses_redact_legacy_sensitive_valu
         def raise_for_status(self):
             return None
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse()
 
@@ -2362,7 +2362,7 @@ def test_ai_trading_signal_handoff_rejects_sensitive_confirmation_source(tmp_pat
     _, event = _create_approved_signal_event(client)
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called with a sensitive confirmation source")
 
@@ -2888,7 +2888,7 @@ def test_ai_trading_signal_handoff_requires_accepted_backtest_summary(tmp_path, 
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called without an accepted backtest")
 
@@ -3213,7 +3213,7 @@ def test_ai_trading_backtest_summary_requires_quality_metrics(tmp_path, monkeypa
 
     calls = []
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         raise AssertionError("gateway should not be called with weak backtest metrics")
 
@@ -4410,7 +4410,7 @@ def test_ai_trading_market_universe_returns_crypto_and_hip3_presets(tmp_path, mo
         def json(self):
             return self.payload
 
-    def fake_post(url, json=None, timeout=None):
+    def fake_post(url, json=None, timeout=None, allow_redirects=None):
         if json and json.get("dex") == "xyz":
             return FakeResponse(
                 [
@@ -4834,7 +4834,7 @@ def test_ai_trading_strategy_spec_responses_redact_legacy_sensitive_text_and_sou
         def raise_for_status(self):
             return None
 
-    def fake_post(url, json=None, headers=None, timeout=None):
+    def fake_post(url, json=None, headers=None, timeout=None, allow_redirects=None):
         calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         return FakeResponse()
 

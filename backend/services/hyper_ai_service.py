@@ -525,7 +525,13 @@ def test_llm_connection(
             max_tokens=10,
         )
 
-        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=30,
+            allow_redirects=False,
+        )
 
         if response.status_code == 200:
             return {"success": True}
@@ -1173,8 +1179,11 @@ def stream_chat_response(
                 for endpoint in endpoints:
                     try:
                         response = requests.post(
-                            endpoint, headers=headers, json=body,
-                            timeout=180  # Longer timeout for reasoning models
+                            endpoint,
+                            headers=headers,
+                            json=body,
+                            timeout=180,  # Longer timeout for reasoning models
+                            allow_redirects=False,
                         )
                         last_status_code = response.status_code
                         last_response_body_present = bool(getattr(response, "content", b""))
@@ -1602,8 +1611,12 @@ def stream_onboarding_response(
         for endpoint in endpoints:
             try:
                 response = requests.post(
-                    endpoint, headers=headers, json=body,
-                    stream=True, timeout=120
+                    endpoint,
+                    headers=headers,
+                    json=body,
+                    stream=True,
+                    timeout=120,
+                    allow_redirects=False,
                 )
                 if response.status_code == 200:
                     break
@@ -1843,6 +1856,7 @@ def stream_insight_response(
                     json=body,
                     stream=True,
                     timeout=180,
+                    allow_redirects=False,
                 )
                 last_status_code = response.status_code
                 last_response_body_present = bool(getattr(response, "content", b""))
@@ -2393,7 +2407,13 @@ def generate_suggested_questions(db: Session, user_id: Optional[int] = None) -> 
             api_format,
             bool(model),
         )
-        response = requests.post(endpoint, headers=headers, json=body, timeout=30)
+        response = requests.post(
+            endpoint,
+            headers=headers,
+            json=body,
+            timeout=30,
+            allow_redirects=False,
+        )
 
         if response.status_code != 200:
             logger.warning("[Suggestions] LLM error: status=%s", response.status_code)
