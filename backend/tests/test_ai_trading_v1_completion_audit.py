@@ -109,6 +109,7 @@ def _write_minimal_acceptance_repo(
     include_production_url_parse_error_safety_marker: bool = True,
     include_ai_stream_routes_regression_gate: bool = True,
     include_kline_routes_regression_gate: bool = True,
+    include_kline_collector_safety_gate: bool = True,
     include_frontend_source_guard: bool = True,
     include_production_evidence_explain_gate: bool = True,
     include_admin_production_evidence_explain_api_marker: bool = True,
@@ -220,6 +221,9 @@ def _write_minimal_acceptance_repo(
     kline_routes_regression_text = (
         "tests/test_kline_routes.py\n"
     ) if include_kline_routes_regression_gate else ""
+    kline_collectors_regression_text = (
+        "tests/test_kline_collectors.py\n"
+    ) if include_kline_collector_safety_gate else ""
     frontend_source_guard_text = (
         "tests/test_ai_trading_frontend_readiness_source.py\n"
     ) if include_frontend_source_guard else ""
@@ -432,6 +436,9 @@ def _write_minimal_acceptance_repo(
     kline_local_db_api_marker = (
         "| AI Trading K-line local DB API | Done |"
     ) if include_kline_routes_regression_gate else ""
+    kline_collector_safety_marker = (
+        "| AI Trading K-line collector/backfill safety | Done |"
+    ) if include_kline_collector_safety_gate else ""
     private_factor_per_user_result_schema_marker = (
         "| AI Trading private factor per-user result schema | Done |"
     ) if include_private_factor_per_user_result_schema_marker else ""
@@ -511,6 +518,7 @@ def _write_minimal_acceptance_repo(
                 db_gate_text,
                 ai_stream_routes_regression_text,
                 kline_routes_regression_text,
+                kline_collectors_regression_text,
                 frontend_source_guard_text,
                 "Frontend build",
                 "local completion summary gate",
@@ -649,6 +657,7 @@ def _write_minimal_acceptance_repo(
                 frontend_market_universe_error_safety_marker,
                 frontend_market_symbol_sanitizer_marker,
                 kline_local_db_api_marker,
+                kline_collector_safety_marker,
                 private_factor_per_user_result_schema_marker,
                 private_factor_precompute_writer_reader_marker,
                 private_factor_precompute_db_smoke_marker,
@@ -939,6 +948,37 @@ def test_kline_local_db_api_is_implemented_and_gated() -> None:
     assert "Failed to get K-line data for local DB request: {type(e).__name__}" in route_source
     assert "tests/test_kline_routes.py" in runner_source
     assert "| AI Trading K-line local DB API | Done |" in status_source
+
+
+def test_kline_collector_and_backfill_safety_are_implemented_and_gated() -> None:
+    collector_source = (
+        REPO_ROOT / "backend" / "services" / "kline_collectors.py"
+    ).read_text(encoding="utf-8")
+    backfill_source = (
+        REPO_ROOT / "backend" / "services" / "kline_backfill_manager.py"
+    ).read_text(encoding="utf-8")
+    route_source = (
+        REPO_ROOT / "backend" / "api" / "kline_routes.py"
+    ).read_text(encoding="utf-8")
+    runner_source = (
+        REPO_ROOT / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    assert "_normalize_kline_payload" in collector_source
+    assert '("timestamp", "t", "time")' in collector_source
+    assert '("open", "o")' in collector_source
+    assert "klines[-1]" in collector_source
+    assert "Skipping malformed Hyperliquid kline payload" in collector_source
+    assert "SAFE_BACKFILL_ERROR_MESSAGE = \"K-line backfill failed\"" in backfill_source
+    assert "task.error_message = SAFE_BACKFILL_ERROR_MESSAGE" in backfill_source
+    assert "Unsupported exchange" in route_source
+    assert "_normalize_request_symbol(symbol)" in route_source
+    assert "A backfill task is already running. Please wait for it to complete." in route_source
+    assert "tests/test_kline_collectors.py" in runner_source
+    assert "| AI Trading K-line collector/backfill safety | Done |" in status_source
 
 
 def test_production_evidence_template_builder_uses_required_item_ids_without_secrets():
@@ -1496,6 +1536,21 @@ def test_completion_audit_blocks_local_acceptance_when_kline_routes_regression_g
     status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
     assert "tests/test_kline_routes.py" in runner_evidence["missing_phrases"]
     assert "| AI Trading K-line local DB API | Done |" in status_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_kline_collector_safety_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(tmp_path, include_kline_collector_safety_gate=False)
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    local_blockers = report["summary"]["local_blockers"]
+    assert "aggregate_local_acceptance_runner" in local_blockers
+    assert "status_progress_marker" in local_blockers
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert "tests/test_kline_collectors.py" in runner_evidence["missing_phrases"]
+    assert "| AI Trading K-line collector/backfill safety | Done |" in status_evidence["missing_phrases"]
 
 
 def test_completion_audit_blocks_local_acceptance_when_explain_gate_is_missing(tmp_path):

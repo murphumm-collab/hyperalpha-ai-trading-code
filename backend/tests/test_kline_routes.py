@@ -1,4 +1,5 @@
 from decimal import Decimal
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from fastapi import FastAPI
@@ -9,7 +10,13 @@ from sqlalchemy.orm import sessionmaker
 from api.auth_utils import get_current_user_dependency
 from api.kline_routes import get_db, router
 from database.connection import Base
-from database.models import CryptoKline, User, UserExchangeConfig
+from database.models import CryptoKline, KlineCollectionTask, User, UserExchangeConfig
+from services.kline_backfill_manager import SAFE_BACKFILL_ERROR_MESSAGE
+from services.kline_data_service import kline_service
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
 
 
 def _build_clients(tmp_path, usernames=("alice", "bob")):
@@ -141,3 +148,97 @@ def test_kline_data_rejects_malformed_inputs_without_raw_exception(tmp_path):
     assert bad_period.json()["detail"] == "Unsupported period"
     assert bad_window.status_code == 400
     assert bad_window.json()["detail"] == "start_ts must be <= end_ts"
+
+
+def test_kline_data_rejects_unsupported_exchange_without_echoing_input(tmp_path):
+    client = _build_clients(tmp_path)["alice"]
+
+    response = client.get("/api/klines/data?symbol=BTC&period=1h&exchange=api_key=secret")
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Unsupported exchange"
+    assert "secret" not in str(response.json()).lower()
+
+
+def test_backfill_creation_rejects_unsafe_symbol_without_starting_task(tmp_path, monkeypatch):
+    client = _build_clients(tmp_path)["alice"]
+
+    async def _noop_initialize():
+        return None
+
+    monkeypatch.setattr(kline_service, "initialize", _noop_initialize)
+    response = client.post("/api/klines/backfill", json={
+        "exchange": "hyperliquid",
+        "symbols": ["api_key=secret"],
+        "start_time": "2026-06-12T00:00:00",
+        "end_time": "2026-06-12T00:05:00",
+        "period": "1m",
+    })
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Invalid symbol"
+    assert "secret" not in str(response.json()).lower()
+
+
+def test_backfill_creation_does_not_echo_active_task_symbol(tmp_path, monkeypatch):
+    client = _build_clients(tmp_path)["alice"]
+    session = client._kline_session_factory()
+    try:
+        session.add(KlineCollectionTask(
+            user_id=client._kline_user_ids["alice"],
+            exchange="hyperliquid",
+            symbol="api_key=secret",
+            start_time=_utc_now(),
+            end_time=_utc_now() + timedelta(minutes=5),
+            period="1m",
+            status="running",
+        ))
+        session.commit()
+    finally:
+        session.close()
+
+    async def _noop_initialize():
+        return None
+
+    monkeypatch.setattr(kline_service, "initialize", _noop_initialize)
+    response = client.post("/api/klines/backfill", json={
+        "exchange": "hyperliquid",
+        "symbols": ["BTC"],
+        "start_time": "2026-06-12T00:00:00",
+        "end_time": "2026-06-12T00:05:00",
+        "period": "1m",
+    })
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "A backfill task is already running. Please wait for it to complete."
+    assert "secret" not in str(response.json()).lower()
+
+
+def test_backfill_status_redacts_legacy_raw_error_message(tmp_path):
+    client = _build_clients(tmp_path)["alice"]
+    session = client._kline_session_factory()
+    try:
+        task = KlineCollectionTask(
+            user_id=client._kline_user_ids["alice"],
+            exchange="hyperliquid",
+            symbol="BTC",
+            start_time=_utc_now(),
+            end_time=_utc_now() + timedelta(minutes=5),
+            period="1m",
+            status="failed",
+            progress=10,
+            error_message="failed at https://orders.example/api?token=secret",
+        )
+        session.add(task)
+        session.commit()
+        task_id = task.id
+    finally:
+        session.close()
+
+    response = client.get(f"/api/klines/backfill/status/{task_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["error_message"] == SAFE_BACKFILL_ERROR_MESSAGE
+    assert "secret" not in str(payload).lower()
+    assert "orders.example" not in str(payload).lower()

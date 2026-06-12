@@ -7,6 +7,7 @@ from typing import List, Optional
 from datetime import datetime
 from dataclasses import dataclass
 import logging
+import math
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +64,59 @@ class HyperliquidKlineCollector(BaseKlineCollector):
         from .hyperliquid_market_data import HyperliquidClient
         self.market_data = HyperliquidClient()
 
+    def _normalize_kline_payload(self, symbol: str, period: str, payload: dict) -> Optional[KlineData]:
+        """Normalize CCXT and Hyperliquid native candle payloads into KlineData."""
+        try:
+            timestamp = self._coerce_timestamp(self._first(payload, ("timestamp", "t", "time")))
+            open_price = self._coerce_positive_float(self._first(payload, ("open", "o")))
+            high_price = self._coerce_positive_float(self._first(payload, ("high", "h")))
+            low_price = self._coerce_positive_float(self._first(payload, ("low", "l")))
+            close_price = self._coerce_positive_float(self._first(payload, ("close", "c")))
+            volume = self._coerce_non_negative_float(self._first(payload, ("volume", "v")))
+        except (KeyError, TypeError, ValueError):
+            self.logger.debug("Skipping malformed Hyperliquid kline payload for %s/%s", symbol, period)
+            return None
+
+        return KlineData(
+            exchange=self.exchange_id,
+            symbol=symbol,
+            timestamp=timestamp,
+            period=period,
+            open_price=open_price,
+            high_price=high_price,
+            low_price=low_price,
+            close_price=close_price,
+            volume=volume,
+        )
+
+    @staticmethod
+    def _first(payload: dict, keys: tuple[str, ...]):
+        for key in keys:
+            if key in payload and payload[key] is not None:
+                return payload[key]
+        raise KeyError(keys[0])
+
+    @staticmethod
+    def _coerce_timestamp(value) -> int:
+        timestamp = int(value)
+        if timestamp < 0:
+            raise ValueError("timestamp must be non-negative")
+        return timestamp // 1000 if timestamp > 10_000_000_000 else timestamp
+
+    @staticmethod
+    def _coerce_positive_float(value) -> float:
+        number = float(value)
+        if not math.isfinite(number) or number <= 0:
+            raise ValueError("price must be positive")
+        return number
+
+    @staticmethod
+    def _coerce_non_negative_float(value) -> float:
+        number = float(value)
+        if not math.isfinite(number) or number < 0:
+            raise ValueError("volume must be non-negative")
+        return number
+
     async def fetch_current_kline(self, symbol: str, period: str = "1m") -> Optional[KlineData]:
         """获取当前分钟K线"""
         try:
@@ -71,20 +125,9 @@ class HyperliquidKlineCollector(BaseKlineCollector):
             if not klines:
                 return None
 
-            latest = klines[0]
-            return KlineData(
-                exchange=self.exchange_id,
-                symbol=symbol,
-                timestamp=int(latest['timestamp']),
-                period=period,
-                open_price=float(latest['open']),
-                high_price=float(latest['high']),
-                low_price=float(latest['low']),
-                close_price=float(latest['close']),
-                volume=float(latest['volume'])
-            )
+            return self._normalize_kline_payload(symbol, period, klines[-1])
         except Exception as e:
-            self.logger.error(f"Failed to fetch current kline for {symbol}: {e}")
+            self.logger.error("Failed to fetch current kline for %s: %s", symbol, type(e).__name__)
             return None
 
     async def fetch_historical_klines(
@@ -111,23 +154,16 @@ class HyperliquidKlineCollector(BaseKlineCollector):
 
             result = []
             for kline in klines:
-                kline_time = datetime.fromtimestamp(kline['timestamp'])
+                normalized = self._normalize_kline_payload(symbol, period, kline)
+                if not normalized:
+                    continue
+                kline_time = datetime.fromtimestamp(normalized.timestamp)
                 if start_time <= kline_time <= end_time:
-                    result.append(KlineData(
-                        exchange=self.exchange_id,
-                        symbol=symbol,
-                        timestamp=int(kline['timestamp']),
-                        period=period,
-                        open_price=float(kline['open']),
-                        high_price=float(kline['high']),
-                        low_price=float(kline['low']),
-                        close_price=float(kline['close']),
-                        volume=float(kline['volume'])
-                    ))
+                    result.append(normalized)
 
             return result
         except Exception as e:
-            self.logger.error(f"Failed to fetch historical klines for {symbol}: {e}")
+            self.logger.error("Failed to fetch historical klines for %s: %s", symbol, type(e).__name__)
             return []
 
     def get_supported_symbols(self) -> List[str]:

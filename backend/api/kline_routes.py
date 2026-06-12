@@ -15,7 +15,7 @@ from api.auth_utils import get_current_user_dependency
 from database.connection import SessionLocal
 from database.models import CryptoKline, KlineCollectionTask, User
 from services.kline_data_service import kline_service
-from services.kline_backfill_manager import BackfillManager
+from services.kline_backfill_manager import BackfillManager, SAFE_BACKFILL_ERROR_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +73,7 @@ def _resolve_exchange(db: Session, current_user: User, requested_exchange: Optio
     try:
         return kline_service.resolve_exchange_for_user(db, current_user.id, requested_exchange)
     except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail="Unsupported exchange") from exc
 
 
 def _task_response(task: KlineCollectionTask) -> BackfillTaskResponse:
@@ -88,7 +88,7 @@ def _task_response(task: KlineCollectionTask) -> BackfillTaskResponse:
         progress=task.progress,
         total_records=task.total_records or 0,
         collected_records=task.collected_records or 0,
-        error_message=task.error_message,
+        error_message=SAFE_BACKFILL_ERROR_MESSAGE if task.error_message else None,
         created_at=task.created_at,
     )
 
@@ -118,6 +118,15 @@ def _safe_symbol_candidates(symbol: str) -> list[str]:
     return ordered
 
 
+def _normalize_request_symbol(symbol: str) -> str:
+    candidates = _safe_symbol_candidates(symbol)
+    raw = candidates[0]
+    if ":" in raw:
+        dex, asset = raw.split(":", 1)
+        return f"{dex.lower()}:{asset.upper()}"
+    return raw.upper()
+
+
 @router.get("/coverage", response_model=List[CoverageResponse])
 async def get_data_coverage(
     symbols: Optional[str] = None,  # 逗号分隔的交易对列表
@@ -134,7 +143,7 @@ async def get_data_coverage(
         # 解析交易对参数
         symbol_list = None
         if symbols:
-            symbol_list = [s.strip().upper() for s in symbols.split(",")]
+            symbol_list = [_normalize_request_symbol(s.strip()) for s in symbols.split(",") if s.strip()]
 
         # 获取覆盖情况
         coverage_data = await kline_service.get_data_coverage(
@@ -147,8 +156,8 @@ async def get_data_coverage(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get data coverage: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get data coverage: {str(e)}")
+        logger.error("Failed to get data coverage: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to get data coverage")
 
 
 @router.get("/backfill-tasks")
@@ -271,6 +280,8 @@ async def create_backfill_task(
 
         # 使用显式交易所或当前用户配置的交易所
         exchange = _resolve_exchange(db, current_user, request.exchange)
+        if request.period not in VALID_KLINE_PERIODS:
+            raise HTTPException(status_code=400, detail="Unsupported period")
 
         # 验证时间范围
         if request.start_time >= request.end_time:
@@ -292,14 +303,14 @@ async def create_backfill_task(
         if existing_active_task:
             raise HTTPException(
                 status_code=400,
-                detail=f"A backfill task is already running for {existing_active_task.symbol}. Please wait for it to complete."
+                detail="A backfill task is already running. Please wait for it to complete."
             )
 
         # 创建补漏任务记录
         task_ids = []
         skipped_symbols = []
         for symbol in request.symbols:
-            symbol_upper = symbol.upper()
+            symbol_upper = _normalize_request_symbol(symbol)
 
             # 检查是否有相同 symbol 的任务正在运行
             existing_task = db.query(KlineCollectionTask).filter(
@@ -348,8 +359,8 @@ async def create_backfill_task(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to create backfill task: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to create backfill task: {str(e)}")
+        logger.error("Failed to create backfill task: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to create backfill task")
 
 
 @router.get("/backfill/status/{task_id}", response_model=BackfillTaskResponse)
@@ -372,8 +383,8 @@ async def get_backfill_status(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get task status: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to get task status: {str(e)}")
+        logger.error("Failed to get task status: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to get task status")
 
 
 @router.get("/backfill/tasks", response_model=List[BackfillTaskResponse])
@@ -397,8 +408,8 @@ async def list_backfill_tasks(
         return [_task_response(task) for task in tasks]
 
     except Exception as e:
-        logger.error(f"Failed to list tasks: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list tasks: {str(e)}")
+        logger.error("Failed to list tasks: %s", type(e).__name__)
+        raise HTTPException(status_code=500, detail="Failed to list tasks")
 
 
 @router.delete("/backfill-tasks/{task_id}")

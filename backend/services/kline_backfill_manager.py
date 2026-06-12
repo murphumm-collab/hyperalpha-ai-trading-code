@@ -13,6 +13,7 @@ from database.models import KlineCollectionTask
 from .kline_data_service import kline_service
 
 logger = logging.getLogger(__name__)
+SAFE_BACKFILL_ERROR_MESSAGE = "K-line backfill failed"
 
 
 class BackfillManager:
@@ -110,11 +111,10 @@ class BackfillManager:
 
             except Exception as e:
                 # 任务失败
-                error_msg = str(e)
-                logger.error(f"Task {task_id} failed: {error_msg}")
+                logger.error("Task %s failed: %s", task_id, type(e).__name__)
 
                 task.status = "failed"
-                task.error_message = error_msg
+                task.error_message = SAFE_BACKFILL_ERROR_MESSAGE
                 db.commit()
 
     async def process_pending_tasks(self):
