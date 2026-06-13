@@ -1769,6 +1769,7 @@
       "walletSignals": "How do I connect Hyper Insight wallet signals?"
     },
     "connecting": "Connecting...",
+    "chatModelNotConfigured": "Configure Codex GPT-5.5 API key before sending messages.",
     "calling": "Calling",
     "gotResult": "Got result from",
     "confirmationRequired": "Confirmation required",

@@ -1125,6 +1125,7 @@ export default function HyperAiPage() {
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null)
   const [inputValue, setInputValue] = useState('')
   const [sending, setSending] = useState(false)
+  const [chatError, setChatError] = useState('')
   const [streamingContent, setStreamingContent] = useState('')
   const [providers, setProviders] = useState<LLMProvider[]>([])
   const [profile, setProfile] = useState<any>(null)
@@ -3558,6 +3559,7 @@ export default function HyperAiPage() {
     const userMessage = inputValue.trim()
     setInputValue('')
     setSending(true)
+    setChatError('')
     setStreamingContent('')
 
     // Add user message and placeholder assistant message
@@ -3588,9 +3590,12 @@ export default function HyperAiPage() {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
         const detail = data?.detail
-        const message = typeof detail === 'string'
+        const rawMessage = typeof detail === 'string'
           ? detail
-          : detail?.message || t('hyperAi.sendFailed', 'Failed to send message')
+          : detail?.message
+        const message = rawMessage === 'Codex GPT-5.5 API key is not configured.'
+          ? t('hyperAi.chatModelNotConfigured', 'Configure Codex GPT-5.5 API key before sending messages.')
+          : rawMessage || t('hyperAi.sendFailed', 'Failed to send message')
         throw new Error(message)
       }
 
@@ -3616,6 +3621,7 @@ export default function HyperAiPage() {
       }
     } catch (e) {
       console.error('Failed to send message:', e)
+      setChatError(e instanceof Error ? e.message : t('hyperAi.sendFailed', 'Failed to send message'))
       // Remove temporary user + assistant messages because the backend did not
       // accept this message.
       setMessages(prev => prev.slice(0, -2))
@@ -3869,6 +3875,7 @@ export default function HyperAiPage() {
       fetchConversations()
     } catch (e) {
       console.error('Polling error:', e)
+      setChatError(t('hyperAi.connectionLost', 'Connection lost'))
       setMessages(prev => prev.map((m, idx) =>
         idx === prev.length - 1 && m.isStreaming
           ? { ...m, isStreaming: false, content: content || t('hyperAi.connectionLost', 'Connection lost') }
@@ -4743,35 +4750,58 @@ export default function HyperAiPage() {
 
         {/* Input Area */}
         <div className="px-4 pb-4 pt-2">
-          <div className="max-w-5xl mx-auto relative">
-            <textarea
-              ref={textareaRef}
-              value={inputValue}
-              onChange={e => setInputValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder={t('hyperAi.inputPlaceholder', 'Type a message...')}
-              disabled={sending}
-              className="w-full min-h-[80px] max-h-[200px] rounded-xl border border-input bg-transparent px-4 py-3 pb-12 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
-              rows={3}
-            />
-            <div className="absolute bottom-3 right-3 flex items-center gap-2">
-              {tokenUsage?.show_warning && (
-                <p className="text-xs text-amber-500">
-                  {t('hyperAi.contextWarning', 'Context remaining: {{percent}}% · Compressing soon', { percent: Math.max(0, Math.round((1 - tokenUsage.usage_ratio) * 100)) })}
-                </p>
-              )}
-              <Button
-                onClick={handleSend}
-                disabled={!inputValue.trim() || sending}
-                size="icon"
-                className="rounded-full h-8 w-8 shrink-0"
+          <div className="mx-auto max-w-5xl space-y-2">
+            {chatError && (
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
+                role="alert"
+                data-testid="hyper-ai-chat-send-error"
               >
-                {sending ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4" />
+                <span>{chatError}</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-7 shrink-0"
+                  onClick={() => setShowConfigModal(true)}
+                >
+                  {t('hyperAi.aiTradingConfigureApiKey', 'Configure API key')}
+                </Button>
+              </div>
+            )}
+            <div className="relative">
+              <textarea
+                ref={textareaRef}
+                value={inputValue}
+                onChange={e => {
+                  setInputValue(e.target.value)
+                  if (chatError) setChatError('')
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={t('hyperAi.inputPlaceholder', 'Type a message...')}
+                disabled={sending}
+                className="w-full min-h-[80px] max-h-[200px] rounded-xl border border-input bg-transparent px-4 py-3 pb-12 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 resize-y"
+                rows={3}
+              />
+              <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                {tokenUsage?.show_warning && (
+                  <p className="text-xs text-amber-500">
+                    {t('hyperAi.contextWarning', 'Context remaining: {{percent}}% · Compressing soon', { percent: Math.max(0, Math.round((1 - tokenUsage.usage_ratio) * 100)) })}
+                  </p>
                 )}
-              </Button>
+                <Button
+                  onClick={handleSend}
+                  disabled={!inputValue.trim() || sending}
+                  size="icon"
+                  className="rounded-full h-8 w-8 shrink-0"
+                >
+                  {sending ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Send className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

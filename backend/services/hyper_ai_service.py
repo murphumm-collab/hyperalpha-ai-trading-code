@@ -1086,7 +1086,7 @@ def stream_chat_response(
     llm_config = get_llm_config(db, user_id=user_id)
     if not llm_config.get("configured"):
         yield format_sse_event("error", {
-            "message": "LLM not configured. Please complete onboarding first."
+            "message": "Codex GPT-5.5 API key is not configured."
         })
         return
 

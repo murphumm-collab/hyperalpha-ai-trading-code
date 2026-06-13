@@ -1789,6 +1789,7 @@
       "walletSignals": "如何接入 Hyper Insight 钱包信号？"
     },
     "connecting": "连接中...",
+    "chatModelNotConfigured": "请先配置 Codex GPT-5.5 API key，再发送消息。",
     "calling": "正在调用",
     "gotResult": "获取结果",
     "confirmationRequired": "需要确认",

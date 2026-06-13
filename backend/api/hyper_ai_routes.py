@@ -48,6 +48,7 @@ from services.hyper_ai_llm_providers import get_all_providers, get_provider
 from services.ai_stream_service import TaskAdmissionError, get_buffer_manager
 
 router = APIRouter(prefix="/api/hyper-ai", tags=["Hyper AI"])
+CODEX_GPT55_NOT_CONFIGURED_DETAIL = "Codex GPT-5.5 API key is not configured."
 
 
 # Request/Response models
@@ -408,7 +409,7 @@ def start_chat(
     if not llm_config.get("configured"):
         raise HTTPException(
             status_code=400,
-            detail="LLM not configured. Please complete onboarding first."
+            detail=CODEX_GPT55_NOT_CONFIGURED_DETAIL
         )
 
     # Get or create conversation (mark as onboarding if in onboarding mode)
@@ -485,7 +486,7 @@ def start_insight(
     if not llm_config.get("configured"):
         raise HTTPException(
             status_code=400,
-            detail="LLM not configured. Please complete onboarding first."
+            detail=CODEX_GPT55_NOT_CONFIGURED_DETAIL
         )
 
     try:
