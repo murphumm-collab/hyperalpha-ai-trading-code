@@ -42,6 +42,10 @@ _SYMBOL_SECRET_PATTERN = re.compile(
     r"(api[_-]?key|authorization|bearer|token|secret|private[_-]?key|password)",
     re.IGNORECASE,
 )
+SAFE_MARKET_UNIVERSE_PROVIDER_ERRORS = {
+    "crypto": "hyperliquid_crypto_market_universe_unavailable",
+    "hip3": "hyperliquid_hip3_market_universe_unavailable",
+}
 
 _market_universe_cache: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
@@ -194,7 +198,7 @@ def _fetch_meta_and_asset_contexts(
     if dex:
         payload["dex"] = dex
 
-    response = requests.post(endpoint, json=payload, timeout=10)
+    response = requests.post(endpoint, json=payload, timeout=10, allow_redirects=False)
     response.raise_for_status()
     data = response.json()
     if not isinstance(data, list) or len(data) < 2:
@@ -260,16 +264,16 @@ def get_ai_trading_market_universe(
     try:
         crypto_markets = _fetch_meta_and_asset_contexts(environment=environment)
         crypto_source = "hyperliquid_meta_and_asset_contexts"
-    except Exception as exc:
-        errors["crypto"] = str(exc)
+    except Exception:
+        errors["crypto"] = SAFE_MARKET_UNIVERSE_PROVIDER_ERRORS["crypto"]
         crypto_markets = []
         crypto_source = "unavailable"
 
     try:
         hip3_markets = _fetch_meta_and_asset_contexts(environment=environment, dex=hip3_dex)
         hip3_source = f"hyperliquid_meta_and_asset_contexts:{hip3_dex}"
-    except Exception as exc:
-        errors["hip3"] = str(exc)
+    except Exception:
+        errors["hip3"] = SAFE_MARKET_UNIVERSE_PROVIDER_ERRORS["hip3"]
         hip3_markets = _fallback_hip3_markets(hip3_dex)
         hip3_source = "available_symbol_cache" if hip3_markets else "unavailable"
 
