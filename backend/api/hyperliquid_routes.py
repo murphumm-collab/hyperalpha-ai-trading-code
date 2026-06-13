@@ -61,6 +61,16 @@ SAFE_HYPERLIQUID_AGENT_WALLET_UPGRADE_FAILED_MESSAGE = "Failed to upgrade Hyperl
 SAFE_HYPERLIQUID_TRADING_MODE_READ_FAILED_MESSAGE = "Failed to get Hyperliquid trading mode."
 SAFE_HYPERLIQUID_TRADING_MODE_UPDATE_FAILED_MESSAGE = "Failed to set Hyperliquid trading mode."
 SAFE_HYPERLIQUID_WALLET_LIST_FAILED_MESSAGE = "Failed to list Hyperliquid wallets."
+SAFE_HYPERLIQUID_SETUP_INVALID_REQUEST_MESSAGE = "Invalid Hyperliquid setup request."
+SAFE_HYPERLIQUID_SETUP_FAILED_MESSAGE = "Failed to set up Hyperliquid."
+SAFE_HYPERLIQUID_SWITCH_INVALID_REQUEST_MESSAGE = "Invalid Hyperliquid environment switch request."
+SAFE_HYPERLIQUID_SWITCH_FAILED_MESSAGE = "Failed to switch Hyperliquid environment."
+SAFE_HYPERLIQUID_CONFIG_NOT_FOUND_MESSAGE = "Hyperliquid configuration not found."
+SAFE_HYPERLIQUID_CONFIG_READ_FAILED_MESSAGE = "Failed to get Hyperliquid configuration."
+SAFE_HYPERLIQUID_BALANCE_UNAVAILABLE_MESSAGE = "Hyperliquid balance is unavailable."
+SAFE_HYPERLIQUID_BALANCE_READ_FAILED_MESSAGE = "Failed to query Hyperliquid balance."
+SAFE_HYPERLIQUID_POSITIONS_UNAVAILABLE_MESSAGE = "Hyperliquid positions are unavailable."
+SAFE_HYPERLIQUID_POSITIONS_READ_FAILED_MESSAGE = "Failed to query Hyperliquid positions."
 
 
 def _ts_to_iso(ts: float) -> str:
@@ -206,10 +216,13 @@ def setup_account(
         )
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_SETUP_INVALID_REQUEST_MESSAGE)
     except Exception as e:
-        logger.error(f"Setup failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Setup failed: {str(e)}")
+        logger.error(
+            "Failed to set up Hyperliquid account",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_SETUP_FAILED_MESSAGE)
 
 
 @router.post("/accounts/{account_id}/switch-environment")
@@ -241,10 +254,13 @@ def switch_environment(
         )
         return result
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_SWITCH_INVALID_REQUEST_MESSAGE)
     except Exception as e:
-        logger.error(f"Environment switch failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Switch failed: {str(e)}")
+        logger.error(
+            "Failed to switch Hyperliquid environment",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_SWITCH_FAILED_MESSAGE)
 
 
 @router.get("/accounts/{account_id}/config")
@@ -271,10 +287,13 @@ def get_config(
         )
         return config
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise HTTPException(status_code=404, detail=SAFE_HYPERLIQUID_CONFIG_NOT_FOUND_MESSAGE)
     except Exception as e:
-        logger.error(f"Failed to get config: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(
+            "Failed to get Hyperliquid configuration",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_CONFIG_READ_FAILED_MESSAGE)
 
 
 @router.get("/accounts/{account_id}/balance")
@@ -334,10 +353,13 @@ def get_balance(
             balance["cached_at"] = datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z")
         return balance
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_BALANCE_UNAVAILABLE_MESSAGE)
     except Exception as e:
-        logger.error(f"Failed to get balance: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Balance query failed: {str(e)}")
+        logger.error(
+            "Failed to get Hyperliquid balance",
+            extra={"account_id": account_id, "environment": environment, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_BALANCE_READ_FAILED_MESSAGE)
     finally:
         log_hot_path_delta(
             logger,
@@ -410,10 +432,13 @@ def get_positions(
             'cached_at': datetime.now(tz=timezone.utc).isoformat().replace("+00:00", "Z"),
         }
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_POSITIONS_UNAVAILABLE_MESSAGE)
     except Exception as e:
-        logger.error(f"Failed to get positions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Positions query failed: {str(e)}")
+        logger.error(
+            "Failed to get Hyperliquid positions",
+            extra={"account_id": account_id, "environment": environment, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_POSITIONS_READ_FAILED_MESSAGE)
 
 
 @router.post("/accounts/{account_id}/orders/manual")
