@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 import time
 from dataclasses import dataclass
@@ -32,6 +33,12 @@ DEFAULT_BASE_URL = "http://127.0.0.1:8802"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 SUPPORTED_LIVE_MODEL_PROVIDERS = {"deepseek", "qwen"}
 SENSITIVE_REPORT_KEYS = ("api_key", "apikey", "authorization", "password", "private_key", "secret", "token")
+SAFE_ACCEPTANCE_ERROR_MESSAGE = "AI Trading live model-adjust acceptance failed"
+SENSITIVE_REPORT_PATTERN = re.compile(
+    r"(authorization|bearer|api[_-]?key|private[_-]?key|password|secret|token|https?://[^\s\"'}]+)",
+    re.IGNORECASE,
+)
+SAFE_EXCEPTION_TYPE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,80}$")
 
 
 @dataclass
@@ -53,10 +60,35 @@ class ApiClient:
                 response_body = res.read().decode("utf-8")
                 return json.loads(response_body) if response_body else {}
         except error.HTTPError as exc:
-            response_body = exc.read().decode("utf-8", errors="replace")
-            raise RuntimeError(f"{method} {path} -> {exc.code}: {response_body}") from exc
+            exc.read()
+            raise RuntimeError(f"{method} {path} -> HTTP {exc.code}") from exc
         except error.URLError as exc:
-            raise RuntimeError(f"{method} {path} failed: {exc}") from exc
+            reason = exc.reason if isinstance(exc.reason, BaseException) else exc
+            raise RuntimeError(
+                f"{method} {path} request failed: {_safe_exception_type_label(reason)}"
+            ) from exc
+
+
+def _safe_exception_type_label(exc: BaseException) -> str:
+    label = exc.__class__.__name__
+    if not SAFE_EXCEPTION_TYPE_PATTERN.match(label) or SENSITIVE_REPORT_PATTERN.search(label):
+        return "Exception"
+    return label
+
+
+def _safe_error_message(exc: BaseException) -> str:
+    message = str(exc).strip()
+    if not message or SENSITIVE_REPORT_PATTERN.search(message):
+        return SAFE_ACCEPTANCE_ERROR_MESSAGE
+    return message[:240]
+
+
+def _safe_failure_payload(exc: BaseException) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": _safe_error_message(exc),
+        "error_type": _safe_exception_type_label(exc),
+    }
 
 
 def _host(url: str) -> str:
@@ -263,7 +295,7 @@ def main() -> int:
             confirm_live_model_call=args.confirm_live_model_call,
         )
     except Exception as exc:
-        print(json.dumps({"success": False, "error": str(exc)}, ensure_ascii=False, indent=2))
+        print(json.dumps(_safe_failure_payload(exc), ensure_ascii=False, indent=2))
         return 1
 
     print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

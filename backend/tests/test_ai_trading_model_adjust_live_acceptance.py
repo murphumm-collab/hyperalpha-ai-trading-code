@@ -1,7 +1,9 @@
 import importlib.util
+import io
 import json
 import sys
 from pathlib import Path
+from urllib import error
 
 import pytest
 
@@ -11,6 +13,17 @@ SPEC = importlib.util.spec_from_file_location("ai_trading_model_adjust_live_acce
 live_acceptance = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = live_acceptance
 SPEC.loader.exec_module(live_acceptance)
+
+
+def _assert_no_secret_echo(value) -> None:
+    rendered = json.dumps(value, ensure_ascii=False).lower() if not isinstance(value, str) else value.lower()
+    assert "api_key" not in rendered
+    assert "authorization" not in rendered
+    assert "bearer" not in rendered
+    assert "token=" not in rendered
+    assert "private_key" not in rendered
+    assert "secret" not in rendered
+    assert "auth.internal" not in rendered
 
 
 def test_live_model_adjust_acceptance_requires_explicit_confirmation():
@@ -156,3 +169,46 @@ def test_live_model_adjust_acceptance_happy_path_is_signal_only_and_secret_free(
     assert "api_key" not in rendered
     assert "secret" not in rendered
     assert "authorization" not in rendered
+
+
+def test_live_model_adjust_acceptance_api_client_http_error_is_sanitized(monkeypatch):
+    def fake_urlopen(req, timeout):
+        raise error.HTTPError(
+            req.full_url,
+            503,
+            "Service Unavailable",
+            {},
+            io.BytesIO(
+                b'{"detail":"api_key=secret Bearer token=secret private_key=secret https://auth.internal"}'
+            ),
+        )
+
+    monkeypatch.setattr(live_acceptance.request, "urlopen", fake_urlopen)
+    client = live_acceptance.ApiClient("http://127.0.0.1:8802/api/ai-trading", timeout=1)
+
+    with pytest.raises(RuntimeError) as exc_info:
+        client.call("POST", "/strategy-spec/model-adjust", {"x": 1})
+
+    message = str(exc_info.value)
+    assert "POST /strategy-spec/model-adjust -> HTTP 503" in message
+    _assert_no_secret_echo(message)
+
+
+def test_live_model_adjust_acceptance_main_failure_report_is_sanitized(monkeypatch, capsys):
+    def failing_run_acceptance(**kwargs):
+        raise RuntimeError(
+            "api_key=secret Bearer token=secret private_key=secret https://auth.internal"
+        )
+
+    monkeypatch.setattr(live_acceptance, "run_acceptance", failing_run_acceptance)
+    monkeypatch.setattr(sys, "argv", ["ai_trading_model_adjust_live_acceptance.py", "--confirm-live-model-call"])
+
+    assert live_acceptance.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+
+    assert payload == {
+        "success": False,
+        "error": live_acceptance.SAFE_ACCEPTANCE_ERROR_MESSAGE,
+        "error_type": "RuntimeError",
+    }
+    _assert_no_secret_echo(payload)

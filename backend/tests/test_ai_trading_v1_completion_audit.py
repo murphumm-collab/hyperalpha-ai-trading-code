@@ -112,6 +112,8 @@ def _write_minimal_acceptance_repo(
     include_auth_jwks_fetch_safety_marker: bool = True,
     include_market_universe_provider_error_safety_regression_gate: bool = True,
     include_market_universe_provider_error_safety_marker: bool = True,
+    include_live_acceptance_cli_error_safety_regression_gate: bool = True,
+    include_live_acceptance_cli_error_safety_marker: bool = True,
     include_ai_stream_routes_regression_gate: bool = True,
     include_kline_routes_regression_gate: bool = True,
     include_kline_collector_safety_gate: bool = True,
@@ -279,6 +281,10 @@ def _write_minimal_acceptance_repo(
     market_universe_provider_error_safety_regression_text = (
         "tests/test_ai_trading_market_universe_error_safety.py\n"
     ) if include_market_universe_provider_error_safety_regression_gate else ""
+    live_acceptance_cli_error_safety_regression_text = (
+        "tests/test_ai_trading_live_stack_acceptance.py\n"
+        "tests/test_ai_trading_model_adjust_live_acceptance.py\n"
+    ) if include_live_acceptance_cli_error_safety_regression_gate else ""
     hyper_ai_service_error_safety_regression_text = (
         "tests/test_hyper_ai_service_error_safety.py\n"
     ) if include_hyper_ai_service_stream_error_safety_marker else ""
@@ -665,6 +671,9 @@ def _write_minimal_acceptance_repo(
     market_universe_provider_error_safety_marker = (
         "| AI Trading market-universe provider error safety | Done |"
     ) if include_market_universe_provider_error_safety_marker else ""
+    live_acceptance_cli_error_safety_marker = (
+        "| AI Trading live acceptance CLI error safety | Done |"
+    ) if include_live_acceptance_cli_error_safety_marker else ""
     kline_local_db_api_marker = (
         "| AI Trading K-line local DB API | Done |"
     ) if include_kline_routes_regression_gate else ""
@@ -762,6 +771,7 @@ def _write_minimal_acceptance_repo(
                 db_gate_text,
                 auth_jwks_fetch_safety_regression_text,
                 market_universe_provider_error_safety_regression_text,
+                live_acceptance_cli_error_safety_regression_text,
                 ai_stream_routes_regression_text,
                 hyper_ai_service_error_safety_regression_text,
                 hyper_ai_tool_error_safety_regression_text,
@@ -959,6 +969,7 @@ def _write_minimal_acceptance_repo(
                 frontend_market_universe_error_safety_marker,
                 frontend_market_symbol_sanitizer_marker,
                 market_universe_provider_error_safety_marker,
+                live_acceptance_cli_error_safety_marker,
                 kline_local_db_api_marker,
                 kline_collector_safety_marker,
                 kline_maintenance_endpoint_safety_marker,
@@ -1926,6 +1937,40 @@ def test_market_universe_provider_error_safety_is_implemented_and_gated() -> Non
     assert "| AI Trading market-universe provider error safety | Done |" in status_source
 
 
+def test_live_acceptance_cli_error_safety_is_implemented_and_gated() -> None:
+    live_stack_source = (
+        REPO_ROOT / "backend" / "scripts" / "ai_trading_v1_live_stack_acceptance.py"
+    ).read_text(encoding="utf-8")
+    model_adjust_source = (
+        REPO_ROOT / "backend" / "scripts" / "ai_trading_model_adjust_live_acceptance.py"
+    ).read_text(encoding="utf-8")
+    live_stack_test_source = (
+        REPO_ROOT / "backend" / "tests" / "test_ai_trading_live_stack_acceptance.py"
+    ).read_text(encoding="utf-8")
+    model_adjust_test_source = (
+        REPO_ROOT / "backend" / "tests" / "test_ai_trading_model_adjust_live_acceptance.py"
+    ).read_text(encoding="utf-8")
+    runner_source = (
+        REPO_ROOT / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    for source in (live_stack_source, model_adjust_source):
+        assert "_safe_failure_payload(exc)" in source
+        assert "SAFE_ACCEPTANCE_ERROR_MESSAGE" in source
+        assert "\"error\": str(exc)" not in source
+        assert "response_body = exc.read().decode" not in source
+        assert "SENSITIVE_REPORT_PATTERN" in source
+
+    assert "test_live_stack_acceptance_main_failure_report_is_sanitized" in live_stack_test_source
+    assert "test_live_model_adjust_acceptance_main_failure_report_is_sanitized" in model_adjust_test_source
+    assert "tests/test_ai_trading_live_stack_acceptance.py" in runner_source
+    assert "tests/test_ai_trading_model_adjust_live_acceptance.py" in runner_source
+    assert "| AI Trading live acceptance CLI error safety | Done |" in status_source
+
+
 def test_completion_audit_blocks_local_acceptance_when_transient_retry_gate_is_missing(tmp_path):
     _write_minimal_acceptance_repo(tmp_path, include_local_acceptance_transient_retry_gate=False)
 
@@ -2127,6 +2172,40 @@ def test_completion_audit_blocks_local_acceptance_when_market_universe_provider_
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading market-universe provider error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_live_acceptance_cli_error_safety_regression_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_live_acceptance_cli_error_safety_regression_gate=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert runner_evidence["status"] == "incomplete_evidence"
+    assert "tests/test_ai_trading_live_stack_acceptance.py" in runner_evidence["missing_phrases"]
+    assert "tests/test_ai_trading_model_adjust_live_acceptance.py" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_live_acceptance_cli_error_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_live_acceptance_cli_error_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading live acceptance CLI error safety | Done |"
         in status_evidence["missing_phrases"]
     )
 
