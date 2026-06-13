@@ -185,7 +185,7 @@ def _get_jwks_keys(jwks_url: str) -> list[Dict[str, Any]]:
         return _JWKS_CACHE["keys"]
 
     try:
-        response = requests.get(jwks_url, timeout=10)
+        response = requests.get(jwks_url, timeout=10, allow_redirects=False)
         response.raise_for_status()
         jwks = response.json()
     except Exception as exc:

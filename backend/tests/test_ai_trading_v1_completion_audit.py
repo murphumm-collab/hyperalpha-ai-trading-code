@@ -108,6 +108,8 @@ def _write_minimal_acceptance_repo(
     include_production_url_host_secret_redaction_marker: bool = True,
     include_production_url_port_safety_marker: bool = True,
     include_production_url_parse_error_safety_marker: bool = True,
+    include_auth_jwks_fetch_safety_regression_gate: bool = True,
+    include_auth_jwks_fetch_safety_marker: bool = True,
     include_ai_stream_routes_regression_gate: bool = True,
     include_kline_routes_regression_gate: bool = True,
     include_kline_collector_safety_gate: bool = True,
@@ -269,6 +271,9 @@ def _write_minimal_acceptance_repo(
     ai_stream_routes_regression_text = (
         "tests/test_ai_stream_routes.py\n"
     ) if include_ai_stream_routes_regression_gate else ""
+    auth_jwks_fetch_safety_regression_text = (
+        "tests/test_auth_jwks_error_safety.py\n"
+    ) if include_auth_jwks_fetch_safety_regression_gate else ""
     hyper_ai_service_error_safety_regression_text = (
         "tests/test_hyper_ai_service_error_safety.py\n"
     ) if include_hyper_ai_service_stream_error_safety_marker else ""
@@ -736,6 +741,9 @@ def _write_minimal_acceptance_repo(
     production_url_parse_error_safety_status_marker = (
         "| AI Trading production URL parse-error safety | Done |"
     ) if include_production_url_parse_error_safety_marker else ""
+    auth_jwks_fetch_safety_marker = (
+        "| AI Trading Auth JWKS fetch safety | Done |"
+    ) if include_auth_jwks_fetch_safety_marker else ""
     _write(
         root / "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh",
         "\n".join(
@@ -744,6 +752,7 @@ def _write_minimal_acceptance_repo(
                 local_dev_shell_syntax_text,
                 local_acceptance_transient_retry_runner_text,
                 db_gate_text,
+                auth_jwks_fetch_safety_regression_text,
                 ai_stream_routes_regression_text,
                 hyper_ai_service_error_safety_regression_text,
                 hyper_ai_tool_error_safety_regression_text,
@@ -971,6 +980,7 @@ def _write_minimal_acceptance_repo(
                 production_url_host_secret_redaction_status_marker,
                 production_url_port_safety_status_marker,
                 production_url_parse_error_safety_status_marker,
+                auth_jwks_fetch_safety_marker,
                 "| Remote push | Done | Branch pushed to origin/codex/ai-agent-multitenant-foundation; no merge performed |",
             ]
         ),
@@ -1861,6 +1871,28 @@ def test_local_acceptance_runner_retries_temp_file_creation_under_resource_press
     assert "make_temp_file_with_retry preflight_report_file" in runner_source
 
 
+def test_auth_jwks_fetch_safety_is_implemented_and_gated() -> None:
+    auth_source = (
+        REPO_ROOT / "backend" / "api" / "auth_utils.py"
+    ).read_text(encoding="utf-8")
+    runner_source = (
+        REPO_ROOT / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
+    ).read_text(encoding="utf-8")
+    test_source = (
+        REPO_ROOT / "backend" / "tests" / "test_auth_jwks_error_safety.py"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    assert "requests.get(jwks_url, timeout=10, allow_redirects=False)" in auth_source
+    assert "requests.get(jwks_url, timeout=10)" not in auth_source
+    assert "detail=\"Unable to fetch JWKS\"" in auth_source
+    assert "tests/test_auth_jwks_error_safety.py" in runner_source
+    assert "test_auth_jwks_error_safety_source_guard" in test_source
+    assert "| AI Trading Auth JWKS fetch safety | Done |" in status_source
+
+
 def test_completion_audit_blocks_local_acceptance_when_transient_retry_gate_is_missing(tmp_path):
     _write_minimal_acceptance_repo(tmp_path, include_local_acceptance_transient_retry_gate=False)
 
@@ -1993,6 +2025,39 @@ def test_completion_audit_blocks_local_acceptance_when_production_url_parse_erro
     status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
     assert (
         "| AI Trading production URL parse-error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_auth_jwks_fetch_safety_regression_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_auth_jwks_fetch_safety_regression_gate=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert runner_evidence["status"] == "incomplete_evidence"
+    assert "tests/test_auth_jwks_error_safety.py" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_auth_jwks_fetch_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_auth_jwks_fetch_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading Auth JWKS fetch safety | Done |"
         in status_evidence["missing_phrases"]
     )
 
