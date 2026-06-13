@@ -281,6 +281,17 @@ class KlineWithIndicatorsResponse(BaseModel):
     indicators: Dict[str, Any]
 
 
+def _empty_kline_with_indicators_response(symbol: str, market: str, period: str) -> KlineWithIndicatorsResponse:
+    return KlineWithIndicatorsResponse(
+        symbol=symbol,
+        market=market,
+        period=period,
+        count=0,
+        klines=[],
+        indicators={},
+    )
+
+
 @router.get("/kline-with-indicators/{symbol}", response_model=KlineWithIndicatorsResponse)
 async def get_kline_with_indicators(
     symbol: str,
@@ -359,9 +370,9 @@ async def get_kline_with_indicators(
 
     except HTTPException:
         raise
-    except Exception as e:
-        logger.error(f"获取K线和指标数据失败: {e}")
-        raise HTTPException(status_code=500, detail=f"获取K线和指标数据失败: {str(e)}")
+    except Exception:
+        logger.warning("K-line data unavailable; returning empty indicator series")
+        return _empty_kline_with_indicators_response(symbol, market, period)
 
 
 @router.get("/indicators/available")

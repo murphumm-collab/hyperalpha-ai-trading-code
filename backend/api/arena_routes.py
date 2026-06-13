@@ -13,6 +13,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.exc import SQLAlchemyError
 
 from database.connection import SessionLocal
 from database.snapshot_connection import SnapshotSessionLocal
@@ -46,6 +47,14 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/arena", tags=["arena"])
+
+
+def _empty_trades_response() -> dict:
+    return {
+        "generated_at": datetime.utcnow().isoformat(),
+        "accounts": [],
+        "trades": [],
+    }
 
 
 def get_db():
@@ -638,23 +647,28 @@ def get_completed_trades(
             "trades": [],
         }
     if trading_mode in ("testnet", "mainnet"):
-        snapshot_db = SnapshotSessionLocal()
         try:
-            query = snapshot_db.query(HyperliquidTrade).order_by(desc(HyperliquidTrade.trade_time))
-            # Strictly filter by environment and exclude NULL
-            query = query.filter(
-                HyperliquidTrade.environment == trading_mode,
-                HyperliquidTrade.environment.isnot(None)
-            )
-            query = query.filter(HyperliquidTrade.account_id.in_(owned_account_ids))
-            if wallet_address:
-                query = query.filter(HyperliquidTrade.wallet_address == wallet_address)
-            if symbol:
-                query = query.filter(HyperliquidTrade.symbol == symbol)
+            snapshot_db = SnapshotSessionLocal()
+            try:
+                query = snapshot_db.query(HyperliquidTrade).order_by(desc(HyperliquidTrade.trade_time))
+                # Strictly filter by environment and exclude NULL
+                query = query.filter(
+                    HyperliquidTrade.environment == trading_mode,
+                    HyperliquidTrade.environment.isnot(None)
+                )
+                query = query.filter(HyperliquidTrade.account_id.in_(owned_account_ids))
+                if wallet_address:
+                    query = query.filter(HyperliquidTrade.wallet_address == wallet_address)
+                if symbol:
+                    query = query.filter(HyperliquidTrade.symbol == symbol)
 
-            hyper_trades = query.limit(limit).all()
-        finally:
-            snapshot_db.close()
+                hyper_trades = query.limit(limit).all()
+            finally:
+                snapshot_db.close()
+        except SQLAlchemyError:
+            logger.warning("Arena snapshot trade store unavailable; returning empty trade feed")
+            _log_request()
+            return _empty_trades_response()
 
         if not hyper_trades:
             _log_request()

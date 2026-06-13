@@ -583,6 +583,7 @@
     "backfillHistorical": "回填历史数据",
     "backfillLast30Days": "回填最近30天的K线数据",
     "marketData": "市场数据",
+    "noMarketData": "暂无市场数据",
     "markPrice": "标记价格",
     "oraclePrice": "预言机价格",
     "change24h": "24小时涨跌",

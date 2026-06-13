@@ -670,6 +670,7 @@
     "backfillHistorical": "Backfill Historical Data",
     "backfillLast30Days": "Backfill last 30 days of K-line data",
     "marketData": "Market Data",
+    "noMarketData": "No market data",
     "markPrice": "Mark Price",
     "oraclePrice": "Oracle Price",
     "change24h": "24h Change",

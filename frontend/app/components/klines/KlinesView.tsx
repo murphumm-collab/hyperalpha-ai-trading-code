@@ -32,6 +32,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
   const [selectedPeriod, setSelectedPeriod] = useState<string>('1m')
   const [watchlistSymbols, setWatchlistSymbols] = useState<string[]>([])
   const [marketData, setMarketData] = useState<MarketData[]>([])
+  const [marketDataLoading, setMarketDataLoading] = useState(false)
   const [isPageVisible, setIsPageVisible] = useState(true)
   const [chartType, setChartType] = useState<'candlestick' | 'line' | 'area'>('candlestick')
   const [selectedIndicators, setSelectedIndicators] = useState<string[]>([])
@@ -93,12 +94,21 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
   // 获取市场数据
   useEffect(() => {
     const fetchData = async () => {
+      if (!watchlistSymbols.length) {
+        setMarketData([])
+        setMarketDataLoading(false)
+        return
+      }
+
       try {
         const symbolsParam = watchlistSymbols.join(',')
-        if (!symbolsParam) return
+        setMarketDataLoading(true)
 
         const response = await fetch(`/api/market/prices?symbols=${symbolsParam}&market=${selectedExchange}`)
-        if (!response.ok) return
+        if (!response.ok) {
+          setMarketData([])
+          return
+        }
 
         const data = await response.json()
         const formattedData = data.map((item: any) => ({
@@ -114,6 +124,9 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
         setMarketData(formattedData)
       } catch (error) {
         console.error('Failed to fetch market data:', error)
+        setMarketData([])
+      } finally {
+        setMarketDataLoading(false)
       }
     }
 
@@ -355,12 +368,16 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
                           <p className="text-sm font-semibold">{(data.funding_rate * 100).toFixed(4)}%</p>
                         </div>
                       </>
-                    ) : (
+                    ) : marketDataLoading ? (
                       <div className="col-span-full text-center text-muted-foreground">
                         <div className="flex items-center justify-center gap-2">
                           <PacmanLoader className="w-12 h-6" />
                           <span className="text-xs">{t('common.loading', 'Loading...')}</span>
                         </div>
+                      </div>
+                    ) : (
+                      <div className="col-span-full text-center text-xs text-muted-foreground">
+                        {t('kline.noMarketData', 'No market data')}
                       </div>
                     )
                   })()}
