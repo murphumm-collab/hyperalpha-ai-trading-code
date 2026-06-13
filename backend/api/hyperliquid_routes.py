@@ -71,6 +71,16 @@ SAFE_HYPERLIQUID_BALANCE_UNAVAILABLE_MESSAGE = "Hyperliquid balance is unavailab
 SAFE_HYPERLIQUID_BALANCE_READ_FAILED_MESSAGE = "Failed to query Hyperliquid balance."
 SAFE_HYPERLIQUID_POSITIONS_UNAVAILABLE_MESSAGE = "Hyperliquid positions are unavailable."
 SAFE_HYPERLIQUID_POSITIONS_READ_FAILED_MESSAGE = "Failed to query Hyperliquid positions."
+SAFE_HYPERLIQUID_ORDER_INVALID_REQUEST_MESSAGE = "Invalid Hyperliquid order request."
+SAFE_HYPERLIQUID_ORDER_PLACEMENT_FAILED_MESSAGE = "Failed to place Hyperliquid order."
+SAFE_HYPERLIQUID_DISABLE_INVALID_REQUEST_MESSAGE = "Invalid Hyperliquid disable request."
+SAFE_HYPERLIQUID_DISABLE_FAILED_MESSAGE = "Failed to disable Hyperliquid trading."
+SAFE_HYPERLIQUID_ENABLE_INVALID_REQUEST_MESSAGE = "Invalid Hyperliquid enable request."
+SAFE_HYPERLIQUID_ENABLE_FAILED_MESSAGE = "Failed to enable Hyperliquid trading."
+SAFE_HYPERLIQUID_CONNECTION_TEST_UNAVAILABLE_MESSAGE = "Hyperliquid connection test is unavailable."
+SAFE_HYPERLIQUID_CONNECTION_TEST_FAILED_MESSAGE = "Hyperliquid connection test failed."
+SAFE_HYPERLIQUID_RATE_LIMIT_READ_FAILED_MESSAGE = "Failed to query Hyperliquid rate limit."
+SAFE_HYPERLIQUID_TRADING_STATS_READ_FAILED_MESSAGE = "Failed to query Hyperliquid trading stats."
 
 
 def _ts_to_iso(ts: float) -> str:
@@ -519,11 +529,16 @@ def place_manual_order(
             'environment': client.environment,
             'order_result': result
         }
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_ORDER_INVALID_REQUEST_MESSAGE)
     except Exception as e:
-        logger.error(f"Manual order failed: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Order placement failed: {str(e)}")
+        logger.error(
+            "Failed to place Hyperliquid manual order",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_ORDER_PLACEMENT_FAILED_MESSAGE)
 
 
 @router.post("/accounts/{account_id}/disable")
@@ -546,11 +561,16 @@ def disable_trading(
             owner_user_id=current_user.id,
         )
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_DISABLE_INVALID_REQUEST_MESSAGE)
     except Exception as e:
-        logger.error(f"Failed to disable trading: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(
+            "Failed to disable Hyperliquid trading",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_DISABLE_FAILED_MESSAGE)
 
 
 @router.post("/accounts/{account_id}/enable")
@@ -572,11 +592,16 @@ def enable_trading(
             owner_user_id=current_user.id,
         )
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_ENABLE_INVALID_REQUEST_MESSAGE)
     except Exception as e:
-        logger.error(f"Failed to enable trading: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(
+            "Failed to enable Hyperliquid trading",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_ENABLE_FAILED_MESSAGE)
 
 
 @router.get("/accounts/{account_id}/test-connection")
@@ -605,13 +630,18 @@ def test_connection(
         )
         result = client.test_connection(db)
         return result
+    except HTTPException:
+        raise
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_CONNECTION_TEST_UNAVAILABLE_MESSAGE)
     except Exception as e:
-        logger.error(f"Connection test failed: {e}", exc_info=True)
+        logger.error(
+            "Failed to test Hyperliquid connection",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
         return {
             'connected': False,
-            'error': str(e),
+            'error': SAFE_HYPERLIQUID_CONNECTION_TEST_FAILED_MESSAGE,
             'account_id': account_id
         }
 
@@ -870,10 +900,13 @@ def get_account_rate_limit(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get rate limit for account {account_id}: {e}", exc_info=True)
+        logger.error(
+            "Failed to get Hyperliquid rate limit",
+            extra={"account_id": account_id, "environment": environment, "error_type": type(e).__name__},
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to query rate limit: {str(e)}"
+            detail=SAFE_HYPERLIQUID_RATE_LIMIT_READ_FAILED_MESSAGE
         )
 
 
@@ -940,10 +973,13 @@ def get_account_trading_stats(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get trading stats for account {account_id}: {e}", exc_info=True)
+        logger.error(
+            "Failed to get Hyperliquid trading stats",
+            extra={"account_id": account_id, "environment": environment, "error_type": type(e).__name__},
+        )
         raise HTTPException(
             status_code=500,
-            detail=f"Failed to query trading stats: {str(e)}"
+            detail=SAFE_HYPERLIQUID_TRADING_STATS_READ_FAILED_MESSAGE
         )
 
 
