@@ -2,6 +2,7 @@ import ast
 import json
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -12,6 +13,12 @@ from api.hyper_ai_routes import router
 from database.connection import Base, get_db
 from database.models import HyperAiProfile, User
 from services import hyper_ai_service
+
+
+@pytest.fixture(autouse=True)
+def _clear_codex_gpt55_env(monkeypatch):
+    for name in hyper_ai_service.CODEX_GPT55_ENV_API_KEY_NAMES:
+        monkeypatch.delenv(name, raising=False)
 
 
 def _build_client(tmp_path):
@@ -57,6 +64,31 @@ def _assert_no_secret_echo(text: str) -> None:
     assert "private_key" not in rendered
     assert "secret-llm-base" not in rendered
     assert "token=secret" not in rendered
+
+
+def test_codex_gpt55_env_key_configures_profile_without_echo(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CODEX_GPT55_API_KEY", "sk-test-env-codex-gpt55")
+    client = _build_client(tmp_path)
+
+    response = client.get("/api/hyper-ai/profile")
+    assert response.status_code == 200
+    body = response.json()
+    rendered = json.dumps(body, ensure_ascii=False)
+
+    assert body["llm_configured"] is True
+    assert body["llm_provider"] == "openai"
+    assert body["llm_model"] == "gpt-5.5"
+    assert "sk-test-env-codex-gpt55" not in rendered
+    assert "api_key" not in rendered.lower()
+
+    with client._hyper_ai_session_factory() as db:
+        config = hyper_ai_service.get_llm_config(db, user_id=client._hyper_ai_user_id)
+
+    assert config["configured"] is True
+    assert config["provider"] == "openai"
+    assert config["model"] == "gpt-5.5"
+    assert config["api_key"] == "sk-test-env-codex-gpt55"
+    assert config["credential_source"] == "CODEX_GPT55_API_KEY"
 
 
 def test_profile_llm_rejects_sensitive_base_url_without_network_or_echo(monkeypatch, tmp_path) -> None:

@@ -111,8 +111,8 @@ def get_profile(
 
     return {
         "llm_configured": llm_config.get("configured", False),
-        "llm_provider": profile.llm_provider,
-        "llm_model": profile.llm_model,
+        "llm_provider": profile.llm_provider or llm_config.get("provider"),
+        "llm_model": profile.llm_model or llm_config.get("model"),
         "llm_base_url": base_url,
         "onboarding_completed": profile.onboarding_completed,
         "nickname": sanitize_profile_text_for_response(profile.nickname),

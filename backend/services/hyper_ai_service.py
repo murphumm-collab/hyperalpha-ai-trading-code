@@ -108,6 +108,9 @@ SAFE_HYPER_AI_PROCESSING_FAILED_MESSAGE = "Hyper AI processing failed. Please re
 SAFE_HYPER_AI_CONNECTION_TEST_FAILED_MESSAGE = (
     "Model connection test failed. Please verify the provider, model, endpoint, and API key."
 )
+CODEX_GPT55_ENV_MODEL = "gpt-5.5"
+CODEX_GPT55_ENV_PROVIDER = "openai"
+CODEX_GPT55_ENV_API_KEY_NAMES = ("CODEX_GPT55_API_KEY", "OPENAI_API_KEY")
 
 # Maximum tool call iterations to prevent infinite loops
 MAX_TOOL_ITERATIONS = 100
@@ -354,6 +357,28 @@ def _allow_private_llm_base_url() -> bool:
     }
 
 
+def _get_codex_gpt55_env_api_key() -> tuple[str, str]:
+    for name in CODEX_GPT55_ENV_API_KEY_NAMES:
+        value = (os.getenv(name) or "").strip()
+        if value:
+            return value, name
+    return "", ""
+
+
+def _build_codex_gpt55_env_llm_config(*, api_key: str, env_name: str) -> Dict[str, Any]:
+    provider = get_provider(CODEX_GPT55_ENV_PROVIDER)
+    return {
+        "configured": True,
+        "provider": CODEX_GPT55_ENV_PROVIDER,
+        "base_url": provider.base_url if provider else "https://api.openai.com/v1",
+        "model": CODEX_GPT55_ENV_MODEL,
+        "api_key": api_key,
+        "credential_unreadable": False,
+        "credential_source": env_name,
+        "api_format": provider.api_format if provider else "openai",
+    }
+
+
 def _is_local_or_private_llm_host(host: str) -> bool:
     host_text = (host or "").strip().lower()
     if not host_text:
@@ -392,8 +417,11 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
         return {"configured": False, "missing_user_context": True}
 
     profile = get_or_create_profile(db, user_id=user_id)
+    env_api_key, env_name = _get_codex_gpt55_env_api_key()
 
     if not profile.llm_provider:
+        if env_api_key:
+            return _build_codex_gpt55_env_llm_config(api_key=env_api_key, env_name=env_name)
         return {"configured": False}
 
     # Get provider preset or use custom config
@@ -461,6 +489,8 @@ def get_llm_config(db: Session, user_id: Optional[int] = None) -> Dict[str, Any]
         except Exception:
             credential_unreadable = True
             logger.error("Failed to decrypt API key")
+    elif profile.llm_provider == CODEX_GPT55_ENV_PROVIDER and env_api_key:
+        api_key = env_api_key
 
     # Detect API format from URL for custom provider
     if profile.llm_provider == "custom" and base_url:
