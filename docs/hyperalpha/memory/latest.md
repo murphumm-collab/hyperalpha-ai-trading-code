@@ -1,5 +1,5 @@
 # Latest HyperAlpha Development Memory
 
-Current: `2026-06-13-hyperliquid-symbol-service-error-safety.zh-CN.md`
+Current: `2026-06-13-hyperliquid-market-data-error-safety.zh-CN.md`
 
 Use this file as the pointer to the latest compressed development memory before planning, coding, reviewing, testing, or marking acceptance.

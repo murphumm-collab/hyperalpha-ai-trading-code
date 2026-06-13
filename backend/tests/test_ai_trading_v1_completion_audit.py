@@ -208,6 +208,8 @@ def _write_minimal_acceptance_repo(
     include_hyperliquid_read_route_error_safety_marker: bool = True,
     include_hyperliquid_symbol_service_error_safety_regression_gate: bool = True,
     include_hyperliquid_symbol_service_error_safety_marker: bool = True,
+    include_hyperliquid_market_data_error_safety_regression_gate: bool = True,
+    include_hyperliquid_market_data_error_safety_marker: bool = True,
     include_model_readiness_sensitive_endpoint_gate_marker: bool = True,
     include_context_compression_error_safety_marker: bool = True,
     include_context_compression_prompt_safety_marker: bool = True,
@@ -316,6 +318,9 @@ def _write_minimal_acceptance_repo(
     hyperliquid_symbol_service_error_safety_regression_text = (
         "tests/test_hyperliquid_symbol_service_error_safety.py\n"
     ) if include_hyperliquid_symbol_service_error_safety_regression_gate else ""
+    hyperliquid_market_data_error_safety_regression_text = (
+        "tests/test_hyperliquid_market_data_error_safety.py\n"
+    ) if include_hyperliquid_market_data_error_safety_regression_gate else ""
     context_compression_error_safety_regression_text = (
         "tests/test_ai_context_compression_error_safety.py\n"
     ) if include_context_compression_error_safety_marker else ""
@@ -590,6 +595,9 @@ def _write_minimal_acceptance_repo(
     hyperliquid_symbol_service_error_safety_marker = (
         "| AI Trading Hyperliquid symbol service error safety | Done |"
     ) if include_hyperliquid_symbol_service_error_safety_marker else ""
+    hyperliquid_market_data_error_safety_marker = (
+        "| AI Trading Hyperliquid market data error safety | Done |"
+    ) if include_hyperliquid_market_data_error_safety_marker else ""
     model_readiness_sensitive_endpoint_gate_marker = (
         "| AI Trading model readiness sensitive endpoint gate | Done |"
     ) if include_model_readiness_sensitive_endpoint_gate_marker else ""
@@ -753,6 +761,7 @@ def _write_minimal_acceptance_repo(
                 hyperliquid_execution_route_error_safety_regression_text,
                 hyperliquid_read_route_error_safety_regression_text,
                 hyperliquid_symbol_service_error_safety_regression_text,
+                hyperliquid_market_data_error_safety_regression_text,
                 context_compression_error_safety_regression_text,
                 kline_routes_regression_text,
                 kline_collectors_regression_text,
@@ -912,6 +921,7 @@ def _write_minimal_acceptance_repo(
                 hyperliquid_execution_route_error_safety_marker,
                 hyperliquid_read_route_error_safety_marker,
                 hyperliquid_symbol_service_error_safety_marker,
+                hyperliquid_market_data_error_safety_marker,
                 model_readiness_sensitive_endpoint_gate_marker,
                 context_compression_error_safety_marker,
                 context_compression_prompt_safety_marker,
@@ -1310,6 +1320,33 @@ def test_kline_collector_and_backfill_safety_are_implemented_and_gated() -> None
     assert "A backfill task is already running. Please wait for it to complete." in route_source
     assert "tests/test_kline_collectors.py" in runner_source
     assert "| AI Trading K-line collector/backfill safety | Done |" in status_source
+
+
+def test_hyperliquid_market_data_error_safety_is_implemented_and_gated() -> None:
+    market_data_source = (
+        REPO_ROOT / "backend" / "services" / "hyperliquid_market_data.py"
+    ).read_text(encoding="utf-8")
+    collector_source = (
+        REPO_ROOT / "backend" / "services" / "kline_collectors.py"
+    ).read_text(encoding="utf-8")
+    runner_source = (
+        REPO_ROOT / "scripts" / "local-dev" / "run_ai_trading_v1_local_acceptance.sh"
+    ).read_text(encoding="utf-8")
+    test_source = (
+        REPO_ROOT / "backend" / "tests" / "test_hyperliquid_market_data_error_safety.py"
+    ).read_text(encoding="utf-8")
+    status_source = (
+        REPO_ROOT / "docs" / "hyperalpha" / "status" / "ai-agent-multitenant-foundation.status.md"
+    ).read_text(encoding="utf-8")
+
+    assert "SAFE_HYPERLIQUID_MARKET_STATUS_ERROR_MESSAGE" in market_data_source
+    assert "'error': str(e)" not in market_data_source
+    assert "allow_redirects=False" in market_data_source
+    assert "Failed to get symbols from hyperliquid_symbol_service" not in collector_source
+    assert "Failed to get Hyperliquid selected symbols" in collector_source
+    assert "test_hyperliquid_market_data_error_safety_source_guard" in test_source
+    assert "tests/test_hyperliquid_market_data_error_safety.py" in runner_source
+    assert "| AI Trading Hyperliquid market data error safety | Done |" in status_source
 
 
 def test_kline_maintenance_endpoint_safety_is_implemented_and_gated() -> None:
@@ -3707,6 +3744,39 @@ def test_completion_audit_blocks_local_acceptance_when_hyperliquid_symbol_servic
     assert status_evidence["status"] == "incomplete_evidence"
     assert (
         "| AI Trading Hyperliquid symbol service error safety | Done |"
+        in status_evidence["missing_phrases"]
+    )
+
+
+def test_completion_audit_blocks_local_acceptance_when_hyperliquid_market_data_error_safety_regression_gate_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_hyperliquid_market_data_error_safety_regression_gate=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "aggregate_local_acceptance_runner" in report["summary"]["local_blockers"]
+    runner_evidence = next(item for item in report["local_evidence"] if item["id"] == "aggregate_local_acceptance_runner")
+    assert runner_evidence["status"] == "incomplete_evidence"
+    assert "tests/test_hyperliquid_market_data_error_safety.py" in runner_evidence["missing_phrases"]
+
+
+def test_completion_audit_blocks_local_acceptance_when_hyperliquid_market_data_error_safety_marker_is_missing(tmp_path):
+    _write_minimal_acceptance_repo(
+        tmp_path,
+        include_hyperliquid_market_data_error_safety_marker=False,
+    )
+
+    report = completion_audit.build_completion_report(tmp_path)
+
+    assert report["local_v1_accepted"] is False
+    assert "status_progress_marker" in report["summary"]["local_blockers"]
+    status_evidence = next(item for item in report["local_evidence"] if item["id"] == "status_progress_marker")
+    assert status_evidence["status"] == "incomplete_evidence"
+    assert (
+        "| AI Trading Hyperliquid market data error safety | Done |"
         in status_evidence["missing_phrases"]
     )
 

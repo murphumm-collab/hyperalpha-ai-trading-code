@@ -174,7 +174,10 @@ class HyperliquidKlineCollector(BaseKlineCollector):
             if symbols:
                 return symbols
         except Exception as e:
-            self.logger.warning(f"Failed to get symbols from hyperliquid_symbol_service: {e}")
+            self.logger.warning(
+                "Failed to get Hyperliquid selected symbols",
+                extra={"error_type": type(e).__name__},
+            )
 
         # Fallback to BTC only
         return ["BTC"]

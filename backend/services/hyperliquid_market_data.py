@@ -11,6 +11,8 @@ from services.exchanges.symbol_mapper import SymbolMapper
 
 logger = logging.getLogger(__name__)
 
+SAFE_HYPERLIQUID_MARKET_STATUS_ERROR_MESSAGE = "Hyperliquid market status is temporarily unavailable"
+
 INTERVAL_SECONDS = {
     '1m': 60,
     '3m': 180,
@@ -60,11 +62,17 @@ class HyperliquidClient:
                 self.exchange.load_markets()
                 logger.info(f"CCXT markets pre-loaded for {self.environment}: {len(self.exchange.markets)} markets")
             except Exception as market_err:
-                logger.warning(f"Failed to pre-load markets (will load on first use): {market_err}")
+                logger.warning(
+                    "Failed to pre-load Hyperliquid markets; market data will load on first use",
+                    extra={"environment": self.environment, "error_type": type(market_err).__name__},
+                )
 
             logger.info(f"Hyperliquid exchange initialized successfully for {self.environment} environment")
         except Exception as e:
-            logger.error(f"Failed to initialize Hyperliquid exchange for {self.environment}: {e}")
+            logger.error(
+                "Failed to initialize Hyperliquid exchange",
+                extra={"environment": self.environment, "error_type": type(e).__name__},
+            )
             raise
 
     def _disable_hip3_markets(self) -> None:
@@ -77,7 +85,10 @@ class HyperliquidClient:
             # Manually initialize hip3TokensByName to prevent KeyError in coin_to_market_id()
             self.exchange.options.setdefault('hip3TokensByName', {})
         except Exception as options_error:
-            logger.debug(f"Unable to update HIP3 fetch options: {options_error}")
+            logger.debug(
+                "Unable to update HIP3 fetch options",
+                extra={"error_type": type(options_error).__name__},
+            )
 
         if hasattr(self.exchange, 'fetch_hip3_markets'):
             def _skip_hip3_markets(exchange_self, params=None):
@@ -122,7 +133,7 @@ class HyperliquidClient:
                 raise
 
         except Exception as e:
-            logger.error(f"Error fetching price for {symbol}: {e}")
+            logger.error("Error fetching Hyperliquid price", extra={"error_type": type(e).__name__})
             return None
 
     def get_ticker_data(self, symbol: str) -> Optional[Dict[str, Any]]:
@@ -147,7 +158,8 @@ class HyperliquidClient:
             response = requests.post(
                 api_url,
                 json=payload,
-                timeout=10
+                timeout=10,
+                allow_redirects=False,
             )
             response.raise_for_status()
             data = response.json()
@@ -212,7 +224,7 @@ class HyperliquidClient:
             return result
 
         except Exception as e:
-            logger.error(f"Error fetching Hyperliquid ticker for {symbol}: {e}")
+            logger.error("Error fetching Hyperliquid ticker", extra={"error_type": type(e).__name__})
             if SymbolMapper.is_hip3_symbol(symbol):
                 return None
             # Fallback to CCXT
@@ -249,7 +261,7 @@ class HyperliquidClient:
             }
             return result
         except Exception as e:
-            logger.error(f"CCXT fallback failed for {symbol}: {e}")
+            logger.error("Hyperliquid CCXT ticker fallback failed", extra={"error_type": type(e).__name__})
             return None
 
     def check_symbol_tradability(self, symbol: str) -> bool:
@@ -370,13 +382,16 @@ class HyperliquidClient:
                 try:
                     self._persist_kline_data(symbol, period, klines)
                 except Exception as persist_error:
-                    logger.warning(f"Failed to persist kline data for {symbol}: {persist_error}")
+                    logger.warning(
+                        "Failed to persist Hyperliquid kline data",
+                        extra={"error_type": type(persist_error).__name__},
+                    )
 
             logger.info(f"Got {len(klines)} klines for {formatted_symbol}")
             return klines
 
         except Exception as e:
-            logger.error(f"Error fetching klines for {symbol}: {e}")
+            logger.error("Error fetching Hyperliquid klines", extra={"error_type": type(e).__name__})
             return []
 
     def get_historical_kline_data(self, symbol: str, period: str, since_ms: int, until_ms: int = None) -> List[Dict[str, Any]]:
@@ -470,7 +485,7 @@ class HyperliquidClient:
             return klines
 
         except Exception as e:
-            logger.error(f"Error fetching historical klines for {symbol}: {e}")
+            logger.error("Error fetching Hyperliquid historical klines", extra={"error_type": type(e).__name__})
             return []
 
     def _persist_kline_data(self, symbol: str, period: str, klines: List[Dict[str, Any]]):
@@ -509,7 +524,7 @@ class HyperliquidClient:
             finally:
                 db.close()
         except Exception as e:
-            logger.error(f"Error persisting kline data: {e}")
+            logger.error("Error persisting Hyperliquid kline data", extra={"error_type": type(e).__name__})
             raise
 
     def get_market_status(self, symbol: str) -> Dict[str, Any]:
@@ -544,11 +559,11 @@ class HyperliquidClient:
             return status
             
         except Exception as e:
-            logger.error(f"Error getting market status for {symbol}: {e}")
+            logger.error("Error getting Hyperliquid market status", extra={"error_type": type(e).__name__})
             return {
                 'market_status': 'ERROR',
                 'is_trading': False,
-                'error': str(e)
+                'error': SAFE_HYPERLIQUID_MARKET_STATUS_ERROR_MESSAGE
             }
 
     def get_all_symbols(self) -> List[str]:
@@ -574,7 +589,7 @@ class HyperliquidClient:
             return result
             
         except Exception as e:
-            logger.error(f"Error getting symbols: {e}")
+            logger.error("Error getting Hyperliquid symbols", extra={"error_type": type(e).__name__})
             return ['BTC/USD', 'ETH/USD', 'SOL/USD']  # Fallback popular pairs
 
     def _format_symbol(self, symbol: str) -> str:
@@ -629,11 +644,16 @@ class HyperliquidClient:
         }
 
         try:
-            resp = requests.post("https://api.hyperliquid.xyz/info", json=payload, timeout=15)
+            resp = requests.post(
+                "https://api.hyperliquid.xyz/info",
+                json=payload,
+                timeout=15,
+                allow_redirects=False,
+            )
             resp.raise_for_status()
             candles = resp.json()
         except Exception as err:
-            logger.warning("Failed to fetch HIP-3 klines for %s: %s", symbol, err)
+            logger.warning("Failed to fetch HIP-3 klines", extra={"error_type": type(err).__name__})
             return []
 
         klines: List[Dict[str, Any]] = []
@@ -647,7 +667,7 @@ class HyperliquidClient:
                 close_price = float(candle['c'])
                 volume = float(candle['v'])
             except (KeyError, TypeError, ValueError) as parse_err:
-                logger.debug("Skipping malformed HIP-3 candle for %s: %s", symbol, parse_err)
+                logger.debug("Skipping malformed HIP-3 candle", extra={"error_type": type(parse_err).__name__})
                 continue
 
             change = close_price - open_price if open_price else 0
@@ -669,7 +689,10 @@ class HyperliquidClient:
             try:
                 self._persist_kline_data(SymbolMapper.to_internal(symbol, "hyperliquid"), period, klines)
             except Exception as persist_error:
-                logger.warning(f"Failed to persist HIP-3 kline data for {symbol}: {persist_error}")
+                logger.warning(
+                    "Failed to persist HIP-3 kline data",
+                    extra={"error_type": type(persist_error).__name__},
+                )
 
         logger.info("Got %d HIP-3 klines for %s", len(klines), exchange_symbol)
         return klines
