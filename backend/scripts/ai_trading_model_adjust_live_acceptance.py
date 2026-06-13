@@ -1,4 +1,4 @@
-"""Run a local live DeepSeek/Qwen model-adjust acceptance check.
+"""Run a local live GPT/DeepSeek/Qwen model-adjust acceptance check.
 
 This runner targets the local backend only. It is designed for the future
 "real user Hyper AI profile/API key" acceptance path without accepting or
@@ -31,7 +31,8 @@ from urllib import error, parse, request
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8802"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
-SUPPORTED_LIVE_MODEL_PROVIDERS = {"deepseek", "qwen"}
+SUPPORTED_LIVE_MODEL_PROVIDERS = {"openai", "deepseek", "qwen"}
+SUPPORTED_LIVE_MODEL_PROVIDER_LABEL = "OpenAI/GPT, DeepSeek, or Qwen"
 SENSITIVE_REPORT_KEYS = ("api_key", "apikey", "authorization", "password", "private_key", "secret", "token")
 SAFE_ACCEPTANCE_ERROR_MESSAGE = "AI Trading live model-adjust acceptance failed"
 SENSITIVE_REPORT_PATTERN = re.compile(
@@ -143,7 +144,7 @@ def run_acceptance(
     _require_local_url(base_url, label="base_url")
     if not confirm_live_model_call:
         raise RuntimeError(
-            "Refusing to call a live DeepSeek/Qwen model without --confirm-live-model-call. "
+            f"Refusing to call a live {SUPPORTED_LIVE_MODEL_PROVIDER_LABEL} model without --confirm-live-model-call. "
             "Configure the local user's Hyper AI profile first; this script never accepts API keys."
         )
 
@@ -182,7 +183,7 @@ def run_acceptance(
         {
             "spec": spec,
             "instruction": (
-                "Use the configured DeepSeek/Qwen profile to refine entries, exits, TP/SL, "
+                "Use the configured GPT/DeepSeek/Qwen profile to refine entries, exits, TP/SL, "
                 "max loss, leverage, and any missing confirmations. Preserve signal-only "
                 "execution and do not create orders."
             ),
@@ -191,7 +192,10 @@ def run_acceptance(
     )
     adjusted_spec = model_adjust["spec"]
     provider = _provider_from_adjusted_spec(adjusted_spec)
-    _expect(provider in SUPPORTED_LIVE_MODEL_PROVIDERS, f"model-adjust provider must be DeepSeek/Qwen, got {provider!r}")
+    _expect(
+        provider in SUPPORTED_LIVE_MODEL_PROVIDERS,
+        f"model-adjust provider must be {SUPPORTED_LIVE_MODEL_PROVIDER_LABEL}, got {provider!r}",
+    )
     _expect(adjusted_spec["execution"]["signal_only"] is True, "model-adjust removed signal_only")
     _expect(adjusted_spec["execution"]["ai_may_place_orders"] is False, "model-adjust allowed direct AI orders")
     _expect(adjusted_spec["execution"]["order_backend_only"] is True, "model-adjust removed order_backend_only")

@@ -1283,7 +1283,7 @@ export default function HyperAiPage() {
   const aiTradingModelAdjustmentReady = Boolean(
     aiTradingModelAdjustment
       ? aiTradingModelAdjustment.ready
-      : profile?.llm_configured && ['deepseek', 'qwen'].includes(String(profile?.llm_provider || '').toLowerCase())
+      : profile?.llm_configured && ['openai', 'deepseek', 'qwen'].includes(String(profile?.llm_provider || '').toLowerCase())
   )
   const aiTradingAgentContextWatchCount = (
     (aiTradingAgentContextBudget?.near_budget_count || 0) +
@@ -1639,7 +1639,7 @@ export default function HyperAiPage() {
       model_profile_not_configured: t('hyperAi.aiTradingModelProfileMissing', 'Profile missing'),
       model_profile_credential_missing: t('hyperAi.aiTradingModelCredentialMissing', 'Key missing'),
       model_profile_credential_unreadable: t('hyperAi.aiTradingModelCredentialUnreadable', 'Key unreadable'),
-      model_provider_not_deepseek_or_qwen: t('hyperAi.aiTradingModelProviderUnsupported', 'DeepSeek/Qwen required'),
+      model_provider_not_deepseek_or_qwen: t('hyperAi.aiTradingModelProviderUnsupported', 'GPT/DeepSeek/Qwen required'),
       model_name_missing: t('hyperAi.aiTradingModelNameMissing', 'Model missing'),
       model_base_url_missing: t('hyperAi.aiTradingModelEndpointMissing', 'Endpoint missing'),
       model_base_url_rejected_sensitive: t('hyperAi.aiTradingModelEndpointRejected', 'Endpoint rejected'),
@@ -1660,7 +1660,7 @@ export default function HyperAiPage() {
       return t('hyperAi.aiTradingModelProfileMissing', 'Profile missing')
     }
     if (aiTradingModelAdjustmentBlockers.includes('model_provider_not_deepseek_or_qwen')) {
-      return t('hyperAi.aiTradingModelProviderUnsupported', 'DeepSeek/Qwen required')
+      return t('hyperAi.aiTradingModelProviderUnsupported', 'GPT/DeepSeek/Qwen required')
     }
     if (aiTradingModelAdjustmentBlockers.includes('model_profile_credential_missing')) {
       return t('hyperAi.aiTradingModelCredentialMissing', 'Key missing')
@@ -1688,7 +1688,7 @@ export default function HyperAiPage() {
     if (provider) {
       return String(provider)
     }
-    return t('hyperAi.aiTradingModelNotConfigured', 'DeepSeek/Qwen profile')
+    return t('hyperAi.aiTradingModelNotConfigured', 'GPT/DeepSeek/Qwen profile')
   }
   const modelAdjustmentReadinessDetailLabel = (): string => {
     const identity = modelAdjustmentDetailLabel()
@@ -1709,7 +1709,7 @@ export default function HyperAiPage() {
       ? t('hyperAi.aiTradingModelAdjustmentBlockedBy', 'Model adjustment blocked: {{summary}}', {
           summary: blockerSummary,
         })
-      : t('hyperAi.aiTradingModelAdjustmentUnavailable', 'Configure DeepSeek or Qwen for model adjustment')
+      : t('hyperAi.aiTradingModelAdjustmentUnavailable', 'Configure GPT, DeepSeek, or Qwen for model adjustment')
   }
   const aiTradingValidationWarningLabel = (warning: string): string => {
     if (warning === AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING) {
@@ -2782,8 +2782,8 @@ export default function HyperAiPage() {
         adjusted_spec: spec,
       }
       const reviewPrompt = currentLang === 'zh'
-        ? `请审核 DeepSeek/Qwen 调整后的 AI Trading Strategy Spec：确认模型建议没有绕过 signal-only 边界、旧回测是否已失效、是否需要重新审批和重新回测。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(reviewPacket), null, 2)}\n\`\`\``
-        : `Review this DeepSeek/Qwen adjusted AI Trading Strategy Spec. Confirm the model suggestion did not bypass signal-only boundaries, whether prior backtest evidence was invalidated, and whether re-approval/re-backtest is required. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(reviewPacket), null, 2)}\n\`\`\``
+        ? `请审核 AI 模型调整后的 AI Trading Strategy Spec：确认模型建议没有绕过 signal-only 边界、旧回测是否已失效、是否需要重新审批和重新回测。不要直接下单。\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(reviewPacket), null, 2)}\n\`\`\``
+        : `Review this AI model adjusted AI Trading Strategy Spec. Confirm the model suggestion did not bypass signal-only boundaries, whether prior backtest evidence was invalidated, and whether re-approval/re-backtest is required. Do not place an order.\n\n\`\`\`json\n${JSON.stringify(sanitizeAiTradingPromptPacket(reviewPacket), null, 2)}\n\`\`\``
       setInputValue(reviewPrompt)
       setTimeout(() => textareaRef.current?.focus(), 50)
     } catch (e) {
@@ -4736,7 +4736,7 @@ export default function HyperAiPage() {
                   <div className="mt-0.5 text-xs text-muted-foreground" title={modelAdjustmentReadinessDetailLabel()}>
                     {t(
                       'hyperAi.aiTradingConfigureLaterHint',
-                      'You can use the workspace now and configure DeepSeek/Qwen API keys later here.'
+                      'You can use the workspace now and configure GPT/DeepSeek/Qwen API keys later here.'
                     )}{' '}
                     {modelAdjustmentReadinessDetailLabel()}
                   </div>
@@ -5185,8 +5185,8 @@ export default function HyperAiPage() {
                       type="button"
                       data-testid="ai-trading-model-config-button"
                       className="flex h-5 w-5 shrink-0 items-center justify-center rounded border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      aria-label={t('hyperAi.aiTradingConfigureModel', 'Configure DeepSeek/Qwen model')}
-                      title={t('hyperAi.aiTradingConfigureModel', 'Configure DeepSeek/Qwen model')}
+                      aria-label={t('hyperAi.aiTradingConfigureModel', 'Configure GPT/DeepSeek/Qwen model')}
+                      title={t('hyperAi.aiTradingConfigureModel', 'Configure GPT/DeepSeek/Qwen model')}
                       onClick={() => setShowConfigModal(true)}
                     >
                       <Settings className="h-3 w-3" />
@@ -5587,7 +5587,7 @@ export default function HyperAiPage() {
                       currentStrategyModelAdjustBlockedByArchivedSession
                         ? archivedSessionActionTitle
                       : canUseAiTradingModelAdjust
-                        ? t('hyperAi.aiTradingApplyModelAdjustment', 'Apply with DeepSeek/Qwen')
+                        ? t('hyperAi.aiTradingApplyModelAdjustment', 'Apply with GPT/DeepSeek/Qwen')
                         : modelAdjustmentUnavailableTitle()
                     }
                   >

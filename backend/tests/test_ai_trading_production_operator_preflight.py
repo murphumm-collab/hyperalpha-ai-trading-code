@@ -118,7 +118,7 @@ def _write_minimal_accepted_repo(root: Path) -> None:
                 "已 push，不 merge",
                 "default production readiness DB-audit blocker",
                 "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
-                "真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key",
+                "真实 Auth/JWKS、真实订单后端 URL/token、真实 GPT/DeepSeek/Qwen profile/API key",
             ]
         ),
     )

@@ -283,7 +283,7 @@ PRODUCTION_EVIDENCE_ITEM_GUIDANCE: dict[str, tuple[str, ...]] = {
         "Use ai_trading_v1_env_check.py --strict --require-runtime-mirror-current as the sanitized readiness artifact.",
     ),
     "real_model_profile_live_acceptance": (
-        "Configure a user's Hyper AI profile with DeepSeek or Qwen credentials outside the evidence file.",
+        "Configure a user's Hyper AI profile with OpenAI/GPT, DeepSeek, or Qwen credentials outside the evidence file.",
         "Run ai_trading_model_adjust_live_acceptance.py with explicit live-model confirmation and record only sanitized outcome metadata.",
     ),
     "real_order_backend_handoff": (
@@ -419,7 +419,7 @@ LOCAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
             "一键本地 V1 验收通过",
             "默认生产 DB-audit readiness gate 阻断",
             "当前未验收",
-            "真实 DeepSeek/Qwen API key live model-adjust 未验收",
+            "真实 GPT/DeepSeek/Qwen API key live model-adjust 未验收",
             "真实 HyperAlpha 订单后端 URL/token live handoff 未验收",
             "真实交易所执行不属于 V1 本地验收完成条件",
         ),
@@ -636,9 +636,9 @@ EXTERNAL_REQUIREMENTS: tuple[EvidenceRequirement, ...] = (
     EvidenceRequirement(
         id="real_model_profile_live_acceptance",
         track="external_acceptance",
-        description="Real DeepSeek/Qwen model-adjust must be accepted with a user Hyper AI profile/API key.",
+        description="Real GPT/DeepSeek/Qwen model-adjust must be accepted with a user Hyper AI profile/API key.",
         path="docs/hyperalpha/ai-trading-v1-acceptance-checklist.zh-CN.md",
-        required_phrases=("真实 DeepSeek/Qwen API key live model-adjust 未验收",),
+        required_phrases=("真实 GPT/DeepSeek/Qwen API key live model-adjust 未验收",),
         status_if_present="pending_external_acceptance",
     ),
     EvidenceRequirement(
@@ -740,7 +740,7 @@ def _latest_memory_report(repo_root: Path) -> dict[str, Any]:
         "已 push，不 merge",
         "default production readiness DB-audit blocker",
         "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
-        "真实 Auth/JWKS、真实订单后端 URL/token、真实 DeepSeek/Qwen profile/API key",
+        "真实 Auth/JWKS、真实订单后端 URL/token、真实 GPT/DeepSeek/Qwen profile/API key",
     )
     missing_phrases = ["Current:"] if not match else []
     if memory_text is None:
@@ -1921,7 +1921,7 @@ def build_completion_report(
         "next_actions": [
             "Continue local development only on codex/ai-agent-multitenant-foundation; push updates only to the remote feature branch and do not merge without explicit acceptance.",
             "For production live-order acceptance, provide real Auth/JWKS, real order-backend URL/token, hard-risk values, and explicit production handoff approval.",
-            "For real model-adjust acceptance, configure a user's Hyper AI DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
+            "For real model-adjust acceptance, configure a user's Hyper AI GPT/DeepSeek/Qwen profile and run the live model-adjust runner with explicit confirmation.",
             "Record external acceptance in a sanitized production evidence JSON file outside the code repository with documented schema fields/item IDs, bounded notes, bounded non-placeholder validated_by and evidence_summary, generated_at/validated_at/expires_at ISO timestamps, and unique item-specific safe artifact refs; do not include API keys, bearer tokens, DB URLs, private keys, or raw authorization headers.",
         ],
     }

@@ -538,7 +538,7 @@ def test_ai_trading_strategy_action_error_paths_use_safe_formatter() -> None:
     assert "safeStrategyActionApiDetailLabel" in helper_source
     assert "Strategy spec not found" in helper_source
     assert "No handoff-ready matching Program Backtest result was found" in helper_source
-    assert "DeepSeek/Qwen profile is not configured" in helper_source
+    assert "GPT/DeepSeek/Qwen profile is not configured" in helper_source
     assert "Backtest preflight blocked:" in helper_source
 
     assert "formatAiTradingStrategyActionApiError(res.status, data.detail, fallback)" in strategy_actions_block
@@ -911,7 +911,7 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
     assert "Model adjustment blocked: {{summary}}" in hyper_ai_source
     assert 'data-testid="ai-trading-model-config-button"' in model_runtime_card_block
     assert "setShowConfigModal(true)" in model_runtime_card_block
-    assert "Configure DeepSeek/Qwen model" in model_runtime_card_block
+    assert "Configure GPT/DeepSeek/Qwen model" in model_runtime_card_block
     assert "fetchProfile()" in model_config_saved_block
     assert "refreshAiTradingState()" in model_config_saved_block
     assert "onSaved={handleLLMConfigSaved}" in llm_config_modal_block
@@ -1091,7 +1091,7 @@ def test_hyper_ai_model_config_is_nonblocking_after_splash() -> None:
     assert "data-testid=\"ai-trading-model-config-button\"" in hyper_ai_source
     assert "onClick={() => setShowConfigModal(true)}" in hyper_ai_source
     assert "<LLMConfigModal" in hyper_ai_source
-    assert "Configure DeepSeek/Qwen model" in hyper_ai_source
+    assert "Configure GPT/DeepSeek/Qwen model" in hyper_ai_source
 
 
 def test_hyper_ai_agent_session_route_id_rejects_sensitive_values_source_guard() -> None:

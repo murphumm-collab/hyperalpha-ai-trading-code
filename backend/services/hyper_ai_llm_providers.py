@@ -40,10 +40,10 @@ PRESET_PROVIDERS: Dict[str, LLMProvider] = {
         name="OpenAI",
         base_url="https://api.openai.com/v1",
         models=[
-            # Latest reasoning models
-            "o3", "o3-mini", "o1", "o1-mini", "o1-preview",
-            # GPT-4o series (multimodal)
+            # GPT-4o series (recommended default for AI Trading)
             "gpt-4o", "gpt-4o-mini", "gpt-4o-2024-11-20", "gpt-4o-2024-08-06",
+            # Reasoning models
+            "o3", "o3-mini", "o1", "o1-mini", "o1-preview",
             # GPT-4 Turbo
             "gpt-4-turbo", "gpt-4-turbo-2024-04-09", "gpt-4-turbo-preview",
             # GPT-4 legacy
@@ -52,7 +52,7 @@ PRESET_PROVIDERS: Dict[str, LLMProvider] = {
             "gpt-3.5-turbo", "gpt-3.5-turbo-0125",
         ],
         api_format="openai",
-        description="GPT-4o and o-series reasoning models"
+        description="GPT models and o-series reasoning models"
     ),
     "anthropic": LLMProvider(
         id="anthropic",

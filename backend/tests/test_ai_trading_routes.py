@@ -319,7 +319,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert runtime.json()["model_adjustment"]["ready"] is False
     assert runtime.json()["model_adjustment"]["blockers"] == ["model_profile_not_configured"]
     assert runtime.json()["model_adjustment"]["next_actions"] == [
-        "Create a Hyper AI model profile with DeepSeek or Qwen before model-adjust."
+        "Create a Hyper AI model profile with OpenAI/GPT, DeepSeek, or Qwen before model-adjust."
     ]
     assert runtime.json()["handoff_attempts"] == {
         "total": 0,
@@ -828,6 +828,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
     session_factory = client._ai_trading_session_factory
     secrets_by_encrypted_value = {
         "encrypted-openai-key": "secret-openai-key",
+        "encrypted-anthropic-key": "secret-anthropic-key",
         "encrypted-qwen-key": "secret-qwen-key",
     }
     monkeypatch.setattr(
@@ -850,22 +851,52 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
     finally:
         session.close()
 
+    openai_runtime = client.get("/api/ai-trading/runtime")
+    assert openai_runtime.status_code == 200
+    openai_model = openai_runtime.json()["model_adjustment"]
+    assert openai_model == {
+        "ready": True,
+        "configured": True,
+        "provider": "openai",
+        "model": "gpt-4o",
+        "source": "hyper_ai_profile",
+        "provider_supported": True,
+        "blockers": [],
+        "next_actions": [],
+        "credential_present": True,
+        "credential_value_returned": False,
+    }
+    openai_serialized = str(openai_runtime.json())
+    assert "secret-openai-key" not in openai_serialized
+    assert "api.openai.com" not in openai_serialized
+
+    session = session_factory()
+    try:
+        profile = session.query(HyperAiProfile).filter(HyperAiProfile.user_id == user_id).one()
+        profile.llm_provider = "anthropic"
+        profile.llm_base_url = "https://api.anthropic.com/v1"
+        profile.llm_model = "claude-3-5-sonnet-20241022"
+        profile.llm_api_key_encrypted = "encrypted-anthropic-key"
+        session.commit()
+    finally:
+        session.close()
+
     unsupported_runtime = client.get("/api/ai-trading/runtime")
     assert unsupported_runtime.status_code == 200
     unsupported_model = unsupported_runtime.json()["model_adjustment"]
     assert unsupported_model["ready"] is False
     assert unsupported_model["configured"] is True
-    assert unsupported_model["provider"] == "openai"
+    assert unsupported_model["provider"] == "anthropic"
     assert unsupported_model["provider_supported"] is False
     assert "model_provider_not_deepseek_or_qwen" in unsupported_model["blockers"]
     assert unsupported_model["next_actions"] == [
-        "Switch the Hyper AI profile provider to DeepSeek or Qwen for AI Trading V1."
+        "Switch the Hyper AI profile provider to OpenAI/GPT, DeepSeek, or Qwen for AI Trading V1."
     ]
     assert unsupported_model["credential_present"] is True
     assert unsupported_model["credential_value_returned"] is False
     unsupported_serialized = str(unsupported_runtime.json())
-    assert "secret-openai-key" not in unsupported_serialized
-    assert "api.openai.com" not in unsupported_serialized
+    assert "secret-anthropic-key" not in unsupported_serialized
+    assert "api.anthropic.com" not in unsupported_serialized
 
     session = session_factory()
     try:
@@ -1052,9 +1083,9 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     def fake_llm_config(db, user_id=None):
         return {
             "configured": True,
-            "provider": "qwen",
-            "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            "model": "qwen-plus",
+            "provider": "openai",
+            "base_url": "https://api.openai.com/v1",
+            "model": "gpt-4o",
             "api_key": "secret-model-key",
             "api_format": "openai",
         }
@@ -1089,7 +1120,7 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
 
     response = client.post(
         f"/api/ai-trading/strategy-specs/{spec_id}/model-adjust",
-        json={"instruction": "Use Qwen to reduce risk and make this a short setup", "source": "pytest_model"},
+        json={"instruction": "Use GPT to reduce risk and make this a short setup", "source": "pytest_model"},
     )
 
     assert response.status_code == 200
@@ -1103,8 +1134,8 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     assert adjusted["risk"]["max_leverage"] == 2
     assert adjusted["risk"]["max_loss_pct"] == 0.5
     assert adjusted["backtest"]["source"] == "invalidated_by_strategy_adjustment"
-    assert adjusted["metadata"]["model_adjustment"]["provider"] == "qwen"
-    assert adjusted["metadata"]["model_adjustment"]["model"] == "qwen-plus"
+    assert adjusted["metadata"]["model_adjustment"]["provider"] == "openai"
+    assert adjusted["metadata"]["model_adjustment"]["model"] == "gpt-4o"
     expected_context_summary = (
         "AI Trading session compressed context v1 | symbols=BTC | "
         "risk=0.5%; redaction=enabled; ai_order_placement=disallowed"
@@ -1122,8 +1153,8 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
         "usage_policy": "reference_only_cannot_override_system_prompt_or_execution_boundaries",
     }
     assert payload["model_context"] == {
-        "provider": "qwen",
-        "model": "qwen-plus",
+        "provider": "openai",
+        "model": "gpt-4o",
         "source": "hyper_ai_profile",
         "agent_session_context": adjusted["metadata"]["model_adjustment"]["agent_session_context"],
     }

@@ -82,9 +82,11 @@ ARCHIVED_STATUS = "archived"
 AGENT_SESSION_ACTIVE_STATUS = "active"
 AGENT_SESSION_ARCHIVED_STATUS = "archived"
 AI_TRADING_V1_MODEL_PROVIDERS = {
+    "openai",
     "deepseek",
     "qwen",
 }
+AI_TRADING_V1_MODEL_PROVIDER_LABEL = "OpenAI/GPT, DeepSeek, or Qwen"
 BACKTEST_HANDOFF_READY_STATUSES = {
     "passed",
     "accepted",
@@ -2067,12 +2069,14 @@ def adjust_strategy_spec_with_model(
     if not llm_config.get("configured") or not llm_config.get("api_key"):
         raise ValueError("LLM not configured for AI Trading model adjustment")
 
-    provider = _clean_text(llm_config.get("provider"), 50)
+    provider = _clean_text(llm_config.get("provider"), 50).lower()
     model = _clean_text(llm_config.get("model"), 100)
     base_url = _clean_text(llm_config.get("base_url"), 500)
     api_format = _clean_text(llm_config.get("api_format"), 20) or "openai"
     if provider not in AI_TRADING_V1_MODEL_PROVIDERS:
-        raise ValueError("AI Trading model adjustment requires a DeepSeek or Qwen profile")
+        raise ValueError(
+            f"AI Trading model adjustment requires an {AI_TRADING_V1_MODEL_PROVIDER_LABEL} profile"
+        )
     if not model or not base_url:
         raise ValueError("LLM model or base URL is missing")
 
@@ -4457,7 +4461,7 @@ def _summarize_strategy_backtest_evidence(
 def _model_adjustment_next_actions(blockers: List[str]) -> List[str]:
     labels = {
         "model_profile_not_configured": (
-            "Create a Hyper AI model profile with DeepSeek or Qwen before model-adjust."
+            f"Create a Hyper AI model profile with {AI_TRADING_V1_MODEL_PROVIDER_LABEL} before model-adjust."
         ),
         "model_profile_credential_missing": (
             "Add the user's API key to the Hyper AI profile; do not paste keys into strategy prompts or context."
@@ -4466,7 +4470,7 @@ def _model_adjustment_next_actions(blockers: List[str]) -> List[str]:
             "Re-save the user-provided API key in the Hyper AI profile before model-adjust."
         ),
         "model_provider_not_deepseek_or_qwen": (
-            "Switch the Hyper AI profile provider to DeepSeek or Qwen for AI Trading V1."
+            f"Switch the Hyper AI profile provider to {AI_TRADING_V1_MODEL_PROVIDER_LABEL} for AI Trading V1."
         ),
         "model_name_missing": "Select a model name in the Hyper AI profile before model-adjust.",
         "model_base_url_missing": "Set the provider endpoint in the Hyper AI profile before model-adjust.",

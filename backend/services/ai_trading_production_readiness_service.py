@@ -243,7 +243,7 @@ def _build_model_policy_report(env: Mapping[str, str]) -> Dict[str, Any]:
         "blockers": [],
         "warnings": warnings,
         "checks": {
-            "allowed_ai_trading_model_providers": ["deepseek", "qwen"],
+            "allowed_ai_trading_model_providers": ["openai", "deepseek", "qwen"],
             "user_profile_keys_expected": True,
             "platform_model_key_envs_present": platform_key_envs_present,
             "secret_values_returned": False,

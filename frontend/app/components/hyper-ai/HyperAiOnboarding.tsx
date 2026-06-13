@@ -44,7 +44,7 @@ export default function HyperAiOnboarding({ onSkip }: HyperAiOnboardingProps) {
           <p className="text-sm text-muted-foreground">
             {t(
               'hyperAi.onboarding.apiKeyDeferred',
-              'You can enter Hyper AI now. Configure DeepSeek/Qwen API keys later from the AI Trading model panel.'
+              'You can enter Hyper AI now. Configure GPT/DeepSeek/Qwen API keys later from the AI Trading model panel.'
             )}
           </p>
         </div>

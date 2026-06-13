@@ -14,7 +14,7 @@ Runs the AI Trading V1 local acceptance gate:
   - backend compile check
   - AI Trading pytest regression
   - API-level V1 smoke runner
-  - live DeepSeek/Qwen model-adjust runner must stay blocked without explicit confirmation
+  - live GPT/DeepSeek/Qwen model-adjust runner must stay blocked without explicit confirmation
   - default production handoff gate must stay blocked
   - default production readiness gate must stay blocked
   - default production readiness DB-audit gate must stay blocked
