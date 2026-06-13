@@ -967,6 +967,24 @@ def test_hyper_ai_main_page_always_exposes_model_api_key_config_entry() -> None:
     assert "api_key" not in safe_entry_block
 
 
+def test_hyper_ai_ai_trading_defaults_to_simple_mode() -> None:
+    hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
+    ai_trading_panel_block = hyper_ai_source.split(
+        "{t('hyperAi.aiTrading', 'AI Trading')}",
+        1,
+    )[1].split("{/* Memory Entry */}", 1)[0]
+
+    assert "const [aiTradingSimpleMode, setAiTradingSimpleMode] = useState(true)" in hyper_ai_source
+    assert 'data-testid="ai-trading-simple-mode"' in ai_trading_panel_block
+    assert 'data-testid="ai-trading-advanced-details-toggle"' in ai_trading_panel_block
+    assert 'data-testid="ai-trading-advanced-details"' in ai_trading_panel_block
+    assert "className={aiTradingSimpleMode ? 'hidden' : 'space-y-2'}" in ai_trading_panel_block
+    assert "aiTradingSimpleNextStep" in hyper_ai_source
+    assert "aiTradingSimpleNextActionLabel()" in ai_trading_panel_block
+    assert "handleAiTradingSimpleNextAction" in ai_trading_panel_block
+    assert "aiTradingSimpleGoal" in ai_trading_panel_block
+
+
 def test_ai_trading_model_config_modal_uses_safe_api_error_formatter() -> None:
     hyper_ai_source = HYPER_AI_PAGE.read_text(encoding="utf-8")
     helper_source = READINESS_HELPER.read_text(encoding="utf-8")

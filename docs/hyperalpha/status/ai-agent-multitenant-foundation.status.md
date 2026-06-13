@@ -9,6 +9,8 @@ Status: Local V1 Production Operator Preflight Accepted / Remote Push Synced
 
 Local checkpoint: current branch `HEAD`
 
+Latest UI checkpoint: Hyper AI AI Trading now defaults to a To C simple mode with top market symbols, natural-language goal input, fixed visible risk summary, one stateful primary action, and advanced runtime/audit details collapsed behind `高级详情`.
+
 ## Scope
 
 - User-scoped Hyper AI profile, memory, conversations, skills, and tool settings.

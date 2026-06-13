@@ -1215,6 +1215,9 @@ export default function HyperAiPage() {
   const [tradingSymbolSource, setTradingSymbolSource] = useState<'watchlist' | 'universe' | 'available' | 'none'>('none')
   const [tradingSymbolsLoading, setTradingSymbolsLoading] = useState(false)
   const [tradingSymbolsError, setTradingSymbolsError] = useState<string | null>(null)
+  const [aiTradingSimpleMode, setAiTradingSimpleMode] = useState(true)
+  const [aiTradingSimpleSymbol, setAiTradingSimpleSymbol] = useState('')
+  const [aiTradingSimpleGoal, setAiTradingSimpleGoal] = useState('')
   const [strategyDraft, setStrategyDraft] = useState<AiTradingStrategySpec | null>(null)
   const [strategyDraftRecord, setStrategyDraftRecord] = useState<AiTradingStrategySpecRecord | null>(null)
   const [strategyDraftLoadingSymbol, setStrategyDraftLoadingSymbol] = useState<string | null>(null)
@@ -1350,6 +1353,29 @@ export default function HyperAiPage() {
     }
     return new Map(records.map(record => [record.id, record]))
   }, [recentStrategySpecs, strategyDraftRecord])
+  const aiTradingSimpleSymbols = useMemo(() => {
+    const preferredSymbols = ['BTC', 'ETH', 'HYPE', 'SOL', 'xyz:NVDA', 'xyz:TSLA', 'xyz:AAPL', 'xyz:AMD']
+    const availableSymbols = tradingSymbols.length > 0 ? tradingSymbols : tradingSymbolGroups.all
+    const availableSymbolSet = new Set(availableSymbols)
+    const result: string[] = []
+    const pushSymbol = (symbol: string) => {
+      if (!symbol || result.includes(symbol)) {
+        return
+      }
+      result.push(symbol)
+    }
+
+    preferredSymbols.forEach(symbol => {
+      if (availableSymbolSet.has(symbol)) {
+        pushSymbol(symbol)
+      }
+    })
+    availableSymbols.forEach(pushSymbol)
+    return result.slice(0, 8)
+  }, [tradingSymbols, tradingSymbolGroups.all])
+  const aiTradingSimpleActiveSymbol = aiTradingSimpleSymbols.includes(aiTradingSimpleSymbol)
+    ? aiTradingSimpleSymbol
+    : (aiTradingSimpleSymbols[0] || '')
   const backtestMetricValue = (metrics: Record<string, unknown> | undefined, keys: string[]): number | null => {
     if (!metrics) {
       return null
@@ -1761,6 +1787,62 @@ export default function HyperAiPage() {
 
   // Get current language
   const currentLang = i18n.language?.startsWith('zh') ? 'zh' : 'en'
+  const aiTradingSimpleNextStep = !strategyDraft
+    ? 'draft'
+    : !strategyDraftRecord
+      ? 'save'
+      : strategyDraftRecord.status !== 'approved'
+        ? 'approve'
+        : !currentStrategyBacktestReady
+          ? 'backtest'
+          : 'signal'
+  const aiTradingSimpleNextActionLabel = (): string => {
+    if (aiTradingSimpleNextStep === 'draft') {
+      return t('hyperAi.aiTradingSimpleGenerateStrategy', 'Generate strategy')
+    }
+    if (aiTradingSimpleNextStep === 'save') {
+      return t('hyperAi.aiTradingSimpleSaveStrategy', 'Save strategy')
+    }
+    if (aiTradingSimpleNextStep === 'approve') {
+      return t('hyperAi.aiTradingSimpleApproveStrategy', 'Approve strategy')
+    }
+    if (aiTradingSimpleNextStep === 'backtest') {
+      return t('hyperAi.aiTradingSimpleRunBacktest', 'Run backtest')
+    }
+    return t('hyperAi.aiTradingSimpleBuildSignal', 'Build signal')
+  }
+  const aiTradingSimpleNextActionTitle = (): string => {
+    if (aiTradingSimpleNextStep === 'backtest' && !strategyProgramBacktestRunConfirmed) {
+      return t('hyperAi.aiTradingRunBacktestConfirmRequired', 'Confirm this historical Program Backtest run before starting it')
+    }
+    if (aiTradingSimpleNextStep === 'signal') {
+      return strategySignalPreviewTitle
+    }
+    return aiTradingSimpleNextActionLabel()
+  }
+  const aiTradingSimpleNextActionLoading = Boolean(
+    (aiTradingSimpleNextStep === 'draft' && strategyDraftLoadingSymbol !== null) ||
+    (aiTradingSimpleNextStep === 'save' && strategyDraftSaving) ||
+    (aiTradingSimpleNextStep === 'approve' && strategyDraftApproving) ||
+    (aiTradingSimpleNextStep === 'backtest' && strategyBacktestLoadingId !== null) ||
+    (aiTradingSimpleNextStep === 'signal' && strategySignalPreviewLoading)
+  )
+  const aiTradingSimpleNextActionDisabled = Boolean(
+    (aiTradingSimpleNextStep === 'draft' && (!aiTradingSimpleActiveSymbol || strategyDraftLoadingSymbol !== null)) ||
+    (aiTradingSimpleNextStep === 'save' && (strategyDraftSaving || currentStrategySaveBlockedByArchivedSession)) ||
+    (aiTradingSimpleNextStep === 'approve' && (strategyDraftApproving || strategyDraftSaving || currentStrategyActionBlockedByArchivedSession)) ||
+    (aiTradingSimpleNextStep === 'backtest' && (
+      strategyBacktestLoadingId !== null ||
+      currentStrategyActionBlockedByArchivedSession ||
+      !strategyProgramBacktestRunConfirmed
+    )) ||
+    (aiTradingSimpleNextStep === 'signal' && (
+      strategySignalPreviewLoading ||
+      strategyDraftSaving ||
+      strategyDraftApproving ||
+      !canBuildStrategySignalPreview
+    ))
+  )
 
   useEffect(() => {
     fetchConversations()
@@ -2379,7 +2461,38 @@ export default function HyperAiPage() {
     setTimeout(() => textareaRef.current?.focus(), 50)
   }
 
-  const handleStrategySpecDraft = async (symbol: string) => {
+  const buildAiTradingSimpleStrategyText = (safeSymbol: string): string => {
+    const userGoal = aiTradingSimpleGoal.trim()
+    if (currentLang === 'zh') {
+      return [
+        `为 ${safeSymbol} 设计一版 Hyperliquid AI 交易策略。`,
+        '默认周期 15m 到 1h，必须包含止损、止盈、最大亏损、杠杆限制。',
+        '如果当前条件不完整或风险不满足，输出 HOLD。',
+        userGoal ? `用户目标：${userGoal}` : '用户目标：稳健趋势/突破策略，先保护本金。',
+      ].join('\n')
+    }
+    return [
+      `Design a Hyperliquid AI trading strategy for ${safeSymbol}.`,
+      'Default timeframe: 15m to 1h. Include stop-loss, take-profit, max loss, and leverage constraints.',
+      'Return HOLD if market conditions are incomplete or risk limits are not satisfied.',
+      userGoal ? `User goal: ${userGoal}` : 'User goal: balanced trend/breakout strategy with capital protection first.',
+    ].join('\n')
+  }
+
+  const handleAiTradingSimplePrompt = () => {
+    const safeSymbol = sanitizeAiTradingSymbolText(aiTradingSimpleActiveSymbol)
+    if (!safeSymbol) {
+      setTradingSymbolsError(formatAiTradingMarketUniverseApiError(0, 'symbols_unavailable', 'Trading symbol is unavailable'))
+      return
+    }
+    const prompt = currentLang === 'zh'
+      ? `请作为 Hyperliquid AI Trading Agent，先分析 ${safeSymbol} 是否适合交易，再给出一个可回测的策略草案。要求：只给信号方案，不直接下单；包含止损、止盈、最大亏损、杠杆上限；如果不满足条件就给 HOLD。\n\n${buildAiTradingSimpleStrategyText(safeSymbol)}`
+      : `Act as a Hyperliquid AI Trading Agent. First analyze whether ${safeSymbol} is tradable, then provide a backtestable strategy draft. Requirements: signal plan only, no direct order; include stop-loss, take-profit, max loss, and max leverage; return HOLD if conditions are not met.\n\n${buildAiTradingSimpleStrategyText(safeSymbol)}`
+    setInputValue(prompt)
+    setTimeout(() => textareaRef.current?.focus(), 50)
+  }
+
+  const handleStrategySpecDraft = async (symbol: string, options?: { strategyText?: string }) => {
     const safeSymbol = sanitizeAiTradingSymbolText(symbol)
     if (!safeSymbol) {
       setStrategyDraftError(formatAiTradingMarketUniverseApiError(0, 'symbols_unavailable', 'Trading symbol is unavailable'))
@@ -2389,9 +2502,10 @@ export default function HyperAiPage() {
     setStrategyDraftError(null)
     const fallback = 'Failed to draft strategy spec'
     try {
-      const strategyText = currentLang === 'zh'
+      const defaultStrategyText = currentLang === 'zh'
         ? `为 ${safeSymbol} 设计一版 15m 到 1h 的 Hyperliquid 趋势/突破策略，必须包含止损、止盈、最大亏损、杠杆限制；如果条件不完整则输出 HOLD。`
         : `Design a 15m to 1h Hyperliquid trend/breakout strategy for ${safeSymbol}. Include stop-loss, take-profit, max loss, and leverage constraints; return HOLD if conditions are incomplete.`
+      const strategyText = options?.strategyText?.trim() || defaultStrategyText
       const res = await authFetchAiTradingAction('/api/ai-trading/strategy-spec/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -3206,6 +3320,34 @@ export default function HyperAiPage() {
     } finally {
       setStrategySignalPreviewLoading(false)
     }
+  }
+
+  const handleAiTradingSimpleNextAction = async () => {
+    if (aiTradingSimpleNextStep === 'draft') {
+      const safeSymbol = sanitizeAiTradingSymbolText(aiTradingSimpleActiveSymbol)
+      if (!safeSymbol) {
+        setTradingSymbolsError(formatAiTradingMarketUniverseApiError(0, 'symbols_unavailable', 'Trading symbol is unavailable'))
+        return
+      }
+      setStrategyAdjustInstruction(aiTradingSimpleGoal.trim())
+      await handleStrategySpecDraft(safeSymbol, {
+        strategyText: buildAiTradingSimpleStrategyText(safeSymbol),
+      })
+      return
+    }
+    if (aiTradingSimpleNextStep === 'save') {
+      await handleSaveStrategyDraft()
+      return
+    }
+    if (aiTradingSimpleNextStep === 'approve') {
+      await handleApproveStrategyDraft()
+      return
+    }
+    if (aiTradingSimpleNextStep === 'backtest') {
+      await handleRunStrategyProgramBacktest(strategyDraftRecord?.id)
+      return
+    }
+    await handleStrategySignalPreview()
   }
 
   const handleInspectStrategySpecRecord = async (recordId: number) => {
@@ -4776,23 +4918,37 @@ export default function HyperAiPage() {
                       : t('hyperAi.aiTradingNoSymbols', 'No Hyperliquid symbols loaded')}
                 </p>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 shrink-0"
-                onClick={() => {
-                  fetchTradingSymbols()
-                  refreshAiTradingState()
-                }}
-                disabled={tradingSymbolsLoading}
-                title={t('common.refresh', 'Refresh')}
-              >
-                {tradingSymbolsLoading ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <SearchIcon className="h-3.5 w-3.5" />
-                )}
-              </Button>
+              <div className="flex shrink-0 items-center gap-1">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  data-testid="ai-trading-advanced-details-toggle"
+                  onClick={() => setAiTradingSimpleMode(value => !value)}
+                >
+                  {aiTradingSimpleMode
+                    ? t('hyperAi.aiTradingSimpleAdvancedDetails', 'Advanced')
+                    : t('hyperAi.aiTradingSimpleMode', 'Simple')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7"
+                  onClick={() => {
+                    fetchTradingSymbols()
+                    refreshAiTradingState()
+                  }}
+                  disabled={tradingSymbolsLoading}
+                  title={t('common.refresh', 'Refresh')}
+                >
+                  {tradingSymbolsLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <SearchIcon className="h-3.5 w-3.5" />
+                  )}
+                </Button>
+              </div>
             </div>
 
             {tradingSymbolsError && (
@@ -4801,6 +4957,197 @@ export default function HyperAiPage() {
             {strategyDraftError && (
               <div className="mb-2 text-xs text-red-500">{strategyDraftError}</div>
             )}
+
+            {aiTradingSimpleMode && (
+              <div
+                className="rounded-md border bg-muted/20 p-2.5"
+                data-testid="ai-trading-simple-mode"
+              >
+                <div className="mb-2 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5 text-sm font-medium">
+                      <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-primary" />
+                      <span>{t('hyperAi.aiTradingSimpleModeTitle', 'AI Trading simple mode')}</span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      {t('hyperAi.aiTradingSimpleModeHint', 'Strategy first, historical backtest next, signal handoff only after confirmation.')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    className={`shrink-0 rounded px-2 py-1 text-[11px] font-medium transition-colors ${
+                      aiTradingModelAdjustmentReady
+                        ? 'bg-green-500/10 text-green-600'
+                        : 'bg-yellow-500/10 text-yellow-600'
+                    }`}
+                    onClick={() => setShowConfigModal(true)}
+                    title={modelAdjustmentReadinessDetailLabel()}
+                  >
+                    {aiTradingModelAdjustmentReady
+                      ? t('hyperAi.aiTradingSimpleModelReady', 'Model ready')
+                      : t('hyperAi.aiTradingSimpleModelLater', 'Model later')}
+                  </button>
+                </div>
+
+                <div className="space-y-3">
+                  <div>
+                    <div className="mb-1.5 flex items-center justify-between gap-2">
+                      <Label className="text-[11px] text-muted-foreground">
+                        {t('hyperAi.aiTradingSimpleSymbol', '1. Symbol')}
+                      </Label>
+                      <span className="truncate text-[10px] text-muted-foreground">
+                        {tradingSymbolsLoading
+                          ? t('common.loading', 'Loading...')
+                          : t('hyperAi.aiTradingSimpleTopMarkets', 'Top markets')}
+                      </span>
+                    </div>
+                    {aiTradingSimpleSymbols.length > 0 ? (
+                      <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
+                        {aiTradingSimpleSymbols.map(symbol => {
+                          const selected = symbol === aiTradingSimpleActiveSymbol
+                          return (
+                            <button
+                              key={symbol}
+                              type="button"
+                              onClick={() => setAiTradingSimpleSymbol(symbol)}
+                              className={`h-8 truncate rounded-md border px-2 text-xs font-medium transition-colors ${
+                                selected
+                                  ? 'border-primary bg-primary/10 text-primary'
+                                  : 'bg-background text-foreground hover:bg-primary/10 hover:text-primary'
+                              }`}
+                              title={symbol}
+                            >
+                              {symbol}
+                            </button>
+                          )
+                        })}
+                      </div>
+                    ) : (
+                      <div className="rounded-md border bg-background/70 px-2 py-2 text-xs text-muted-foreground">
+                        {tradingSymbolsLoading
+                          ? t('common.loading', 'Loading...')
+                          : t('hyperAi.aiTradingEmpty', 'Configure a Hyperliquid watchlist in Settings.')}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <Label className="mb-1.5 block text-[11px] text-muted-foreground">
+                      {t('hyperAi.aiTradingSimpleGoal', '2. Goal')}
+                    </Label>
+                    <textarea
+                      data-testid="ai-trading-simple-goal"
+                      value={aiTradingSimpleGoal}
+                      onChange={(event) => setAiTradingSimpleGoal(event.target.value)}
+                      placeholder={t('hyperAi.aiTradingSimpleGoalPlaceholder', 'Example: trend-following, avoid high leverage, stop if drawdown exceeds 1%.')}
+                      className="min-h-[72px] w-full resize-none rounded-md border bg-background px-2 py-1.5 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary"
+                      maxLength={280}
+                      rows={3}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1 text-[11px]">
+                    <div className="min-w-0 rounded-md border bg-background/70 px-2 py-1.5">
+                      <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingMaxLoss', 'Max loss')}</div>
+                      <div className="truncate font-medium text-foreground">1%</div>
+                    </div>
+                    <div className="min-w-0 rounded-md border bg-background/70 px-2 py-1.5">
+                      <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingLeverage', 'Leverage')}</div>
+                      <div className="truncate font-medium text-foreground">3x</div>
+                    </div>
+                    <div className="min-w-0 rounded-md border bg-background/70 px-2 py-1.5">
+                      <div className="truncate text-muted-foreground">{t('hyperAi.aiTradingBoundary', 'Boundary')}</div>
+                      <div className="truncate font-medium text-foreground">{t('hyperAi.aiTradingSimpleSignalOnly', 'Signal only')}</div>
+                    </div>
+                  </div>
+
+                  {strategyDraft && (
+                    <div
+                      className="rounded-md border bg-background/80 p-2 text-xs"
+                      data-testid="ai-trading-simple-draft-summary"
+                    >
+                      <div className="mb-1.5 flex items-center justify-between gap-2">
+                        <div className="min-w-0 truncate font-medium">
+                          {strategyDraft.symbol || aiTradingSimpleActiveSymbol || 'Symbol'} · {strategyDraft.timeframe || '15m'}
+                        </div>
+                        <span className={`shrink-0 rounded px-1.5 py-0.5 ${
+                          strategyDraftRecord?.status === 'approved'
+                            ? 'bg-green-500/10 text-green-600'
+                            : strategyDraft.validation?.safe_to_emit_signal
+                              ? 'bg-green-500/10 text-green-600'
+                              : 'bg-yellow-500/10 text-yellow-600'
+                        }`}>
+                          {strategyDraftRecord?.status || strategyDraft.validation?.status || 'draft'}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-2 gap-1 text-muted-foreground">
+                        <span>{t('hyperAi.aiTradingBias', 'Bias')}</span>
+                        <span className="truncate text-foreground">{strategyDraft.entry?.bias || '-'}</span>
+                        <span>{t('hyperAi.aiTradingBacktest', 'Backtest')}</span>
+                        <span className={`truncate rounded px-1.5 py-0.5 ${backtestStatusClassName(strategyDraft.backtest)}`}>
+                          {backtestStatusLabel(strategyDraft.backtest)}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {aiTradingSimpleNextStep === 'backtest' && (
+                    <label className="flex items-start gap-2 rounded-md border bg-background/70 px-2 py-1.5 text-[11px] text-muted-foreground">
+                      <Checkbox
+                        checked={strategyProgramBacktestRunConfirmed}
+                        onCheckedChange={(checked) => setStrategyProgramBacktestRunConfirmed(checked === true)}
+                        disabled={strategyBacktestLoadingId !== null || currentStrategyActionBlockedByArchivedSession}
+                        className="mt-0.5 h-3.5 w-3.5"
+                      />
+                      <span>{t('hyperAi.aiTradingSimpleBacktestConfirm', 'Use historical data only; no orders will be placed.')}</span>
+                    </label>
+                  )}
+
+                  <div className="grid grid-cols-[1fr_1.35fr] gap-1.5">
+                    <button
+                      type="button"
+                      onClick={handleAiTradingSimplePrompt}
+                      disabled={!aiTradingSimpleActiveSymbol || sending}
+                      className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md border bg-background px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary disabled:cursor-not-allowed disabled:opacity-50"
+                      title={t('hyperAi.aiTradingSimpleChatAction', 'Ask AI')}
+                    >
+                      {sending ? (
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                      ) : (
+                        <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      <span className="truncate">{t('hyperAi.aiTradingSimpleChatAction', 'Ask AI')}</span>
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="ai-trading-simple-next-action"
+                      onClick={handleAiTradingSimpleNextAction}
+                      disabled={aiTradingSimpleNextActionDisabled}
+                      className="flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-md bg-primary px-2 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                      title={aiTradingSimpleNextActionTitle()}
+                    >
+                      {aiTradingSimpleNextActionLoading ? (
+                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+                      ) : aiTradingSimpleNextStep === 'save' ? (
+                        <Save className="h-3.5 w-3.5 shrink-0" />
+                      ) : aiTradingSimpleNextStep === 'approve' ? (
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                      ) : aiTradingSimpleNextStep === 'signal' ? (
+                        <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5 shrink-0" />
+                      )}
+                      <span className="truncate">{aiTradingSimpleNextActionLabel()}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div
+              className={aiTradingSimpleMode ? 'hidden' : 'space-y-2'}
+              data-testid="ai-trading-advanced-details"
+            >
             {aiTradingRuntime && (
               <div className="mb-2 grid grid-cols-2 gap-1 rounded-md border bg-muted/30 p-1.5 text-[11px] xl:grid-cols-6">
                 <div className="min-w-0">
@@ -5937,6 +6284,7 @@ export default function HyperAiPage() {
                 )}
               </div>
             )}
+            </div>
           </div>
 
           {/* Memory Entry */}
