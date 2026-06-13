@@ -81,6 +81,13 @@ SAFE_HYPERLIQUID_CONNECTION_TEST_UNAVAILABLE_MESSAGE = "Hyperliquid connection t
 SAFE_HYPERLIQUID_CONNECTION_TEST_FAILED_MESSAGE = "Hyperliquid connection test failed."
 SAFE_HYPERLIQUID_RATE_LIMIT_READ_FAILED_MESSAGE = "Failed to query Hyperliquid rate limit."
 SAFE_HYPERLIQUID_TRADING_STATS_READ_FAILED_MESSAGE = "Failed to query Hyperliquid trading stats."
+SAFE_HYPERLIQUID_SNAPSHOT_READ_FAILED_MESSAGE = "Failed to get Hyperliquid account snapshots."
+SAFE_HYPERLIQUID_SYMBOL_LIST_FAILED_MESSAGE = "Failed to list Hyperliquid symbols."
+SAFE_HYPERLIQUID_SYMBOL_RANKING_FAILED_MESSAGE = "Failed to list ranked Hyperliquid symbols."
+SAFE_HYPERLIQUID_WATCHLIST_READ_FAILED_MESSAGE = "Failed to get Hyperliquid watchlist."
+SAFE_HYPERLIQUID_WATCHLIST_UPDATE_INVALID_REQUEST_MESSAGE = "Invalid Hyperliquid watchlist request."
+SAFE_HYPERLIQUID_WATCHLIST_UPDATE_FAILED_MESSAGE = "Failed to update Hyperliquid watchlist."
+SAFE_HYPERLIQUID_ACTION_SUMMARY_READ_FAILED_MESSAGE = "Failed to summarize Hyperliquid actions."
 
 
 def _ts_to_iso(ts: float) -> str:
@@ -668,58 +675,74 @@ def get_account_snapshots(
     from database.snapshot_connection import SnapshotSessionLocal
     from database.snapshot_models import HyperliquidAccountSnapshot
 
-    # Verify account exists and has Hyperliquid environment configured
-    account = _ensure_account_owner(db, account_id, current_user.id)
-
-    if not account.hyperliquid_environment:
-        raise HTTPException(
-            status_code=400,
-            detail="Hyperliquid environment is not configured for this account"
-        )
-
-    # Query snapshots from snapshot database
-    snapshot_db = SnapshotSessionLocal()
     try:
-        snapshots = snapshot_db.query(HyperliquidAccountSnapshot).filter(
-            HyperliquidAccountSnapshot.account_id == account_id
-        ).order_by(
-            HyperliquidAccountSnapshot.created_at.desc()
-        ).limit(limit).all()
-    finally:
-        snapshot_db.close()
+        # Verify account exists and has Hyperliquid environment configured
+        account = _ensure_account_owner(db, account_id, current_user.id)
 
-    # Convert to response format (reverse to oldest first for charting)
-    result = []
-    for snapshot in reversed(snapshots):
-        result.append({
-            'account_id': snapshot.account_id,
-            'environment': snapshot.environment,
-            'snapshot_time': snapshot.created_at.isoformat(),
-            'total_equity': float(snapshot.total_equity),
-            'available_balance': float(snapshot.available_balance),
-            'used_margin': float(snapshot.used_margin),
-            'maintenance_margin': float(snapshot.maintenance_margin),
-            'trigger_event': snapshot.trigger_event
-        })
+        if not account.hyperliquid_environment:
+            raise HTTPException(
+                status_code=400,
+                detail="Hyperliquid environment is not configured for this account"
+            )
 
-    return {
-        'account_id': account_id,
-        'account_name': account.name,
-        'environment': account.hyperliquid_environment,
-        'snapshot_count': len(result),
-        'snapshots': result
-    }
+        # Query snapshots from snapshot database
+        snapshot_db = SnapshotSessionLocal()
+        try:
+            snapshots = snapshot_db.query(HyperliquidAccountSnapshot).filter(
+                HyperliquidAccountSnapshot.account_id == account_id
+            ).order_by(
+                HyperliquidAccountSnapshot.created_at.desc()
+            ).limit(limit).all()
+        finally:
+            snapshot_db.close()
+
+        # Convert to response format (reverse to oldest first for charting)
+        result = []
+        for snapshot in reversed(snapshots):
+            result.append({
+                'account_id': snapshot.account_id,
+                'environment': snapshot.environment,
+                'snapshot_time': snapshot.created_at.isoformat(),
+                'total_equity': float(snapshot.total_equity),
+                'available_balance': float(snapshot.available_balance),
+                'used_margin': float(snapshot.used_margin),
+                'maintenance_margin': float(snapshot.maintenance_margin),
+                'trigger_event': snapshot.trigger_event
+            })
+
+        return {
+            'account_id': account_id,
+            'account_name': account.name,
+            'environment': account.hyperliquid_environment,
+            'snapshot_count': len(result),
+            'snapshots': result
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Failed to get Hyperliquid account snapshots",
+            extra={"account_id": account_id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_SNAPSHOT_READ_FAILED_MESSAGE)
 
 
 @router.get("/symbols/available")
 def list_available_symbols():
     """Return cached Hyperliquid tradable symbols (refreshed periodically)."""
-    info = get_available_symbols_info()
-    return {
-        "symbols": info.get("symbols", []),
-        "updated_at": info.get("updated_at"),
-        "max_symbols": MAX_WATCHLIST_SYMBOLS,
-    }
+    try:
+        info = get_available_symbols_info()
+        return {
+            "symbols": info.get("symbols", []),
+            "updated_at": info.get("updated_at"),
+            "max_symbols": MAX_WATCHLIST_SYMBOLS,
+        }
+    except Exception as e:
+        logger.error(
+            "Failed to list Hyperliquid symbols",
+            extra={"error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_SYMBOL_LIST_FAILED_MESSAGE)
 
 
 @router.get("/symbols/ranked")
@@ -728,14 +751,21 @@ def list_ranked_symbols(
     environment: str = Query("mainnet", pattern="^(mainnet|testnet)$"),
 ):
     """Return Hyperliquid tradable symbols ranked by 24h notional volume."""
-    ranked = get_ranked_symbols(limit=limit, environment=environment)
-    return {
-        "symbols": ranked.get("symbols", []),
-        "updated_at": ranked.get("updated_at"),
-        "source": ranked.get("source"),
-        "error": ranked.get("error"),
-        "max_symbols": MAX_WATCHLIST_SYMBOLS,
-    }
+    try:
+        ranked = get_ranked_symbols(limit=limit, environment=environment)
+        return {
+            "symbols": ranked.get("symbols", []),
+            "updated_at": ranked.get("updated_at"),
+            "source": ranked.get("source"),
+            "error": ranked.get("error"),
+            "max_symbols": MAX_WATCHLIST_SYMBOLS,
+        }
+    except Exception as e:
+        logger.error(
+            "Failed to list ranked Hyperliquid symbols",
+            extra={"environment": environment, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_SYMBOL_RANKING_FAILED_MESSAGE)
 
 
 @router.get("/symbols/watchlist")
@@ -743,11 +773,18 @@ def get_symbol_watchlist(
     current_user: User = Depends(get_current_user_dependency),
 ):
     """Return the current user's Hyperliquid watchlist."""
-    symbols = get_selected_symbols(user_id=current_user.id)
-    return {
-        "symbols": symbols,
-        "max_symbols": MAX_WATCHLIST_SYMBOLS,
-    }
+    try:
+        symbols = get_selected_symbols(user_id=current_user.id)
+        return {
+            "symbols": symbols,
+            "max_symbols": MAX_WATCHLIST_SYMBOLS,
+        }
+    except Exception as e:
+        logger.error(
+            "Failed to get Hyperliquid watchlist",
+            extra={"user_id": current_user.id, "error_type": type(e).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WATCHLIST_READ_FAILED_MESSAGE)
 
 
 @router.put("/symbols/watchlist")
@@ -758,16 +795,24 @@ def update_symbol_watchlist(
     """Update the current user's Hyperliquid watchlist (max 10 symbols)."""
     try:
         symbols = update_selected_symbols(payload.symbols, user_id=current_user.id)
-        logger.info(f"[Hyperliquid] Watchlist updated for user {current_user.id} to: {symbols}")
+        logger.info(
+            "Hyperliquid watchlist updated",
+            extra={"user_id": current_user.id, "symbol_count": len(symbols)},
+        )
         return {
             "symbols": symbols,
             "max_symbols": MAX_WATCHLIST_SYMBOLS,
         }
+    except HTTPException:
+        raise
     except ValueError as err:
-        raise HTTPException(status_code=400, detail=str(err))
+        raise HTTPException(status_code=400, detail=SAFE_HYPERLIQUID_WATCHLIST_UPDATE_INVALID_REQUEST_MESSAGE)
     except Exception as err:
-        logger.error(f"Failed to update Hyperliquid watchlist: {err}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to update Hyperliquid watchlist")
+        logger.error(
+            "Failed to update Hyperliquid watchlist",
+            extra={"user_id": current_user.id, "error_type": type(err).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_WATCHLIST_UPDATE_FAILED_MESSAGE)
 
 
 @router.get("/actions/summary")
@@ -828,8 +873,11 @@ def get_action_summary(
     except HTTPException:
         raise
     except Exception as err:
-        logger.error(f"Failed to summarize Hyperliquid actions: {err}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to summarize Hyperliquid actions")
+        logger.error(
+            "Failed to summarize Hyperliquid actions",
+            extra={"user_id": current_user.id, "account_id": account_id, "error_type": type(err).__name__},
+        )
+        raise HTTPException(status_code=500, detail=SAFE_HYPERLIQUID_ACTION_SUMMARY_READ_FAILED_MESSAGE)
 
 
 @router.get("/accounts/{account_id}/rate-limit")
