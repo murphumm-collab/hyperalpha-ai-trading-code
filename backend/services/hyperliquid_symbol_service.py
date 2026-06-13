@@ -30,6 +30,10 @@ WATCHLIST_EXCHANGE = "hyperliquid"
 MAX_WATCHLIST_SYMBOLS = 10
 SYMBOL_REFRESH_TASK_ID = "hyperliquid_symbol_refresh"
 RANKED_SYMBOL_CACHE_SECONDS = int(os.getenv("HYPERLIQUID_RANKED_SYMBOL_CACHE_SECONDS", "300"))
+SAFE_HYPERLIQUID_SYMBOL_META_FETCH_FAILED_MESSAGE = "Hyperliquid symbol metadata is temporarily unavailable."
+SAFE_HYPERLIQUID_RANKED_SYMBOLS_ERROR_MESSAGE = "Hyperliquid ranked symbols are temporarily unavailable."
+SAFE_HYPERLIQUID_SYMBOL_REFRESH_FAILED_MESSAGE = "Hyperliquid symbol refresh failed."
+SAFE_HYPERLIQUID_STREAM_SYMBOL_REFRESH_FAILED_MESSAGE = "Hyperliquid market stream symbol refresh failed."
 
 DEFAULT_SYMBOLS: List[Dict[str, str]] = [
     {"symbol": "BTC", "name": "Bitcoin"},
@@ -259,12 +263,15 @@ def fetch_remote_symbols(environment: str = "testnet") -> List[Dict[str, str]]:
     """Call Hyperliquid meta endpoint to retrieve tradable universe."""
     url = META_ENDPOINTS.get(environment, META_ENDPOINTS["testnet"])
     try:
-        resp = requests.post(url, json={"type": "meta"}, timeout=10)
+        resp = requests.post(url, json={"type": "meta"}, timeout=10, allow_redirects=False)
         resp.raise_for_status()
         data = resp.json()
         universe = data.get("universe") or data.get("universeSpot") or []
     except Exception as err:
-        logger.warning("Failed to fetch Hyperliquid meta info: %s", err)
+        logger.warning(
+            "Failed to fetch Hyperliquid meta info",
+            extra={"environment": environment, "error_type": type(err).__name__},
+        )
         return []
 
     results: List[Dict[str, str]] = []
@@ -304,7 +311,12 @@ def fetch_remote_symbols(environment: str = "testnet") -> List[Dict[str, str]]:
     hip3_url = META_ENDPOINTS["mainnet"]
     hip3_count = 0
     try:
-        hip3_resp = requests.post(hip3_url, json={"type": "meta", "dex": "xyz"}, timeout=10)
+        hip3_resp = requests.post(
+            hip3_url,
+            json={"type": "meta", "dex": "xyz"},
+            timeout=10,
+            allow_redirects=False,
+        )
         hip3_resp.raise_for_status()
         hip3_data = hip3_resp.json()
         hip3_universe = hip3_data.get("universe") or []
@@ -336,7 +348,10 @@ def fetch_remote_symbols(environment: str = "testnet") -> List[Dict[str, str]]:
 
         logger.info("Fetched %d HIP-3 Hyperliquid symbols", hip3_count)
     except Exception as err:
-        logger.warning("Failed to fetch HIP-3 symbols: %s", err)
+        logger.warning(
+            "Failed to fetch HIP-3 symbols",
+            extra={"error_type": type(err).__name__},
+        )
 
     return results
 
@@ -469,7 +484,12 @@ def get_ranked_symbols(limit: int = 50, environment: str = "mainnet") -> Dict[st
 
     endpoint = META_ENDPOINTS.get(environment, META_ENDPOINTS["mainnet"])
     try:
-        response = requests.post(endpoint, json={"type": "metaAndAssetCtxs"}, timeout=10)
+        response = requests.post(
+            endpoint,
+            json={"type": "metaAndAssetCtxs"},
+            timeout=10,
+            allow_redirects=False,
+        )
         response.raise_for_status()
         payload = response.json()
         if not isinstance(payload, list) or len(payload) < 2:
@@ -516,7 +536,10 @@ def get_ranked_symbols(limit: int = 50, environment: str = "mainnet") -> Dict[st
             "source": "hyperliquid_meta_and_asset_contexts",
         }
     except Exception as err:
-        logger.warning("Failed to fetch Hyperliquid ranked symbols: %s", err)
+        logger.warning(
+            "Failed to fetch Hyperliquid ranked symbols",
+            extra={"environment": environment, "error_type": type(err).__name__},
+        )
         fallback = [
             {
                 **entry,
@@ -531,7 +554,7 @@ def get_ranked_symbols(limit: int = 50, environment: str = "mainnet") -> Dict[st
             "symbols": fallback,
             "updated_at": None,
             "source": "available_symbol_cache",
-            "error": str(err),
+            "error": SAFE_HYPERLIQUID_RANKED_SYMBOLS_ERROR_MESSAGE,
         }
 
 
@@ -580,7 +603,10 @@ def update_selected_symbols(symbols: List[str], user_id: Optional[int] = None) -
             _save_config_value(db, SELECTED_SYMBOLS_KEY, json.dumps(unique_symbols))
 
     scope = f"user {user_id}" if user_id is not None else "global"
-    logger.info("Hyperliquid watchlist updated for %s: %s", scope, ", ".join(unique_symbols) or "none")
+    logger.info(
+        "Hyperliquid watchlist updated",
+        extra={"scope": scope, "symbol_count": len(unique_symbols)},
+    )
     refresh_market_stream_symbols()
     return unique_symbols
 
@@ -604,7 +630,10 @@ def schedule_symbol_refresh_task(interval_seconds: int = 7200) -> None:
             refreshed = refresh_hyperliquid_symbols()
             logger.debug("Symbol refresh task ran; %d symbols available", len(refreshed))
         except Exception as err:
-            logger.warning("Hyperliquid symbol refresh failed: %s", err)
+            logger.warning(
+                SAFE_HYPERLIQUID_SYMBOL_REFRESH_FAILED_MESSAGE,
+                extra={"error_type": type(err).__name__},
+            )
 
     # Remove existing task if present to avoid duplicates
     task_scheduler.remove_task(SYMBOL_REFRESH_TASK_ID)
@@ -657,7 +686,10 @@ def refresh_market_stream_symbols() -> List[str]:
     try:
         from services.market_stream import market_data_stream, start_market_stream
     except Exception as err:
-        logger.warning("Unable to update market stream symbols: %s", err)
+        logger.warning(
+            SAFE_HYPERLIQUID_STREAM_SYMBOL_REFRESH_FAILED_MESSAGE,
+            extra={"error_type": type(err).__name__},
+        )
         return combined
 
     if market_data_stream:
@@ -671,6 +703,9 @@ def refresh_market_stream_symbols() -> List[str]:
         hyperliquid_symbols = get_selected_symbols()
         market_flow_collector.refresh_subscriptions(hyperliquid_symbols)
     except Exception as err:
-        logger.warning("Unable to update market flow collector: %s", err)
+        logger.warning(
+            SAFE_HYPERLIQUID_STREAM_SYMBOL_REFRESH_FAILED_MESSAGE,
+            extra={"error_type": type(err).__name__},
+        )
 
     return combined
