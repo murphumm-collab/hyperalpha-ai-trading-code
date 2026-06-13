@@ -5,7 +5,7 @@ Preset configurations for popular LLM providers with their base URLs and recomme
 Users can select a provider during onboarding or configure a custom endpoint.
 
 Supported providers:
-- OpenAI (GPT-4o, GPT-4-turbo)
+- OpenAI (GPT-5.5, GPT-4o)
 - Anthropic (Claude 3.5 Sonnet, Claude 3 Opus)
 - Google Gemini (Gemini 2.0 Flash, Gemini 1.5 Pro)
 - Deepseek (V4 Flash, V4 Pro) — OpenAI & Anthropic format
@@ -40,7 +40,9 @@ PRESET_PROVIDERS: Dict[str, LLMProvider] = {
         name="OpenAI",
         base_url="https://api.openai.com/v1",
         models=[
-            # GPT-4o series (recommended default for AI Trading)
+            # Codex local test default
+            "gpt-5.5",
+            # GPT-4o series
             "gpt-4o", "gpt-4o-mini", "gpt-4o-2024-11-20", "gpt-4o-2024-08-06",
             # Reasoning models
             "o3", "o3-mini", "o1", "o1-mini", "o1-preview",
@@ -52,7 +54,7 @@ PRESET_PROVIDERS: Dict[str, LLMProvider] = {
             "gpt-3.5-turbo", "gpt-3.5-turbo-0125",
         ],
         api_format="openai",
-        description="GPT models and o-series reasoning models"
+        description="Codex GPT-5.5 and GPT models"
     ),
     "anthropic": LLMProvider(
         id="anthropic",

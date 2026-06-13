@@ -538,7 +538,7 @@ def test_ai_trading_strategy_action_error_paths_use_safe_formatter() -> None:
     assert "safeStrategyActionApiDetailLabel" in helper_source
     assert "Strategy spec not found" in helper_source
     assert "No handoff-ready matching Program Backtest result was found" in helper_source
-    assert "GPT/DeepSeek/Qwen profile is not configured" in helper_source
+    assert "Codex GPT-5.5 profile is not configured" in helper_source
     assert "Backtest preflight blocked:" in helper_source
 
     assert "formatAiTradingStrategyActionApiError(res.status, data.detail, fallback)" in strategy_actions_block
@@ -909,9 +909,10 @@ def test_ai_trading_model_adjustment_readiness_ui_uses_safe_blocker_labels() -> 
     assert "modelAdjustmentReadinessDetailLabel()" in model_runtime_card_block
     assert "modelAdjustmentUnavailableTitle()" in model_adjust_button_block
     assert "Model adjustment blocked: {{summary}}" in hyper_ai_source
+    assert "ai-trading-codex-gpt55-fixed-model" in hyper_ai_source
     assert 'data-testid="ai-trading-model-config-button"' in model_runtime_card_block
     assert "setShowConfigModal(true)" in model_runtime_card_block
-    assert "Configure GPT/DeepSeek/Qwen model" in model_runtime_card_block
+    assert "Configure Codex GPT-5.5 model" in model_runtime_card_block
     assert "fetchProfile()" in model_config_saved_block
     assert "refreshAiTradingState()" in model_config_saved_block
     assert "onSaved={handleLLMConfigSaved}" in llm_config_modal_block
@@ -936,7 +937,7 @@ def test_hyper_ai_main_page_always_exposes_model_api_key_config_entry() -> None:
     main_page_model_entry_block = config_panel_block.split(
         'data-testid="hyper-ai-main-page-model-config-entry"',
         1,
-    )[1].split("{profile && (", 1)[0]
+    )[1].split('<div className="border-t pt-4">', 1)[0]
     runtime_guard_prefix = config_panel_block.split(
         'data-testid="hyper-ai-main-page-model-config-entry"',
         1,
@@ -949,6 +950,8 @@ def test_hyper_ai_main_page_always_exposes_model_api_key_config_entry() -> None:
     assert "Configure API key" in main_page_model_entry_block
     assert "Update API key" in main_page_model_entry_block
     assert "modelAdjustmentReadinessDetailLabel()" in main_page_model_entry_block
+    assert "llm_base_url" not in main_page_model_entry_block
+    assert "Base URL" not in main_page_model_entry_block
     assert not any("aiTradingRuntime &&" in line for line in runtime_guard_prefix)
     assert "data-testid=\"ai-trading-model-config-workspace-button\"" in center_workspace_block
     assert "aiTradingModelAdjustmentReady &&" not in center_workspace_block
@@ -1091,7 +1094,7 @@ def test_hyper_ai_model_config_is_nonblocking_after_splash() -> None:
     assert "data-testid=\"ai-trading-model-config-button\"" in hyper_ai_source
     assert "onClick={() => setShowConfigModal(true)}" in hyper_ai_source
     assert "<LLMConfigModal" in hyper_ai_source
-    assert "Configure GPT/DeepSeek/Qwen model" in hyper_ai_source
+    assert "Configure Codex GPT-5.5 model" in hyper_ai_source
 
 
 def test_hyper_ai_agent_session_route_id_rejects_sensitive_values_source_guard() -> None:

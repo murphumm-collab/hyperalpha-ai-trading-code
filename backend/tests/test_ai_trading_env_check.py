@@ -49,7 +49,7 @@ def _patch_ready_dependencies(
         "model": None,
         "provider_supported": False,
         "blockers": ["model_profile_not_configured"],
-        "next_actions": ["Create a Hyper AI model profile with OpenAI/GPT, DeepSeek, or Qwen before model-adjust."],
+        "next_actions": ["Create a Hyper AI model profile with Codex GPT-5.5 before model-adjust."],
         "credential_present": False,
         "credential_value_returned": False,
     }
@@ -124,7 +124,7 @@ def test_env_check_ready_requires_local_mock_gateway(monkeypatch):
         == ["model_profile_not_configured"]
     )
     assert report["checks"]["backend_8802"]["runtime_model_adjustment"]["next_actions"] == [
-        "Create a Hyper AI model profile with OpenAI/GPT, DeepSeek, or Qwen before model-adjust."
+        "Create a Hyper AI model profile with Codex GPT-5.5 before model-adjust."
     ]
     assert report["next_actions"] == [
         "Local AI Trading V1 runtime is ready; continue with browser acceptance or the aggregate V1 local acceptance runner."

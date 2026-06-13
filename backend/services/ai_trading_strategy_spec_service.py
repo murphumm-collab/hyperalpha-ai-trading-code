@@ -86,7 +86,7 @@ AI_TRADING_V1_MODEL_PROVIDERS = {
     "deepseek",
     "qwen",
 }
-AI_TRADING_V1_MODEL_PROVIDER_LABEL = "OpenAI/GPT, DeepSeek, or Qwen"
+AI_TRADING_V1_MODEL_PROVIDER_LABEL = "Codex GPT-5.5"
 BACKTEST_HANDOFF_READY_STATUSES = {
     "passed",
     "accepted",
@@ -2075,7 +2075,7 @@ def adjust_strategy_spec_with_model(
     api_format = _clean_text(llm_config.get("api_format"), 20) or "openai"
     if provider not in AI_TRADING_V1_MODEL_PROVIDERS:
         raise ValueError(
-            f"AI Trading model adjustment requires an {AI_TRADING_V1_MODEL_PROVIDER_LABEL} profile"
+            f"AI Trading model adjustment requires a {AI_TRADING_V1_MODEL_PROVIDER_LABEL} profile"
         )
     if not model or not base_url:
         raise ValueError("LLM model or base URL is missing")

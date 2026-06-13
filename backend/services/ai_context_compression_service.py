@@ -62,6 +62,7 @@ class CompressionResult(TypedDict):
 # Model context window sizes (updated 2026-03)
 MODEL_CONTEXT_WINDOWS = {
     # OpenAI - GPT-5 series (must be listed before gpt-4 to match first)
+    "gpt-5.5": 128000,
     "gpt-5.4": 272000,
     "gpt-5.2": 400000,
     "gpt-5": 400000,

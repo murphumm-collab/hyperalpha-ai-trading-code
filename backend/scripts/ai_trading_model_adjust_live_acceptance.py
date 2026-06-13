@@ -1,4 +1,4 @@
-"""Run a local live GPT/DeepSeek/Qwen model-adjust acceptance check.
+"""Run a local live Codex GPT-5.5 model-adjust acceptance check.
 
 This runner targets the local backend only. It is designed for the future
 "real user Hyper AI profile/API key" acceptance path without accepting or
@@ -31,8 +31,9 @@ from urllib import error, parse, request
 
 DEFAULT_BASE_URL = "http://127.0.0.1:8802"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
-SUPPORTED_LIVE_MODEL_PROVIDERS = {"openai", "deepseek", "qwen"}
-SUPPORTED_LIVE_MODEL_PROVIDER_LABEL = "OpenAI/GPT, DeepSeek, or Qwen"
+SUPPORTED_LIVE_MODEL_PROVIDERS = {"openai"}
+SUPPORTED_LIVE_MODEL_PROVIDER_LABEL = "Codex GPT-5.5"
+SUPPORTED_LIVE_MODEL_NAME = "gpt-5.5"
 SENSITIVE_REPORT_KEYS = ("api_key", "apikey", "authorization", "password", "private_key", "secret", "token")
 SAFE_ACCEPTANCE_ERROR_MESSAGE = "AI Trading live model-adjust acceptance failed"
 SENSITIVE_REPORT_PATTERN = re.compile(
@@ -134,6 +135,16 @@ def _provider_from_adjusted_spec(spec: Dict[str, Any]) -> str:
     return str(ai_model.get("provider") or "").lower()
 
 
+def _model_from_adjusted_spec(spec: Dict[str, Any]) -> str:
+    metadata = spec.get("metadata") if isinstance(spec.get("metadata"), dict) else {}
+    adjustment = metadata.get("model_adjustment") if isinstance(metadata.get("model_adjustment"), dict) else {}
+    model = adjustment.get("model")
+    if model:
+        return str(model)
+    ai_model = spec.get("ai_model") if isinstance(spec.get("ai_model"), dict) else {}
+    return str(ai_model.get("model") or "")
+
+
 def run_acceptance(
     *,
     base_url: str,
@@ -183,7 +194,7 @@ def run_acceptance(
         {
             "spec": spec,
             "instruction": (
-                "Use the configured GPT/DeepSeek/Qwen profile to refine entries, exits, TP/SL, "
+                "Use the configured Codex GPT-5.5 profile to refine entries, exits, TP/SL, "
                 "max loss, leverage, and any missing confirmations. Preserve signal-only "
                 "execution and do not create orders."
             ),
@@ -192,10 +203,12 @@ def run_acceptance(
     )
     adjusted_spec = model_adjust["spec"]
     provider = _provider_from_adjusted_spec(adjusted_spec)
+    model = _model_from_adjusted_spec(adjusted_spec)
     _expect(
         provider in SUPPORTED_LIVE_MODEL_PROVIDERS,
         f"model-adjust provider must be {SUPPORTED_LIVE_MODEL_PROVIDER_LABEL}, got {provider!r}",
     )
+    _expect(model == SUPPORTED_LIVE_MODEL_NAME, f"model-adjust model must be {SUPPORTED_LIVE_MODEL_NAME}, got {model!r}")
     _expect(adjusted_spec["execution"]["signal_only"] is True, "model-adjust removed signal_only")
     _expect(adjusted_spec["execution"]["ai_may_place_orders"] is False, "model-adjust allowed direct AI orders")
     _expect(adjusted_spec["execution"]["order_backend_only"] is True, "model-adjust removed order_backend_only")
@@ -248,11 +261,7 @@ def run_acceptance(
         },
         "model_adjustment": {
             "provider": provider,
-            "model": (
-                adjusted_spec.get("metadata", {})
-                .get("model_adjustment", {})
-                .get("model")
-            ),
+            "model": model,
             "source": "hyper_ai_profile",
         },
         "strategy": {

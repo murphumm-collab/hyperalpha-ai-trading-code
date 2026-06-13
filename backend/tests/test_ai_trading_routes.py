@@ -319,7 +319,7 @@ def test_ai_trading_strategy_signal_and_handoff_flow(tmp_path, monkeypatch):
     assert runtime.json()["model_adjustment"]["ready"] is False
     assert runtime.json()["model_adjustment"]["blockers"] == ["model_profile_not_configured"]
     assert runtime.json()["model_adjustment"]["next_actions"] == [
-        "Create a Hyper AI model profile with OpenAI/GPT, DeepSeek, or Qwen before model-adjust."
+        "Create a Hyper AI model profile with Codex GPT-5.5 before model-adjust."
     ]
     assert runtime.json()["handoff_attempts"] == {
         "total": 0,
@@ -843,7 +843,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
                 user_id=user_id,
                 llm_provider="openai",
                 llm_base_url="https://api.openai.com/v1",
-                llm_model="gpt-4o",
+                llm_model="gpt-5.5",
                 llm_api_key_encrypted="encrypted-openai-key",
             )
         )
@@ -858,7 +858,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
         "ready": True,
         "configured": True,
         "provider": "openai",
-        "model": "gpt-4o",
+        "model": "gpt-5.5",
         "source": "hyper_ai_profile",
         "provider_supported": True,
         "blockers": [],
@@ -890,7 +890,7 @@ def test_ai_trading_runtime_reports_model_adjustment_readiness_without_secrets(t
     assert unsupported_model["provider_supported"] is False
     assert "model_provider_not_deepseek_or_qwen" in unsupported_model["blockers"]
     assert unsupported_model["next_actions"] == [
-        "Switch the Hyper AI profile provider to OpenAI/GPT, DeepSeek, or Qwen for AI Trading V1."
+        "Switch the Hyper AI profile provider to Codex GPT-5.5 for AI Trading V1."
     ]
     assert unsupported_model["credential_present"] is True
     assert unsupported_model["credential_value_returned"] is False
@@ -1085,7 +1085,7 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
             "configured": True,
             "provider": "openai",
             "base_url": "https://api.openai.com/v1",
-            "model": "gpt-4o",
+            "model": "gpt-5.5",
             "api_key": "secret-model-key",
             "api_format": "openai",
         }
@@ -1135,7 +1135,7 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     assert adjusted["risk"]["max_loss_pct"] == 0.5
     assert adjusted["backtest"]["source"] == "invalidated_by_strategy_adjustment"
     assert adjusted["metadata"]["model_adjustment"]["provider"] == "openai"
-    assert adjusted["metadata"]["model_adjustment"]["model"] == "gpt-4o"
+    assert adjusted["metadata"]["model_adjustment"]["model"] == "gpt-5.5"
     expected_context_summary = (
         "AI Trading session compressed context v1 | symbols=BTC | "
         "risk=0.5%; redaction=enabled; ai_order_placement=disallowed"
@@ -1154,7 +1154,7 @@ def test_ai_trading_strategy_spec_model_adjustment_uses_profile_model_then_safe_
     }
     assert payload["model_context"] == {
         "provider": "openai",
-        "model": "gpt-4o",
+        "model": "gpt-5.5",
         "source": "hyper_ai_profile",
         "agent_session_context": adjusted["metadata"]["model_adjustment"]["agent_session_context"],
     }

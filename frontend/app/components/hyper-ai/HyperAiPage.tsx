@@ -728,6 +728,10 @@ interface LLMProvider {
   base_url?: string
 }
 
+const CODEX_GPT55_PROVIDER_ID = 'openai'
+const CODEX_GPT55_PROVIDER_NAME = 'Codex GPT-5.5'
+const CODEX_GPT55_MODEL = 'gpt-5.5'
+
 // Memory category icons and colors
 const MEMORY_CATEGORY_STYLES: Record<string, { icon: string; color: string }> = {
   preference: { icon: '🎯', color: 'text-blue-500' },
@@ -860,7 +864,7 @@ function MemoryItem({ memory }: { memory: any }) {
 function LLMConfigModal({
   open,
   onClose,
-  providers,
+  providers: _providers,
   currentProfile,
   onSaved
 }: {
@@ -871,45 +875,26 @@ function LLMConfigModal({
   onSaved: () => void
 }) {
   const { t } = useTranslation()
-  const [selectedProvider, setSelectedProvider] = useState(currentProfile?.llm_provider || '')
+  const [selectedProvider, setSelectedProvider] = useState(CODEX_GPT55_PROVIDER_ID)
   const [apiKey, setApiKey] = useState('')
-  const [modelInput, setModelInput] = useState(currentProfile?.llm_model || '')
-  const [customBaseUrl, setCustomBaseUrl] = useState(currentProfile?.llm_base_url || '')
+  const [modelInput, setModelInput] = useState(CODEX_GPT55_MODEL)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [success, setSuccess] = useState(false)
 
-  const currentProvider = providers.find(p => p.id === selectedProvider)
-
   useEffect(() => {
     if (open) {
-      setSelectedProvider(currentProfile?.llm_provider || '')
-      setModelInput(currentProfile?.llm_model || '')
-      setCustomBaseUrl(currentProfile?.llm_base_url || '')
+      setSelectedProvider(CODEX_GPT55_PROVIDER_ID)
+      setModelInput(CODEX_GPT55_MODEL)
       setApiKey('')
       setError('')
       setSuccess(false)
     }
   }, [open, currentProfile])
 
-  // When provider changes, set default model if current model is empty
-  useEffect(() => {
-    if (selectedProvider && !modelInput) {
-      const provider = providers.find(p => p.id === selectedProvider)
-      if (provider && provider.models.length > 0) {
-        setModelInput(provider.models[0])
-      }
-    }
-  }, [selectedProvider])
-
   const handleSave = async () => {
-    if (!selectedProvider || !apiKey) {
+    if (!apiKey) {
       setError(t('hyperAi.onboarding.fillRequired', 'Please fill in all required fields'))
-      return
-    }
-
-    if (selectedProvider === 'custom' && !customBaseUrl) {
-      setError(t('hyperAi.onboarding.baseUrlRequired', 'Base URL is required for custom provider'))
       return
     }
 
@@ -922,10 +907,9 @@ function LLMConfigModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          provider: selectedProvider,
+          provider: CODEX_GPT55_PROVIDER_ID,
           api_key: apiKey,
-          model: modelInput,
-          base_url: selectedProvider === 'custom' ? customBaseUrl : undefined
+          model: CODEX_GPT55_MODEL
         })
       })
 
@@ -961,30 +945,18 @@ function LLMConfigModal({
         </div>
 
         <div className="space-y-4">
-          <div className="space-y-2">
-            <Label>{t('hyperAi.onboarding.provider', 'AI Provider')}</Label>
-            <Select value={selectedProvider} onValueChange={(v) => { setSelectedProvider(v); setModelInput('') }}>
-              <SelectTrigger>
-                <SelectValue placeholder={t('hyperAi.onboarding.selectProvider', 'Select provider')} />
-              </SelectTrigger>
-              <SelectContent>
-                {providers.map(p => (
-                  <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {selectedProvider === 'custom' && (
-            <div className="space-y-2">
-              <Label>{t('hyperAi.onboarding.baseUrl', 'Base URL')}</Label>
-              <Input
-                value={customBaseUrl}
-                onChange={e => setCustomBaseUrl(e.target.value)}
-                placeholder="https://api.example.com/v1"
-              />
+          <div
+            className="rounded-md border bg-muted/30 p-3"
+            data-testid="ai-trading-codex-gpt55-fixed-model"
+          >
+            <div className="text-xs text-muted-foreground">
+              {t('hyperAi.aiTradingLocalTestModel', 'Local test model')}
             </div>
-          )}
+            <div className="mt-1 text-sm font-medium">{CODEX_GPT55_PROVIDER_NAME}</div>
+            <div className="mt-0.5 text-xs text-muted-foreground">
+              OpenAI / {modelInput}
+            </div>
+          </div>
 
           <div className="space-y-2">
             <Label>{t('hyperAi.onboarding.apiKey', 'API Key')}</Label>
@@ -995,36 +967,6 @@ function LLMConfigModal({
               placeholder={currentProfile?.llm_configured ? t('hyperAi.onboarding.apiKeyConfigured', 'Enter new API key to update') : 'sk-...'}
             />
           </div>
-
-          {selectedProvider && (
-            <div className="space-y-2">
-              <Label>{t('hyperAi.onboarding.model', 'Model')}</Label>
-              <div className="flex gap-1">
-                <Input
-                  value={modelInput}
-                  onChange={e => setModelInput(e.target.value)}
-                  placeholder={t('hyperAi.onboarding.modelPlaceholder', 'Enter or select model')}
-                  className="flex-1"
-                />
-                {currentProvider && currentProvider.models.length > 0 && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="icon" className="shrink-0">
-                        <ChevronDown className="w-4 h-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="max-h-60 overflow-y-auto">
-                      {currentProvider.models.map(m => (
-                        <DropdownMenuItem key={m} onClick={() => setModelInput(m)}>
-                          {m}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         {error && (
@@ -1052,7 +994,7 @@ function LLMConfigModal({
               ? t('common.cancel', 'Cancel')
               : t('hyperAi.aiTradingConfigureLater', 'Configure later')}
           </Button>
-          <Button onClick={handleSave} disabled={!selectedProvider || !apiKey || saving} className="flex-1">
+          <Button onClick={handleSave} disabled={!apiKey || saving} className="flex-1">
             {saving && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
             {saving ? t('hyperAi.onboarding.testing', 'Testing...') : t('common.save', 'Save')}
           </Button>
@@ -1639,7 +1581,7 @@ export default function HyperAiPage() {
       model_profile_not_configured: t('hyperAi.aiTradingModelProfileMissing', 'Profile missing'),
       model_profile_credential_missing: t('hyperAi.aiTradingModelCredentialMissing', 'Key missing'),
       model_profile_credential_unreadable: t('hyperAi.aiTradingModelCredentialUnreadable', 'Key unreadable'),
-      model_provider_not_deepseek_or_qwen: t('hyperAi.aiTradingModelProviderUnsupported', 'GPT/DeepSeek/Qwen required'),
+      model_provider_not_deepseek_or_qwen: t('hyperAi.aiTradingModelProviderUnsupported', 'Codex GPT-5.5 required'),
       model_name_missing: t('hyperAi.aiTradingModelNameMissing', 'Model missing'),
       model_base_url_missing: t('hyperAi.aiTradingModelEndpointMissing', 'Endpoint missing'),
       model_base_url_rejected_sensitive: t('hyperAi.aiTradingModelEndpointRejected', 'Endpoint rejected'),
@@ -1660,7 +1602,7 @@ export default function HyperAiPage() {
       return t('hyperAi.aiTradingModelProfileMissing', 'Profile missing')
     }
     if (aiTradingModelAdjustmentBlockers.includes('model_provider_not_deepseek_or_qwen')) {
-      return t('hyperAi.aiTradingModelProviderUnsupported', 'GPT/DeepSeek/Qwen required')
+      return t('hyperAi.aiTradingModelProviderUnsupported', 'Codex GPT-5.5 required')
     }
     if (aiTradingModelAdjustmentBlockers.includes('model_profile_credential_missing')) {
       return t('hyperAi.aiTradingModelCredentialMissing', 'Key missing')
@@ -1688,7 +1630,7 @@ export default function HyperAiPage() {
     if (provider) {
       return String(provider)
     }
-    return t('hyperAi.aiTradingModelNotConfigured', 'GPT/DeepSeek/Qwen profile')
+    return t('hyperAi.aiTradingModelNotConfigured', 'Codex GPT-5.5 profile')
   }
   const modelAdjustmentReadinessDetailLabel = (): string => {
     const identity = modelAdjustmentDetailLabel()
@@ -1709,7 +1651,7 @@ export default function HyperAiPage() {
       ? t('hyperAi.aiTradingModelAdjustmentBlockedBy', 'Model adjustment blocked: {{summary}}', {
           summary: blockerSummary,
         })
-      : t('hyperAi.aiTradingModelAdjustmentUnavailable', 'Configure GPT, DeepSeek, or Qwen for model adjustment')
+      : t('hyperAi.aiTradingModelAdjustmentUnavailable', 'Configure Codex GPT-5.5 for model adjustment')
   }
   const aiTradingValidationWarningLabel = (warning: string): string => {
     if (warning === AI_TRADING_MODEL_OUTPUT_SENSITIVE_WARNING) {
@@ -4736,7 +4678,7 @@ export default function HyperAiPage() {
                   <div className="mt-0.5 text-xs text-muted-foreground" title={modelAdjustmentReadinessDetailLabel()}>
                     {t(
                       'hyperAi.aiTradingConfigureLaterHint',
-                      'You can use the workspace now and configure GPT/DeepSeek/Qwen API keys later here.'
+                      'You can use the workspace now and configure Codex GPT-5.5 API key later here.'
                     )}{' '}
                     {modelAdjustmentReadinessDetailLabel()}
                   </div>
@@ -4878,28 +4820,6 @@ export default function HyperAiPage() {
               </Button>
             </div>
           </div>
-
-          {profile && (
-            <div
-              className="space-y-1.5 text-sm cursor-pointer hover:bg-muted/50 rounded-lg p-2 -mx-2 transition-colors"
-              onClick={() => setShowConfigModal(true)}
-            >
-              <div className="flex items-center">
-                <span className="text-muted-foreground shrink-0 w-[72px]">Provider</span>
-                <span className="truncate">{profile.llm_provider || 'Not configured'}</span>
-              </div>
-              <div className="flex items-center">
-                <span className="text-muted-foreground shrink-0 w-[72px]">Model</span>
-                <span className="truncate">{profile.llm_model || '-'}</span>
-              </div>
-              {profile.llm_base_url && (
-                <div className="flex items-center">
-                  <span className="text-muted-foreground shrink-0 w-[72px]">Base URL</span>
-                  <span className="truncate">{profile.llm_base_url}</span>
-                </div>
-              )}
-            </div>
-          )}
 
           <div className="border-t pt-4">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -5185,8 +5105,8 @@ export default function HyperAiPage() {
                       type="button"
                       data-testid="ai-trading-model-config-button"
                       className="flex h-5 w-5 shrink-0 items-center justify-center rounded border bg-background text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
-                      aria-label={t('hyperAi.aiTradingConfigureModel', 'Configure GPT/DeepSeek/Qwen model')}
-                      title={t('hyperAi.aiTradingConfigureModel', 'Configure GPT/DeepSeek/Qwen model')}
+                      aria-label={t('hyperAi.aiTradingConfigureModel', 'Configure Codex GPT-5.5 model')}
+                      title={t('hyperAi.aiTradingConfigureModel', 'Configure Codex GPT-5.5 model')}
                       onClick={() => setShowConfigModal(true)}
                     >
                       <Settings className="h-3 w-3" />
@@ -5587,7 +5507,7 @@ export default function HyperAiPage() {
                       currentStrategyModelAdjustBlockedByArchivedSession
                         ? archivedSessionActionTitle
                       : canUseAiTradingModelAdjust
-                        ? t('hyperAi.aiTradingApplyModelAdjustment', 'Apply with GPT/DeepSeek/Qwen')
+                        ? t('hyperAi.aiTradingApplyModelAdjustment', 'Apply with Codex GPT-5.5')
                         : modelAdjustmentUnavailableTitle()
                     }
                   >

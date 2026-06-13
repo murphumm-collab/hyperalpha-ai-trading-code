@@ -823,7 +823,7 @@ def _write_minimal_acceptance_repo(
     external_markers = "\n".join(
         [
             "实际 macOS 整机重启后的自动恢复还未物理验收",
-            "真实 GPT/DeepSeek/Qwen API key live model-adjust 未验收",
+            "真实 Codex GPT-5.5 API key live model-adjust 未验收",
             "真实 HyperAlpha 订单后端 URL/token live handoff 未验收",
             "真实 HTTPS 订单后端 URL/token、真实 Auth/JWKS、硬风控生产值",
             "真实登录态/真实 Auth 配置下的可视化验收未做",
@@ -1046,7 +1046,7 @@ def _write_minimal_acceptance_repo(
                 "已 push，不 merge",
                 "default production readiness DB-audit blocker",
                 "scripts/local-dev/run_ai_trading_v1_local_acceptance.sh --confirm-local-mock-handoff",
-                "真实 Auth/JWKS、真实订单后端 URL/token、真实 GPT/DeepSeek/Qwen profile/API key",
+                "真实 Auth/JWKS、真实订单后端 URL/token、真实 Codex GPT-5.5 profile/API key",
             ]
         ),
     )

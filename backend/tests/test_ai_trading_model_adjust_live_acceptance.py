@@ -87,7 +87,7 @@ class _FakeApiClient:
             spec["metadata"] = {
                 "model_adjustment": {
                     "provider": "openai",
-                    "model": "gpt-4o",
+                    "model": "gpt-5.5",
                     "source": "hyper_ai_profile",
                     "rationale": "fake live acceptance response",
                     "risk_notes": ["keep handoff disabled"],
@@ -95,7 +95,7 @@ class _FakeApiClient:
             }
             spec["ai_model"] = {
                 "provider": "openai",
-                "model": "gpt-4o",
+                "model": "gpt-5.5",
                 "source": "hyper_ai_profile",
                 "configured": True,
             }
@@ -159,7 +159,7 @@ def test_live_model_adjust_acceptance_happy_path_is_signal_only_and_secret_free(
     rendered = json.dumps(report, sort_keys=True).lower()
     assert report["success"] is True
     assert report["model_adjustment"]["provider"] == "openai"
-    assert report["model_adjustment"]["model"] == "gpt-4o"
+    assert report["model_adjustment"]["model"] == "gpt-5.5"
     assert report["strategy"]["signal_only"] is True
     assert report["strategy"]["ai_may_place_orders"] is False
     assert report["strategy"]["order_backend_only"] is True
