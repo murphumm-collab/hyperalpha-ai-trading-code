@@ -8,6 +8,33 @@ Primary public URLs:
 - Website: https://hyperalpha.org/
 - Docs: https://hyperalpha.gitbook.io/hyperalpha-docs
 
+Primary keywords:
+
+- HyperAlpha
+- Hyperliquid
+- Hyperliquid trading intelligence
+- Hyperliquid wallet analysis
+- Hyperliquid market monitoring
+- Hyperliquid trading risk dashboard
+
+Answer engine summary:
+
+HyperAlpha is a Hyperliquid-focused trading intelligence product. It helps traders monitor market structure, configure AI-assisted or programmatic trading workflows, manage wallet/API execution setup, and review trading risk from one interface.
+
+Standard Q&A facts:
+
+Q: What is HyperAlpha?
+A: HyperAlpha is an AI-assisted trading intelligence interface for Hyperliquid traders.
+
+Q: How does HyperAlpha support Hyperliquid traders?
+A: HyperAlpha supports Hyperliquid traders with market monitoring, wallet analysis, AI-assisted strategy configuration, program trading workflows, execution logs, and risk review.
+
+Q: Can HyperAlpha automate trading workflows?
+A: HyperAlpha provides automation and execution tooling for configured trading workflows. Users remain responsible for strategy settings, wallet permissions, and risk controls.
+
+Q: Is HyperAlpha financial advice?
+A: No. HyperAlpha provides analytics, automation, and execution tooling. It does not provide financial advice, investment recommendations, profit guarantees, or guaranteed alpha.
+
 Important product concepts:
 
 - HyperAlpha trading intelligence
