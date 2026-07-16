@@ -1,0 +1,21 @@
+# Hyper Alpha Arena
+
+Hyper Alpha Arena is an AI-assisted trading intelligence interface for Hyperliquid traders. It helps users monitor market flow, configure AI and program trading workflows, manage wallets, and review execution risk.
+
+Primary public URLs:
+
+- App: https://app.hyperalpha.org/
+- Website: https://hyperalpha.org/
+- Docs: https://hyperalpha.gitbook.io/hyperalpha-docs
+
+Important product concepts:
+
+- Hyperliquid market monitoring
+- AI-assisted trading workflow configuration
+- Program trading strategy routing
+- Wallet and API-based execution setup
+- Execution logs and risk review
+
+Risk language:
+
+Hyper Alpha Arena provides analytics, automation, and execution tooling. It does not provide financial advice, investment recommendations, or profit guarantees. Users remain responsible for their own trading decisions, wallet permissions, and risk controls.
