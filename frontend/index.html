@@ -8,6 +8,76 @@
         name="description"
         content="HyperAlpha helps Hyperliquid traders monitor market flow, configure AI and program trading workflows, manage wallets, and review execution risk."
     >
+    <script>
+        (function () {
+            var path = window.location.pathname.replace(/\/+$/, '') || '/';
+            var pages = {
+                '/': {
+                    title: 'HyperAlpha | AI Trading Intelligence for Hyperliquid',
+                    description: 'HyperAlpha helps Hyperliquid traders monitor market flow, configure AI and program trading workflows, manage wallets, and review execution risk.',
+                    url: 'https://app.hyperalpha.org/'
+                },
+                '/matrix': {
+                    title: 'HyperAlpha Copy Matrix for Hyperliquid Copy Trading',
+                    description: 'Evaluate Hyperliquid trader wallets, configure forward or reverse copy trading, and apply risk controls with HyperAlpha Copy Matrix.',
+                    url: 'https://app.hyperalpha.org/matrix'
+                },
+                '/wallet': {
+                    title: 'Hyperliquid Wallet Analysis and Connection | HyperAlpha',
+                    description: 'Connect your Hyperliquid account and review wallet activity in HyperAlpha before configuring risk-aware trading workflows.',
+                    url: 'https://app.hyperalpha.org/wallet'
+                },
+                '/monitor': {
+                    title: 'Hyperliquid Trading Risk Dashboard | HyperAlpha Monitor',
+                    description: 'Monitor Hyperliquid trading tasks, review execution logs, and manage risk controls with the HyperAlpha Monitor dashboard.',
+                    url: 'https://app.hyperalpha.org/monitor'
+                },
+                '/trade': {
+                    title: 'Hyperliquid Trade Execution Workspace | HyperAlpha',
+                    description: 'Use HyperAlpha to review Hyperliquid trading context, execution settings, and risk controls before acting on a trading workflow.',
+                    url: 'https://app.hyperalpha.org/trade'
+                },
+                '/featured': {
+                    title: 'Featured Hyperliquid Trader Wallets | HyperAlpha',
+                    description: 'Discover featured Hyperliquid trader wallets and review behavior signals before configuring a HyperAlpha trading workflow.',
+                    url: 'https://app.hyperalpha.org/featured'
+                },
+                '/follow-trend': {
+                    title: 'Hyperliquid Trend Following Signals | HyperAlpha',
+                    description: 'Review Hyperliquid trend-following context and signal validation before using HyperAlpha trading workflows.',
+                    url: 'https://app.hyperalpha.org/follow-trend'
+                },
+                '/strategy/grid': {
+                    title: 'Hyperliquid Grid Strategy Workflow | HyperAlpha',
+                    description: 'Configure and review Hyperliquid grid strategy workflows with HyperAlpha execution and risk context.',
+                    url: 'https://app.hyperalpha.org/strategy/grid'
+                },
+                '/trend': {
+                    title: 'Hyperliquid Market Trend Dashboard | HyperAlpha',
+                    description: 'Track Hyperliquid market trend context in HyperAlpha before configuring AI-assisted or copy-trading workflows.',
+                    url: 'https://app.hyperalpha.org/trend'
+                },
+                '/invitation': {
+                    title: 'Join HyperAlpha for Hyperliquid Trading Intelligence',
+                    description: 'Access HyperAlpha to explore Hyperliquid wallet analysis, trading workflow setup, and risk-aware execution tools.',
+                    url: 'https://app.hyperalpha.org/invitation'
+                }
+            };
+            var page = pages[path] || pages['/'];
+            function setAttr(selector, attr, value) {
+                var node = document.querySelector(selector);
+                if (node) node.setAttribute(attr, value);
+            }
+            document.title = page.title;
+            setAttr('meta[name="description"]', 'content', page.description);
+            setAttr('link[rel="canonical"]', 'href', page.url);
+            setAttr('meta[property="og:url"]', 'content', page.url);
+            setAttr('meta[property="og:title"]', 'content', page.title);
+            setAttr('meta[property="og:description"]', 'content', page.description);
+            setAttr('meta[name="twitter:title"]', 'content', page.title);
+            setAttr('meta[name="twitter:description"]', 'content', page.description);
+        })();
+    </script>
     <meta name="robots" content="index, follow">
     <link rel="canonical" href="https://app.hyperalpha.org/">
     <meta name="theme-color" content="#08131d">
